@@ -896,6 +896,37 @@ export async function executePollingRound(
   const timeout = agent.timeoutSeconds ?? job.timeoutSeconds ?? getRoleTimeoutSeconds(role);
   const context = buildPollingRoundContext(job, agent, timeout, workflow);
 
+  // ── Stale-claim sweeper ───────────────────────────────────────────
+  // Belt-and-suspenders: if pi was SIGKILL'd (or the polling node died)
+  // mid-round, the step stays 'running' and peekStep returns NO_WORK,
+  // wedging the run. Reset any running step for this agent whose
+  // updated_at is older than roleTimeoutSeconds * 1.5 back to pending
+  // so retry/exhaustion machinery fires on the next tick.
+  //
+  // MUST run BEFORE the inFlightJobs guard below, otherwise the await
+  // inside this block introduces a yield point between inFlightJobs.has()
+  // and inFlightJobs.add() — both concurrent rounds sneak past the guard.
+  try {
+    const staleThresholdMs = timeout * 1.5 * 1000;
+    const { recoverOrphanedStepsForAgent } = await import("./step-ops.js");
+    const staleResult = recoverOrphanedStepsForAgent(job.agentId, staleThresholdMs);
+    if (staleResult.recovered > 0 || staleResult.failed > 0) {
+      logger.info("Stale-claim sweeper ran", {
+        ...context,
+        recovered: staleResult.recovered,
+        failed: staleResult.failed,
+        skipped: staleResult.skipped,
+        staleThresholdMs,
+      });
+    }
+  } catch (sweepErr) {
+    // Best-effort; don't crash the polling round
+    logger.warn("Stale-claim sweeper failed", {
+      ...context,
+      error: sweepErr instanceof Error ? sweepErr.message : String(sweepErr),
+    });
+  }
+
   // Skip this tick if a pi for the same agent is still running. setInterval keeps
   // firing every intervalMs regardless of how long pi takes; without this guard
   // we'd accumulate 10+ pi processes per agent (each ~100MB) over the role timeout.
@@ -986,6 +1017,31 @@ export async function executePollingRound(
       errorPreview: errorSummary.preview,
       errorTruncated: errorSummary.truncated,
     });
+
+    // ── Recover orphaned running steps for this agent ─────────────
+    // When pi exits abnormally (SIGKILL, non-zero exit), the step it
+    // claimed stays 'running' and peekStep returns NO_WORK, wedging the
+    // run. Reset any running step to 'pending' (bumping retry_count) so
+    // the next polling tick can re-claim it. If retries are exhausted,
+    // fail the step so escalation machinery (escalate_to: human) fires.
+    try {
+      const { recoverOrphanedStepsForAgent } = await import("./step-ops.js");
+      const recoveryResult = recoverOrphanedStepsForAgent(job.agentId);
+      if (recoveryResult.recovered > 0 || recoveryResult.failed > 0) {
+        logger.info("Orphaned step recovery after pi failure", {
+          ...context,
+          recovered: recoveryResult.recovered,
+          failed: recoveryResult.failed,
+          skipped: recoveryResult.skipped,
+          piExitError: errorMessage,
+        });
+      }
+    } catch (recoveryErr) {
+      logger.error("Orphaned step recovery failed", {
+        ...context,
+        error: recoveryErr instanceof Error ? recoveryErr.message : String(recoveryErr),
+      });
+    }
     // Don't crash the interval — let the next round retry naturally
   } finally {
     inFlightJobs.delete(job.id);

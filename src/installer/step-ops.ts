@@ -560,6 +560,136 @@ export function cleanupAbandonedSteps(): void {
 }
 
 // ══════════════════════════════════════════════════════════════════════
+// Orphaned Step Recovery (post-SIGKILL)
+// ══════════════════════════════════════════════════════════════════════
+
+/**
+ * Recover orphaned running steps for a specific agent.
+ * Called when pi exits abnormally (SIGKILL, non-zero exit) to prevent
+ * steps from being permanently stuck at status='running' — peekStep only
+ * matches pending/waiting, so an orphaned running step is invisible to
+ * the polling cron and the run wedges silently.
+ *
+ * @param agentId - The agent ID whose running steps to recover
+ * @param staleThresholdMs - Optional: only recover steps whose updated_at
+ *   is older than this many milliseconds. When omitted, all running steps
+ *   for the agent are recovered (use in post-exit handlers where we KNOW
+ *   the agent just died).
+ */
+export function recoverOrphanedStepsForAgent(agentId: string, staleThresholdMs?: number): { recovered: number; failed: number; skipped: number } {
+  const db = getDb();
+
+  let query: string;
+  let params: (string | number)[];
+
+  if (staleThresholdMs !== undefined) {
+    query =
+      `SELECT id, step_id, run_id, retry_count, max_retries, type, current_story_id, loop_config
+       FROM steps
+       WHERE agent_id = ?
+         AND status = 'running'
+         AND (julianday('now') - julianday(updated_at)) * 86400000 > ?`;
+    params = [agentId, staleThresholdMs];
+  } else {
+    query =
+      `SELECT id, step_id, run_id, retry_count, max_retries, type, current_story_id, loop_config
+       FROM steps
+       WHERE agent_id = ?
+         AND status = 'running'`;
+    params = [agentId];
+  }
+
+  const steps = db.prepare(query).all(...params) as {
+    id: string; step_id: string; run_id: string; retry_count: number; max_retries: number;
+    type: string; current_story_id: string | null; loop_config: string | null;
+  }[];
+
+  let recovered = 0;
+  let failed = 0;
+  let skipped = 0;
+
+  for (const step of steps) {
+    // Skip loop steps waiting on verify_each (mid-iteration pause, not orphaned)
+    if (step.type === "loop" && !step.current_story_id && step.loop_config) {
+      try {
+        const loopConfig: LoopConfig = JSON.parse(step.loop_config);
+        const lcVerifyEach = loopConfig.verifyEach ?? loopConfig.verify_each;
+        const lcVerifyStep = loopConfig.verifyStep ?? loopConfig.verify_step;
+        if (lcVerifyEach && lcVerifyStep) {
+          const verifyStatus = db.prepare(
+            "SELECT status FROM steps WHERE run_id = ? AND step_id = ? LIMIT 1"
+          ).get(step.run_id, lcVerifyStep) as { status: string } | undefined;
+          if (verifyStatus?.status === "pending" || verifyStatus?.status === "running") {
+            skipped++;
+            continue;
+          }
+        }
+      } catch {
+        // If loop config is malformed, fall through to recovery.
+      }
+    }
+
+    // Loop steps with current_story_id: handle story-level retry
+    if (step.type === "loop" && step.current_story_id) {
+      const story = db.prepare(
+        "SELECT id, retry_count, max_retries, story_id, title FROM stories WHERE id = ?"
+      ).get(step.current_story_id) as {
+        id: string; retry_count: number; max_retries: number; story_id: string; title: string;
+      } | undefined;
+
+      if (story) {
+        const newRetry = story.retry_count + 1;
+        const wfId = getWorkflowId(step.run_id);
+        if (newRetry > story.max_retries) {
+          db.prepare("UPDATE stories SET status = 'failed', retry_count = ?, updated_at = datetime('now') WHERE id = ?").run(newRetry, story.id);
+          db.prepare("UPDATE steps SET status = 'failed', output = 'Agent terminated without completing story; retries exhausted', current_story_id = NULL, updated_at = datetime('now') WHERE id = ?").run(step.id);
+          db.prepare("UPDATE runs SET status = 'failed', updated_at = datetime('now') WHERE id = ?").run(step.run_id);
+          emitEvent({ ts: new Date().toISOString(), event: "story.failed", runId: step.run_id, workflowId: wfId, stepId: step.step_id, storyId: story.story_id, storyTitle: story.title, detail: "Agent terminated — retries exhausted" });
+          emitEvent({ ts: new Date().toISOString(), event: "step.failed", runId: step.run_id, workflowId: wfId, stepId: step.step_id, detail: "Agent terminated without completing story; retries exhausted" });
+          emitRunTerminalEvent({ event: "run.failed", runId: step.run_id, workflowId: wfId, detail: "Agent terminated without completing story; retries exhausted" });
+          scheduleRunCronTeardown(step.run_id);
+          failed++;
+        } else {
+          db.prepare("UPDATE stories SET status = 'pending', retry_count = ?, updated_at = datetime('now') WHERE id = ?").run(newRetry, story.id);
+          db.prepare("UPDATE steps SET status = 'pending', current_story_id = NULL, updated_at = datetime('now') WHERE id = ?").run(step.id);
+          emitEvent({ ts: new Date().toISOString(), event: "step.timeout", runId: step.run_id, workflowId: wfId, stepId: step.step_id, detail: `Agent terminated; story ${story.story_id} reset to pending (story retry ${newRetry}/${story.max_retries})` });
+          logger.info(`Orphaned step recovery: story ${story.story_id} reset to pending (retry ${newRetry}/${story.max_retries})`, { runId: step.run_id, stepId: step.step_id, agentId });
+          recovered++;
+        }
+        continue;
+      }
+    }
+
+    // Single steps (or loop steps without a current story): use step retry_count
+    const newRetry = step.retry_count + 1;
+    const wfId = getWorkflowId(step.run_id);
+    if (newRetry > step.max_retries) {
+      db.prepare(
+        "UPDATE steps SET status = 'failed', retry_count = ?, output = 'Agent terminated without completing step; retries exhausted', updated_at = datetime('now') WHERE id = ?"
+      ).run(newRetry, step.id);
+      db.prepare(
+        "UPDATE runs SET status = 'failed', updated_at = datetime('now') WHERE id = ?"
+      ).run(step.run_id);
+      emitEvent({ ts: new Date().toISOString(), event: "step.timeout", runId: step.run_id, workflowId: wfId, stepId: step.step_id, detail: "Agent terminated without completing step; retries exhausted" });
+      emitEvent({ ts: new Date().toISOString(), event: "step.failed", runId: step.run_id, workflowId: wfId, stepId: step.step_id, detail: "Agent terminated without completing step; retries exhausted" });
+      emitRunTerminalEvent({ event: "run.failed", runId: step.run_id, workflowId: wfId, detail: "Step terminated and retries exhausted" });
+      scheduleRunCronTeardown(step.run_id);
+      logger.warn(`Orphaned step retries exhausted`, { runId: step.run_id, stepId: step.step_id, agentId, retryCount: newRetry, maxRetries: step.max_retries });
+      failed++;
+    } else {
+      db.prepare(
+        "UPDATE steps SET status = 'pending', retry_count = ?, updated_at = datetime('now') WHERE id = ?"
+      ).run(newRetry, step.id);
+      emitEvent({ ts: new Date().toISOString(), event: "step.timeout", runId: step.run_id, workflowId: wfId, stepId: step.step_id, detail: `Agent terminated without completing step; reset to pending (retry ${newRetry}/${step.max_retries})` });
+      logger.info(`Orphaned step reset to pending (retry ${newRetry}/${step.max_retries})`, { runId: step.run_id, stepId: step.step_id, agentId });
+      recovered++;
+    }
+  }
+
+  return { recovered, failed, skipped };
+}
+
+// ══════════════════════════════════════════════════════════════════════
 // Frontend Change Detection
 // ══════════════════════════════════════════════════════════════════════
 
