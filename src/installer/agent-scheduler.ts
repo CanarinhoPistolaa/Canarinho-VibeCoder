@@ -1014,7 +1014,7 @@ export async function createAgentCronJob(
   }
 
   // Per-pi-call execution budget. Prefer an explicit per-agent override, then the
-  // role policy (analysis=20m, coding=30m, etc.). polling.timeoutSeconds is NOT
+  // role policy (analysis=30m, coding=30m, etc.). polling.timeoutSeconds is NOT
   // used here — it determines the polling INTERVAL, not how long pi has to work.
   const role = agent.role ?? inferRole(agent.id);
   const timeoutSeconds = agent.timeoutSeconds ?? getRoleTimeoutSeconds(role);

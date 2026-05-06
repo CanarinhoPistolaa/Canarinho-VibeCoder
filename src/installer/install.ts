@@ -78,7 +78,7 @@ const ROLE_POLICIES: Record<AgentRole, RolePolicy> = {
   // analysis: read-only code exploration (planner, prioritizer, reviewer, investigator, triager)
   analysis: {
     description: "Read-only code exploration and reasoning — no file modification, web, or browser access",
-    timeoutSeconds: TIMEOUT_20_MIN,
+    timeoutSeconds: TIMEOUT_30_MIN,
   },
 
   // coding: full read/write/exec — the workhorses (developer, fixer, setup)
