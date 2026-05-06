@@ -438,7 +438,8 @@ function buildBoundedPreview(value: string, maxChars: number): BoundedPreviewMet
   };
 }
 
-function classifyPollingRoundOutcome(output: string): PollingRoundOutcome {
+/** @internal exported for regression tests */
+export function classifyPollingRoundOutcome(output: string): PollingRoundOutcome {
   if (output.length === 0) return "empty_output";
   if (/\bHEARTBEAT_OK\b/.test(output)) return "heartbeat";
   if (/STATUS:\s*(fail|failed|error)/i.test(output)) return "work_failed";
@@ -1006,6 +1007,29 @@ export async function executePollingRound(
 
     if (outputSummary.outcome === "work_done") {
       await autoCompleteStepIfRunning(context, metadata);
+    } else if (outputSummary.outcome === "other_output") {
+      // pi exited cleanly (exitCode 0) but produced no STATUS line.
+      // The step it claimed stays 'running' and peekStep returns NO_WORK,
+      // wedging the run. Recover any running steps for this agent so
+      // the configured on_fail retry path fires immediately, rather than
+      // waiting for the stale-claim sweeper (up to roleTimeoutSeconds*1.5).
+      try {
+        const { recoverOrphanedStepsForAgent } = await import("./step-ops.js");
+        const recoveryResult = recoverOrphanedStepsForAgent(job.agentId);
+        if (recoveryResult.recovered > 0 || recoveryResult.failed > 0) {
+          logger.info("Orphaned step recovery after clean pi exit (other_output)", {
+            ...context,
+            recovered: recoveryResult.recovered,
+            failed: recoveryResult.failed,
+            skipped: recoveryResult.skipped,
+          });
+        }
+      } catch (recoveryErr) {
+        logger.error("Orphaned step recovery after clean pi exit failed", {
+          ...context,
+          error: recoveryErr instanceof Error ? recoveryErr.message : String(recoveryErr),
+        });
+      }
     }
   } catch (err) {
     const errorMessage = err instanceof Error ? err.message : String(err);

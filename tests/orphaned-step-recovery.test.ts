@@ -297,3 +297,115 @@ describe("recoverOrphanedStepsForAgent", () => {
     }
   });
 });
+
+// ══════════════════════════════════════════════════════════════════════
+// Regression: other_output (clean pi exit without STATUS line)
+// ══════════════════════════════════════════════════════════════════════
+
+import { classifyPollingRoundOutcome } from "../dist/installer/agent-scheduler.js";
+
+describe("other_output recovery (clean pi exit without STATUS)", () => {
+  // ── AC 1: other_output triggers recovery of running step ───────
+  it("resets running step to pending when other_output occurs (recoverOrphanedStepsForAgent)", () => {
+    const db = getDb();
+    const agent = "test_other-output-recovery";
+    const runId = crypto.randomUUID();
+    const stepUuid = crypto.randomUUID();
+    const now = ts();
+
+    db.prepare(
+      "INSERT INTO runs (id, workflow_id, task, status, context, created_at, updated_at) VALUES (?, 'test-wf', 'verify work', 'running', '{}', ?, ?)"
+    ).run(runId, now, now);
+
+    db.prepare(
+      `INSERT INTO steps (id, run_id, step_id, agent_id, step_index, input_template, expects,
+        status, retry_count, max_retries, type, created_at, updated_at)
+       VALUES (?, ?, 'verify-step', ?, 0, '', '', 'running', 0, 3, 'single', ?, ?)`
+    ).run(stepUuid, runId, agent, now, now);
+
+    try {
+      // Simulate the other_output handler: call recoverOrphanedStepsForAgent
+      // without staleThreshold or timeoutRetryReason (clean exit, not a timeout)
+      const result = recoverOrphanedStepsForAgent(agent);
+
+      assert.equal(result.recovered, 1, "should recover 1 running step");
+      assert.equal(result.failed, 0, "should not fail any steps");
+
+      const step = db.prepare(
+        "SELECT status, retry_count FROM steps WHERE id = ?"
+      ).get(stepUuid) as { status: string; retry_count: number };
+
+      assert.equal(step.status, "pending", "step should be reset to pending");
+      assert.equal(step.retry_count, 1, "retry_count should be bumped to 1");
+
+      // Run should still be running (not prematurely failed)
+      const run = db.prepare("SELECT status FROM runs WHERE id = ?").get(runId) as { status: string };
+      assert.equal(run.status, "running");
+    } finally {
+      db.prepare("DELETE FROM steps WHERE id = ?").run(stepUuid);
+      db.prepare("DELETE FROM runs WHERE id = ?").run(runId);
+    }
+  });
+
+  // ── AC 2: heartbeat output is NOT classified as other_output ───
+  it("classifyPollingRoundOutcome: heartbeat output is NOT other_output", () => {
+    // The fix must NOT modify heartbeat handling — HEARTBEAT_OK must
+    // remain a no-op. Verify that the classification function returns
+    // "heartbeat", not "other_output".
+    assert.equal(
+      classifyPollingRoundOutcome("HEARTBEAT_OK"),
+      "heartbeat",
+      "HEARTBEAT_OK must be classified as heartbeat, not other_output",
+    );
+
+    // Also verify with whitespace
+    assert.equal(
+      classifyPollingRoundOutcome("  HEARTBEAT_OK  "),
+      "heartbeat",
+      "whitespace-padded HEARTBEAT_OK must still be heartbeat",
+    );
+
+    // STATUS: done is NOT other_output
+    assert.equal(
+      classifyPollingRoundOutcome("STATUS: done\nCHANGES: foo"),
+      "work_done",
+      "STATUS: done must be classified as work_done, not other_output",
+    );
+
+    // STATUS: fail is NOT other_output
+    assert.equal(
+      classifyPollingRoundOutcome("STATUS: fail\nREASON: timeout"),
+      "work_failed",
+      "STATUS: fail must be classified as work_failed, not other_output",
+    );
+  });
+
+  // ── AC 3: Clean exit output without STATUS is other_output ─────
+  it("classifyPollingRoundOutcome: clean exit output without STATUS is other_output", () => {
+    // This is the exact scenario from the bug report: pi produced a lot
+    // of text but never emitted STATUS: done/fail/retry.
+    const verifierOutput = "Code checks are comprehensive. Now for visual verification since this has frontend changes. Let me spin up the dev server and inspect.";
+
+    assert.equal(
+      classifyPollingRoundOutcome(verifierOutput),
+      "other_output",
+      "output without STATUS line or HEARTBEAT_OK must be classified as other_output",
+    );
+
+    // Empty output is NOT other_output
+    assert.equal(
+      classifyPollingRoundOutcome(""),
+      "empty_output",
+      "empty output must be classified as empty_output, not other_output",
+    );
+  });
+
+  // ── AC 4: other_output with no running step is a no-op ─────────
+  it("recoverOrphanedStepsForAgent is a no-op when no running steps exist", () => {
+    const result = recoverOrphanedStepsForAgent("agent_with_no_claims_xyz");
+
+    assert.equal(result.recovered, 0, "should recover 0 steps");
+    assert.equal(result.failed, 0, "should fail 0 steps");
+    assert.equal(result.skipped, 0, "should skip 0 steps");
+  });
+});
