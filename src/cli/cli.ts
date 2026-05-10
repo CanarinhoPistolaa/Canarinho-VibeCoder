@@ -16,8 +16,9 @@ import { listBundledWorkflows } from "../installer/workflow-fetch.js";
 import { getRecentEvents, getRunEvents, readEventsFromCursor, type EventCursorSource, type TamanduaEvent } from "../installer/events.js";
 import { formatLogsTailLines } from "../installer/logs-tail-format.js";
 import { parseLogsSelector, lookupRunIdByNumber } from "./logs-selector.js";
-import { startDaemon, stopDaemon, getDaemonStatus, isRunning, startMcp, stopMcp, getMcpStatus, isMcpRunning } from "../server/daemonctl.js";
+import { startDaemon, stopDaemon, getDaemonStatus, isRunning, startMcp, stopMcp, getMcpStatus, isMcpRunning, startControlPlane, stopControlPlane, getControlPlaneStatus, isControlPlaneRunning } from "../server/daemonctl.js";
 import { DEFAULT_MCP_PORT, MCP_ENDPOINT_PATH } from "../server/mcp-server.js";
+import { DEFAULT_CONTROL_PORT } from "../server/control-server.js";
 import { claimStep, completeStep, failStep, getStories, peekStep } from "../installer/step-ops.js";
 import { ensureCliSymlink } from "../installer/symlink.js";
 import { execSync } from "node:child_process";
@@ -97,6 +98,9 @@ function printUsage() {
     "tamandua mcp start [--port N]         Start MCP server (default: 3338)",
     "tamandua mcp stop                     Stop MCP server",
     "tamandua mcp status                   Check MCP server status",
+    "tamandua control-plane start [--port N]Start control plane (default: 3339)",
+    "tamandua control-plane stop            Stop control plane",
+    "tamandua control-plane status          Check control plane status",
     "", "tamandua dashboard [start] [--port N] Start dashboard (default: 3334)",
     "tamandua dashboard stop               Stop dashboard",
     "tamandua dashboard status             Check dashboard status",
@@ -277,6 +281,55 @@ async function main() {
     else if (sub && sub !== "start" && !sub.startsWith("-")) { const p = parseInt(sub, 10); if (!Number.isNaN(p)) port = p; }
     if (isRunning().running) { const status = getDaemonStatus(); if (status.running) console.log(`Dashboard already running (PID ${status.pid})`); console.log(`  http://localhost:${port}`); return; }
     const result = await startDaemon(port); console.log(`Dashboard started (PID ${result.pid})\n  http://localhost:${result.port}`); return;
+  }
+
+  if (group === "control-plane") {
+    const sub = args[1];
+    if (sub === "stop") {
+      console.log(stopControlPlane() ? "Control plane stopped." : "Control plane is not running.");
+      return;
+    }
+    if (sub === "status") {
+      const st = getControlPlaneStatus();
+      if (!st.running) {
+        console.log("Control plane is not running.");
+        console.log(`Default endpoint: http://localhost:${st.port}${st.endpoint}`);
+        return;
+      }
+      console.log(`Control plane running (PID ${st.pid})`);
+      console.log(`Port: ${st.port}`);
+      console.log(`Endpoint: http://localhost:${st.port}${st.endpoint}`);
+      return;
+    }
+    let port = DEFAULT_CONTROL_PORT;
+    const portIdx = args.indexOf("--port");
+    if (portIdx !== -1 && args[portIdx + 1]) {
+      port = parseInt(args[portIdx + 1], 10) || DEFAULT_CONTROL_PORT;
+    }
+    // Support positional port as well: tamandua control-plane start 4444
+    if (sub && sub !== "start" && !sub.startsWith("-")) {
+      const p = parseInt(sub, 10);
+      if (!Number.isNaN(p)) port = p;
+    } else if (target && !target.startsWith("-")) {
+      const p = parseInt(target, 10);
+      if (!Number.isNaN(p)) port = p;
+    }
+    const running = getControlPlaneStatus();
+    if (running.running) {
+      console.log(`Control plane already running (PID ${running.pid})`);
+      console.log(`Port: ${running.port}`);
+      console.log(`Endpoint: http://localhost:${running.port}${running.endpoint}`);
+      return;
+    }
+    try {
+      const result = await startControlPlane(port);
+      console.log(`Control plane started (PID ${result.pid})`);
+      console.log(`Endpoint: http://localhost:${result.port}${getControlPlaneStatus().endpoint}`);
+    } catch (err) {
+      process.stderr.write(`Failed to start control plane: ${err instanceof Error ? err.message : String(err)}\n`);
+      process.exit(1);
+    }
+    return;
   }
 
   if (group === "step") {
