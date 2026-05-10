@@ -1,0 +1,12 @@
+#!/usr/bin/env bash
+# Build and run the full Tamandua test suite.
+# Output is streamed to the terminal AND tee'd to test-output.log for inspection.
+# Exit code matches the underlying `npm test` exit code.
+set -euo pipefail
+cd "$(dirname "$0")"
+
+LOG="${TAMANDUA_TEST_LOG:-test-output.log}"
+
+npm run build
+npm test 2>&1 | tee "$LOG"
+exit "${PIPESTATUS[1]}"
