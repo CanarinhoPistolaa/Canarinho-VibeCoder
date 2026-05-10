@@ -13,8 +13,38 @@
 import { describe, it, before, after } from "node:test";
 import assert from "node:assert/strict";
 import crypto from "node:crypto";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
 import { recoverOrphanedStepsForAgent, claimStep, resolveStepContext } from "../dist/installer/step-ops.js";
 import { getDb } from "../dist/db.js";
+
+// ── Environment isolation ──────────────────────────────────────────────
+// Production modules imported at file scope (getDb, recoverOrphanedStepsForAgent,
+// claimStep) call emitEvent() and logger.info/warn which write to
+// ~/.tamandua/ by default. Without isolation, test runs pollute the real
+// events/all.jsonl and tamandua.log with realistic-looking events.
+// TAMANDUA_STATE_DIR controls events/log paths; TAMANDUA_DB_PATH controls
+// the DB path. Both must be set because the DB-path resolver is independent
+// of the events/log resolver.
+
+const _savedStateDir = process.env.TAMANDUA_STATE_DIR;
+const _savedDbPath = process.env.TAMANDUA_DB_PATH;
+const _testIsolationDir = fs.mkdtempSync(path.join(os.tmpdir(), "tamandua-orphaned-test-"));
+process.env.TAMANDUA_STATE_DIR = _testIsolationDir;
+process.env.TAMANDUA_DB_PATH = path.join(_testIsolationDir, "tamandua.db");
+
+// Restore original env vars and clean up temp dir when the process exits.
+// Node test runner processes exit after all tests complete, so an exit
+// handler is the safest way to clean up file-wide setup that has no
+// corresponding file-wide teardown hook.
+process.on("exit", () => {
+  if (_savedStateDir === undefined) delete process.env.TAMANDUA_STATE_DIR;
+  else process.env.TAMANDUA_STATE_DIR = _savedStateDir;
+  if (_savedDbPath === undefined) delete process.env.TAMANDUA_DB_PATH;
+  else process.env.TAMANDUA_DB_PATH = _savedDbPath;
+  try { fs.rmSync(_testIsolationDir, { recursive: true, force: true }); } catch { /* best effort */ }
+});
 
 const TEST_AGENT_1 = "test_sigkill-recovery-agent-1";
 const TEST_AGENT_2 = "test_sigkill-recovery-agent-2";
