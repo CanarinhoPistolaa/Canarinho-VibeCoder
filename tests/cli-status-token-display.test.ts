@@ -246,12 +246,12 @@ describe("CLI token display", () => {
     seedDb(dbPath, [
       {
         id: runId,
-        workflowId: "bug-fix",
+        workflowId: "bug-fix-github-pr",
         task: "Fix off-by-one error",
         status: "running",
         tokensSpent: 9999,
         steps: [
-          { stepId: "step-1", agentId: "bug-fix_developer", status: "done", type: "single", retryCount: 0, stepIndex: 0 },
+          { stepId: "step-1", agentId: "bug-fix-github-pr_developer", status: "done", type: "single", retryCount: 0, stepIndex: 0 },
         ],
       },
     ]);

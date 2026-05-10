@@ -145,18 +145,18 @@ describe("peekStep logic (direct DB validation)", () => {
 
     // Running run with a done step for the triager agent
     db.prepare(
-      "INSERT INTO runs (id, workflow_id, task, status, context, created_at, updated_at) VALUES (?, 'bug-fix', 'fix bug', 'running', '{}', ?, ?)"
+      "INSERT INTO runs (id, workflow_id, task, status, context, created_at, updated_at) VALUES (?, 'bug-fix-github-pr', 'fix bug', 'running', '{}', ?, ?)"
     ).run(runId, t, t);
 
     db.prepare(
-      "INSERT INTO steps (id, run_id, step_id, agent_id, step_index, input_template, expects, status, created_at, updated_at) VALUES (?, ?, 'triage', 'bug-fix_triager', 0, '', '', 'done', ?, ?)"
+      "INSERT INTO steps (id, run_id, step_id, agent_id, step_index, input_template, expects, status, created_at, updated_at) VALUES (?, ?, 'triage', 'bug-fix-github-pr_triager', 0, '', '', 'done', ?, ?)"
     ).run(crypto.randomUUID(), runId, t, t);
 
     // peekStep query: count pending/waiting steps for this agent in running runs
     const row = db.prepare(
       `SELECT COUNT(*) as cnt FROM steps s
        JOIN runs r ON r.id = s.run_id
-       WHERE s.agent_id = 'bug-fix_triager' AND s.status IN ('pending', 'waiting')
+       WHERE s.agent_id = 'bug-fix-github-pr_triager' AND s.status IN ('pending', 'waiting')
          AND r.status = 'running'`
     ).get() as { cnt: number };
 
@@ -169,17 +169,17 @@ describe("peekStep logic (direct DB validation)", () => {
     const t = ts();
 
     db.prepare(
-      "INSERT INTO runs (id, workflow_id, task, status, context, created_at, updated_at) VALUES (?, 'bug-fix', 'fix bug', 'running', '{}', ?, ?)"
+      "INSERT INTO runs (id, workflow_id, task, status, context, created_at, updated_at) VALUES (?, 'bug-fix-github-pr', 'fix bug', 'running', '{}', ?, ?)"
     ).run(runId, t, t);
 
     db.prepare(
-      "INSERT INTO steps (id, run_id, step_id, agent_id, step_index, input_template, expects, status, created_at, updated_at) VALUES (?, ?, 'fix', 'bug-fix_fixer', 3, 'Do the fix', '', 'pending', ?, ?)"
+      "INSERT INTO steps (id, run_id, step_id, agent_id, step_index, input_template, expects, status, created_at, updated_at) VALUES (?, ?, 'fix', 'bug-fix-github-pr_fixer', 3, 'Do the fix', '', 'pending', ?, ?)"
     ).run(crypto.randomUUID(), runId, t, t);
 
     const row = db.prepare(
       `SELECT COUNT(*) as cnt FROM steps s
        JOIN runs r ON r.id = s.run_id
-       WHERE s.agent_id = 'bug-fix_fixer' AND s.status IN ('pending', 'waiting')
+       WHERE s.agent_id = 'bug-fix-github-pr_fixer' AND s.status IN ('pending', 'waiting')
          AND r.status = 'running'`
     ).get() as { cnt: number };
 
@@ -192,17 +192,17 @@ describe("peekStep logic (direct DB validation)", () => {
     const t = ts();
 
     db.prepare(
-      "INSERT INTO runs (id, workflow_id, task, status, context, created_at, updated_at) VALUES (?, 'bug-fix', 'fix bug', 'failed', '{}', ?, ?)"
+      "INSERT INTO runs (id, workflow_id, task, status, context, created_at, updated_at) VALUES (?, 'bug-fix-github-pr', 'fix bug', 'failed', '{}', ?, ?)"
     ).run(runId, t, t);
 
     db.prepare(
-      "INSERT INTO steps (id, run_id, step_id, agent_id, step_index, input_template, expects, status, created_at, updated_at) VALUES (?, ?, 'fix', 'bug-fix_fixer', 3, 'Do the fix', '', 'pending', ?, ?)"
+      "INSERT INTO steps (id, run_id, step_id, agent_id, step_index, input_template, expects, status, created_at, updated_at) VALUES (?, ?, 'fix', 'bug-fix-github-pr_fixer', 3, 'Do the fix', '', 'pending', ?, ?)"
     ).run(crypto.randomUUID(), runId, t, t);
 
     const row = db.prepare(
       `SELECT COUNT(*) as cnt FROM steps s
        JOIN runs r ON r.id = s.run_id
-       WHERE s.agent_id = 'bug-fix_fixer' AND s.status IN ('pending', 'waiting')
+       WHERE s.agent_id = 'bug-fix-github-pr_fixer' AND s.status IN ('pending', 'waiting')
          AND r.status = 'running'`
     ).get() as { cnt: number };
 
@@ -215,17 +215,17 @@ describe("peekStep logic (direct DB validation)", () => {
     const t = ts();
 
     db.prepare(
-      "INSERT INTO runs (id, workflow_id, task, status, context, created_at, updated_at) VALUES (?, 'bug-fix', 'fix a bug', 'running', '{}', ?, ?)"
+      "INSERT INTO runs (id, workflow_id, task, status, context, created_at, updated_at) VALUES (?, 'bug-fix-github-pr', 'fix a bug', 'running', '{}', ?, ?)"
     ).run(runId, t, t);
 
     // Simulate a pipeline where triager is done and fixer is pending
     const agents = [
-      { stepId: "triage", agentId: "bug-fix_triager", status: "done", index: 0 },
-      { stepId: "investigate", agentId: "bug-fix_investigator", status: "done", index: 1 },
-      { stepId: "setup", agentId: "bug-fix_setup", status: "done", index: 2 },
-      { stepId: "fix", agentId: "bug-fix_fixer", status: "pending", index: 3 },
-      { stepId: "verify", agentId: "bug-fix_verifier", status: "waiting", index: 4 },
-      { stepId: "pr", agentId: "bug-fix_pr", status: "waiting", index: 5 },
+      { stepId: "triage", agentId: "bug-fix-github-pr_triager", status: "done", index: 0 },
+      { stepId: "investigate", agentId: "bug-fix-github-pr_investigator", status: "done", index: 1 },
+      { stepId: "setup", agentId: "bug-fix-github-pr_setup", status: "done", index: 2 },
+      { stepId: "fix", agentId: "bug-fix-github-pr_fixer", status: "pending", index: 3 },
+      { stepId: "verify", agentId: "bug-fix-github-pr_verifier", status: "waiting", index: 4 },
+      { stepId: "pr", agentId: "bug-fix-github-pr_pr", status: "waiting", index: 5 },
     ];
 
     for (const a of agents) {
@@ -257,7 +257,7 @@ describe("peekStep logic (direct DB validation)", () => {
 describe.skip("polling prompt includes step peek", () => {
   it("includes step peek command before step claim", async () => {
     const { buildPollingPrompt } = await import("../dist/installer/agent-cron.js");
-    const prompt = buildPollingPrompt("bug-fix", "fixer");
+    const prompt = buildPollingPrompt("bug-fix-github-pr", "fixer");
     assert.ok(prompt.includes("step peek"), "should include step peek command");
     
     // step peek should appear BEFORE step claim
@@ -268,7 +268,7 @@ describe.skip("polling prompt includes step peek", () => {
 
   it("instructs to stop on NO_WORK from peek without running claim", async () => {
     const { buildPollingPrompt } = await import("../dist/installer/agent-cron.js");
-    const prompt = buildPollingPrompt("bug-fix", "fixer");
+    const prompt = buildPollingPrompt("bug-fix-github-pr", "fixer");
     assert.ok(prompt.includes("NO_WORK"), "should mention NO_WORK");
     assert.ok(prompt.includes("HEARTBEAT_OK"), "should still include HEARTBEAT_OK");
     assert.ok(
@@ -279,13 +279,13 @@ describe.skip("polling prompt includes step peek", () => {
 
   it("includes step peek with correct agent id", async () => {
     const { buildPollingPrompt } = await import("../dist/installer/agent-cron.js");
-    const prompt = buildPollingPrompt("bug-fix", "triager");
-    assert.ok(prompt.includes('step peek "bug-fix_triager"'), "should include correct agent id in peek");
+    const prompt = buildPollingPrompt("bug-fix-github-pr", "triager");
+    assert.ok(prompt.includes('step peek "bug-fix-github-pr_triager"'), "should include correct agent id in peek");
   });
 
   it("still includes sessions_spawn for when work exists", async () => {
     const { buildPollingPrompt } = await import("../dist/installer/agent-cron.js");
-    const prompt = buildPollingPrompt("bug-fix", "fixer");
+    const prompt = buildPollingPrompt("bug-fix-github-pr", "fixer");
     assert.ok(prompt.includes("sessions_spawn"), "should still include sessions_spawn");
   });
 });

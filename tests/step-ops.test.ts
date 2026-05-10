@@ -292,8 +292,8 @@ describe("PR agent persona regression", () => {
 });
 
 describe("Workflow YAML PR step expects validation", () => {
-  const bugFixPath = path.join(repoRoot, "workflows", "bug-fix", "workflow.yml");
-  const featureDevPath = path.join(repoRoot, "workflows", "feature-dev-and-pr", "workflow.yml");
+  const bugFixPath = path.join(repoRoot, "workflows", "bug-fix-github-pr", "workflow.yml");
+  const featureDevPath = path.join(repoRoot, "workflows", "feature-dev-github-pr", "workflow.yml");
 
   function extractPrStepExpects(yamlPath: string): string | null {
     const content = fs.readFileSync(yamlPath, "utf-8");
@@ -302,7 +302,7 @@ describe("Workflow YAML PR step expects validation", () => {
     return prStep?.expects ?? null;
   }
 
-  it("bug-fix pr step expects rejects pull/new/<branch> URL", () => {
+  it("bug-fix-github-pr pr step expects rejects pull/new/<branch> URL", () => {
     const expects = extractPrStepExpects(bugFixPath);
     assert.ok(expects, "pr step must have an expects field");
 
@@ -311,7 +311,7 @@ describe("Workflow YAML PR step expects validation", () => {
     assert.ok(result !== null, "pull/new/<branch> URL should be rejected: " + expects);
   });
 
-  it("bug-fix pr step expects accepts valid pull/NNN URL", () => {
+  it("bug-fix-github-pr pr step expects accepts valid pull/NNN URL", () => {
     const expects = extractPrStepExpects(bugFixPath);
     assert.ok(expects, "pr step must have an expects field");
 
@@ -320,7 +320,7 @@ describe("Workflow YAML PR step expects validation", () => {
     assert.equal(result, null, "Valid pull/NNN URL should be accepted: " + expects);
   });
 
-  it("feature-dev-and-pr pr step expects rejects pull/new/<branch> URL", () => {
+  it("feature-dev-github-pr pr step expects rejects pull/new/<branch> URL", () => {
     const expects = extractPrStepExpects(featureDevPath);
     assert.ok(expects, "pr step must have an expects field");
 
@@ -329,7 +329,7 @@ describe("Workflow YAML PR step expects validation", () => {
     assert.ok(result !== null, "pull/new/<branch> URL should be rejected: " + expects);
   });
 
-  it("feature-dev-and-pr pr step expects accepts valid pull/NNN URL", () => {
+  it("feature-dev-github-pr pr step expects accepts valid pull/NNN URL", () => {
     const expects = extractPrStepExpects(featureDevPath);
     assert.ok(expects, "pr step must have an expects field");
 

@@ -1,6 +1,6 @@
 # Ralph loop (https://github.com/snarktank/ralph) — fresh context per agent session
-id: bug-fix
-name: Bug Triage & Fix
+id: bug-fix-github-pr
+name: Bug Triage & Fix (GitHub PR)
 version: 1
 description: |
   Bug fix pipeline. Triager analyzes the report and reproduces the issue.

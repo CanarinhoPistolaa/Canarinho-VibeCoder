@@ -20,8 +20,10 @@ describe("workflow parsing", () => {
     assert.ok(workflowIds.includes("feature-dev"));
     assert.ok(workflowIds.includes("feature-dev-merge"));
     assert.ok(workflowIds.includes("security-audit"));
-    assert.ok(workflowIds.includes("bug-fix"));
+    assert.ok(workflowIds.includes("security-audit-github-pr"));
+    assert.ok(workflowIds.includes("bug-fix-github-pr"));
     assert.ok(workflowIds.includes("bug-fix-merge"));
+    assert.ok(workflowIds.includes("security-audit-merge"));
   });
 
   for (const id of workflowIds) {
@@ -145,8 +147,8 @@ describe("workflow structure", () => {
     const expectations = [
       { workflowId: "feature-dev", agentId: "verifier" },
       { workflowId: "feature-dev-merge", agentId: "verifier" },
-      { workflowId: "feature-dev-and-pr", agentId: "verifier" },
-      { workflowId: "feature-dev-and-pr", agentId: "reviewer" },
+      { workflowId: "feature-dev-github-pr", agentId: "verifier" },
+      { workflowId: "feature-dev-github-pr", agentId: "reviewer" },
     ];
 
     for (const { workflowId, agentId } of expectations) {

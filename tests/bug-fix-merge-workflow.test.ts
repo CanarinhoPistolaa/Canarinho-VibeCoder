@@ -132,7 +132,7 @@ describe("bug-fix-merge workflow", () => {
     const mergerSoulMd = readFileSync(resolve(wfDir, "agents", "merger", "SOUL.md"), "utf-8");
     const mergerIdentityMd = readFileSync(resolve(wfDir, "agents", "merger", "IDENTITY.md"), "utf-8");
 
-    it("AGENTS.md exists with bug-fix commit-message guidance", () => {
+    it("AGENTS.md exists with bug-fix-github-pr commit-message guidance", () => {
       assert.ok(existsSync(resolve(wfDir, "agents", "merger", "AGENTS.md")));
       assert.match(mergerAgentsMd, /fix:/);
       assert.match(mergerAgentsMd, /bug/gi);
@@ -176,7 +176,7 @@ describe("bug-fix-merge workflow", () => {
   describe("triager, investigator, fixer personas match bug-fix source", () => {
     const agentIds = ["triager", "investigator", "fixer"];
     const personaFiles = ["AGENTS.md", "SOUL.md", "IDENTITY.md"];
-    const bugFixDir = resolve(resolveBundledWorkflowsDir(), "bug-fix");
+    const bugFixDir = resolve(resolveBundledWorkflowsDir(), "bug-fix-github-pr");
 
     for (const agentId of agentIds) {
       for (const file of personaFiles) {
@@ -193,7 +193,7 @@ describe("bug-fix-merge workflow", () => {
           assert.equal(
             targetContent,
             sourceContent,
-            `${agentId}/${file} must match bug-fix source exactly`,
+            `${agentId}/${file} must match bug-fix-github-pr source exactly`,
           );
         });
       }

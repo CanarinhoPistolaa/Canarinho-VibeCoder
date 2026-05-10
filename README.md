@@ -55,7 +55,7 @@ Use this when you want feature-dev story-by-story rigor, but need the run to end
 plan → setup → implement → verify → test → finalize_merge
 ```
 
-### security-audit `7 agents`
+### security-audit-github-pr `7 agents`
 
 Point it at a repo. Get back a security fix PR with regression tests. Scans for vulnerabilities, ranks by severity, patches each one, re-audits after all fixes are applied.
 
@@ -63,7 +63,7 @@ Point it at a repo. Get back a security fix PR with regression tests. Scans for 
 scan → prioritize → setup → fix → verify → test → PR
 ```
 
-### bug-fix `6 agents`
+### bug-fix-github-pr `6 agents`
 
 Paste a bug report. Get back a fix with a regression test. Triager reproduces it, investigator finds root cause, fixer patches, verifier confirms. Zero babysitting.
 

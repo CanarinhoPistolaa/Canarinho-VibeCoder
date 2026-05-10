@@ -30,8 +30,8 @@ describe("buildWorkPrompt", () => {
   });
 
   it("works with different workflow/agent ids without errors", () => {
-    const p1 = buildWorkPrompt("security-audit", "scanner");
-    const p2 = buildWorkPrompt("bug-fix", "fixer");
+    const p1 = buildWorkPrompt("security-audit-github-pr", "scanner");
+    const p2 = buildWorkPrompt("bug-fix-github-pr", "fixer");
     assert.ok(p1.includes("step complete"));
     assert.ok(p2.includes("step complete"));
     assert.ok(!p1.includes("step claim"));
@@ -99,9 +99,9 @@ describe("buildPollingPrompt", () => {
   });
 
   it("works with different workflow/agent ids", () => {
-    const prompt = buildPollingPrompt("bug-fix", "bug-fix_fixer");
-    assert.ok(prompt.includes('step peek "bug-fix_fixer"'));
-    assert.ok(prompt.includes('step claim "bug-fix_fixer"'));
+    const prompt = buildPollingPrompt("bug-fix-github-pr", "bug-fix-github-pr_fixer");
+    assert.ok(prompt.includes('step peek "bug-fix-github-pr_fixer"'));
+    assert.ok(prompt.includes('step claim "bug-fix-github-pr_fixer"'));
   });
 
   it("includes step complete and step fail instructions", () => {
