@@ -306,7 +306,22 @@ async function main() {
     try {
       logsTailRunId = getWorkflowStatus(selector.runId).id;
     } catch (err) {
-      console.log(err instanceof Error ? err.message : `No run found matching "${selector.runId}".`);
+      const message = err instanceof Error ? err.message : `No run found matching "${selector.runId}".`;
+      // The DB row may lag behind the events file in early bootstrap (events
+      // can be written before the run row is committed). If the literal runId
+      // already has an events file on disk, tail it; otherwise fall through
+      // to the not-found message so unknown prefixes don't hang forever.
+      if (message.startsWith("No run found matching")) {
+        const { getEventsPath } = await import("../installer/events.js");
+        const fsMod = await import("node:fs");
+        const pathMod = await import("node:path");
+        const eventsFile = pathMod.join(getEventsPath(), `${selector.runId}.jsonl`);
+        if (fsMod.existsSync(eventsFile)) {
+          await streamEventSource({ kind: "run", runId: selector.runId }, 50);
+          return;
+        }
+      }
+      console.log(message);
       return;
     }
     await streamEventSource({ kind: "run", runId: logsTailRunId }, 50);
