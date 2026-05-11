@@ -22,7 +22,7 @@ The `install` script delegates to `scripts/install.sh --local <pwd>` — it crea
 ./build
 
 # Run tests:
-node --test tests/*.test.ts src/**/*.test.ts
+npm test
 ```
 
 ## Project Structure
@@ -127,13 +127,14 @@ waiting → pending → running → done/failed
 
 ```bash
 # Run all tests
-node --test tests/*.test.ts src/**/*.test.ts
+npm test
 
 # Or build first then test (tests import from dist/)
-npm run build && node --test tests/*.test.ts src/**/*.test.ts
+npm run build && npm test
 ```
 
 Tests use Node's built-in `node:test` and `node:assert`.
+The full suite must run serially because several integration tests exercise fixed local ports and daemon state; `npm test` includes `--test-concurrency=1`.
 
 `src/server/mcp-server.ts` supports dependency injection via `createTamanduaMcpServer(..., { services })` / `startTamanduaMcpServer(..., { services })`; protocol tests in `src/server/mcp-server.test.ts` should use this hook instead of duplicating DB/event setup.
 
