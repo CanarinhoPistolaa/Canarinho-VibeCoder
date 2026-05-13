@@ -253,6 +253,87 @@ describe("workflow structure", () => {
     assert.match(content, /### Gathering Information/);
   });
 
+  it("planner AGENTS.md Output Format mandates single-line minified STORIES_JSON", () => {
+    const plannerAgentsMdPath = resolve(wfDir("feature-dev-merge"), "agents/planner/AGENTS.md");
+    const content = readFileSync(plannerAgentsMdPath, "utf-8");
+
+    // Output Format section exists
+    assert.match(content, /## Output Format/);
+
+    // Must require STORIES_JSON on a single line
+    assert.match(content, /Single line only/);
+    assert.match(content, /ONE line/);
+
+    // Must require minified (compact) JSON
+    assert.match(content, /Minified JSON/);
+    assert.match(content, /no newlines/);
+    assert.match(content, /no pretty-printing/);
+
+    // Must forbid markdown code fences
+    assert.match(content, /No markdown code fences/);
+    assert.match(content, /triple backticks/);
+
+    // Must forbid JSON comments
+    assert.match(content, /No JSON comments/);
+
+    // Must forbid trailing commas
+    assert.match(content, /No trailing commas/);
+
+    // Must forbid prose before/after the JSON array
+    assert.match(content, /No prose before or after/);
+
+    // Must contain a correct single-line minified example
+    assert.match(content, /STORIES_JSON: \[\{"id":"US-001"/);
+  });
+
+  it("planner AGENTS.md provides wrong-format anti-pattern examples", () => {
+    const plannerAgentsMdPath = resolve(wfDir("feature-dev-merge"), "agents/planner/AGENTS.md");
+    const content = readFileSync(plannerAgentsMdPath, "utf-8");
+
+    // Shows code-fenced JSON as wrong
+    assert.match(content, /WRONG.*code-fenced/);
+    assert.match(content, /DO NOT DO THIS/);
+
+    // Shows multi-line pretty-printed JSON as wrong
+    assert.match(content, /WRONG.*multi-line/);
+    assert.match(content, /WRONG.*pretty-printed/);
+
+    // Shows JSON with comments as wrong
+    assert.match(content, /WRONG.*JSON with comments/);
+
+    // Shows text after closing bracket as wrong
+    assert.match(content, /WRONG.*text after closing bracket/);
+  });
+
+  it("planner AGENTS.md primary STORIES_JSON template is single-line, not multi-line", () => {
+    const plannerAgentsMdPath = resolve(wfDir("feature-dev-merge"), "agents/planner/AGENTS.md");
+    const content = readFileSync(plannerAgentsMdPath, "utf-8");
+
+    // The primary template line should be a single-line minified JSON, not a multi-line entry.
+    // Verify the correctly-formatted single-line version exists as a standalone line.
+    const singleLineMatch = content.match(/^STORIES_JSON: \[\{"id"/m);
+    assert.ok(singleLineMatch, "Primary STORIES_JSON template should be a single line starting with STORIES_JSON: [{\"id\"");
+  });
+
+  it("planner AGENTS.md What NOT To Do section includes STORIES_JSON format rules", () => {
+    const plannerAgentsMdPath = resolve(wfDir("feature-dev-merge"), "agents/planner/AGENTS.md");
+    const content = readFileSync(plannerAgentsMdPath, "utf-8");
+
+    assert.match(content, /## What NOT To Do/);
+
+    // Must include rules about code fences
+    assert.match(content, /Do not wrap STORIES_JSON in markdown code fences/);
+
+    // Must include rules about pretty-printing
+    assert.match(content, /Do not pretty-print the JSON array across multiple lines/);
+
+    // Must include rules about text before/after
+    assert.match(content, /Do not add text before or after the JSON array on the STORIES_JSON line/);
+
+    // Must include rules about JSON comments
+    assert.match(content, /Do not include JSON comments/);
+  });
+
   it("bug-fix has 5 agents, 5 steps, no merger, no finalize_merge, no ORIGINAL_BRANCH capture", async () => {
     const spec = await loadWorkflowSpec(wfDir("bug-fix"));
 

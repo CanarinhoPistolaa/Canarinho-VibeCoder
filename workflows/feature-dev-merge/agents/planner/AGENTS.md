@@ -78,29 +78,60 @@ Maximum **20 stories** per run. If the task genuinely needs more, the task is to
 
 Your output MUST include these KEY: VALUE lines:
 
-```
 STATUS: done
 REPO: /path/to/repo
 BRANCH: feature-branch-name
+STORIES_JSON: [{"id":"US-001","title":"Short descriptive title","description":"As a developer, I need to... so that...\n\nImplementation notes:\n- Detail 1\n- Detail 2","acceptanceCriteria":["Specific verifiable criterion 1","Specific verifiable criterion 2","Tests for [feature] pass","Typecheck passes"]},{"id":"US-002","title":"...","description":"...","acceptanceCriteria":["...","Typecheck passes"]}]
+
+### STORIES_JSON Rules — CRITICAL
+
+The STORIES_JSON line MUST be exactly ONE line: the literal key `STORIES_JSON: ` followed by valid minified JSON on the same line. The pipeline parses this line directly — any deviation breaks story creation.
+
+**You MUST follow these rules:**
+
+1. **Single line only.** The entire STORIES_JSON value (the key, the colon, the space, and the JSON array) must be on ONE line. No line breaks inside the JSON array.
+2. **Minified JSON.** JSON must be compact: no extra whitespace, no newlines, no pretty-printing. Property names and string values are quoted; everything else is compressed.
+3. **No markdown code fences.** Do NOT wrap STORIES_JSON in triple backticks (```). The pipeline parses raw text, not markdown. Code fences will be treated as invalid data.
+4. **No JSON comments.** JSON does not support `//` or `/* */` comments. Do not include them.
+5. **No trailing commas.** The last element of any array or object must NOT be followed by a comma.
+6. **No prose before or after the JSON array on the STORIES_JSON line.** The line must start with `STORIES_JSON: ` and end after the closing `]`. No explanation, no trailing text.
+
+### Examples
+
+**CORRECT (this is what you MUST produce):**
+
+```
+STORIES_JSON: [{"id":"US-001","title":"Add status column","description":"As a developer, I need to add a status column to tasks.","acceptanceCriteria":["status column exists","Tests for status column pass","Typecheck passes"]},{"id":"US-002","title":"Update task list UI","description":"As a developer, I need to show status in the task list.","acceptanceCriteria":["Status column shown in UI","Tests for task list pass","Typecheck passes"]}]
+```
+
+**WRONG — code-fenced JSON (DO NOT DO THIS):**
+```
+STORIES_JSON:
+```json
+[{"id":"US-001","title":"...","description":"...","acceptanceCriteria":["...","Typecheck passes"]}]
+```
+```
+
+**WRONG — multi-line pretty-printed JSON (DO NOT DO THIS):**
+```
 STORIES_JSON: [
   {
     "id": "US-001",
-    "title": "Short descriptive title",
-    "description": "As a developer, I need to... so that...\n\nImplementation notes:\n- Detail 1\n- Detail 2",
-    "acceptanceCriteria": [
-      "Specific verifiable criterion 1",
-      "Specific verifiable criterion 2",
-      "Tests for [feature] pass",
-      "Typecheck passes"
-    ]
-  },
-  {
-    "id": "US-002",
-    "title": "...",
+    "title": "Add status column",
     "description": "...",
-    "acceptanceCriteria": ["...", "Typecheck passes"]
+    "acceptanceCriteria": ["status column exists", "Typecheck passes"]
   }
 ]
+```
+
+**WRONG — JSON with comments (DO NOT DO THIS):**
+```
+STORIES_JSON: [{"id":"US-001","title":"Add status column","description":"Adds status to tasks","acceptanceCriteria":["status column exists","Typecheck passes"], // end of US-001}]
+```
+
+**WRONG — text after closing bracket (DO NOT DO THIS):**
+```
+STORIES_JSON: [{"id":"US-001","title":"...","description":"...","acceptanceCriteria":["...","Typecheck passes"]}] ← end of stories
 ```
 
 **STORIES_JSON** must be valid JSON. The array is parsed by the pipeline to create trackable story records.
@@ -112,3 +143,7 @@ STORIES_JSON: [
 - Don't create dependencies on later stories — order matters
 - Don't skip exploring the codebase — you need to understand the patterns
 - Don't exceed 20 stories — if you need more, the task is too big
+- **Do not wrap STORIES_JSON in markdown code fences (triple backticks)**
+- **Do not pretty-print the JSON array across multiple lines**
+- **Do not add text before or after the JSON array on the STORIES_JSON line**
+- **Do not include JSON comments (`//` or `/* */`) inside STORIES_JSON**
