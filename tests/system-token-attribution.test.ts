@@ -223,7 +223,7 @@ describe("system token attribution (US-002)", () => {
     }
   });
 
-  it("heartbeat rounds still skip token attribution entirely — neither run nor system", () => {
+  it("heartbeat rounds attribute token usage to system spend, leaving run unchanged — neither run nor system", () => {
     const temp = createTempHome();
 
     try {
@@ -281,7 +281,7 @@ describe("system token attribution (US-002)", () => {
           console.log(JSON.stringify({
             runTokensSpent: runRow.tokens_spent,
             systemTokensSpent: systemTokens,
-            heartbeatSkipSeen: logContent.includes('"reason":"heartbeat_round"'),
+            heartbeatSystemOverheadSeen: logContent.includes('"reason":"heartbeat_system_overhead"'),
             systemAttributionSeen: logContent.includes("attributed to system spend"),
           }));
         `,
@@ -293,12 +293,12 @@ describe("system token attribution (US-002)", () => {
 
       // Run tokens unchanged
       assert.equal(result.runTokensSpent, 3, "run tokens_spent should remain 3 for heartbeat");
-      // System tokens unchanged
-      assert.equal(result.systemTokensSpent, 0, "system_tokens_spent should remain 0 for heartbeat");
-      // Heartbeat skip log should be present
-      assert.equal(result.heartbeatSkipSeen, true, "heartbeat_round skip should be logged");
-      // No system attribution log line for heartbeats
-      assert.equal(result.systemAttributionSeen, false, "system attribution should NOT happen for heartbeat rounds");
+      // System tokens should now capture the heartbeat usage
+      assert.equal(result.systemTokensSpent, 21, "system_tokens_spent should become 21 for heartbeat");
+      // Heartbeat system overhead log should be present
+      assert.equal(result.heartbeatSystemOverheadSeen, true, "heartbeat_system_overhead should be logged");
+      // System attribution log line should appear (via shared "attributed to system spend" message)
+      assert.equal(result.systemAttributionSeen, true, "system attribution should happen for heartbeat rounds");
     } finally {
       fs.rmSync(temp.root, { recursive: true, force: true });
     }

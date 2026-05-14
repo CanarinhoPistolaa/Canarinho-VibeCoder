@@ -384,7 +384,7 @@ describe("system token spend counter — e2e integration", () => {
 
   // ── Additional regression: existing tests' coverage confirmations ──
 
-  it("heartbeat rounds do not affect any token counters", () => {
+  it("heartbeat rounds attribute token usage to system spend, leave run unchanged", () => {
     const temp = createTempHome();
 
     try {
@@ -444,7 +444,7 @@ describe("system token spend counter — e2e integration", () => {
       );
 
       assert.equal(result.runTokensSpent, 9, "heartbeat must not change run tokens");
-      assert.equal(result.systemTokensSpent, 0, "heartbeat must not change system tokens");
+      assert.equal(result.systemTokensSpent, 15, "heartbeat must attribute token usage to system spend");
     } finally {
       fs.rmSync(temp.root, { recursive: true, force: true });
     }

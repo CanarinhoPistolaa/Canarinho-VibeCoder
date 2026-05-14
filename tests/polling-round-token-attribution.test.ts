@@ -45,7 +45,7 @@ function runNodeScript(script: string, env: Record<string, string>) {
     ].join("\n\n"));
   }
 
-  const lastLine = result.stdout.trim().split(/\r?\n/).filter(Boolean).pop();
+  const lastLine = result.stdout.trim().split(/\\r?\\n/).filter(Boolean).pop();
   if (!lastLine) {
     throw new Error(`Script produced no JSON output. STDERR:\n${result.stderr}`);
   }
@@ -233,7 +233,7 @@ describe("polling-round token attribution", () => {
     }
   });
 
-  it("keeps heartbeat rounds non-attributing even when usage metadata is present", () => {
+  it("attributes heartbeat round token usage to system spend, leaves run unchanged", () => {
     const temp = createTempHome();
 
     try {
@@ -254,7 +254,7 @@ describe("polling-round token attribution", () => {
           import fs from "node:fs";
           import path from "node:path";
           import { executePollingRound } from "./dist/installer/agent-scheduler.js";
-          import { getDb } from "./dist/db.js";
+          import { getDb, getSystemTokenSpend } from "./dist/db.js";
 
           const db = getDb();
           const runId = "${crypto.randomUUID()}";
@@ -284,12 +284,22 @@ describe("polling-round token attribution", () => {
           await executePollingRound(job, agent);
 
           const row = db.prepare("SELECT tokens_spent FROM runs WHERE id = ?").get(runId);
+          const systemTokens = getSystemTokenSpend();
           const logPath = path.join(process.env.HOME, ".tamandua", "tamandua.log");
           const logContent = fs.existsSync(logPath) ? fs.readFileSync(logPath, "utf-8") : "";
+          const eventsPath = path.join(process.env.HOME, ".tamandua", "events", "system.jsonl");
+          const events = fs.existsSync(eventsPath)
+            ? fs.readFileSync(eventsPath, "utf-8").split(/\\r?\\n/).filter(Boolean).map((line) => JSON.parse(line))
+            : [];
+          const systemEvent = events.find((evt) => evt.event === "system.tokens.updated");
 
           console.log(JSON.stringify({
             tokensSpent: row.tokens_spent,
-            heartbeatSkipSeen: logContent.includes('"reason":"heartbeat_round"'),
+            systemTokensSpent: systemTokens,
+            heartbeatSystemOverheadSeen: logContent.includes('"reason":"heartbeat_system_overhead"'),
+            systemEventFound: !!systemEvent,
+            systemEventRunId: systemEvent?.runId ?? null,
+            systemEventTokenDelta: systemEvent?.tokenDelta ?? null,
           }));
         `,
         {
@@ -298,8 +308,12 @@ describe("polling-round token attribution", () => {
         },
       );
 
-      assert.equal(result.tokensSpent, 3);
-      assert.equal(result.heartbeatSkipSeen, true);
+      assert.equal(result.tokensSpent, 3, "run tokens_spent should remain unchanged for heartbeat");
+      assert.equal(result.systemTokensSpent, 21, "system_tokens_spent should capture heartbeat token usage");
+      assert.equal(result.heartbeatSystemOverheadSeen, true, "log should contain heartbeat_system_overhead reason");
+      assert.equal(result.systemEventFound, true, "system.tokens.updated event should be emitted");
+      assert.equal(result.systemEventRunId, "system", "system event runId should be \'system\'");
+      assert.equal(result.systemEventTokenDelta, 21, "system event tokenDelta should be 21");
     } finally {
       fs.rmSync(temp.root, { recursive: true, force: true });
     }
