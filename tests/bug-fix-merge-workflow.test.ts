@@ -44,16 +44,29 @@ describe("bug-fix-merge workflow", () => {
     assert.doesNotMatch(finalStep!.input, /git push/);
   });
 
-  it("finalize_merge step contains squash merge instructions", async () => {
+  it("finalize_merge step contains fast-forward-first merge instructions", async () => {
     const spec = await loadWorkflowSpec(wfDir);
     const finalStep = spec.steps.find((s) => s.id === "finalize_merge");
     assert.ok(finalStep);
+    // Phase 1: Fast-Forward Check
+    assert.match(finalStep!.input, /git merge-base --is-ancestor \{\{original_branch\}\} \{\{branch\}\}/);
+    assert.match(finalStep!.input, /Phase 1.*Fast-Forward Check/);
+    // Phase 2: Rebase
+    assert.match(finalStep!.input, /Phase 2.*Rebase/);
+    assert.match(finalStep!.input, /git rebase \{\{original_branch\}\}/);
+    assert.match(finalStep!.input, /git rebase --continue/);
+    // Phase 3: Squash Merge (preserved)
+    assert.match(finalStep!.input, /Phase 3.*Squash Merge/);
     assert.match(finalStep!.input, /git checkout \{\{original_branch\}\}/);
     assert.match(finalStep!.input, /git merge --squash \{\{branch\}\}/);
     assert.match(finalStep!.input, /git commit -F <tempfile>/);
+    // Output format includes REBASED
+    assert.match(finalStep!.input, /REBASED:\s*<(true\|false|true\/false)>/);
     assert.match(finalStep!.input, /ORIGINAL_BRANCH:\s*\{\{original_branch\}\}/);
     assert.match(finalStep!.input, /MERGE_COMMIT:/);
     assert.match(finalStep!.input, /MERGED_INTO:/);
+    // Preserves fix:-prefix commit message guidance
+    assert.match(finalStep!.input, /fix:/);
   });
 
   it("setup step input contains ORIGINAL_BRANCH", async () => {
@@ -126,6 +139,31 @@ describe("bug-fix-merge workflow", () => {
     }
   });
 
+  // US-004: Ordering and tester retry absence in step input
+  it("finalize_merge step input places FF check before squash merge (US-004 ordering)", async () => {
+    const spec = await loadWorkflowSpec(wfDir);
+    const finalStep = spec.steps.find((s) => s.id === "finalize_merge");
+    assert.ok(finalStep);
+
+    const ffIdx = finalStep!.input.search(/git merge-base --is-ancestor/);
+    const squashIdx = finalStep!.input.search(/git merge --squash/);
+
+    assert.ok(ffIdx >= 0, "must contain git merge-base --is-ancestor");
+    assert.ok(squashIdx >= 0, "must contain git merge --squash");
+    assert.ok(
+      ffIdx < squashIdx,
+      `FF check (pos ${ffIdx}) must appear before squash merge (pos ${squashIdx})`,
+    );
+  });
+
+  it("finalize_merge step input does NOT contain tester retry path (US-004)", async () => {
+    const spec = await loadWorkflowSpec(wfDir);
+    const finalStep = spec.steps.find((s) => s.id === "finalize_merge");
+    assert.ok(finalStep);
+    assert.doesNotMatch(finalStep!.input, /RETRY_STEP:\s*test/);
+    assert.doesNotMatch(finalStep!.input, /CONFLICT_NOTES/);
+  });
+
   // US-002: Verify merger persona files
   describe("merger persona", () => {
     const mergerAgentsMd = readFileSync(resolve(wfDir, "agents", "merger", "AGENTS.md"), "utf-8");
@@ -169,6 +207,61 @@ describe("bug-fix-merge workflow", () => {
       assert.doesNotMatch(mergerAgentsMd, /Use conventional commit format with `feat:`/);
       assert.match(mergerAgentsMd, /Do NOT use `feat:` prefix/);
       assert.match(mergerAgentsMd, /Always use `fix:`/);
+    });
+
+    it("AGENTS.md includes fast-forward check as first Required Process step", () => {
+      assert.match(mergerAgentsMd, /Phase 1: Fast-Forward Check/);
+      assert.match(mergerAgentsMd, /git merge-base --is-ancestor \{\{original_branch\}\} \{\{branch\}\}/);
+      // Fast-forward check must appear before squash merge
+      const phase1Index = mergerAgentsMd.indexOf("Phase 1: Fast-Forward Check");
+      const phase3Index = mergerAgentsMd.indexOf("Phase 3: Squash Merge");
+      assert.ok(phase1Index < phase3Index, "Fast-Forward Check must come before Squash Merge");
+    });
+
+    it("AGENTS.md includes rebase path for non-FF case with conflict resolution", () => {
+      assert.match(mergerAgentsMd, /Phase 2: Rebase/);
+      assert.match(mergerAgentsMd, /git rebase \{\{original_branch\}\}/);
+      assert.match(mergerAgentsMd, /git rebase --continue/);
+      assert.match(mergerAgentsMd, /fix them carefully|resolve each conflict|If conflicts arise/i);
+      // Bug-fix-merge has no tester — rebase proceeds directly to squash merge
+      assert.match(mergerAgentsMd, /no tester step/);
+    });
+
+    it("AGENTS.md guardrails forbid squash merge when not FF-safe", () => {
+      assert.match(mergerAgentsMd, /NEVER squash-merge when the branch is not fast-forward-safe/);
+      assert.match(mergerAgentsMd, /NEVER combine a fast-forward and an unrelated squash merge/);
+    });
+
+    it("AGENTS.md output format includes REBASED field", () => {
+      assert.match(mergerAgentsMd, /REBASED:\s*<(true\|false|true\/false)>/);
+    });
+
+    it("AGENTS.md does NOT have tester retry path (bug-fix-merge has no tester)", () => {
+      assert.doesNotMatch(mergerAgentsMd, /RETRY_STEP:/);
+      assert.doesNotMatch(mergerAgentsMd, /CONFLICT_NOTES:/);
+    });
+
+    it("AGENTS.md guardrails have no contradictory FF + unrelated squash instructions (US-004)", () => {
+      // Acceptance Criteria 4: Every squash-merge mention must be in
+      // a Phase 3 / FF-safe context or the guardrails section.
+      const squashRe = /squash[ -]?merge/gi;
+      let match: RegExpExecArray | null;
+      while ((match = squashRe.exec(mergerAgentsMd)) !== null) {
+        const idx = match.index;
+        // Wide window to capture distant "NEVER" / "only valid paths"
+        // in the guardrails section which describes valid paths.
+        const context = mergerAgentsMd.substring(Math.max(0, idx - 250), idx + 250);
+        assert.ok(
+          context.includes("Phase 3") ||
+            context.includes("FF-safe") ||
+            context.includes("fast-forward-safe") ||
+            context.includes("NEVER") ||
+            context.includes("only valid paths") ||
+            context.includes("is now fast-forward-safe") ||
+            context.includes("report retry"),
+          `squash merge mention outside FF-safe context (pos ${idx}): ...${context.substring(230, 270)}...`,
+        );
+      }
     });
   });
 

@@ -1,0 +1,99 @@
+# Progress Log
+Run: 2bfd1e14-6188-4cc9-8a76-c02ece15f8cb
+Task: Improve the bundled merge workflows so the workflow agent responsible for final merging has a coherent fast-forward-first merge process.
+Started: 2026-05-14
+
+## Codebase Patterns
+
+- Merger persona files live at `workflows/<workflow>/agents/merger/AGENTS.md`
+- Workflow YAML steps live at `workflows/<workflow>/workflow.yml`
+- `finalize_merge` step `expects: "STATUS: done"` validates via substring match in `validateExpects` (src/installer/step-ops.ts:1130)
+- `on_fail.retry_step` is typed in src/installer/types.ts:36
+- Commit message generation guidance must NOT use `git commit -m` — uses `git commit -F <tempfile>` instead
+- All commit messages in persona files must end with `Co-Authored-By: Tamandua <tamandua@tetradactyla.org>`
+- Step input templates use `{{original_branch}}`, `{{branch}}`, `{{repo}}` for context variables
+- Test fixtures use `readFileSync` on AGENTS.md for content validation; workflow tests use `loadWorkflowSpec`
+- Bug-fix-merge and feature-dev-merge share the same merger SOUL.md source
+- Security-audit-merge has a tester step (like feature-dev-merge) → non-FF-with-conflicts sends back to tester
+- Security-audit-merge merger uses `fix(security):` prefix, not `feat:` or `fix:`
+
+---
+
+## 2026-05-14 - US-001: Update feature-dev-merge merger with fast-forward-first merge process
+- Updated merger AGENTS.md with three-phase fast-forward-first merge process:
+  - Phase 1: Fast-Forward Check (git merge-base --is-ancestor) — ALWAYS FIRST
+  - Phase 2: Rebase (non-FF path) with conflict resolution, `git rebase --continue`
+  - Phase 3: Squash Merge (only when FF-safe)
+- Added tester retry path with STATUS: retry, REBASED: true, CONFLICT_NOTES, RETRY_STEP: test
+- Added guardrails: NEVER squash-merge when not FF-safe; NEVER combine FF + unrelated squash
+- Added REBASED field to output format (true/false)
+- Updated workflow.yml finalize_merge step input with three-phase instructions and RETRY_FEEDBACK placeholder
+- Updated workflow.yml finalize_merge on_fail to retry_step: test with max_retries: 4
+- Added RETRY FEEDBACK section to test step input for merger→tester loopback
+- Updated workflow-validation.test.ts: replaced "Execute these git commands explicitly" assertions with fast-forward-first checks (git merge-base, git rebase, CONFLICT_NOTES, RETRY_STEP: test)
+- Added 5 new fast-forward-first merge tests to merger-agents-commit-message.test.ts
+- Files changed:
+  - workflows/feature-dev-merge/agents/merger/AGENTS.md
+  - workflows/feature-dev-merge/workflow.yml
+  - tests/merger-agents-commit-message.test.ts
+  - tests/workflow-validation.test.ts
+- **Learnings:** 
+  - Step expects validation uses substring matching; STATUS: retry in completeStep triggers expects violation unless handled
+  - on_fail.retry_step routing for non-verify-each steps may need pipeline code changes (not in scope for this story)
+  - Existing commit message guidance (Conventional Commits, git commit -F, Co-Authored-By footer) preserved unchanged
+
+## 2026-05-14 - US-002: Update bug-fix-merge merger with fast-forward-first merge process
+- Added three-phase fast-forward-first merge process to merger AGENTS.md:
+  - Phase 1: Fast-Forward Check (git merge-base --is-ancestor) — ALWAYS FIRST
+  - Phase 2: Rebase on non-FF path with conflict resolution (git rebase, git rebase --continue)
+  - Phase 3: Squash Merge only when FF-safe
+- Bug-fix-merge has NO tester step → rebase path goes directly to squash merge (verifier already vetted the fix)
+- Added REBASED: true|false field to output format (no CONFLICT_NOTES or RETRY_STEP since no tester loopback)
+- Added guardrails: NEVER squash-merge when not FF-safe; NEVER combine FF + unrelated squash
+- Updated workflow.yml finalize_merge step input with three-phase instructions
+- Preserved all fix:-prefix commit message guidance (via AGENTS.md reference + explicit fix: mention in step input)
+- Added 5 new merger persona tests for US-002 acceptance criteria:
+  - Fast-forward check as first Required Process step
+  - Rebase path for non-FF case with conflict resolution
+  - Guardrails forbid squash merge when not FF-safe
+  - Output format includes REBASED field
+  - No tester retry path (RETRY_STEP and CONFLICT_NOTES absent)
+- Updated existing "finalize_merge step" test to validate fast-forward-first merge instructions
+- Files changed:
+  - workflows/bug-fix-merge/agents/merger/AGENTS.md
+  - workflows/bug-fix-merge/workflow.yml
+  - tests/bug-fix-merge-workflow.test.ts
+- **Learnings:**
+  - Bug-fix-merge merger SOUL.md is shared with feature-dev-merge (same source file)
+  - The `fix:` prefix is documented in AGENTS.md but a mention in the step input preserves expectations for both pipeline and tests
+  - All 31 bug-fix-merge workflow tests pass; all 62 workflow validation tests pass; typecheck passes
+
+## 2026-05-14 - US-003: Update security-audit-merge merger with fast-forward-first merge process
+- Applied same three-phase fast-forward-first merge pattern as feature-dev-merge (US-001):
+  - Phase 1: Fast-Forward Check (git merge-base --is-ancestor) — ALWAYS FIRST
+  - Phase 2: Rebase (non-FF path) with conflict resolution, git rebase --continue
+  - Phase 3: Squash Merge only when FF-safe
+- Tester retry path with STATUS: retry, REBASED: true, CONFLICT_NOTES, RETRY_STEP: test
+- If rebase changed code/tests/docs/config: Do NOT merge, send to tester for re-validation
+- If rebase clean: proceed to squash merge
+- Updated output format to include REBASED field alongside MERGE_COMMIT/MERGED_INTO
+- Added guardrails: NEVER squash-merge when not FF-safe; NEVER combine FF + unrelated squash
+- Updated workflow.yml finalize_merge step input with three-phase instructions and RETRY_FEEDBACK placeholder
+- Updated workflow.yml finalize_merge on_fail to retry_step: test with max_retries: 4
+- Added RETRY_FEEDBACK placeholder to test step with re-validation instruction
+- Preserved all fix(security):-prefix commit message guidance unchanged
+- Added 4 new workflow validation tests for US-003 acceptance criteria:
+  - finalize_merge step includes fast-forward-first merge instructions
+  - test step includes RETRY_FEEDBACK placeholder for rebase re-validation
+  - merger AGENTS.md includes fast-forward-first merge process
+  - finalize_merge step on_fail routes to test
+- All 66 workflow validation tests pass; all 17 merger-agents tests pass; all 31 bug-fix-merge tests pass; typecheck passes
+- Files changed:
+  - workflows/security-audit-merge/agents/merger/AGENTS.md
+  - workflows/security-audit-merge/workflow.yml
+  - tests/workflow-validation.test.ts
+- **Learnings:**
+  - Security-audit-merge has a tester step (like feature-dev-merge), so the non-FF-with-conflicts path sends back to tester
+  - fix(security): prefix is unique to security-audit-merge; preserved verbatim alongside the new fast-forward-first process
+  - RETRY_FEEDBACK must be added to both test step and finalize_merge step for the loopback to work
+---

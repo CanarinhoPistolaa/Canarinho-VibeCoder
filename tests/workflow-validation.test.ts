@@ -216,7 +216,12 @@ describe("workflow structure", () => {
     assert.match(finalStep!.input, /RUN_ID:\s*\{\{run_id\}\}/);
     assert.match(finalStep!.input, /ORIGINAL_BRANCH:\s*\{\{original_branch\}\}/);
     assert.match(finalStep!.input, /PROGRESS LOG:\s*\{\{progress\}\}/);
-    assert.match(finalStep!.input, /Execute these git commands explicitly \(in order\):/);
+    // Fast-forward-first merge process
+    assert.match(finalStep!.input, /Fast-Forward Check/);
+    assert.match(finalStep!.input, /git merge-base --is-ancestor \{\{original_branch\}\} \{\{branch\}\}/);
+    assert.match(finalStep!.input, /git rebase \{\{original_branch\}\}/);
+    assert.match(finalStep!.input, /CONFLICT_NOTES/);
+    assert.match(finalStep!.input, /RETRY_STEP: test/);
     assert.match(finalStep!.input, /git checkout \{\{original_branch\}\}/);
     assert.match(finalStep!.input, /git merge --squash \{\{branch\}\}/);
     assert.match(finalStep!.input, /Build a descriptive commit message/);
@@ -457,6 +462,173 @@ describe("workflow structure", () => {
     assert.match(readme, /ORIGINAL_BRANCH/);
     assert.match(readme, /plan → setup → implement → verify → test → finalize_merge/);
   });
+
+  it("security-audit-merge finalize_merge step includes fast-forward-first merge instructions", async () => {
+    const spec = await loadWorkflowSpec(wfDir("security-audit-merge"));
+    const finalStep = spec.steps.find((s) => s.id === "finalize_merge");
+    assert.ok(finalStep, "finalize_merge step must exist");
+    assert.equal(finalStep!.agent, "merger");
+
+    // Phase 1: Fast-Forward Check
+    assert.match(finalStep!.input, /Fast-Forward Check/);
+    assert.match(finalStep!.input, /git merge-base --is-ancestor \{\{original_branch\}\} \{\{branch\}\}/);
+
+    // Phase 2: Rebase
+    assert.match(finalStep!.input, /Phase 2.*Rebase/);
+    assert.match(finalStep!.input, /git rebase \{\{original_branch\}\}/);
+    assert.match(finalStep!.input, /git rebase --continue/);
+    assert.match(finalStep!.input, /CONFLICT_NOTES/);
+    assert.match(finalStep!.input, /RETRY_STEP: test/);
+    assert.match(finalStep!.input, /Do NOT merge/);
+
+    // Phase 3: Squash Merge
+    assert.match(finalStep!.input, /Phase 3.*Squash Merge/);
+    assert.match(finalStep!.input, /git checkout \{\{original_branch\}\}/);
+    assert.match(finalStep!.input, /git merge --squash \{\{branch\}\}/);
+    assert.match(finalStep!.input, /git commit -F <tempfile>/);
+
+    // Output format includes REBASED
+    assert.match(finalStep!.input, /REBASED:\s*<(true\|false|true\/false)>/);
+    assert.match(finalStep!.input, /MERGE_COMMIT:/);
+    assert.match(finalStep!.input, /MERGED_INTO:/);
+
+    // Preserves fix(security):-prefix commit message guidance
+    assert.match(finalStep!.input, /fix\(security\)/);
+
+    // RETRY_FEEDBACK placeholder
+    assert.match(finalStep!.input, /\{\{retry_feedback\}\}/);
+  });
+
+  it("security-audit-merge test step includes RETRY_FEEDBACK placeholder for rebase re-validation", async () => {
+    const spec = await loadWorkflowSpec(wfDir("security-audit-merge"));
+    const testStep = spec.steps.find((s) => s.id === "test");
+    assert.ok(testStep, "test step must exist");
+    assert.match(testStep!.input, /\{\{retry_feedback\}\}/);
+    assert.match(testStep!.input, /re-validate the rebased changes/);
+  });
+
+  it("security-audit-merge merger AGENTS.md includes fast-forward-first merge process", () => {
+    const mergerAgentsMdPath = resolve(wfDir("security-audit-merge"), "agents", "merger", "AGENTS.md");
+    const content = readFileSync(mergerAgentsMdPath, "utf-8");
+
+    // Phase 1: Fast-Forward Check as first Required Process step
+    assert.match(content, /Phase 1: Fast-Forward Check/);
+    assert.match(content, /git merge-base --is-ancestor \{\{original_branch\}\} \{\{branch\}\}/);
+    const phase1Index = content.indexOf("Phase 1: Fast-Forward Check");
+    const phase3Index = content.indexOf("Phase 3: Squash Merge");
+    assert.ok(phase1Index < phase3Index, "Fast-Forward Check must come before Squash Merge");
+
+    // Phase 2: Rebase on non-FF path with conflict resolution
+    assert.match(content, /Phase 2: Rebase/);
+    assert.match(content, /git rebase \{\{original_branch\}\}/);
+    assert.match(content, /git rebase --continue/);
+    assert.match(content, /fix them carefully|resolve each conflict|If conflicts arise/i);
+
+    // Tester retry path when rebase made changes
+    assert.match(content, /STATUS: retry/);
+    assert.match(content, /CONFLICT_NOTES:/);
+    assert.match(content, /RETRY_STEP: test/);
+    assert.match(content, /Do NOT merge/);
+
+    // Guardrails forbid squash merge when not FF-safe
+    assert.match(content, /NEVER squash-merge when the branch is not fast-forward-safe/);
+    assert.match(content, /NEVER combine a fast-forward and an unrelated squash merge/);
+
+    // Output format includes REBASED field
+    assert.match(content, /REBASED:\s*<(true\|false|true\/false)>/);
+
+    // Preserves fix(security):-prefix commit message guidance
+    assert.match(content, /fix\(security\)/);
+    assert.match(content, /Do NOT use `feat:` prefix/);
+
+    // Preserves existing commit message generation (git commit -F, not git commit -m)
+    assert.match(content, /git commit -F/);
+    assert.doesNotMatch(content, /git commit -m/);
+    assert.match(content, /Co-Authored-By: Tamandua/);
+  });
+
+  it("security-audit-merge workflow.yml finalize_merge step on_fail routes to test", async () => {
+    const spec = await loadWorkflowSpec(wfDir("security-audit-merge"));
+    const finalStep = spec.steps.find((s) => s.id === "finalize_merge");
+    assert.ok(finalStep, "finalize_merge step must exist");
+    assert.equal(finalStep!.on_fail?.retry_step, "test");
+    assert.ok(finalStep!.on_fail?.max_retries);
+    assert.equal(finalStep!.on_fail?.on_exhausted?.escalate_to, "human");
+  });
+
+describe("US-004: fast-forward-first merge contradiction prevention and ordering", () => {
+  const mergeWorkflows = ["feature-dev-merge", "bug-fix-merge", "security-audit-merge"];
+
+  // AC 4: All three merger AGENTS.md files pass guardrail check
+  for (const wfId of mergeWorkflows) {
+    it(`${wfId} merger AGENTS.md forbids simultaneous contradictory FF + unrelated squash`, () => {
+      const mergerMd = readFileSync(resolve(wfDir(wfId), "agents", "merger", "AGENTS.md"), "utf-8");
+
+      // Guardrail must exist
+      assert.match(mergerMd, /NEVER combine a fast-forward and an unrelated squash merge/);
+
+      // Every squash-merge mention must be in a FF-safe or guardrails context
+      const squashRe = /squash[ -]?merge/gi;
+      let match: RegExpExecArray | null;
+      while ((match = squashRe.exec(mergerMd)) !== null) {
+        const idx = match.index;
+        // Wide window captures distant "NEVER" / "only valid paths"
+        // in the guardrails section which lists valid-path examples.
+        const context = mergerMd.substring(Math.max(0, idx - 250), idx + 250);
+        assert.ok(
+          context.includes("Phase 3") ||
+            context.includes("FF-safe") ||
+            context.includes("fast-forward-safe") ||
+            context.includes("NEVER") ||
+            context.includes("only valid paths") ||
+            context.includes("is now fast-forward-safe") ||
+            context.includes("report retry"),
+          `${wfId}: squash merge mention outside FF-safe context (pos ${idx}): ...${context.substring(230, 270)}...`,
+        );
+      }
+    });
+  }
+
+  // AC 5: All three workflow.yml finalize_merge step inputs place FF check before squash merge
+  for (const wfId of mergeWorkflows) {
+    it(`${wfId} workflow.yml finalize_merge step input places FF check before squash merge (US-004 ordering)`, async () => {
+      const spec = await loadWorkflowSpec(wfDir(wfId));
+      const finalStep = spec.steps.find((s) => s.id === "finalize_merge");
+      assert.ok(finalStep, `${wfId}: finalize_merge step must exist`);
+
+      const input = finalStep!.input;
+      const ffIdx = input.search(/git merge-base --is-ancestor/);
+      const squashIdx = input.search(/git merge --squash/);
+
+      assert.ok(ffIdx >= 0, `${wfId}: must contain git merge-base --is-ancestor`);
+      assert.ok(squashIdx >= 0, `${wfId}: must contain git merge --squash`);
+      assert.ok(
+        ffIdx < squashIdx,
+        `${wfId}: FF check (pos ${ffIdx}) must appear before squash merge (pos ${squashIdx})`,
+      );
+    });
+  }
+
+  // AC 6: Tester retry path exists for feature-dev-merge and security-audit-merge
+  for (const wfId of ["feature-dev-merge", "security-audit-merge"]) {
+    it(`${wfId} finalize_merge step input includes tester retry path (RETRY_STEP: test, CONFLICT_NOTES) (US-004)`, async () => {
+      const spec = await loadWorkflowSpec(wfDir(wfId));
+      const finalStep = spec.steps.find((s) => s.id === "finalize_merge");
+      assert.ok(finalStep);
+      assert.match(finalStep!.input, /RETRY_STEP:\s*test/);
+      assert.match(finalStep!.input, /CONFLICT_NOTES/);
+    });
+  }
+
+  // AC 6: Bug-fix-merge does NOT have tester retry path
+  it("bug-fix-merge finalize_merge step input does NOT have tester retry path (US-004)", async () => {
+    const spec = await loadWorkflowSpec(wfDir("bug-fix-merge"));
+    const finalStep = spec.steps.find((s) => s.id === "finalize_merge");
+    assert.ok(finalStep);
+    assert.doesNotMatch(finalStep!.input, /RETRY_STEP:\s*test/);
+    assert.doesNotMatch(finalStep!.input, /CONFLICT_NOTES/);
+  });
+});
 
   it("feature-dev family setup prompts include {{retry_feedback}} placeholder", async () => {
     // Verify all three feature-dev family workflows have retry_feedback in their

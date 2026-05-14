@@ -272,7 +272,8 @@ steps:
     agent: merger
     input: |
       Finalize this run by squashing bugfix changes into one commit and merging
-      into the original branch.
+      into the original branch. Follow the fast-forward-first process described
+      in your AGENTS.md.
 
       TASK:
       {{task}}
@@ -286,22 +287,39 @@ steps:
       REGRESSION_TEST: {{regression_test}}
       VERIFIED: {{verified}}
 
-      Execute these git commands explicitly (in order):
+      Follow the Required Process from your AGENTS.md:
+
+      Phase 1 — Fast-Forward Check (ALWAYS FIRST):
       1. cd {{repo}}
       2. git checkout {{original_branch}}
-      3. git merge --squash {{branch}}
-      4. Build a descriptive commit message (see AGENTS.md for full instructions), write it to a temp file, then commit with `git commit -F <tempfile>`
+      3. git merge-base --is-ancestor {{original_branch}} {{branch}}
+         - Exit 0 (FF): proceed to Phase 3
+         - Exit non-zero (not FF): proceed to Phase 2
+
+      Phase 2 — Rebase (Non-Fast-Forward Path):
+      4. git checkout {{branch}}
+      5. git rebase {{original_branch}}
+      6. Fix any conflicts; `git rebase --continue` until complete
+      7. After rebase (clean or with conflict resolution), proceed to Phase 3.
+         Bug-fix-merge has no tester step — the verifier already confirmed the fix.
+
+      Phase 3 — Squash Merge (Fast-Forward-Safe):
+      8. git checkout {{original_branch}}
+      9. git merge --squash {{branch}}
+      10. Build a descriptive commit message with `fix:` prefix (see AGENTS.md for full instructions), write it to a temp file, then commit with `git commit -F <tempfile>`
 
       Verify the merge commit was created:
       - MERGE_COMMIT=$(git rev-parse --short HEAD)
 
       Reply with:
       STATUS: done
+      REBASED: <true|false>
       MERGE_COMMIT: <short commit hash>
       MERGED_INTO: {{original_branch}}
 
       Or if merge cannot be completed:
       STATUS: retry
+      REBASED: <true|false>
       FAILURE: <reason>
     expects: "STATUS: done"
     on_fail:

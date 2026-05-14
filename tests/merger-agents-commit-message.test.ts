@@ -2,6 +2,8 @@ import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
+import { loadWorkflowSpec } from "../dist/installer/workflow-spec.js";
+import { resolveBundledWorkflowsDir } from "../dist/installer/paths.js";
 
 const repoRoot = resolve(import.meta.dirname, "..");
 const mergerAgentsPath = resolve(
@@ -95,5 +97,81 @@ describe("merger AGENTS.md commit message generation", () => {
   it("describes WHAT and WHY for future maintainers", () => {
     assert.match(content, /WHAT was done and WHY/);
     assert.match(content, /useful for future maintainers/);
+  });
+});
+
+describe("merger AGENTS.md fast-forward-first merge process", () => {
+  it("includes Phase 1 fast-forward check as first Required Process step", () => {
+    assert.match(content, /Phase 1: Fast-Forward Check/);
+    assert.match(content, /git merge-base --is-ancestor \{\{original_branch\}\} \{\{branch\}\}/);
+    // The fast-forward check must appear before squash merge instructions
+    const phase1Index = content.indexOf("Phase 1: Fast-Forward Check");
+    const squashMergeIndex = content.indexOf("Phase 3: Squash Merge");
+    assert.ok(phase1Index < squashMergeIndex, "Fast-Forward Check must come before Squash Merge");
+  });
+
+  it("includes Phase 2 rebase-on-non-FF path with conflict resolution instructions", () => {
+    assert.match(content, /Phase 2: Rebase/);
+    assert.match(content, /git rebase \{\{original_branch\}\}/);
+    assert.match(content, /git rebase --continue/);
+    assert.match(content, /fix them carefully|resolve each conflict|If conflicts arise/i);
+  });
+
+  it("includes tester retry path when rebase made changes, with RETRY_STEP: test", () => {
+    assert.match(content, /STATUS: retry/);
+    assert.match(content, /CONFLICT_NOTES:/);
+    assert.match(content, /RETRY_STEP: test/);
+    // Do NOT merge when retrying
+    assert.match(content, /Do NOT merge/);
+  });
+
+  it("guardrails forbid squash merge when not FF-safe", () => {
+    assert.match(content, /NEVER squash-merge when the branch is not fast-forward-safe/);
+    assert.match(content, /NEVER combine a fast-forward and an unrelated squash merge/);
+  });
+
+  it("output format includes REBASED field", () => {
+    assert.match(content, /REBASED:\s*<(true\|false|true\/false)>/);
+  });
+
+  it("no contradictory FF + unrelated squash instructions coexist (US-004 guardrail)", () => {
+    // Acceptance Criteria 4: Guardrail check — every squash-merge mention
+    // must be in a Phase 3 / FF-safe context or the guardrails section.
+    const squashRe = /squash[ -]?merge/gi;
+    let match: RegExpExecArray | null;
+    while ((match = squashRe.exec(content)) !== null) {
+      const idx = match.index;
+      // Use a wide window to capture distant "only valid paths" or "NEVER"
+      // in the guardrails section which describes valid-path examples.
+      const context = content.substring(Math.max(0, idx - 250), idx + 250);
+      assert.ok(
+        context.includes("Phase 3") ||
+          context.includes("FF-safe") ||
+          context.includes("fast-forward-safe") ||
+          context.includes("NEVER") ||
+          context.includes("only valid paths") ||
+          context.includes("is now fast-forward-safe") ||
+          context.includes("report retry"),
+        `squash merge mention outside FF-safe context (pos ${idx}): ...${context.substring(230, 270)}...`,
+      );
+    }
+  });
+
+  it("workflow.yml finalize_merge step input places FF check before squash merge", async () => {
+    const wfDir = resolve(resolveBundledWorkflowsDir(), "feature-dev-merge");
+    const spec = await loadWorkflowSpec(wfDir);
+    const finalStep = spec.steps.find((s) => s.id === "finalize_merge");
+    assert.ok(finalStep, "finalize_merge step must exist");
+
+    const input = finalStep!.input;
+    const ffIdx = input.search(/git merge-base --is-ancestor/);
+    const squashIdx = input.search(/git merge --squash/);
+
+    assert.ok(ffIdx >= 0, "must contain git merge-base --is-ancestor");
+    assert.ok(squashIdx >= 0, "must contain git merge --squash");
+    assert.ok(
+      ffIdx < squashIdx,
+      `FF check (pos ${ffIdx}) must appear before squash merge (pos ${squashIdx})`,
+    );
   });
 });

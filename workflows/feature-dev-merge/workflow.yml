@@ -310,12 +310,16 @@ steps:
       PROGRESS LOG:
       {{progress}}
 
+      RETRY FEEDBACK (only present if the merger rebased the branch and needs re-validation — contains CONFLICT_NOTES describing what changed):
+      {{retry_feedback}}
+
       Your job (integration/E2E testing — unit tests were already written per-story):
       1. Run the full test suite ({{test_cmd}}) to confirm everything passes together
       2. Look for integration issues between stories
       3. If this is a UI feature, use agent-browser to test it end-to-end
       4. Check cross-cutting concerns: error handling, edge cases across features
       5. Verify the overall feature works as a cohesive whole
+      6. If retry feedback is present, the merger rebased the branch to resolve conflicts — re-validate the rebased changes listed in the feedback
 
       Reply with:
       STATUS: done
@@ -336,7 +340,8 @@ steps:
     agent: merger
     input: |
       Finalize this run by squashing workflow changes into one commit and merging
-      into the original branch.
+      into the original branch. Follow the fast-forward-first process described
+      in your AGENTS.md.
 
       RUN_ID: {{run_id}}
 
@@ -350,23 +355,54 @@ steps:
       PROGRESS LOG:
       {{progress}}
 
-      Execute these git commands explicitly (in order):
+      RETRY FEEDBACK (only present if the tester re-validated a rebased branch — the tester has confirmed the rebased changes pass; proceed to Phase 3 squash merge):
+      {{retry_feedback}}
+
+      Follow the Required Process from your AGENTS.md:
+
+      Phase 1 — Fast-Forward Check (ALWAYS FIRST):
       1. cd {{repo}}
       2. git checkout {{original_branch}}
-      3. git merge --squash {{branch}}
-      4. Build a descriptive commit message (see AGENTS.md for full instructions), write it to a temp file, then commit with `git commit -F <tempfile>`
+      3. git merge-base --is-ancestor {{original_branch}} {{branch}}
+         - Exit 0 (FF): proceed to Phase 3
+         - Exit non-zero (not FF): proceed to Phase 2
+
+      Phase 2 — Rebase (Non-Fast-Forward Path):
+      4. git checkout {{branch}}
+      5. git rebase {{original_branch}}
+      6. Fix any conflicts; `git rebase --continue` until complete
+      7. If rebase changed code/tests/docs/config:
+         - Report STATUS: retry with REBASED: true, CONFLICT_NOTES, RETRY_STEP: test
+         - Do NOT merge — tester must re-validate first
+      8. If rebase was clean: proceed to Phase 3
+
+      Phase 3 — Squash Merge (Fast-Forward-Safe):
+      9. git checkout {{original_branch}}
+      10. git merge --squash {{branch}}
+      11. Build a descriptive commit message (see AGENTS.md for full instructions), write it to a temp file, then commit with `git commit -F <tempfile>`
 
       Verify the merge commit was created:
       - MERGE_COMMIT=$(git rev-parse --short HEAD)
 
       Reply with:
       STATUS: done
+      REBASED: <true|false>
       MERGE_COMMIT: <short commit hash>
       MERGED_INTO: {{original_branch}}
 
+      Or if rebase requires tester re-validation:
+      STATUS: retry
+      REBASED: true
+      CONFLICT_NOTES: <description of resolved conflicts>
+      RETRY_STEP: test
+
       Or if merge cannot be completed:
       STATUS: retry
+      REBASED: <true|false>
       FAILURE: <reason>
     expects: "STATUS: done"
     on_fail:
-      escalate_to: human
+      retry_step: test
+      max_retries: 4
+      on_exhausted:
+        escalate_to: human
