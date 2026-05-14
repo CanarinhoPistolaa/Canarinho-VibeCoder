@@ -621,6 +621,7 @@ export function recoverOrphanedStepsForAgent(
   staleThresholdMs?: number,
   timeoutRetryReason?: string,
   failureReason?: string,
+  workerJobId?: string,
 ): { recovered: number; failed: number; skipped: number } {
   const db = getDb();
 
@@ -632,6 +633,13 @@ export function recoverOrphanedStepsForAgent(
   if (staleThresholdMs !== undefined) {
     clauses.push("(julianday('now') - julianday(updated_at)) * 86400000 > ?");
     params.push(staleThresholdMs);
+  }
+  // Ownership-aware filter: when workerJobId is provided, skip steps
+  // claimed by a different worker (claim_job_id mismatch). Steps with
+  // NULL claim_job_id (legacy, pre-ownership) are always recovered.
+  if (workerJobId !== undefined) {
+    clauses.push("(claim_job_id IS NULL OR claim_job_id = ?)");
+    params.push(workerJobId);
   }
   const query = `SELECT id, step_id, run_id, retry_count, max_retries, type, current_story_id, loop_config
        FROM steps
@@ -690,7 +698,11 @@ export function recoverOrphanedStepsForAgent(
         } else {
           db.prepare("UPDATE stories SET status = 'pending', retry_count = ?, updated_at = datetime('now') WHERE id = ?").run(newRetry, story.id);
           db.prepare("UPDATE steps SET status = 'pending', current_story_id = NULL, updated_at = datetime('now') WHERE id = ?").run(step.id);
-          emitEvent({ ts: new Date().toISOString(), event: "step.timeout", runId: step.run_id, workflowId: wfId, stepId: step.step_id, detail: `Agent terminated; story ${story.story_id} reset to pending (story retry ${newRetry}/${story.max_retries})` });
+          const storyRecoveryEvent = workerJobId !== undefined ? "step.worker_lost" : "step.timeout";
+          const storyRecoveryDetail = workerJobId !== undefined
+            ? `Worker ${workerJobId} exited without completing story ${story.story_id}; reset to pending (story retry ${newRetry}/${story.max_retries})`
+            : `Agent terminated; story ${story.story_id} reset to pending (story retry ${newRetry}/${story.max_retries})`;
+          emitEvent({ ts: new Date().toISOString(), event: storyRecoveryEvent, runId: step.run_id, workflowId: wfId, stepId: step.step_id, detail: storyRecoveryDetail });
           logger.info(`Orphaned step recovery: story ${story.story_id} reset to pending (retry ${newRetry}/${story.max_retries})`, { runId: step.run_id, stepId: step.step_id, agentId });
           if (timeoutRetryReason) {
             setRunContextKey(step.run_id, "timeout_retry", timeoutRetryReason);
@@ -730,7 +742,11 @@ export function recoverOrphanedStepsForAgent(
           "UPDATE steps SET status = 'pending', retry_count = ?, updated_at = datetime('now') WHERE id = ?"
         ).run(newRetry, step.id);
       }
-      emitEvent({ ts: new Date().toISOString(), event: "step.timeout", runId: step.run_id, workflowId: wfId, stepId: step.step_id, detail: `Agent terminated without completing step; reset to pending (retry ${newRetry}/${step.max_retries})` });
+      const stepRecoveryEvent = workerJobId !== undefined ? "step.worker_lost" : "step.timeout";
+      const stepRecoveryDetail = workerJobId !== undefined
+        ? `Worker ${workerJobId} exited without completing step; reset to pending (retry ${newRetry}/${step.max_retries})`
+        : `Agent terminated without completing step; reset to pending (retry ${newRetry}/${step.max_retries})`;
+      emitEvent({ ts: new Date().toISOString(), event: stepRecoveryEvent, runId: step.run_id, workflowId: wfId, stepId: step.step_id, detail: stepRecoveryDetail });
       logger.info(`Orphaned step reset to pending (retry ${newRetry}/${step.max_retries})`, { runId: step.run_id, stepId: step.step_id, agentId });
       if (timeoutRetryReason) {
         setRunContextKey(step.run_id, "timeout_retry", timeoutRetryReason);
@@ -818,6 +834,12 @@ export function peekStep(agentId: string, runId: string): PeekResult {
 // Claim
 // ══════════════════════════════════════════════════════════════════════
 
+export interface WorkerOwnership {
+  jobId: string;
+  pid: number;
+  pgid?: number;
+}
+
 interface ClaimResult {
   found: boolean;
   stepId?: string;
@@ -834,7 +856,7 @@ const CLEANUP_THROTTLE_MS = 5 * 60 * 1000;
 /**
  * Find and claim a pending step for an agent, returning the resolved input.
  */
-export function claimStep(agentId: string, runId: string): ClaimResult {
+export function claimStep(agentId: string, runId: string, workerOwnership?: WorkerOwnership): ClaimResult {
   // Throttle cleanup: run at most once every 5 minutes across all agents
   const now = Date.now();
   if (now - lastCleanupTime >= CLEANUP_THROTTLE_MS) {
@@ -906,8 +928,12 @@ export function claimStep(agentId: string, runId: string): ClaimResult {
     const loopConfig: LoopConfig | null = step.loop_config ? JSON.parse(step.loop_config) : null;
     if (loopConfig?.over === "stories") {
       const claim = db.prepare(
-        "UPDATE steps SET status = 'running', updated_at = datetime('now') WHERE id = ? AND status = 'pending'"
-      ).run(step.id);
+        workerOwnership
+          ? "UPDATE steps SET status = 'running', claim_job_id = ?, claim_pid = ?, claim_pgid = ?, claim_updated_at = datetime('now'), updated_at = datetime('now') WHERE id = ? AND status = 'pending'"
+          : "UPDATE steps SET status = 'running', updated_at = datetime('now') WHERE id = ? AND status = 'pending'"
+      ).run(
+        ...(workerOwnership ? [workerOwnership.jobId, workerOwnership.pid, workerOwnership.pgid ?? null, step.id] : [step.id])
+      );
       if ((claim.changes ?? 0) <= 0) return { found: false };
 
       if (!runHasStories(step.run_id)) {
@@ -970,8 +996,12 @@ export function claimStep(agentId: string, runId: string): ClaimResult {
         return { found: false };
       }
       db.prepare(
-        "UPDATE steps SET status = 'running', current_story_id = ?, updated_at = datetime('now') WHERE id = ?"
-      ).run(nextStory.id, step.id);
+        workerOwnership
+          ? "UPDATE steps SET status = 'running', current_story_id = ?, claim_job_id = ?, claim_pid = ?, claim_pgid = ?, claim_updated_at = datetime('now'), updated_at = datetime('now') WHERE id = ?"
+          : "UPDATE steps SET status = 'running', current_story_id = ?, updated_at = datetime('now') WHERE id = ?"
+      ).run(
+        ...(workerOwnership ? [nextStory.id, workerOwnership.jobId, workerOwnership.pid, workerOwnership.pgid ?? null, step.id] : [nextStory.id, step.id])
+      );
 
       const wfId = getWorkflowId(step.run_id);
       emitEvent({ ts: new Date().toISOString(), event: "step.running", runId: step.run_id, workflowId: wfId, stepId: step.step_id, agentId });
@@ -1035,8 +1065,12 @@ export function claimStep(agentId: string, runId: string): ClaimResult {
 
   // Single step: existing logic
   const claim = db.prepare(
-    "UPDATE steps SET status = 'running', updated_at = datetime('now') WHERE id = ? AND status = 'pending'"
-  ).run(step.id);
+    workerOwnership
+      ? "UPDATE steps SET status = 'running', claim_job_id = ?, claim_pid = ?, claim_pgid = ?, claim_updated_at = datetime('now'), updated_at = datetime('now') WHERE id = ? AND status = 'pending'"
+      : "UPDATE steps SET status = 'running', updated_at = datetime('now') WHERE id = ? AND status = 'pending'"
+  ).run(
+    ...(workerOwnership ? [workerOwnership.jobId, workerOwnership.pid, workerOwnership.pgid ?? null, step.id] : [step.id])
+  );
   if ((claim.changes ?? 0) <= 0) return { found: false };
   emitEvent({ ts: new Date().toISOString(), event: "step.running", runId: step.run_id, workflowId: getWorkflowId(step.run_id), stepId: step.step_id, agentId });
   logger.info(`Step claimed by ${agentId}`, { runId: step.run_id, stepId: step.step_id });

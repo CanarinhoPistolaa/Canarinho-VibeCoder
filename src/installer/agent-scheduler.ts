@@ -878,12 +878,14 @@ export async function autoCompleteStepIfRunning(
       `is followed by no trailing prose, comments, or markdown — only blank lines or another KEY: line.`;
     try {
       const { recoverOrphanedStepsForAgent } = await import("./step-ops.js");
+      const workerJobId = typeof context.jobId === "string" ? context.jobId : undefined;
       const recoveryResult = recoverOrphanedStepsForAgent(
         context.agentId as string,
         recoveryRunId,
         undefined,
         undefined,
         failureReason,
+        workerJobId,
       );
       if (recoveryResult.recovered > 0 || recoveryResult.failed > 0) {
         logger.info("Orphaned step recovery after auto-complete throw", {
@@ -1123,6 +1125,10 @@ export async function executePollingRound(
       {
         timeout,
         workdir: workingDirectoryForHarness,
+        env: {
+          TAMANDUA_WORKER_JOB_ID: job.id,
+          TAMANDUA_WORKER_PID: String(process.pid),
+        },
         onSpawn: ({ pid, pgid }) => {
           inFlightChildren.set(job.id, { pid, pgid, killed: false });
         },
@@ -1153,6 +1159,10 @@ export async function executePollingRound(
         const recoveryResult = recoverOrphanedStepsForAgent(
           job.agentId,
           job.runId,
+          undefined,
+          undefined,
+          undefined,
+          job.id,
         );
         if (recoveryResult.recovered > 0 || recoveryResult.failed > 0) {
           logger.info("Orphaned step recovery after clean pi exit (other_output)", {
@@ -1190,6 +1200,8 @@ export async function executePollingRound(
         job.runId,
         undefined,
         timeoutRetryReason,
+        undefined,
+        job.id,
       );
       if (recoveryResult.recovered > 0 || recoveryResult.failed > 0) {
         logger.info("Orphaned step recovery after pi failure", {

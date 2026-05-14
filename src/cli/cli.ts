@@ -364,7 +364,13 @@ async function main() {
         console.log(peekStep(target, runIdArg));
         return;
       }
-      const r = claimStep(target, runIdArg);
+      const jobId = process.env.TAMANDUA_WORKER_JOB_ID;
+      const pidStr = process.env.TAMANDUA_WORKER_PID;
+      const pgidStr = process.env.TAMANDUA_WORKER_PGID;
+      const workerOwnership = (jobId && pidStr)
+        ? { jobId, pid: Number(pidStr), ...(pgidStr ? { pgid: Number(pgidStr) } : {}) }
+        : undefined;
+      const r = claimStep(target, runIdArg, workerOwnership);
       console.log(r.found ? JSON.stringify({ stepId: r.stepId, runId: r.runId, input: r.resolvedInput }) : "NO_WORK");
       return;
     }

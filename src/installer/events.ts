@@ -224,6 +224,7 @@ async function fireWebhook(evt: TamanduaEvent): Promise<void> {
     "run.completed",
     "run.failed",
     "step.failed",
+    "step.worker_lost",
     "pipeline.advanced",
   ]);
 

@@ -127,6 +127,24 @@ function migrate(db: DatabaseSync): void {
     db.exec("ALTER TABLE runs ADD COLUMN scheduling_error TEXT");
   }
 
+  // ── Worker ownership columns for steps ──
+  // Tracks which polling worker process (job/PID/PGID) claimed each step.
+  // Nullable — legacy rows stay NULL, ownership-agnostic callers are unaffected.
+  const stepCols = db.prepare("PRAGMA table_info(steps)").all() as Array<{ name: string }>;
+  const stepColNames = new Set(stepCols.map((c) => c.name));
+  if (!stepColNames.has("claim_job_id")) {
+    db.exec("ALTER TABLE steps ADD COLUMN claim_job_id TEXT");
+  }
+  if (!stepColNames.has("claim_pid")) {
+    db.exec("ALTER TABLE steps ADD COLUMN claim_pid INTEGER");
+  }
+  if (!stepColNames.has("claim_pgid")) {
+    db.exec("ALTER TABLE steps ADD COLUMN claim_pgid INTEGER");
+  }
+  if (!stepColNames.has("claim_updated_at")) {
+    db.exec("ALTER TABLE steps ADD COLUMN claim_updated_at TEXT");
+  }
+
   // Indexes for run-scoped scheduling and step claim queries.
   db.exec(
     "CREATE INDEX IF NOT EXISTS idx_steps_agent_run_status ON steps(agent_id, run_id, status)",

@@ -16,8 +16,9 @@ import crypto from "node:crypto";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { recoverOrphanedStepsForAgent, claimStep, resolveStepContext } from "../dist/installer/step-ops.js";
+import { recoverOrphanedStepsForAgent, claimStep, completeStep, resolveStepContext, type WorkerOwnership } from "../dist/installer/step-ops.js";
 import { getDb } from "../dist/db.js";
+import { getRunEvents } from "../dist/installer/events.js";
 
 // ── Environment isolation ──────────────────────────────────────────────
 // Production modules imported at file scope (getDb, recoverOrphanedStepsForAgent,
@@ -449,6 +450,710 @@ describe("other_output recovery (clean pi exit without STATUS)", () => {
 import { autoCompleteStepIfRunning, type PollingRoundMetadata } from "../dist/installer/agent-scheduler.js";
 
 describe("autoCompleteStepIfRunning recovers wedged step on completeStep throw", () => {
+// ══════════════════════════════════════════════════════════════════════
+// US-003: Ownership-aware orphan recovery
+// ══════════════════════════════════════════════════════════════════════
+
+describe("US-003: Ownership-aware orphan recovery", () => {
+  // AC 1: workerJobId skips steps claimed by a different worker
+  it("skips steps claimed by a different worker (claim_job_id mismatch)", () => {
+    const db = getDb();
+    const agent = "test_ownership-skip-other-worker";
+    const runId = crypto.randomUUID();
+    const stepUuid = crypto.randomUUID();
+    const now = ts();
+
+    db.prepare(
+      "INSERT INTO runs (id, workflow_id, task, status, context, created_at, updated_at) VALUES (?, 'test-wf', 'ownership skip', 'running', '{}', ?, ?)"
+    ).run(runId, now, now);
+
+    // Step claimed by worker-B (claim_job_id = 'job-B')
+    db.prepare(
+      `INSERT INTO steps (id, run_id, step_id, agent_id, step_index, input_template, expects,
+        status, retry_count, max_retries, type, claim_job_id, claim_pid, claim_updated_at, created_at, updated_at)
+       VALUES (?, ?, 'ownership-step', ?, 0, '', '', 'running', 0, 2, 'single', 'job-B', 99999, ?, ?, ?)`
+    ).run(stepUuid, runId, agent, now, now, now);
+
+    try {
+      // Worker-A (job-A) tries to recover — should SKIP because step is claimed by job-B
+      const result = recoverOrphanedStepsForAgent(agent, runId, undefined, undefined, undefined, "job-A");
+
+      assert.equal(result.recovered, 0, "should recover 0 steps (different worker)");
+      assert.equal(result.failed, 0, "should not fail any steps");
+      assert.equal(result.skipped, 0, "should not skip any steps");
+
+      const step = db.prepare(
+        "SELECT status FROM steps WHERE id = ?"
+      ).get(stepUuid) as { status: string };
+      assert.equal(step.status, "running", "step should still be running (untouched)");
+    } finally {
+      db.prepare("DELETE FROM steps WHERE id = ?").run(stepUuid);
+      db.prepare("DELETE FROM runs WHERE id = ?").run(runId);
+    }
+  });
+
+  // AC 2: workerJobId recovers steps claimed by the SAME worker
+  it("recovers steps claimed by the same worker (claim_job_id match)", () => {
+    const db = getDb();
+    const agent = "test_ownership-recover-same-worker";
+    const runId = crypto.randomUUID();
+    const stepUuid = crypto.randomUUID();
+    const now = ts();
+
+    db.prepare(
+      "INSERT INTO runs (id, workflow_id, task, status, context, created_at, updated_at) VALUES (?, 'test-wf', 'ownership same worker', 'running', '{}', ?, ?)"
+    ).run(runId, now, now);
+
+    // Step claimed by worker-A (claim_job_id = 'job-A')
+    db.prepare(
+      `INSERT INTO steps (id, run_id, step_id, agent_id, step_index, input_template, expects,
+        status, retry_count, max_retries, type, claim_job_id, claim_pid, claim_updated_at, created_at, updated_at)
+       VALUES (?, ?, 'same-worker-step', ?, 0, '', '', 'running', 0, 2, 'single', 'job-A', 12345, ?, ?, ?)`
+    ).run(stepUuid, runId, agent, now, now, now);
+
+    try {
+      // Worker-A (job-A) exits — should RECOVER because step is claimed by same worker
+      const result = recoverOrphanedStepsForAgent(agent, runId, undefined, undefined, undefined, "job-A");
+
+      assert.equal(result.recovered, 1, "should recover the step (same worker)");
+      assert.equal(result.failed, 0, "should not fail any steps");
+
+      const step = db.prepare(
+        "SELECT status, retry_count FROM steps WHERE id = ?"
+      ).get(stepUuid) as { status: string; retry_count: number };
+      assert.equal(step.status, "pending", "step should be reset to pending");
+      assert.equal(step.retry_count, 1, "retry_count should be bumped");
+
+      // Verify step.worker_lost event was emitted
+      const events = getRunEvents(runId);
+      const workerLostEvents = events.filter((e) => e.event === "step.worker_lost");
+      assert.equal(workerLostEvents.length, 1, "should emit exactly 1 step.worker_lost event");
+      const evt = workerLostEvents[0];
+      assert.ok(evt.detail?.includes("job-A"), `event detail should mention worker jobId, got: ${evt.detail}`);
+      assert.ok(evt.detail?.includes("retry 1/2"), `event detail should include retry info, got: ${evt.detail}`);
+    } finally {
+      db.prepare("DELETE FROM steps WHERE id = ?").run(stepUuid);
+      db.prepare("DELETE FROM runs WHERE id = ?").run(runId);
+    }
+  });
+
+  // AC 2b: workerJobId recovers steps with NULL claim_job_id (legacy)
+  it("recovers steps with NULL claim_job_id regardless of workerJobId", () => {
+    const db = getDb();
+    const agent = "test_ownership-recover-null-legacy";
+    const runId = crypto.randomUUID();
+    const stepUuid = crypto.randomUUID();
+    const now = ts();
+
+    db.prepare(
+      "INSERT INTO runs (id, workflow_id, task, status, context, created_at, updated_at) VALUES (?, 'test-wf', 'ownership null legacy', 'running', '{}', ?, ?)"
+    ).run(runId, now, now);
+
+    // Step WITHOUT ownership columns (NULL claim_job_id) — legacy row
+    db.prepare(
+      `INSERT INTO steps (id, run_id, step_id, agent_id, step_index, input_template, expects,
+        status, retry_count, max_retries, type, created_at, updated_at)
+       VALUES (?, ?, 'legacy-step', ?, 0, '', '', 'running', 0, 2, 'single', ?, ?)`
+    ).run(stepUuid, runId, agent, now, now);
+
+    try {
+      // Any worker should be able to recover legacy (NULL) steps
+      const result = recoverOrphanedStepsForAgent(agent, runId, undefined, undefined, undefined, "job-X");
+
+      assert.equal(result.recovered, 1, "should recover step with NULL claim_job_id");
+      assert.equal(result.failed, 0);
+
+      const step = db.prepare(
+        "SELECT status, retry_count FROM steps WHERE id = ?"
+      ).get(stepUuid) as { status: string; retry_count: number };
+      assert.equal(step.status, "pending", "legacy step should be reset to pending");
+      assert.equal(step.retry_count, 1);
+
+      // Verify step.worker_lost event was emitted (workerJobId provided)
+      const events = getRunEvents(runId);
+      const workerLostEvents = events.filter((e) => e.event === "step.worker_lost");
+      assert.equal(workerLostEvents.length, 1, "should emit step.worker_lost for worker exit");
+    } finally {
+      db.prepare("DELETE FROM steps WHERE id = ?").run(stepUuid);
+      db.prepare("DELETE FROM runs WHERE id = ?").run(runId);
+    }
+  });
+
+  // AC 3: No workerJobId = backward compat — recover all running steps
+  it("recovers all running steps when no workerJobId (backward compat)", () => {
+    const db = getDb();
+    const agent = "test_ownership-backward-compat";
+    const runId = crypto.randomUUID();
+    const stepAId = crypto.randomUUID();
+    const stepBId = crypto.randomUUID();
+    const now = ts();
+
+    db.prepare(
+      "INSERT INTO runs (id, workflow_id, task, status, context, created_at, updated_at) VALUES (?, 'test-wf', 'backward compat', 'running', '{}', ?, ?)"
+    ).run(runId, now, now);
+
+    // Step claimed by worker-A
+    db.prepare(
+      `INSERT INTO steps (id, run_id, step_id, agent_id, step_index, input_template, expects,
+        status, retry_count, max_retries, type, claim_job_id, claim_pid, claim_updated_at, created_at, updated_at)
+       VALUES (?, ?, 'worker-a-step', ?, 0, '', '', 'running', 0, 2, 'single', 'job-A', 111, ?, ?, ?)`
+    ).run(stepAId, runId, agent, now, now, now);
+
+    // Step claimed by worker-B (different worker)
+    db.prepare(
+      `INSERT INTO steps (id, run_id, step_id, agent_id, step_index, input_template, expects,
+        status, retry_count, max_retries, type, claim_job_id, claim_pid, claim_updated_at, created_at, updated_at)
+       VALUES (?, ?, 'worker-b-step', ?, 0, '', '', 'running', 0, 2, 'single', 'job-B', 222, ?, ?, ?)`
+    ).run(stepBId, runId, agent, now, now, now);
+
+    try {
+      // No workerJobId = backward compat — recover ALL running steps regardless of owner
+      const result = recoverOrphanedStepsForAgent(agent, runId);
+
+      assert.equal(result.recovered, 2, "should recover both steps (backward compat)");
+      assert.equal(result.failed, 0);
+
+      // Verify step.timeout events (NOT step.worker_lost) were emitted
+      const events = getRunEvents(runId);
+      const timeoutEvents = events.filter((e) => e.event === "step.timeout");
+      const workerLostEvents = events.filter((e) => e.event === "step.worker_lost");
+      assert.ok(timeoutEvents.length >= 2, `should emit step.timeout events, got ${timeoutEvents.length}`);
+      assert.equal(workerLostEvents.length, 0, "should NOT emit step.worker_lost without workerJobId");
+    } finally {
+      db.prepare("DELETE FROM steps WHERE id IN (?, ?)").run(stepAId, stepBId);
+      db.prepare("DELETE FROM runs WHERE id = ?").run(runId);
+    }
+  });
+
+  // AC 4: step.worker_lost event distinct from step.timeout
+  it("emits step.worker_lost (not step.timeout) when recovery is worker-exit", () => {
+    const db = getDb();
+    const agent = "test_ownership-worker-lost-event";
+    const runId = crypto.randomUUID();
+    const stepUuid = crypto.randomUUID();
+    const now = ts();
+
+    db.prepare(
+      "INSERT INTO runs (id, workflow_id, task, status, context, created_at, updated_at) VALUES (?, 'test-wf', 'worker lost event', 'running', '{}', ?, ?)"
+    ).run(runId, now, now);
+
+    db.prepare(
+      `INSERT INTO steps (id, run_id, step_id, agent_id, step_index, input_template, expects,
+        status, retry_count, max_retries, type, claim_job_id, claim_pid, claim_updated_at, created_at, updated_at)
+       VALUES (?, ?, 'wl-step', ?, 0, '', '', 'running', 0, 3, 'single', 'job-wl', 555, ?, ?, ?)`
+    ).run(stepUuid, runId, agent, now, now, now);
+
+    try {
+      // Worker exit with workerJobId
+      const result = recoverOrphanedStepsForAgent(agent, runId, undefined, undefined, undefined, "job-wl");
+      assert.equal(result.recovered, 1);
+
+      const events = getRunEvents(runId);
+      const workerLostEvents = events.filter((e) => e.event === "step.worker_lost");
+      const timeoutEvents = events.filter((e) => e.event === "step.timeout");
+
+      assert.equal(workerLostEvents.length, 1, "should emit step.worker_lost");
+      assert.equal(timeoutEvents.length, 0, "should NOT emit step.timeout");
+
+      const evt = workerLostEvents[0];
+      assert.equal(evt.runId, runId, "event should have runId");
+      assert.equal(evt.stepId, "wl-step", "event should have stepId");
+      assert.ok(evt.detail?.includes("job-wl"), `detail should mention job-wl, got: ${evt.detail}`);
+      assert.ok(evt.detail?.includes("retry 1/3"), `detail should include retry count, got: ${evt.detail}`);
+      assert.ok(evt.detail?.includes("exited without completing"), `detail should describe reason, got: ${evt.detail}`);
+    } finally {
+      db.prepare("DELETE FROM steps WHERE id = ?").run(stepUuid);
+      db.prepare("DELETE FROM runs WHERE id = ?").run(runId);
+    }
+  });
+
+  // AC 4b: stale sweeper (no workerJobId) emits step.timeout, not step.worker_lost
+  it("stale sweeper (no workerJobId) emits step.timeout, not step.worker_lost", () => {
+    const db = getDb();
+    const agent = "test_ownership-stale-sweeper-event";
+    const runId = crypto.randomUUID();
+    const stepUuid = crypto.randomUUID();
+    const now = ts();
+
+    db.prepare(
+      "INSERT INTO runs (id, workflow_id, task, status, context, created_at, updated_at) VALUES (?, 'test-wf', 'stale sweeper', 'running', '{}', ?, ?)"
+    ).run(runId, now, now);
+
+    // Set updated_at to old so stale threshold catches it
+    const oldTs = new Date(Date.now() - 10 * 60 * 1000).toISOString();
+    const dbNow = ts();
+    db.prepare(
+      `INSERT INTO steps (id, run_id, step_id, agent_id, step_index, input_template, expects,
+        status, retry_count, max_retries, type, claim_job_id, claim_pid, claim_updated_at, created_at, updated_at)
+       VALUES (?, ?, 'stale-step', ?, 0, '', '', 'running', 0, 2, 'single', 'job-stale', 777, ?, ?, ?)`
+    ).run(stepUuid, runId, agent, oldTs, dbNow, oldTs);
+
+    try {
+      // Stale sweeper — no workerJobId
+      const result = recoverOrphanedStepsForAgent(agent, runId, 5 * 60 * 1000);
+      assert.equal(result.recovered, 1);
+
+      const events = getRunEvents(runId);
+      const timeoutEvents = events.filter((e) => e.event === "step.timeout");
+      const workerLostEvents = events.filter((e) => e.event === "step.worker_lost");
+
+      assert.ok(timeoutEvents.length >= 1, "should emit step.timeout");
+      assert.equal(workerLostEvents.length, 0, "should NOT emit step.worker_lost for stale sweeper");
+    } finally {
+      db.prepare("DELETE FROM steps WHERE id = ?").run(stepUuid);
+      db.prepare("DELETE FROM runs WHERE id = ?").run(runId);
+    }
+  });
+
+  // AC 5: ownership-aware with both same-worker and different-worker steps
+  it("handles mixed ownership: recovers own, skips others", () => {
+    const db = getDb();
+    const agent = "test_ownership-mixed";
+    const runId = crypto.randomUUID();
+    const myStepId = crypto.randomUUID();
+    const otherStepId = crypto.randomUUID();
+    const legacyStepId = crypto.randomUUID();
+    const now = ts();
+
+    db.prepare(
+      "INSERT INTO runs (id, workflow_id, task, status, context, created_at, updated_at) VALUES (?, 'test-wf', 'mixed ownership', 'running', '{}', ?, ?)"
+    ).run(runId, now, now);
+
+    // Step 1: claimed by my worker (job-A)
+    db.prepare(
+      `INSERT INTO steps (id, run_id, step_id, agent_id, step_index, input_template, expects,
+        status, retry_count, max_retries, type, claim_job_id, claim_pid, claim_updated_at, created_at, updated_at)
+       VALUES (?, ?, 'my-step', ?, 0, '', '', 'running', 0, 2, 'single', 'job-A', 111, ?, ?, ?)`
+    ).run(myStepId, runId, agent, now, now, now);
+
+    // Step 2: claimed by different worker (job-B)
+    db.prepare(
+      `INSERT INTO steps (id, run_id, step_id, agent_id, step_index, input_template, expects,
+        status, retry_count, max_retries, type, claim_job_id, claim_pid, claim_updated_at, created_at, updated_at)
+       VALUES (?, ?, 'other-step', ?, 0, '', '', 'running', 0, 2, 'single', 'job-B', 222, ?, ?, ?)`
+    ).run(otherStepId, runId, agent, now, now, now);
+
+    // Step 3: NULL claim_job_id (legacy)
+    db.prepare(
+      `INSERT INTO steps (id, run_id, step_id, agent_id, step_index, input_template, expects,
+        status, retry_count, max_retries, type, created_at, updated_at)
+       VALUES (?, ?, 'legacy-step-2', ?, 0, '', '', 'running', 0, 2, 'single', ?, ?)`
+    ).run(legacyStepId, runId, agent, now, now);
+
+    try {
+      // Worker-A (job-A) exits
+      const result = recoverOrphanedStepsForAgent(agent, runId, undefined, undefined, undefined, "job-A");
+
+      assert.equal(result.recovered, 2, "should recover my-step and legacy-step");
+      assert.equal(result.failed, 0);
+
+      // my-step: should be recovered (pending)
+      const myStep = db.prepare("SELECT status FROM steps WHERE id = ?").get(myStepId) as { status: string };
+      assert.equal(myStep.status, "pending");
+
+      // other-step: should still be running (untouched by job-A)
+      const otherStep = db.prepare("SELECT status FROM steps WHERE id = ?").get(otherStepId) as { status: string };
+      assert.equal(otherStep.status, "running");
+
+      // legacy-step: should be recovered (pending)
+      const legacyStep = db.prepare("SELECT status FROM steps WHERE id = ?").get(legacyStepId) as { status: string };
+      assert.equal(legacyStep.status, "pending");
+
+      // Now verify that job-B can still recover the other-step
+      const resultB = recoverOrphanedStepsForAgent(agent, runId, undefined, undefined, undefined, "job-B");
+      assert.equal(resultB.recovered, 1, "job-B should recover its own step");
+      const otherStepAfterB = db.prepare("SELECT status FROM steps WHERE id = ?").get(otherStepId) as { status: string };
+      assert.equal(otherStepAfterB.status, "pending");
+    } finally {
+      db.prepare("DELETE FROM steps WHERE id IN (?, ?, ?)").run(myStepId, otherStepId, legacyStepId);
+      db.prepare("DELETE FROM runs WHERE id = ?").run(runId);
+    }
+  });
+
+  // AC: skipped count for loop verify_each mid-iteration pause
+  it("skips loop step waiting on verify_each even with workerJobId", () => {
+    const db = getDb();
+    const agent = "test_ownership-loop-verify-skip";
+    const runId = crypto.randomUUID();
+    const loopStepUuid = crypto.randomUUID();
+    const verifyStepUuid = crypto.randomUUID();
+    const now = ts();
+
+    db.prepare(
+      "INSERT INTO runs (id, workflow_id, task, status, context, created_at, updated_at) VALUES (?, 'test-wf', 'loop verify skip', 'running', '{}', ?, ?)"
+    ).run(runId, now, now);
+
+    // Loop step with verify_each, no current_story_id (mid-iteration pause)
+    db.prepare(
+      `INSERT INTO steps (id, run_id, step_id, agent_id, step_index, input_template, expects,
+        status, retry_count, max_retries, type, loop_config, claim_job_id, claim_pid, claim_updated_at, created_at, updated_at)
+       VALUES (?, ?, 'implement', ?, 0, '', '', 'running', 0, 2, 'loop',
+               '{"over":"stories","verify_each":true,"verify_step":"verify"}',
+               'job-loop', 333, ?, ?, ?)`
+    ).run(loopStepUuid, runId, agent, now, now, now);
+
+    // Verify step still running (or pending)
+    db.prepare(
+      `INSERT INTO steps (id, run_id, step_id, agent_id, step_index, input_template, expects,
+        status, retry_count, max_retries, type, created_at, updated_at)
+       VALUES (?, ?, 'verify', 'verifier', 1, '', '', 'running', 0, 2, 'single', ?, ?)`
+    ).run(verifyStepUuid, runId, now, now);
+
+    try {
+      const result = recoverOrphanedStepsForAgent(agent, runId, undefined, undefined, undefined, "job-loop");
+
+      assert.equal(result.recovered, 0, "should recover 0 (waiting on verify)");
+      assert.equal(result.failed, 0);
+      assert.equal(result.skipped, 1, "should skip the loop step");
+
+      const loopStep = db.prepare("SELECT status FROM steps WHERE id = ?").get(loopStepUuid) as { status: string };
+      assert.equal(loopStep.status, "running", "loop step should still be running");
+    } finally {
+      db.prepare("DELETE FROM steps WHERE id IN (?, ?)").run(loopStepUuid, verifyStepUuid);
+      db.prepare("DELETE FROM runs WHERE id = ?").run(runId);
+    }
+  });
+});
+
+// ══════════════════════════════════════════════════════════════════════
+// US-004: Focused regression tests for worker-lifecycle recovery
+// ══════════════════════════════════════════════════════════════════════
+
+describe("US-004: Worker-lifecycle recovery regression tests", () => {
+  // ── Test 1: Claim single step with worker A, simulate worker exit, verify recovery ──
+  it("claim single step → worker exit → step recovered with step.worker_lost event", () => {
+    const db = getDb();
+    const agent = "test_us004-single-step-recovery";
+    const runId = crypto.randomUUID();
+    const stepUuid = crypto.randomUUID();
+    const now = ts();
+
+    db.prepare(
+      "INSERT INTO runs (id, workflow_id, task, status, context, created_at, updated_at) VALUES (?, 'test-wf', 'single step recovery', 'running', '{}', ?, ?)"
+    ).run(runId, now, now);
+
+    // Create a pending step, then claim it with ownership
+    db.prepare(
+      `INSERT INTO steps (id, run_id, step_id, agent_id, step_index, input_template, expects,
+        status, retry_count, max_retries, type, created_at, updated_at)
+       VALUES (?, ?, 'single-step', ?, 0, '', '', 'pending', 0, 2, 'single', ?, ?)`
+    ).run(stepUuid, runId, agent, now, now);
+
+    try {
+      // Claim with worker ownership
+      const claim = claimStep(agent, runId, { jobId: "job-A", pid: 12345 });
+      assert.ok(claim.found, "step should be claimed");
+
+      // Verify ownership columns were set
+      const stepAfterClaim = db.prepare(
+        "SELECT status, claim_job_id, claim_pid, claim_updated_at FROM steps WHERE id = ?"
+      ).get(stepUuid) as { status: string; claim_job_id: string | null; claim_pid: number | null; claim_updated_at: string | null };
+      assert.equal(stepAfterClaim.status, "running");
+      assert.equal(stepAfterClaim.claim_job_id, "job-A");
+      assert.equal(stepAfterClaim.claim_pid, 12345);
+      assert.ok(stepAfterClaim.claim_updated_at, "claim_updated_at should be set");
+
+      // Simulate worker A exit: recover with same workerJobId
+      const result = recoverOrphanedStepsForAgent(agent, runId, undefined, undefined, undefined, "job-A");
+      assert.equal(result.recovered, 1, "should recover 1 step");
+      assert.equal(result.failed, 0, "should not fail");
+      assert.equal(result.skipped, 0, "should not skip");
+
+      // Verify step reset to pending with bumped retry_count
+      const stepAfterRecovery = db.prepare(
+        "SELECT status, retry_count FROM steps WHERE id = ?"
+      ).get(stepUuid) as { status: string; retry_count: number };
+      assert.equal(stepAfterRecovery.status, "pending");
+      assert.equal(stepAfterRecovery.retry_count, 1);
+
+      // Verify step.worker_lost event
+      const events = getRunEvents(runId);
+      const workerLostEvents = events.filter((e) => e.event === "step.worker_lost");
+      assert.equal(workerLostEvents.length, 1, "should emit exactly 1 step.worker_lost event");
+      assert.equal(workerLostEvents[0].runId, runId);
+      assert.equal(workerLostEvents[0].stepId, "single-step");
+      assert.ok(workerLostEvents[0].detail?.includes("job-A"), "detail should mention job-A");
+      assert.ok(workerLostEvents[0].detail?.includes("retry 1/2"), "detail should include retry info");
+    } finally {
+      db.prepare("DELETE FROM steps WHERE id = ?").run(stepUuid);
+      db.prepare("DELETE FROM runs WHERE id = ?").run(runId);
+    }
+  });
+
+  // ── Test 2: Claim loop story with worker A, simulate worker exit, verify story recovery ──
+  it("claim loop story → worker exit → story recovered with step.worker_lost event", () => {
+    const db = getDb();
+    const agent = "test_us004-loop-story-recovery";
+    const runId = crypto.randomUUID();
+    const loopStepUuid = crypto.randomUUID();
+    const storyUuid = crypto.randomUUID();
+    const now = ts();
+
+    db.prepare(
+      "INSERT INTO runs (id, workflow_id, task, status, context, created_at, updated_at) VALUES (?, 'test-wf', 'loop story recovery', 'running', '{}', ?, ?)"
+    ).run(runId, now, now);
+
+    // Loop step over stories
+    db.prepare(
+      `INSERT INTO steps (id, run_id, step_id, agent_id, step_index, input_template, expects,
+        status, retry_count, max_retries, type, loop_config, created_at, updated_at)
+       VALUES (?, ?, 'implement', ?, 0, '', '', 'pending', 0, 2, 'loop',
+               '{"over":"stories","completion":"all_done","fresh_session":true}', ?, ?)`
+    ).run(loopStepUuid, runId, agent, now, now);
+
+    // A pending story
+    db.prepare(
+      `INSERT INTO stories (id, run_id, story_id, story_index, title, description, acceptance_criteria, status, retry_count, max_retries, created_at, updated_at)
+       VALUES (?, ?, 'US-100', 1, 'Test Story', 'Do something', '[]', 'pending', 0, 2, ?, ?)`
+    ).run(storyUuid, runId, now, now);
+
+    try {
+      // Claim loop step with worker ownership
+      const claim = claimStep(agent, runId, { jobId: "job-A", pid: 12345 });
+      assert.ok(claim.found, "loop step should be claimed");
+
+      // Verify ownership and current_story_id
+      const stepAfterClaim = db.prepare(
+        "SELECT status, claim_job_id, claim_pid, current_story_id FROM steps WHERE id = ?"
+      ).get(loopStepUuid) as { status: string; claim_job_id: string | null; claim_pid: number | null; current_story_id: string | null };
+      assert.equal(stepAfterClaim.status, "running");
+      assert.equal(stepAfterClaim.claim_job_id, "job-A");
+      assert.ok(stepAfterClaim.current_story_id, "current_story_id should be set");
+
+      // Verify story is running
+      const storyAfterClaim = db.prepare(
+        "SELECT status FROM stories WHERE id = ?"
+      ).get(storyUuid) as { status: string };
+      assert.equal(storyAfterClaim.status, "running");
+
+      // Simulate worker A exit: recover with same workerJobId
+      const result = recoverOrphanedStepsForAgent(agent, runId, undefined, undefined, undefined, "job-A");
+      assert.equal(result.recovered, 1, "should recover 1 (story)");
+      assert.equal(result.failed, 0, "should not fail");
+      assert.equal(result.skipped, 0, "should not skip");
+
+      // Verify story reset to pending, story retry_count bumped
+      const storyAfterRecovery = db.prepare(
+        "SELECT status, retry_count FROM stories WHERE id = ?"
+      ).get(storyUuid) as { status: string; retry_count: number };
+      assert.equal(storyAfterRecovery.status, "pending");
+      assert.equal(storyAfterRecovery.retry_count, 1);
+
+      // Verify loop step reset to pending, current_story_id cleared
+      const loopStepAfterRecovery = db.prepare(
+        "SELECT status, current_story_id FROM steps WHERE id = ?"
+      ).get(loopStepUuid) as { status: string; current_story_id: string | null };
+      assert.equal(loopStepAfterRecovery.status, "pending");
+      assert.equal(loopStepAfterRecovery.current_story_id, null);
+
+      // Verify step.worker_lost event with story detail
+      const events = getRunEvents(runId);
+      const workerLostEvents = events.filter((e) => e.event === "step.worker_lost");
+      assert.equal(workerLostEvents.length, 1, "should emit exactly 1 step.worker_lost event");
+      assert.ok(workerLostEvents[0].detail?.includes("US-100"), `detail should mention story ID, got: ${workerLostEvents[0].detail}`);
+      assert.ok(workerLostEvents[0].detail?.includes("story retry 1/2"), `detail should include story retry, got: ${workerLostEvents[0].detail}`);
+    } finally {
+      db.prepare("DELETE FROM stories WHERE id = ?").run(storyUuid);
+      db.prepare("DELETE FROM steps WHERE id = ?").run(loopStepUuid);
+      db.prepare("DELETE FROM runs WHERE id = ?").run(runId);
+    }
+  });
+
+  // ── Test 3: Worker A claims step, then worker B reclaims, worker A exit skips ──
+  it("worker A claims → worker B reclaims → worker A exit does NOT recover", () => {
+    const db = getDb();
+    const agent = "test_us004-worker-reclaim";
+    const runId = crypto.randomUUID();
+    const stepUuid = crypto.randomUUID();
+    const now = ts();
+
+    db.prepare(
+      "INSERT INTO runs (id, workflow_id, task, status, context, created_at, updated_at) VALUES (?, 'test-wf', 'worker reclaim', 'running', '{}', ?, ?)"
+    ).run(runId, now, now);
+
+    // Create a pending step
+    db.prepare(
+      `INSERT INTO steps (id, run_id, step_id, agent_id, step_index, input_template, expects,
+        status, retry_count, max_retries, type, created_at, updated_at)
+       VALUES (?, ?, 'reclaim-step', ?, 0, '', '', 'pending', 0, 2, 'single', ?, ?)`
+    ).run(stepUuid, runId, agent, now, now);
+
+    try {
+      // Worker A claims the step
+      const claimA = claimStep(agent, runId, { jobId: "job-A", pid: 11111 });
+      assert.ok(claimA.found, "worker A should claim step");
+
+      // Verify A's ownership
+      let step = db.prepare(
+        "SELECT status, claim_job_id, claim_pid FROM steps WHERE id = ?"
+      ).get(stepUuid) as { status: string; claim_job_id: string | null; claim_pid: number | null };
+      assert.equal(step.claim_job_id, "job-A");
+      assert.equal(step.claim_pid, 11111);
+
+      // Simulate: step was recovered from A (reset to pending), then claimed by worker B
+      // This simulates a newer polling round picking up the work
+      db.prepare(
+        "UPDATE steps SET status = 'pending', claim_job_id = NULL, claim_pid = NULL, claim_updated_at = NULL WHERE id = ?"
+      ).run(stepUuid);
+
+      const claimB = claimStep(agent, runId, { jobId: "job-B", pid: 22222 });
+      assert.ok(claimB.found, "worker B should claim step after recovery");
+
+      // Verify B's ownership
+      step = db.prepare(
+        "SELECT status, claim_job_id, claim_pid FROM steps WHERE id = ?"
+      ).get(stepUuid) as { status: string; claim_job_id: string | null; claim_pid: number | null };
+      assert.equal(step.claim_job_id, "job-B");
+      assert.equal(step.status, "running");
+
+      // Now worker A's exit handler runs (stale recovery) — should skip because
+      // step now belongs to B (claim_job_id != 'job-A')
+      const result = recoverOrphanedStepsForAgent(agent, runId, undefined, undefined, undefined, "job-A");
+      assert.equal(result.recovered, 0, "worker A should recover 0 steps (step belongs to B)");
+      assert.equal(result.failed, 0, "should fail 0");
+      assert.equal(result.skipped, 0, "should skip 0");
+
+      // Step should still be running (untouched)
+      step = db.prepare(
+        "SELECT status, claim_job_id FROM steps WHERE id = ?"
+      ).get(stepUuid) as { status: string; claim_job_id: string | null };
+      assert.equal(step.status, "running");
+      assert.equal(step.claim_job_id, "job-B");
+
+      // No worker_lost events should have been emitted
+      const events = getRunEvents(runId);
+      const workerLostEvents = events.filter((e) => e.event === "step.worker_lost");
+      assert.equal(workerLostEvents.length, 0, "no step.worker_lost events for worker A");
+    } finally {
+      db.prepare("DELETE FROM steps WHERE id = ?").run(stepUuid);
+      db.prepare("DELETE FROM runs WHERE id = ?").run(runId);
+    }
+  });
+
+  // ── Test 4: Normal completion — claim → complete → no recovery, step stays done ──
+  it("normal completion: claim → complete → step stays done, no recovery", () => {
+    const db = getDb();
+    const agent = "test_us004-normal-completion";
+    const runId = crypto.randomUUID();
+    const stepUuid = crypto.randomUUID();
+    const now = ts();
+
+    db.prepare(
+      "INSERT INTO runs (id, workflow_id, task, status, context, created_at, updated_at) VALUES (?, 'test-wf', 'normal completion', 'running', '{}', ?, ?)"
+    ).run(runId, now, now);
+
+    // Create a pending step with expects matching the expected output
+    db.prepare(
+      `INSERT INTO steps (id, run_id, step_id, agent_id, step_index, input_template, expects,
+        status, retry_count, max_retries, type, created_at, updated_at)
+       VALUES (?, ?, 'normal-step', ?, 0, '', '', 'pending', 0, 2, 'single', ?, ?)`
+    ).run(stepUuid, runId, agent, now, now);
+
+    try {
+      // Claim with worker ownership
+      const claim = claimStep(agent, runId, { jobId: "job-A", pid: 12345 });
+      assert.ok(claim.found, "step should be claimed");
+      assert.ok(claim.stepId, "stepId should be returned");
+
+      // Complete normally
+      const completeResult = completeStep(claim.stepId!, "STATUS: done\nCHANGES: implemented feature\nTESTS: all pass");
+      assert.ok(completeResult.status === "completed" || completeResult.status === "advanced", `complete should succeed, got ${completeResult.status}`);
+
+      // Verify step is done
+      const stepAfterComplete = db.prepare(
+        "SELECT status FROM steps WHERE id = ?"
+      ).get(stepUuid) as { status: string };
+      assert.ok(stepAfterComplete.status === "done" || stepAfterComplete.status === "done", `step should be done, got ${stepAfterComplete.status}`);
+
+      // Capture events so far (to count later)
+      const eventsBeforeRecovery = getRunEvents(runId);
+      const workerLostBefore = eventsBeforeRecovery.filter((e) => e.event === "step.worker_lost").length;
+
+      // Try recovery — should not touch the done step
+      const result = recoverOrphanedStepsForAgent(agent, runId, undefined, undefined, undefined, "job-A");
+      assert.equal(result.recovered, 0, "should recover 0 steps (step already done)");
+      assert.equal(result.failed, 0, "should fail 0");
+      assert.equal(result.skipped, 0, "should skip 0");
+
+      // Step should still be done
+      const stepAfterRecovery = db.prepare(
+        "SELECT status FROM steps WHERE id = ?"
+      ).get(stepUuid) as { status: string };
+      assert.ok(stepAfterRecovery.status === "done" || stepAfterRecovery.status === "done", "step should remain done");
+
+      // No new step.worker_lost events
+      const eventsAfterRecovery = getRunEvents(runId);
+      const workerLostAfter = eventsAfterRecovery.filter((e) => e.event === "step.worker_lost").length;
+      assert.equal(workerLostAfter, workerLostBefore, "no new step.worker_lost events after recovery of done step");
+    } finally {
+      db.prepare("DELETE FROM steps WHERE id = ?").run(stepUuid);
+      db.prepare("DELETE FROM runs WHERE id = ?").run(runId);
+    }
+  });
+
+  // ── Test 5: step.worker_lost event detail fields are correct ──
+  it("step.worker_lost event has correct detail fields", () => {
+    const db = getDb();
+    const agent = "test_us004-event-fields";
+    const runId = crypto.randomUUID();
+    const stepUuid = crypto.randomUUID();
+    const now = ts();
+    const workerJobId = "job-event-test-xyz";
+
+    db.prepare(
+      "INSERT INTO runs (id, workflow_id, task, status, context, created_at, updated_at) VALUES (?, 'test-wf', 'event fields', 'running', '{}', ?, ?)"
+    ).run(runId, now, now);
+
+    // Create a pending step, claim with ownership, then recover
+    db.prepare(
+      `INSERT INTO steps (id, run_id, step_id, agent_id, step_index, input_template, expects,
+        status, retry_count, max_retries, type, created_at, updated_at)
+       VALUES (?, ?, 'event-step', ?, 0, '', '', 'pending', 0, 3, 'single', ?, ?)`
+    ).run(stepUuid, runId, agent, now, now);
+
+    try {
+      // Claim with explicit workerJobId
+      claimStep(agent, runId, { jobId: workerJobId, pid: 99999 });
+
+      // Recover
+      const result = recoverOrphanedStepsForAgent(agent, runId, undefined, undefined, undefined, workerJobId);
+      assert.equal(result.recovered, 1);
+
+      // Verify event structure
+      const events = getRunEvents(runId);
+      const workerLostEvents = events.filter((e) => e.event === "step.worker_lost");
+      assert.equal(workerLostEvents.length, 1, "exactly 1 step.worker_lost event");
+
+      const evt = workerLostEvents[0];
+
+      // runId field
+      assert.equal(evt.runId, runId, "event.runId must match the run");
+
+      // stepId field
+      assert.equal(evt.stepId, "event-step", "event.stepId must match the step");
+
+      // event type
+      assert.equal(evt.event, "step.worker_lost", "event type must be step.worker_lost");
+
+      // ts should be a valid ISO timestamp
+      assert.ok(evt.ts, "event.ts must be present");
+      assert.ok(Date.parse(evt.ts) > 0, "event.ts must be a valid date");
+
+      // detail field — must contain the workerJobId
+      assert.ok(evt.detail, "event.detail must be present");
+      assert.ok(evt.detail!.includes(workerJobId), `detail must contain workerJobId "${workerJobId}", got: ${evt.detail}`);
+      assert.ok(evt.detail!.includes("exited without completing"), `detail must describe reason, got: ${evt.detail}`);
+      assert.ok(evt.detail!.includes("retry 1/3"), `detail must include retry count, got: ${evt.detail}`);
+
+      // workflowId should be present
+      assert.ok(evt.workflowId, `event.workflowId should be present, got: ${evt.workflowId}`);
+    } finally {
+      db.prepare("DELETE FROM steps WHERE id = ?").run(stepUuid);
+      db.prepare("DELETE FROM runs WHERE id = ?").run(runId);
+    }
+  });
+});
+
   it("STORIES_JSON parse error recovers the running plan step instead of wedging", async () => {
     const db = getDb();
     const agent = "test_stories-json-wedge-recovery";

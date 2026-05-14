@@ -24,6 +24,7 @@ export {
 export {
   peekStep,
   claimStep,
+  WorkerOwnership,
   completeStep,
   failStep,
   advancePipeline,
