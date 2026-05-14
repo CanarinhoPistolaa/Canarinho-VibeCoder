@@ -25,6 +25,7 @@ import crypto from "node:crypto";
 import { logger } from "../lib/logger.js";
 import { getDb } from "../db.js";
 import { emitEvent } from "../installer/events.js";
+import { validateRunHarnessForScheduling } from "../installer/run-harness.js";
 
 export const DEFAULT_CONTROL_PORT = 3339;
 const DEFAULT_MAX_ACTIVE_TIMERS = 50;
@@ -136,17 +137,6 @@ function isTerminal(status: string): boolean {
   return status === "completed" || status === "failed" || status === "canceled";
 }
 
-function readContextWorkdir(contextRaw: string): string | undefined {
-  try {
-    const parsed = JSON.parse(contextRaw) as Record<string, unknown>;
-    const value = parsed.working_directory_for_harness;
-    if (typeof value === "string" && value.trim().length > 0) return value.trim();
-  } catch {
-    /* ignore */
-  }
-  return undefined;
-}
-
 function requiredTimersForRun(runId: string): number {
   const row = getDb()
     .prepare("SELECT COUNT(DISTINCT agent_id) AS cnt FROM steps WHERE run_id = ?")
@@ -161,9 +151,21 @@ async function admitOrQueueRun(run: RunRow): Promise<JsonResponse> {
   const {
     _scheduledJobCount,
     _scheduledJobCountForRun,
+    _runIdForScheduledHarnessWorkdir,
     removeRunCrons,
     setupAgentCrons,
   } = await import("../installer/agent-scheduler.js");
+
+  const harness = validateRunHarnessForScheduling(run.id, run.context);
+  const duplicateRunId = _runIdForScheduledHarnessWorkdir(
+    harness.workingDirectoryForHarness,
+    run.id,
+  );
+  if (duplicateRunId && process.env.TAMANDUA_ALLOW_SHARED_HARNESS_WORKDIR !== "1") {
+    throw new Error(
+      `Run ${run.id} harness workdir is already scheduled for run ${duplicateRunId}: ${harness.workingDirectoryForHarness}`,
+    );
+  }
 
   const existingForRun = _scheduledJobCountForRun(run.id);
   if (requiredTimers > 0 && existingForRun >= requiredTimers) {
@@ -219,10 +221,11 @@ async function admitOrQueueRun(run: RunRow): Promise<JsonResponse> {
   const { loadWorkflowSpec } = await import("../installer/workflow-spec.js");
   const { resolveWorkflowDir } = await import("../installer/paths.js");
   const workflow = await loadWorkflowSpec(resolveWorkflowDir(run.workflow_id));
-  const cwd = readContextWorkdir(run.context);
 
   try {
-    await setupAgentCrons(workflow, run.id, { workingDirectoryForHarness: cwd });
+    await setupAgentCrons(workflow, run.id, {
+      workingDirectoryForHarness: harness.workingDirectoryForHarness,
+    });
     const scheduledForRun = _scheduledJobCountForRun(run.id);
     if (scheduledForRun < requiredTimers) {
       await removeRunCrons(run.id);
@@ -397,6 +400,21 @@ async function handleResumeRun(runId: string): Promise<JsonResponse> {
   if (isTerminal(run.status)) return conflict(`Run is terminal: ${run.status}`);
   if (run.status === "running" && run.scheduling_status === "active") {
     return ok({ state: "active" });
+  }
+  try {
+    validateRunHarnessForScheduling(run.id, run.context);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    try {
+      getDb()
+        .prepare(
+          "UPDATE runs SET scheduling_status = 'error', scheduling_error = ?, updated_at = datetime('now') WHERE id = ?",
+        )
+        .run(message, runId);
+    } catch {
+      /* best-effort */
+    }
+    return unprocessable(`Cannot resume run: ${message}`);
   }
   try {
     getDb()

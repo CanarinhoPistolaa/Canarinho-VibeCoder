@@ -10,8 +10,10 @@ import {
 } from "../server/control-client.js";
 import { emitEvent } from "./events.js";
 import { advancePipeline } from "./step-ops.js";
-
-const RUN_CONTEXT_WORKING_DIRECTORY_FOR_HARNESS_KEY = "working_directory_for_harness";
+import {
+  RUN_CONTEXT_WORKING_DIRECTORY_FOR_HARNESS_KEY,
+  validateRunHarnessForScheduling,
+} from "./run-harness.js";
 
 export interface RunWorkflowParams {
   workflowId: string;
@@ -188,12 +190,13 @@ export interface ResumeResult {
 export async function resumeWorkflow(runId: string): Promise<ResumeResult> {
   const db = getDb();
   const run = db.prepare(
-    "SELECT id, workflow_id, status FROM runs WHERE id = ? AND status = 'failed'",
-  ).get(runId) as { id: string; workflow_id: string; status: string } | undefined;
+    "SELECT id, workflow_id, status, context FROM runs WHERE id = ? AND status = 'failed'",
+  ).get(runId) as { id: string; workflow_id: string; status: string; context: string } | undefined;
 
   if (!run) return { status: "not_found" };
 
   await ensureDaemonControlAvailable();
+  validateRunHarnessForScheduling(run.id, run.context);
 
   // Reset the run to running and request fresh scheduling admission.
   const resumeNow = new Date().toISOString();

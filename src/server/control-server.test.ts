@@ -326,11 +326,12 @@ describe("daemon control plane", { concurrency: 1 }, () => {
     const runId = crypto.randomUUID();
     const workflowId = "wf-resume-test";
     const now = new Date().toISOString();
+    const context = JSON.stringify({ working_directory_for_harness: tempHome });
 
     // Insert a paused run so resume will process it.
     db.prepare(
-      "INSERT INTO runs (id, workflow_id, task, status, context, tokens_spent, scheduling_status, created_at, updated_at) VALUES (?, ?, 'resume-test', 'paused', '{}', 0, 'paused', ?, ?)",
-    ).run(runId, workflowId, now, now);
+      "INSERT INTO runs (id, workflow_id, task, status, context, tokens_spent, scheduling_status, created_at, updated_at) VALUES (?, ?, 'resume-test', 'paused', ?, 0, 'paused', ?, ?)",
+    ).run(runId, workflowId, context, now, now);
     db.close();
 
     const r = await jsonRequest(

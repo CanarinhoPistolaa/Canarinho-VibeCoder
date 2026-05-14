@@ -71,6 +71,7 @@ function seedRunDb(dbPath: string, runs: Array<{
   workflowId: string;
   task: string;
   status: string;
+  context?: Record<string, unknown>;
   tokensSpent?: number;
   schedulingStatus?: string;
 }>) {
@@ -112,10 +113,10 @@ function seedRunDb(dbPath: string, runs: Array<{
 
   for (const r of runs) {
     db.prepare(
-      `INSERT INTO runs (id, workflow_id, task, status, tokens_spent${r.schedulingStatus !== undefined ? ", scheduling_status" : ""})
-       VALUES (?, ?, ?, ?, ?${r.schedulingStatus !== undefined ? ", ?" : ""})`,
+      `INSERT INTO runs (id, workflow_id, task, status, context, tokens_spent${r.schedulingStatus !== undefined ? ", scheduling_status" : ""})
+       VALUES (?, ?, ?, ?, ?, ?${r.schedulingStatus !== undefined ? ", ?" : ""})`,
     ).run(
-      r.id, r.workflowId, r.task, r.status, r.tokensSpent ?? 0,
+      r.id, r.workflowId, r.task, r.status, JSON.stringify(r.context ?? {}), r.tokensSpent ?? 0,
       ...(r.schedulingStatus !== undefined ? [r.schedulingStatus] : []),
     );
   }
@@ -176,6 +177,7 @@ describe("tamandua workflow resume CLI", { concurrency: 1 }, () => {
         workflowId: "feature-dev-merge",
         task: "Test paused run for resume",
         status: "paused",
+        context: { working_directory_for_harness: root },
       },
     ]);
 
@@ -355,6 +357,7 @@ describe("tamandua workflow resume CLI", { concurrency: 1 }, () => {
         workflowId: "feature-dev-merge",
         task: "Test failed run for resume",
         status: "failed",
+        context: { working_directory_for_harness: root },
       },
     ]);
 

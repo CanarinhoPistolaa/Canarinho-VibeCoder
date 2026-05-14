@@ -100,10 +100,17 @@ function seedRunDb(dbPath: string, runs: Array<{
   `);
 
   for (const r of runs) {
+    const harnessDir = path.join(path.dirname(dbPath), "harness", r.id);
+    fs.mkdirSync(harnessDir, { recursive: true });
+    const context = JSON.stringify({
+      task: r.task,
+      repo: harnessDir,
+      working_directory_for_harness: harnessDir,
+    });
     db.prepare(
-      `INSERT INTO runs (id, workflow_id, task, status, tokens_spent)
-       VALUES (?, ?, ?, ?, ?)`,
-    ).run(r.id, r.workflowId, r.task, r.status, r.tokensSpent ?? 0);
+      `INSERT INTO runs (id, workflow_id, task, status, context, tokens_spent)
+       VALUES (?, ?, ?, ?, ?, ?)`,
+    ).run(r.id, r.workflowId, r.task, r.status, context, r.tokensSpent ?? 0);
   }
 
   db.close();
@@ -153,10 +160,17 @@ function seedRunWithStepsDb(dbPath: string, runs: Array<{
   `);
 
   for (const r of runs) {
+    const harnessDir = path.join(path.dirname(dbPath), "harness", r.id);
+    fs.mkdirSync(harnessDir, { recursive: true });
+    const context = JSON.stringify({
+      task: r.task,
+      repo: harnessDir,
+      working_directory_for_harness: harnessDir,
+    });
     db.prepare(
-      `INSERT INTO runs (id, workflow_id, task, status)
-       VALUES (?, ?, ?, ?)`,
-    ).run(r.id, r.workflowId, r.task, r.status);
+      `INSERT INTO runs (id, workflow_id, task, status, context)
+       VALUES (?, ?, ?, ?, ?)`,
+    ).run(r.id, r.workflowId, r.task, r.status, context);
   }
 
   db.close();

@@ -1061,8 +1061,18 @@ export async function executePollingRound(
 ): Promise<void> {
   const role = agent.role ?? inferRole(agent.id);
   const timeout = agent.timeoutSeconds ?? job.timeoutSeconds ?? getRoleTimeoutSeconds(role);
-  const workingDirectoryForHarness = job.workingDirectoryForHarness;
+  const legacyJobWorkdir = (job as CronJobInfo & { workdir?: string }).workdir;
+  const workingDirectoryForHarness = job.workingDirectoryForHarness ?? legacyJobWorkdir;
   const context = buildPollingRoundContext(job, agent, timeout, workingDirectoryForHarness, workflow);
+
+  if (!workingDirectoryForHarness) {
+    logger.error("Polling round refused — missing harness workdir", {
+      ...context,
+      reason: "missing_working_directory_for_harness",
+    });
+    await removeRunCrons(job.runId);
+    return;
+  }
 
   // ── Run-scoped status check ──────────────────────────────────────
   // If this run is no longer 'running' (terminal/paused) tear down the
@@ -1483,11 +1493,16 @@ export async function teardownWorkflowCronsIfIdle(workflowId: string): Promise<v
  */
 export async function listCronJobs(): Promise<{
   ok: boolean;
-  jobs?: Array<{ id: string; runId: string; agentId: string }>;
+  jobs?: Array<{ id: string; runId: string; agentId: string; workingDirectoryForHarness?: string }>;
 }> {
-  const jobs: Array<{ id: string; runId: string; agentId: string }> = [];
+  const jobs: Array<{ id: string; runId: string; agentId: string; workingDirectoryForHarness?: string }> = [];
   for (const [id, info] of jobMetadata) {
-    jobs.push({ id, runId: info.runId, agentId: info.agentId });
+    jobs.push({
+      id,
+      runId: info.runId,
+      agentId: info.agentId,
+      workingDirectoryForHarness: info.workingDirectoryForHarness,
+    });
   }
   return { ok: true, jobs };
 }
@@ -1550,4 +1565,33 @@ export function _scheduledJobCountForRun(runId: string): number {
     if (info.runId === runId) count++;
   }
   return count;
+}
+
+/** @internal — exposed for daemon admission safety checks. */
+export function _runIdForScheduledHarnessWorkdir(
+  workingDirectoryForHarness: string,
+  excludingRunId?: string,
+): string | null {
+  let requested = path.resolve(workingDirectoryForHarness);
+  try {
+    requested = fs.realpathSync(requested);
+  } catch {
+    /* admission validates existence before calling this */
+  }
+
+  for (const info of jobMetadata.values()) {
+    if (excludingRunId && info.runId === excludingRunId) continue;
+    if (!info.workingDirectoryForHarness) continue;
+
+    let scheduled = path.resolve(info.workingDirectoryForHarness);
+    try {
+      scheduled = fs.realpathSync(scheduled);
+    } catch {
+      /* stale job metadata should not block scheduling by itself */
+    }
+
+    if (scheduled === requested) return info.runId;
+  }
+
+  return null;
 }

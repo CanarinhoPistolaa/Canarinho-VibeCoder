@@ -195,7 +195,13 @@ function seedRunAndSteps(
   `);
 
   const now = new Date().toISOString();
-  const context = JSON.stringify({ task: "Integration test", repo: "/tmp/test" });
+  const harnessDir = path.join(path.dirname(dbPath), "harness", runId);
+  fs.mkdirSync(harnessDir, { recursive: true });
+  const context = JSON.stringify({
+    task: "Integration test",
+    repo: harnessDir,
+    working_directory_for_harness: harnessDir,
+  });
 
   db.prepare(
     `INSERT INTO runs (id, workflow_id, task, status, context, tokens_spent, scheduling_status, run_number, created_at, updated_at)
@@ -604,7 +610,12 @@ describe("pause-all / resume-all integration", { concurrency: 1 }, () => {
       `);
 
       const now = new Date().toISOString();
-      const context = JSON.stringify({ task: "Drain finalize test", repo: "/tmp/test" });
+      const harnessDir = path.dirname(dbPath);
+      const context = JSON.stringify({
+        task: "Drain finalize test",
+        repo: harnessDir,
+        working_directory_for_harness: harnessDir,
+      });
 
       db.prepare(
         `INSERT INTO runs (id, workflow_id, task, status, context, tokens_spent, scheduling_status, run_number, created_at, updated_at)
@@ -1099,7 +1110,12 @@ describe("pause-all / resume-all integration", { concurrency: 1 }, () => {
       `);
 
       const now = new Date().toISOString();
-      const context = JSON.stringify({ task: "Drain no-spawn test", repo: "/tmp/test" });
+      const harnessDir = path.dirname(dbPath);
+      const context = JSON.stringify({
+        task: "Drain no-spawn test",
+        repo: harnessDir,
+        working_directory_for_harness: harnessDir,
+      });
 
       db.prepare(
         `INSERT INTO runs (id, workflow_id, task, status, context, tokens_spent, scheduling_status, run_number, created_at, updated_at)

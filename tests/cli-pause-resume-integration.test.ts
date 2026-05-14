@@ -175,7 +175,12 @@ function seedRunAndSteps(
   `);
 
   const now = new Date().toISOString();
-  const context = JSON.stringify({ task: "Integration test", repo: "/tmp/test" });
+  const harnessDir = path.dirname(dbPath);
+  const context = JSON.stringify({
+    task: "Integration test",
+    repo: harnessDir,
+    working_directory_for_harness: harnessDir,
+  });
 
   db.prepare(
     `INSERT INTO runs (id, workflow_id, task, status, context, tokens_spent, scheduling_status, run_number, created_at, updated_at)
