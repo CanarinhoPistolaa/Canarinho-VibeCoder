@@ -12,7 +12,7 @@ import {
 import { getWorkflowStatus, listRuns, type RunDetail, type RunInfo } from "../installer/status.js";
 import { runWorkflow, type RunWorkflowResult } from "../installer/run.js";
 import { getRecentEvents, type TamanduaEvent } from "../installer/events.js";
-import { resolveSourcePath } from "../installer/paths.js";
+import { resolveSourcePath, resolveSkillPath } from "../installer/paths.js";
 import { pauseRunWithDaemon, resumeRunWithDaemon } from "./control-client.js";
 
 export const DEFAULT_MCP_PORT = 3338;
@@ -24,6 +24,7 @@ const MCP_TOOL_RUN_START = "tamandua.run.start";
 const MCP_TOOL_RUN_PAUSE = "tamandua.run.pause";
 const MCP_TOOL_RUN_RESUME = "tamandua.run.resume";
 const MCP_TOOL_EVENTS_RECENT = "tamandua.events.recent";
+const MCP_TOOL_SKILL_PATH = "tamandua.skill.path";
 const MCP_TOOL_SOURCE_PATH = "tamandua.source.path";
 const MCP_TOOL_UPDATE_COMMAND = "tamandua.update.command";
 
@@ -42,6 +43,7 @@ export interface TamanduaMcpToolServices {
   }) => Promise<RunWorkflowResult>;
   getRecentEvents: (limit?: number) => TamanduaEvent[];
   getSourcePath: () => string;
+  getSkillPath: () => string;
   pauseRun: (runId: string, drain?: boolean) => Promise<{ runId: string; status: string }>;
   resumeRun: (runId: string) => Promise<{ runId: string; status: string }>;
 }
@@ -63,6 +65,7 @@ const defaultToolServices: TamanduaMcpToolServices = {
   runWorkflow,
   getRecentEvents,
   getSourcePath: resolveSourcePath,
+  getSkillPath: resolveSkillPath,
   async pauseRun(runId, drain = false) {
     const r = await pauseRunWithDaemon(runId, drain);
     if (!r) throw new Error("Daemon control plane unreachable");
@@ -277,6 +280,30 @@ const mcpTools: Array<Record<string, unknown>> = [
     },
   },
   {
+    name: MCP_TOOL_SKILL_PATH,
+    title: "Get Tamandua Skill Path",
+    description: "Return the path to the bundled tamandua-agents skill that teaches agents how to operate Tamandua.",
+    annotations: {
+      readOnlyHint: true,
+      idempotentHint: true,
+    },
+    inputSchema: {
+      type: "object",
+      additionalProperties: false,
+      properties: {},
+    },
+    outputSchema: {
+      type: "object",
+      required: ["skillPath"],
+      properties: {
+        skillPath: {
+          type: "string",
+          description: "Absolute path to the bundled tamandua-agents skill file.",
+        },
+      },
+    },
+  },
+  {
     name: MCP_TOOL_SOURCE_PATH,
     title: "Get Tamandua Source Path",
     description: "Return the local Tamandua source checkout path.",
@@ -455,6 +482,10 @@ function createProtocolServer(services: TamanduaMcpToolServices): Server {
       } catch (err) {
         throw new McpError(ErrorCode.InvalidParams, (err as Error).message);
       }
+    }
+
+    if (name === MCP_TOOL_SKILL_PATH) {
+      return createToolResult({ skillPath: services.getSkillPath() });
     }
 
     if (name === MCP_TOOL_SOURCE_PATH) {

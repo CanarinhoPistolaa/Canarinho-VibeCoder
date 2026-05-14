@@ -152,7 +152,9 @@ function seedRunAndSteps(
       run_number INTEGER,
       tokens_spent INTEGER NOT NULL DEFAULT 0,
       notify_url TEXT,
-      scheduling_status TEXT
+      scheduling_status TEXT,
+      scheduling_requested_at TEXT,
+      scheduling_error TEXT
     )
   `);
 
@@ -168,7 +170,11 @@ function seedRunAndSteps(
       status TEXT NOT NULL DEFAULT 'waiting',
       output TEXT,
       retry_count INTEGER DEFAULT 0,
+      max_retries INTEGER DEFAULT 4,
       type TEXT NOT NULL DEFAULT 'single',
+      loop_config TEXT,
+      current_story_id TEXT,
+      abandoned_count INTEGER DEFAULT 0,
       created_at TEXT NOT NULL DEFAULT (datetime('now')),
       updated_at TEXT NOT NULL DEFAULT (datetime('now'))
     )
@@ -617,7 +623,130 @@ describe("CLI pause/resume one run (integration)", { concurrency: 1 }, () => {
   });
 });
 
-// ── Helpers ────────────────────────────────────────────────────────
+  // ── US-001: Regression test for stranded running step on pause→resume ──
+  it("recovers stranded running step to pending on pause→resume (US-001)", async (t) => {
+    if (!fs.existsSync(CLI_SCRIPT)) {
+      t.skip("CLI script not built — run npm run build first");
+      return;
+    }
+
+    const dashboardPort = await getAvailablePort();
+    const controlPort = await getAvailablePort();
+
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "tamandua-integration-orphan-"));
+    const homeDir = path.join(root, "home");
+    const tamanduaDir = path.join(homeDir, ".tamandua");
+    fs.mkdirSync(tamanduaDir, { recursive: true });
+
+    // Copy workflow directory so daemon can load the workflow spec
+    const srcWorkflowDir = path.resolve(__dirname, "..", "workflows", "feature-dev-merge");
+    const dstWorkflowDir = path.join(tamanduaDir, "workflows", "feature-dev-merge");
+    fs.mkdirSync(path.dirname(dstWorkflowDir), { recursive: true });
+    fs.cpSync(srcWorkflowDir, dstWorkflowDir, { recursive: true });
+
+    const dbPath = path.join(tamanduaDir, "tamandua.db");
+
+    const runId = crypto.randomUUID();
+    // Seed a run with one step set to status='running' to simulate
+    // an in-flight agent that was killed by pause-without-drain.
+    const steps: SeedStep[] = [
+      { stepId: "plan", agentId: "feature-dev-merge_planner" },
+    ];
+    seedRunAndSteps(dbPath, runId, "feature-dev-merge", "running", "pending_register", steps);
+
+    // Override the first step's status to 'running' (simulating orphaned in-flight step)
+    {
+      const db = new DatabaseSync(dbPath);
+      db.prepare("UPDATE steps SET status = 'running', retry_count = 0 WHERE run_id = ? AND step_index = 0")
+        .run(runId);
+      db.close();
+    }
+
+    let daemon: ChildProcess | undefined;
+
+    try {
+      // Start daemon
+      daemon = spawn("node", [DAEMON_SCRIPT, String(dashboardPort)], {
+        env: {
+          ...process.env,
+          HOME: homeDir,
+          TAMANDUA_CONTROL_PORT: String(controlPort),
+        },
+        stdio: ["ignore", "pipe", "pipe"],
+      });
+      daemon.stdout?.resume();
+      daemon.stderr?.resume();
+
+      await waitForControlUp(controlPort);
+
+      // Register the run with the daemon to create scheduler timers
+      const secret = readDaemonSecret(homeDir);
+      const regResp = await controlFetch(controlPort, "/control/register-run", "POST", { runId }, secret);
+      assert.ok(
+        regResp.status === 200 || regResp.status === 202,
+        `Expected register-run success (200/202), got ${regResp.status}: ${JSON.stringify(regResp.body)}`,
+      );
+
+      // Verify the step is still 'running' before pause
+      const beforeStep = getStepFromDb(dbPath, runId, 0);
+      assert.equal(beforeStep?.status, "running", "Step should be running (simulating orphaned agent)");
+      assert.equal(beforeStep?.retry_count, 0, "Step retry_count should be 0 before recovery");
+
+      // Pause the run via CLI
+      const pauseResult = await runCli(
+        ["workflow", "pause", runId],
+        { HOME: homeDir, TAMANDUA_CONTROL_PORT: String(controlPort) },
+      );
+      assert.equal(
+        pauseResult.exitCode, 0,
+        `Pause should succeed, got exit ${pauseResult.exitCode}, stderr: ${cleanStderr(pauseResult.stderr)}`,
+      );
+      assert.ok(
+        pauseResult.stdout.includes("Paused run"),
+        `Expected "Paused run" in stdout, got: ${pauseResult.stdout}`,
+      );
+
+      // Resume the run via CLI
+      const resumeResult = await runCli(
+        ["workflow", "resume", runId],
+        { HOME: homeDir, TAMANDUA_CONTROL_PORT: String(controlPort) },
+      );
+      assert.equal(
+        resumeResult.exitCode, 0,
+        `Resume should succeed, got exit ${resumeResult.exitCode}, stderr: ${cleanStderr(resumeResult.stderr)}`,
+      );
+      assert.ok(
+        resumeResult.stdout.includes("Resumed run"),
+        `Expected "Resumed run" in stdout, got: ${resumeResult.stdout}`,
+      );
+
+      // AC 1: Verify the step was recovered from 'running' to 'pending'
+      const afterStep = getStepFromDb(dbPath, runId, 0);
+      assert.equal(
+        afterStep?.status, "pending",
+        `Expected step status 'pending' after pause→resume, got '${afterStep?.status}'`,
+      );
+
+      // AC 2: Verify scheduler timers were re-created after resume
+      await assertSchedulerJobsForRun(controlPort, runId, true, secret);
+
+      // AC 3: Verify retry_count is bumped after recovery
+      assert.equal(
+        afterStep?.retry_count, 1,
+        `Expected retry_count 1 after recovery, got ${afterStep?.retry_count}`,
+      );
+
+      // AC 4: Drain path is unaffected — pause with drain leaves steps untouched
+      // (verified by existing drain test coverage in dashboard-mcp-pause-resume-integration)
+    } finally {
+      if (daemon && daemon.exitCode === null && daemon.pid) {
+        try { process.kill(daemon.pid, "SIGTERM"); } catch { /* ignore */ }
+      }
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  // ── Helpers ────────────────────────────────────────────────────────
 
 interface DbStep {
   id: string;
@@ -626,6 +755,7 @@ interface DbStep {
   step_index: number;
   status: string;
   run_id: string;
+  retry_count: number;
 }
 
 function getStepsFromDb(dbPath: string, runId: string): DbStep[] {
@@ -635,4 +765,13 @@ function getStepsFromDb(dbPath: string, runId: string): DbStep[] {
     .all(runId) as DbStep[];
   db.close();
   return rows;
+}
+
+function getStepFromDb(dbPath: string, runId: string, stepIndex: number): { status: string; retry_count: number } | null {
+  const db = new DatabaseSync(dbPath);
+  const row = db
+    .prepare("SELECT status, retry_count FROM steps WHERE run_id = ? AND step_index = ?")
+    .get(runId, stepIndex) as { status: string; retry_count: number } | undefined;
+  db.close();
+  return row ?? null;
 }

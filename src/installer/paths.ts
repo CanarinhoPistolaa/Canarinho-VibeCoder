@@ -21,6 +21,16 @@ export function resolveSourcePath(): string {
   }
 }
 
+export function resolveSkillPath(): string {
+  // From dist/installer/paths.js -> ../../skills/tamandua-agents/SKILL.md
+  const skillPath = path.resolve(__dirname, "..", "..", "skills", "tamandua-agents", "SKILL.md");
+  try {
+    return fs.realpathSync(skillPath);
+  } catch {
+    return skillPath;
+  }
+}
+
 export function resolveBundledWorkflowDir(workflowId: string): string {
   return path.join(resolveBundledWorkflowsDir(), workflowId);
 }

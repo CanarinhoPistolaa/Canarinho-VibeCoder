@@ -440,6 +440,30 @@ async function handleResumeRun(runId: string): Promise<JsonResponse> {
     workflowId: wfId,
   });
 
+  // US-002: Recover orphaned running steps before re-creating scheduler timers.
+  // Pause-without-drain kills the pi process, leaving steps status='running'.
+  // On resume, reset those to 'pending' so peekStep finds them.
+  try {
+    const orphanedAgents = getDb()
+      .prepare("SELECT DISTINCT agent_id FROM steps WHERE run_id = ? AND status = 'running'")
+      .all(runId) as { agent_id: string }[];
+    if (orphanedAgents.length > 0) {
+      const { recoverOrphanedStepsForAgent } = await import("../installer/step-ops.js");
+      for (const { agent_id } of orphanedAgents) {
+        recoverOrphanedStepsForAgent(agent_id, runId);
+      }
+      logger.info("control-server: resume orphan recovery complete", {
+        runId,
+        agents: orphanedAgents.map((a) => a.agent_id),
+      });
+    }
+  } catch (err) {
+    logger.warn("control-server: resume orphan recovery failed", {
+      runId,
+      error: String(err),
+    });
+  }
+
   return handleRegisterRun(runId);
 }
 

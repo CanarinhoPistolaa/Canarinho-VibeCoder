@@ -1,0 +1,78 @@
+# Progress Log
+Run: a5e698ad-b849-49a2-aa5a-7e776d8be0bd
+Task: Add tamandua skill-path CLI command
+Started: 2026-05-14
+
+## Codebase Patterns
+- README.md uses pipe tables for command documentation
+- Remote MCP tools are listed as a bullet list using backtick-quoted names
+- Build: `npm run build` (runs tsc + copy HTML + inject-version)
+- Tests: `npm test` (runs node --test on all test files in parallel)
+- CLI tests use spawn with temp HOME isolation via fs.mkdtempSync
+- CLI tests use runCli() helper that spawns `node --no-warnings dist/cli/cli.js`
+- CLI tests use cleanStderr() to filter SQLite ExperimentalWarning noise
+- Test files follow the pattern: helpers block → describe block → individual it() cases
+- No-argument CLI exits with code 1 (prints usage before exiting)
+
+## Story Plan
+
+### US-001: Add resolveSkillPath and tamandua skill-path CLI command with help ordering
+
+**Description:** As a developer, I need to add the resolveSkillPath() function and the tamandua skill-path CLI handler.
+
+**Acceptance Criteria:**
+- resolveSkillPath() returns absolute path ending with skills/tamandua-agents/SKILL.md
+- tamandua skill-path prints the absolute path and exits with code 0
+- printUsage() lists skill-path as the first command before source-path
+- npm run build succeeds
+- Typecheck passes
+
+### US-002: Add tamandua.skill.path MCP tool
+
+**Description:** As a developer, I need to expose tamandua.skill.path as a remote MCP tool.
+
+**Acceptance Criteria:**
+- tamandua.skill.path MCP tool is listed in tool discovery
+- Calling tamandua.skill.path MCP tool returns { skillPath: <absolute path> }
+- npm run build succeeds
+- Typecheck passes
+
+### US-003: Update README with tamandua skill-path command
+
+**Description:** As a developer, I need to document the new command in README.md.
+
+**Acceptance Criteria:**
+- README Lifecycle table includes tamandua skill-path row after source-path
+- README Remote MCP tools list includes tamandua.skill.path
+- npm run build succeeds
+- Typecheck passes
+
+### US-004: Add CLI integration tests for tamandua skill-path and no-argument help ordering
+
+**Description:** As a developer, I need focused CLI tests for the new command.
+
+**Acceptance Criteria:**
+- tamandua skill-path outputs path ending with skills/tamandua-agents/SKILL.md
+- tamandua skill-path output is an absolute path that exists on disk
+- No-argument help output lists skill-path before source-path
+- Tests pass with node --test tests/cli-skill-path.test.ts
+- npm run build succeeds
+- Typecheck passes
+
+## 2026-05-14 - US-003: Update README with tamandua skill-path command
+- Added `tamandua skill-path` row to Lifecycle commands table after `tamandua source-path`
+- Added `tamandua.skill.path` to Remote MCP tools list after `tamandua.source.path`
+- Files changed: README.md (2 insertions)
+- **Learnings:** README documentation follows consistent table/bullet patterns for CLI commands and MCP tools
+---
+
+## 2026-05-14 - US-004: Add CLI integration tests for tamandua skill-path and no-argument help ordering
+- Created tests/cli-skill-path.test.ts following the pattern from tests/mcp-cli.test.ts
+- Test: tamandua skill-path prints path ending with skills/tamandua-agents/SKILL.md
+- Test: tamandua skill-path output is absolute and exists on disk
+- Test: no-argument help lists skill-path before source-path
+- All 3 tests pass with node --test tests/cli-skill-path.test.ts
+- npm run build (tsc + copy + inject-version) passes cleanly
+- Files changed: tests/cli-skill-path.test.ts (new), progress-a5e698ad-b849-49a2-aa5a-7e776d8be0bd.txt (updated)
+- **Learnings:** CLI integration tests use spawn with temp HOME, cleanStderr for SQLite warnings, no-arg CLI exits with code 1
+---

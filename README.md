@@ -174,6 +174,7 @@ You're installing agent teams that run code on your machine. We take that seriou
 |---------|-------------|
 | `tamandua install` | Install all bundled workflows |
 | `tamandua source-path` | Print the Tamandua source checkout path |
+| `tamandua skill-path` | Print the path to the bundled tamandua-agents agent skill |
 | `tamandua update [--force]` | Pull the source checkout, rebuild, reinstall workflows, and restart previously running services |
 | `tamandua uninstall [--force]` | Full teardown (agents, crons, DB) |
 
@@ -224,6 +225,7 @@ The remote MCP endpoint exposes these tools:
 - `tamandua.run.start`
 - `tamandua.events.recent`
 - `tamandua.source.path`
+- `tamandua.skill.path`
 - `tamandua.update.command`
 
 For remote run creation, `tamandua.run.start` requires:

@@ -22,7 +22,7 @@ import { DEFAULT_CONTROL_PORT } from "../server/control-server.js";
 import { pauseRunWithDaemon, resumeRunWithDaemon } from "../server/control-client.js";
 import { claimStep, completeStep, failStep, getStories, peekStep } from "../installer/step-ops.js";
 import { ensureCliSymlink } from "../installer/symlink.js";
-import { resolveSourcePath } from "../installer/paths.js";
+import { resolveSourcePath, resolveSkillPath } from "../installer/paths.js";
 import { runUpdate } from "./update.js";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
@@ -117,6 +117,7 @@ function printUsage() {
     "", "tamandua logs [<lines>|<run-id>|#<run-number>] Show recent activity",
     "tamandua logs-tail [<lines>|<run-id>|#<run-number>] Follow recent activity",
     "", "tamandua version                      Show installed version",
+    "tamandua skill-path                  Print path to the bundled tamandua-agents skill",
     "tamandua source-path                  Print source checkout path",
     "tamandua update [--force]             Pull latest, rebuild, reinstall",
   ].join("\n") + "\n");
@@ -168,6 +169,10 @@ async function main() {
   if (group === "tamandua") {
     const { printTamandua } = await import("./ant.js"); printTamandua(); return;
   }
+  if (group === "skill-path") {
+    console.log(resolveSkillPath()); return;
+  }
+
   if (group === "source-path") {
     console.log(resolveSourcePath()); return;
   }

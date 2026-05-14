@@ -240,6 +240,7 @@ describe("mcp-server bootstrap", () => {
           "tamandua.events.recent",
           "tamandua.run.pause",
           "tamandua.run.resume",
+          "tamandua.skill.path",
           "tamandua.source.path",
           "tamandua.update.command",
         ],
