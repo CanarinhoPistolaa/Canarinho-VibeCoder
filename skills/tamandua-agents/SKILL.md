@@ -30,7 +30,7 @@ Use these when managing workflow runs (outside individual step execution):
 
 ```bash
 tamandua workflow list
-tamandua workflow run <workflow-id> "<task>" [--working-directory-for-harness <dir>]
+tamandua workflow run <workflow-id> "<task>" [--working-directory-for-harness <dir>] [--no-hurry-please-save-tokens-mode]
 tamandua workflow status <query>
 tamandua workflow runs
 tamandua workflow pause <run-id>
@@ -56,6 +56,12 @@ Harness working directory guidance:
 
 - CLI run: `--working-directory-for-harness` is optional; if omitted it defaults to the shell's current working directory.
 - Prefer passing an explicit absolute path when the task depends on a specific repo checkout.
+
+Use `--no-hurry-please-save-tokens-mode` to lower agent polling frequency
+for the run. When enabled, the scheduler floor becomes 15 minutes (default
+15 minutes) instead of the normal 1 minute (default 5 minutes), reducing
+token consumption. Use this for low-priority or long-running background
+runs where responsiveness is less important than cost savings.
 
 ### 3) Follow the step lifecycle exactly
 
@@ -99,6 +105,13 @@ Required MCP args:
 - `workflowId`
 - `taskTitle`
 - `workingDirectoryForHarness` (mandatory)
+
+Optional MCP args:
+
+- `noHurrySaveTokensMode` (boolean) — lowers agent polling frequency to
+  save tokens, same as the CLI `--no-hurry-please-save-tokens-mode` flag.
+  When `true`, the scheduler uses a 15-minute floor and 15-minute default
+  instead of the normal 1-minute floor and 5-minute default.
 
 Recovery pattern for tool-calling models:
 
