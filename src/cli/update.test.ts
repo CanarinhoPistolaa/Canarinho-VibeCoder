@@ -3,6 +3,7 @@ import { describe, it } from "node:test";
 import {
   createDefaultUpdateServices,
   defaultRunCommand,
+  installAllBundledWorkflowsForUpdate,
 } from "../../dist/cli/update.js";
 
 describe("update exports", () => {
@@ -57,6 +58,46 @@ describe("update exports", () => {
       });
       assert.ok(result.stdout.includes("out"));
       assert.ok(result.stderr.includes("err"));
+    });
+  });
+
+  describe("installAllBundledWorkflowsForUpdate", () => {
+    it("installs workflows from the provided list", async () => {
+      const installed: string[] = [];
+      const result = await installAllBundledWorkflowsForUpdate({
+        output: { log: () => {}, warn: () => {} },
+        listWorkflows: async () => ["feature-dev-merge"],
+        installWorkflowById: async (id: string) => {
+          installed.push(id);
+        },
+      });
+      assert.deepEqual(result, ["feature-dev-merge"]);
+      assert.deepEqual(installed, ["feature-dev-merge"]);
+    });
+
+    it("returns empty array when no bundled workflows", async () => {
+      const result = await installAllBundledWorkflowsForUpdate({
+        output: { log: () => {}, warn: () => {} },
+        listWorkflows: async () => [],
+      });
+      assert.deepEqual(result, []);
+    });
+
+    it("throws when one or more workflows fail to install", async () => {
+      const installed: string[] = [];
+      await assert.rejects(
+        installAllBundledWorkflowsForUpdate({
+          output: { log: () => {}, warn: () => {} },
+          listWorkflows: async () => ["wf-a", "wf-b", "wf-c"],
+          installWorkflowById: async (id: string) => {
+            if (id === "wf-b") throw new Error("install failed");
+            installed.push(id);
+          },
+        }),
+        /Failed to install bundled workflow/,
+      );
+      // wf-a and wf-c should have been installed before the throw
+      assert.deepEqual(installed, ["wf-a", "wf-c"]);
     });
   });
 });
