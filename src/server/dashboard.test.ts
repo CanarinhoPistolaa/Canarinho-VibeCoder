@@ -472,3 +472,197 @@ describe("dashboard MCP status API", () => {
     }
   });
 });
+
+describe("dashboard version status API", () => {
+  it("GET /api/version-status returns { updateAvailable, currentHead, remoteHead, checkedAt } when no file exists", async () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "tamandua-dashboard-version-"));
+    const stateDir = path.join(root, "state");
+    const previousStateDir = process.env.TAMANDUA_STATE_DIR;
+    process.env.TAMANDUA_STATE_DIR = stateDir;
+
+    const { server, baseUrl } = await startDashboard();
+
+    try {
+      const response = await fetch(`${baseUrl}/api/version-status`);
+      assert.equal(response.status, 200);
+
+      const body = await response.json() as { updateAvailable: boolean; currentHead: string; remoteHead: string; checkedAt: string };
+      assert.equal(body.updateAvailable, false);
+      assert.equal(body.currentHead, "");
+      assert.equal(body.remoteHead, "");
+      assert.equal(body.checkedAt, "");
+    } finally {
+      await stopDashboard(server);
+      if (previousStateDir === undefined) delete process.env.TAMANDUA_STATE_DIR;
+      else process.env.TAMANDUA_STATE_DIR = previousStateDir;
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it("GET /api/version-status returns updateAvailable: true when file says so", async () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "tamandua-dashboard-version-"));
+    const stateDir = path.join(root, "state");
+    const previousStateDir = process.env.TAMANDUA_STATE_DIR;
+    process.env.TAMANDUA_STATE_DIR = stateDir;
+
+    // Write version-status.json with updateAvailable: true
+    fs.mkdirSync(stateDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(stateDir, "version-status.json"),
+      JSON.stringify({
+        updateAvailable: true,
+        currentHead: "abc1234",
+        remoteHead: "def5678",
+        checkedAt: "2026-05-15T10:00:00.000Z",
+      }),
+      "utf-8",
+    );
+
+    const { server, baseUrl } = await startDashboard();
+
+    try {
+      const response = await fetch(`${baseUrl}/api/version-status`);
+      assert.equal(response.status, 200);
+
+      const body = await response.json() as { updateAvailable: boolean; currentHead: string; remoteHead: string; checkedAt: string };
+      assert.equal(body.updateAvailable, true);
+      assert.equal(body.currentHead, "abc1234");
+      assert.equal(body.remoteHead, "def5678");
+      assert.equal(body.checkedAt, "2026-05-15T10:00:00.000Z");
+    } finally {
+      await stopDashboard(server);
+      if (previousStateDir === undefined) delete process.env.TAMANDUA_STATE_DIR;
+      else process.env.TAMANDUA_STATE_DIR = previousStateDir;
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it("GET /api/version-status returns updateAvailable: false when file says so", async () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "tamandua-dashboard-version-"));
+    const stateDir = path.join(root, "state");
+    const previousStateDir = process.env.TAMANDUA_STATE_DIR;
+    process.env.TAMANDUA_STATE_DIR = stateDir;
+
+    fs.mkdirSync(stateDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(stateDir, "version-status.json"),
+      JSON.stringify({
+        updateAvailable: false,
+        currentHead: "abc1234",
+        remoteHead: "abc1234",
+        checkedAt: "2026-05-15T10:00:00.000Z",
+      }),
+      "utf-8",
+    );
+
+    const { server, baseUrl } = await startDashboard();
+
+    try {
+      const response = await fetch(`${baseUrl}/api/version-status`);
+      assert.equal(response.status, 200);
+
+      const body = await response.json() as { updateAvailable: boolean };
+      assert.equal(body.updateAvailable, false);
+    } finally {
+      await stopDashboard(server);
+      if (previousStateDir === undefined) delete process.env.TAMANDUA_STATE_DIR;
+      else process.env.TAMANDUA_STATE_DIR = previousStateDir;
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it("dashboard HTML contains version banner element with yellow background", async () => {
+    const { server, baseUrl } = await startDashboard();
+
+    try {
+      const response = await fetch(`${baseUrl}/`);
+      assert.equal(response.status, 200);
+
+      const html = await response.text();
+
+      // Banner div exists with correct id and hidden by default
+      assert.match(html, /id="version-banner"/);
+      assert.match(html, /#version-banner \{[\s\S]*display:\s*none/);
+
+      // Yellow background
+      assert.match(html, /#ffd700/);
+
+      // Banner text tells user to run tamandua update
+      assert.match(html, /A new version of tamandua is available!/);
+      assert.match(html, /tamandua update/);
+
+      // Dismiss button
+      assert.match(html, /class="banner-dismiss"/);
+      assert.match(html, /✕/);
+      assert.match(html, /function dismissVersionBanner/);
+    } finally {
+      await stopDashboard(server);
+    }
+  });
+
+  it("version banner is positioned between header and container", async () => {
+    const { server, baseUrl } = await startDashboard();
+
+    try {
+      const response = await fetch(`${baseUrl}/`);
+      assert.equal(response.status, 200);
+
+      const html = await response.text();
+
+      const headerCloseIndex = html.indexOf("</header>");
+      const bannerIndex = html.indexOf('id="version-banner"');
+      const containerIndex = html.indexOf('class="container"');
+
+      assert.ok(headerCloseIndex >= 0, "</header> not found");
+      assert.ok(bannerIndex >= 0, "version-banner not found");
+      assert.ok(containerIndex >= 0, "container not found");
+      assert.ok(bannerIndex > headerCloseIndex, "banner must be after </header>");
+      assert.ok(bannerIndex < containerIndex, "banner must be before container");
+    } finally {
+      await stopDashboard(server);
+    }
+  });
+
+  it("dashboard HTML includes fetchVersionStatus and calls it in refreshAll", async () => {
+    const { server, baseUrl } = await startDashboard();
+
+    try {
+      const response = await fetch(`${baseUrl}/`);
+      assert.equal(response.status, 200);
+
+      const html = await response.text();
+
+      // fetchVersionStatus function exists
+      assert.match(html, /async function fetchVersionStatus/);
+      // Calls /api/version-status
+      assert.match(html, /fetch\(["']\/api\/version-status["']\)/);
+      // Called in refreshAll
+      assert.match(html, /fetchVersionStatus\(\)/);
+      // Checks updateAvailable
+      assert.match(html, /data\.updateAvailable/);
+      // Shows banner on true
+      assert.match(html, /banner\.style\.display\s*=\s*["']block["']/);
+      // Hides banner on false
+      assert.match(html, /banner\.style\.display\s*=\s*["']none["']/);
+    } finally {
+      await stopDashboard(server);
+    }
+  });
+
+  it("dismissVersionBanner hides the banner via display:none", async () => {
+    const { server, baseUrl } = await startDashboard();
+
+    try {
+      const response = await fetch(`${baseUrl}/`);
+      assert.equal(response.status, 200);
+
+      const html = await response.text();
+
+      // dismissVersionBanner function sets display:none
+      assert.match(html, /function dismissVersionBanner/);
+      assert.match(html, /banner\.style\.display\s*=\s*["']none["']/);
+    } finally {
+      await stopDashboard(server);
+    }
+  });
+});

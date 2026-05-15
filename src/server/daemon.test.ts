@@ -146,6 +146,120 @@ async function reserveRandomPort(): Promise<number> {
   return port;
 }
 
+describe("version check integration", () => {
+  it("daemon bootstrap triggers version check and writes version-status.json", async (t) => {
+    const dashboardPort = await reserveRandomPort();
+    if (!(await canBind(dashboardPort))) {
+      t.skip(`Port ${dashboardPort} is already in use`);
+      return;
+    }
+    const controlPort = await reserveRandomPort();
+
+    const tempHome = fs.mkdtempSync(path.join(os.tmpdir(), "tamandua-daemon-home-"));
+    const { child } = spawnDaemon(dashboardPort, tempHome, controlPort);
+
+    try {
+      // Wait for dashboard to be reachable
+      const health = await waitForHttpUp(`http://127.0.0.1:${dashboardPort}/api/health`);
+      assert.equal(health.status, 200);
+
+      // Poll for version-status.json — the fire-and-forget version check may
+      // take up to 30s (git fetch timeout) or be near-instantaneous.
+      const statusPath = path.join(tempHome, ".tamandua", "version-status.json");
+      const maxWaitMs = 35_000;
+      const pollStart = Date.now();
+      let found = false;
+      while (Date.now() - pollStart < maxWaitMs) {
+        if (fs.existsSync(statusPath)) {
+          found = true;
+          break;
+        }
+        await sleep(500);
+      }
+      assert.ok(found, "version-status.json should exist after daemon bootstrap");
+
+      const raw = fs.readFileSync(statusPath, "utf-8");
+      const status = JSON.parse(raw);
+      assert.ok("updateAvailable" in status);
+      assert.ok("checkedAt" in status);
+
+      process.kill(child.pid!, "SIGTERM");
+      const exitCode = await waitForExit(child);
+      assert.equal(exitCode, 0);
+
+      await waitForHttpDown(`http://127.0.0.1:${dashboardPort}/api/health`);
+    } finally {
+      await forceKillIfAlive(child);
+      fs.rmSync(tempHome, { recursive: true, force: true });
+    }
+  });
+
+  it("daemon startup not delayed by version check", async (t) => {
+    const dashboardPort = await reserveRandomPort();
+    if (!(await canBind(dashboardPort))) {
+      t.skip(`Port ${dashboardPort} is already in use`);
+      return;
+    }
+    const controlPort = await reserveRandomPort();
+
+    const tempHome = fs.mkdtempSync(path.join(os.tmpdir(), "tamandua-daemon-home-"));
+
+    const startTime = Date.now();
+    const { child } = spawnDaemon(dashboardPort, tempHome, controlPort);
+
+    try {
+      // Dashboard should be reachable quickly — version check is fire-and-forget
+      const health = await waitForHttpUp(`http://127.0.0.1:${dashboardPort}/api/health`, 5000);
+      assert.equal(health.status, 200);
+
+      const elapsedMs = Date.now() - startTime;
+      // Daemon startup (including control plane) should finish well under 30s
+      // (the git fetch timeout is 30s, but we fire-and-forget so it shouldn't block)
+      assert.ok(elapsedMs < 15000, `Daemon startup took ${elapsedMs}ms, expected < 15000ms`);
+
+      process.kill(child.pid!, "SIGTERM");
+      const exitCode = await waitForExit(child);
+      assert.equal(exitCode, 0);
+
+      await waitForHttpDown(`http://127.0.0.1:${dashboardPort}/api/health`);
+    } finally {
+      await forceKillIfAlive(child);
+      fs.rmSync(tempHome, { recursive: true, force: true });
+    }
+  });
+
+  it("daemon shuts down cleanly even when version check interval is active", async (t) => {
+    const dashboardPort = await reserveRandomPort();
+    if (!(await canBind(dashboardPort))) {
+      t.skip(`Port ${dashboardPort} is already in use`);
+      return;
+    }
+    const controlPort = await reserveRandomPort();
+
+    const tempHome = fs.mkdtempSync(path.join(os.tmpdir(), "tamandua-daemon-home-"));
+    const { child } = spawnDaemon(dashboardPort, tempHome, controlPort);
+
+    try {
+      const health = await waitForHttpUp(`http://127.0.0.1:${dashboardPort}/api/health`);
+      assert.equal(health.status, 200);
+
+      // Send SIGTERM — daemon should shut down cleanly within 5s
+      process.kill(child.pid!, "SIGTERM");
+      const exitCode = await waitForExit(child, 7000);
+      assert.equal(exitCode, 0);
+
+      await waitForHttpDown(`http://127.0.0.1:${dashboardPort}/api/health`);
+
+      // PID file should be cleaned up
+      const pidFile = path.join(tempHome, ".tamandua", "tamandua.pid");
+      assert.equal(fs.existsSync(pidFile), false);
+    } finally {
+      await forceKillIfAlive(child);
+      fs.rmSync(tempHome, { recursive: true, force: true });
+    }
+  });
+});
+
 describe("dashboard daemon (MCP decoupled)", { concurrency: 1 }, () => {
   it("starts only dashboard by default (no --with-mcp), MCP port is NOT reachable", async (t) => {
     const dashboardPort = await reserveRandomPort();

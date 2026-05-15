@@ -22,6 +22,7 @@ import { formatLogsTailLines } from "../installer/logs-tail-format.js";
 import { getMcpStatus } from "./daemonctl.js";
 import { buildKanbanSnapshot } from "./kanban-data.js";
 import { pauseRunWithDaemon, resumeRunWithDaemon } from "./control-client.js";
+import { readVersionStatus } from "../lib/version-check.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const INDEX_HTML = path.join(__dirname, "index.html");
@@ -334,6 +335,15 @@ async function handleResumeRun(
   }
 }
 
+function handleVersionStatus(_req: http.IncomingMessage, res: http.ServerResponse): void {
+  try {
+    const status = readVersionStatus();
+    jsonResponse(res, status);
+  } catch (err) {
+    errorResponse(res, `Failed to read version status: ${(err as Error).message}`);
+  }
+}
+
 function handleMcpStatus(_req: http.IncomingMessage, res: http.ServerResponse): void {
   try {
     const status = getMcpStatus();
@@ -439,6 +449,12 @@ function route(req: http.IncomingMessage, res: http.ServerResponse): void {
   // GET /api/logs-tail
   if (method === "GET" && pathname === "/api/logs-tail") {
     handleLogsTail(req, res);
+    return;
+  }
+
+  // GET /api/version-status
+  if (method === "GET" && pathname === "/api/version-status") {
+    handleVersionStatus(req, res);
     return;
   }
 

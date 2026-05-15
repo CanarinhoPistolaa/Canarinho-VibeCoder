@@ -35,6 +35,7 @@ import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
+import { readVersionStatus } from "../lib/version-check.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -253,9 +254,26 @@ function parseWorkflowRunArgs(args: string[]): {
   };
 }
 
+function shouldSkipUpdateWarning(group: string, action: string): boolean {
+  if (group === "update") return true;
+  if (group === "version" || group === "--version" || group === "-v") return true;
+  if (group === "step" && (action === "peek" || action === "claim")) return true;
+  return false;
+}
+
 async function main() {
   const args = process.argv.slice(2);
   const [group, action, target] = args;
+
+  // Display update warning before command output, but suppress for
+  // update/version commands (user is already acting on versions) and
+  // step peek/claim (would break polling agent output parsing).
+  if (!shouldSkipUpdateWarning(group, action)) {
+    const status = readVersionStatus();
+    if (status.updateAvailable) {
+      process.stderr.write("WARNING: A new version of tamandua is available! Run: tamandua update\n");
+    }
+  }
 
   if (group === "version" || group === "--version" || group === "-v") {
     console.log(`tamandua v${getVersion()}`); return;

@@ -185,6 +185,38 @@
     .action-btn:hover { border-color: #58a6ff; color: #58a6ff; }
     .action-btn.pause-btn:hover { border-color: #d29922; color: #d29922; }
     .action-btn.resume-btn:hover { border-color: #3fb950; color: #3fb950; }
+    #version-banner {
+      display: none;
+      background: #ffd700;
+      color: #1a1a1a;
+      padding: 12px 24px;
+      font-size: 13px;
+      font-weight: 600;
+      text-align: center;
+      position: relative;
+      border-bottom: 2px solid #e6c200;
+    }
+    #version-banner .banner-dismiss {
+      position: absolute;
+      right: 16px;
+      top: 50%;
+      transform: translateY(-50%);
+      background: none;
+      border: none;
+      color: #1a1a1a;
+      font-size: 18px;
+      cursor: pointer;
+      padding: 0 4px;
+      line-height: 1;
+    }
+    #version-banner .banner-dismiss:hover { opacity: 0.7; }
+    #version-banner code {
+      background: rgba(0,0,0,0.1);
+      padding: 2px 6px;
+      border-radius: 3px;
+      font-family: "SF Mono", "Fira Code", monospace;
+      font-size: 12px;
+    }
     .controls-bar {
       display: flex;
       align-items: center;
@@ -217,6 +249,11 @@
     </div>
     <span class="status-dot" id="status-dot" title="Connected"></span>
   </header>
+
+  <div id="version-banner">
+    <span id="version-banner-text">A new version of tamandua is available! Run: <code>tamandua update</code></span>
+    <button class="banner-dismiss" onclick="dismissVersionBanner()" title="Dismiss">✕</button>
+  </div>
 
   <div class="container">
     <!-- MCP Status Section -->
@@ -442,6 +479,27 @@
       }
     }
 
+    function dismissVersionBanner() {
+      const banner = document.getElementById("version-banner");
+      if (banner) banner.style.display = "none";
+    }
+
+    async function fetchVersionStatus() {
+      try {
+        const res = await fetch("/api/version-status");
+        const data = await res.json();
+        const banner = document.getElementById("version-banner");
+        if (!banner) return;
+        if (data.updateAvailable) {
+          banner.style.display = "block";
+        } else {
+          banner.style.display = "none";
+        }
+      } catch (err) {
+        console.error("Failed to fetch version status:", err);
+      }
+    }
+
     function fmtNum(n) {
       if (!Number.isFinite(n)) return "0";
       return n.toLocaleString();
@@ -453,6 +511,7 @@
       fetchEvents();
       fetchLogsTail();
       fetchStats();
+      fetchVersionStatus();
       document.getElementById("last-update").textContent = new Date().toLocaleTimeString();
     }
 

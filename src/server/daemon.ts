@@ -32,6 +32,7 @@ import {
   startReconciler,
 } from "./control-server.js";
 import { shutdownAllCrons } from "../installer/agent-scheduler.js";
+import { runVersionCheck } from "../lib/version-check.js";
 
 const PID_FILE = path.join(os.homedir(), ".tamandua", "tamandua.pid");
 const PORT_FILE = path.join(os.homedir(), ".tamandua", "port");
@@ -135,6 +136,7 @@ let mcpServer: TamanduaMcpServer | undefined;
 let controlServer: http.Server | undefined;
 let reconciler: { stop: () => void } | undefined;
 let isShuttingDown = false;
+let versionCheckInterval: ReturnType<typeof setInterval> | undefined;
 
 async function stopListeners(): Promise<void> {
   const stops: Promise<unknown>[] = [];
@@ -146,6 +148,11 @@ async function stopListeners(): Promise<void> {
   }
 
   // Tear down all in-flight pi process groups + active timers.
+  if (versionCheckInterval !== undefined) {
+    clearInterval(versionCheckInterval);
+    versionCheckInterval = undefined;
+  }
+
   try {
     shutdownAllCrons();
   } catch (err) {
@@ -264,6 +271,14 @@ async function bootstrap(): Promise<void> {
       `Tamandua dashboard daemon started on port ${dashboardPort} (pid ${process.pid})`,
     );
   }
+
+  // Fire-and-forget version check — do not block daemon startup.
+  runVersionCheck().catch(() => {});
+
+  // Periodic version check every 8 hours.
+  versionCheckInterval = setInterval(() => {
+    runVersionCheck().catch(() => {});
+  }, 8 * 60 * 60 * 1000);
 }
 
 void bootstrap();
