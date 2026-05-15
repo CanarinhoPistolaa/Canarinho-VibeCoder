@@ -205,12 +205,98 @@ describe("runWorkflow", () => {
   });
 
   describe("runWorkflow context seeding", () => {
-    // These tests require full daemon + workflow run setup, which is covered
-    // by the CLI integration tests in tests/cli-worktree.test.ts:
-    //   - "creates a managed worktree and seeds worktree context for worktree workflows"
-    //   - "accepts --worktree-origin-repository and --worktree-origin-ref for worktree workflows"
-    // These tests verify context contains: workspace_mode, worktree_path,
-    // worktree_origin_repository, worktree_origin_ref, worktree_origin_sha,
-    // original_branch, repo, working_directory_for_harness.
+    it("stores no_hurry_save_tokens_mode as 'false' when flag is not provided", async () => {
+      const workflowId = "test-ctx-default";
+      writeMinimalWorkflow(tempHome, workflowId, "direct");
+
+      try {
+        await runWorkflow({ workflowId, taskTitle: "Test default save tokens flag" });
+      } catch {
+        // Expected: daemon registration fails in tests
+      }
+
+      const { getDb } = await import("../../dist/db.js");
+      const db = getDb();
+      const rows = db.prepare(
+        "SELECT context FROM runs WHERE workflow_id = ? ORDER BY created_at DESC LIMIT 1"
+      ).all(workflowId) as { context: string }[];
+      assert.ok(rows.length > 0, "run record should exist");
+      const ctx = JSON.parse(rows[0].context);
+      assert.equal(ctx.no_hurry_save_tokens_mode, "false");
+    });
+
+    it("stores no_hurry_save_tokens_mode as 'true' when flag is true", async () => {
+      const workflowId = "test-ctx-true";
+      writeMinimalWorkflow(tempHome, workflowId, "direct");
+
+      try {
+        await runWorkflow({
+          workflowId,
+          taskTitle: "Test save tokens flag true",
+          noHurrySaveTokensMode: true,
+        });
+      } catch {
+        // Expected: daemon registration fails in tests
+      }
+
+      const { getDb } = await import("../../dist/db.js");
+      const db = getDb();
+      const rows = db.prepare(
+        "SELECT context FROM runs WHERE workflow_id = ? ORDER BY created_at DESC LIMIT 1"
+      ).all(workflowId) as { context: string }[];
+      assert.ok(rows.length > 0, "run record should exist");
+      const ctx = JSON.parse(rows[0].context);
+      assert.equal(ctx.no_hurry_save_tokens_mode, "true");
+    });
+
+    it("stores no_hurry_save_tokens_mode as 'false' when flag is explicitly false", async () => {
+      const workflowId = "test-ctx-false";
+      writeMinimalWorkflow(tempHome, workflowId, "direct");
+
+      try {
+        await runWorkflow({
+          workflowId,
+          taskTitle: "Test save tokens flag false",
+          noHurrySaveTokensMode: false,
+        });
+      } catch {
+        // Expected: daemon registration fails in tests
+      }
+
+      const { getDb } = await import("../../dist/db.js");
+      const db = getDb();
+      const rows = db.prepare(
+        "SELECT context FROM runs WHERE workflow_id = ? ORDER BY created_at DESC LIMIT 1"
+      ).all(workflowId) as { context: string }[];
+      assert.ok(rows.length > 0, "run record should exist");
+      const ctx = JSON.parse(rows[0].context);
+      assert.equal(ctx.no_hurry_save_tokens_mode, "false");
+    });
+
+    it("includes other context keys alongside no_hurry_save_tokens_mode", async () => {
+      const workflowId = "test-ctx-combined";
+      writeMinimalWorkflow(tempHome, workflowId, "direct");
+
+      try {
+        await runWorkflow({
+          workflowId,
+          taskTitle: "Test combined context",
+          noHurrySaveTokensMode: true,
+        });
+      } catch {
+        // Expected: daemon registration fails in tests
+      }
+
+      const { getDb } = await import("../../dist/db.js");
+      const db = getDb();
+      const rows = db.prepare(
+        "SELECT context FROM runs WHERE workflow_id = ? ORDER BY created_at DESC LIMIT 1"
+      ).all(workflowId) as { context: string }[];
+      assert.ok(rows.length > 0, "run record should exist");
+      const ctx = JSON.parse(rows[0].context);
+      assert.equal(ctx.no_hurry_save_tokens_mode, "true");
+      assert.equal(ctx.task, "Test combined context");
+      assert.equal(ctx.workspace_mode, "direct");
+    });
   });
 });

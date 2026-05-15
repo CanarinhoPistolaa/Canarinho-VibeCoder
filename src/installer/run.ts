@@ -28,6 +28,8 @@ export interface RunWorkflowParams {
   worktreeOriginRepository?: string;
   /** Origin ref for worktree-based workflows */
   worktreeOriginRef?: string;
+  /** When true, reduces polling frequency to save tokens (15-min floor, 15-min default) */
+  noHurrySaveTokensMode?: boolean;
 }
 
 export interface RunWorkflowResult {
@@ -60,6 +62,7 @@ export async function runWorkflow(
     workingDirectoryForHarness: requestedWorkingDirectoryForHarness,
     worktreeOriginRepository,
     worktreeOriginRef,
+    noHurrySaveTokensMode,
   } = params;
 
   // Load the workflow spec from the installed workflow directory
@@ -85,6 +88,7 @@ export async function runWorkflow(
     task: taskTitle,
     ...context,
     workspace_mode: workspaceMode,
+    no_hurry_save_tokens_mode: String(noHurrySaveTokensMode ?? false),
   };
 
   if (workspaceMode === "direct") {
