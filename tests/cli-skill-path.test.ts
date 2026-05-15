@@ -30,16 +30,14 @@ interface CliResult {
   exitCode: number | null;
 }
 
-function runCli(args: string[], homeDir?: string): Promise<CliResult> {
+function runCli(args: string[], homeDir: string): Promise<CliResult> {
   return new Promise<CliResult>((resolve) => {
     let stdout = "";
     let stderr = "";
 
-    const env = homeDir ? { ...process.env, HOME: homeDir } : process.env;
-
     const child = spawn("node", ["--no-warnings", CLI_SCRIPT, ...args], {
       stdio: ["ignore", "pipe", "pipe"],
-      env,
+      env: { ...process.env, HOME: homeDir },
     });
 
     child.stdout?.on("data", (chunk: Buffer) => {

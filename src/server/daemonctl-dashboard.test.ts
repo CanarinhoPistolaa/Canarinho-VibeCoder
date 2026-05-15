@@ -13,51 +13,49 @@ import {
 } from "../../dist/server/daemonctl.js";
 
 describe("daemonctl dashboard helpers", () => {
-  let originalHome: string | undefined;
   let tempHome: string;
 
   beforeEach(() => {
-    originalHome = process.env.HOME;
     tempHome = fs.mkdtempSync(path.join(os.tmpdir(), "tamandua-dctl-"));
-    process.env.HOME = tempHome;
     fs.mkdirSync(path.join(tempHome, ".tamandua"), { recursive: true });
   });
 
   afterEach(() => {
-    if (originalHome) process.env.HOME = originalHome;
-    else delete process.env.HOME;
-    try { stopDaemon(); } catch {}
+    try { stopDaemon({ homeDir: tempHome }); } catch {}
     fs.rmSync(tempHome, { recursive: true, force: true });
   });
 
   describe("path helpers", () => {
     it("getPidFile returns path ending with tamandua.pid", () => {
-      const p = getPidFile();
+      const p = getPidFile({ homeDir: tempHome });
       assert.ok(p.includes(".tamandua"));
       assert.ok(p.endsWith("tamandua.pid"));
+      assert.ok(p.startsWith(tempHome));
     });
 
     it("getPortFile returns path ending with port", () => {
-      const p = getPortFile();
+      const p = getPortFile({ homeDir: tempHome });
       assert.ok(p.includes(".tamandua"));
       assert.ok(p.endsWith("port"));
+      assert.ok(p.startsWith(tempHome));
     });
 
     it("getLogFile returns path ending with dashboard.log", () => {
-      const p = getLogFile();
+      const p = getLogFile({ homeDir: tempHome });
       assert.ok(p.includes(".tamandua"));
       assert.ok(p.endsWith("dashboard.log"));
+      assert.ok(p.startsWith(tempHome));
     });
   });
 
   describe("isRunning / getDaemonStatus (no daemon running)", () => {
     it("isRunning returns false when no PID file", () => {
-      const result = isRunning();
+      const result = isRunning({ homeDir: tempHome });
       assert.equal(result.running, false);
     });
 
     it("getDaemonStatus returns not running state", () => {
-      const status = getDaemonStatus();
+      const status = getDaemonStatus({ homeDir: tempHome });
       assert.equal(status.running, false);
       assert.equal(status.pid, null);
     });

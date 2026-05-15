@@ -15,7 +15,7 @@
  * PID/port files with parallel tests (US-004 isolation).
  */
 
-import { describe, it, before, after } from "node:test";
+import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import http from "node:http";
@@ -29,8 +29,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 // In dev (tsx), compiled CLI is in dist/cli/
 const CLI_SCRIPT = path.resolve(__dirname, "..", "dist", "cli", "cli.js");
 
-// Import daemonctl for real HOME cleanup (belt for leaked processes)
-import { stopControlPlane, CONTROL_PLANE_PID_FILE, CONTROL_PLANE_PORT_FILE } from "../dist/server/daemonctl.js";
+import { stopControlPlane } from "../dist/server/daemonctl.js";
 import { DEFAULT_CONTROL_PORT } from "../dist/server/control-server.js";
 
 // ═══════════════════════════════════════════════════════════════════
@@ -113,16 +112,14 @@ interface CliResult {
   exitCode: number | null;
 }
 
-function runCli(args: string[], homeDir?: string): Promise<CliResult> {
+function runCli(args: string[], homeDir: string): Promise<CliResult> {
   return new Promise<CliResult>((resolve) => {
     let stdout = "";
     let stderr = "";
 
-    const env = homeDir ? { ...process.env, HOME: homeDir } : process.env;
-
     const child = spawn("node", ["--no-warnings", CLI_SCRIPT, ...args], {
       stdio: ["ignore", "pipe", "pipe"],
-      env,
+      env: { ...process.env, HOME: homeDir },
     });
 
     child.stdout?.on("data", (chunk: Buffer) => {
@@ -152,11 +149,6 @@ function cleanStderr(stderr: string): string {
     })
     .join("\n")
     .trim();
-}
-
-function cleanupControlPlaneFiles(): void {
-  try { fs.unlinkSync(CONTROL_PLANE_PID_FILE); } catch {}
-  try { fs.unlinkSync(CONTROL_PLANE_PORT_FILE); } catch {}
 }
 
 // ═══════════════════════════════════════════════════════════════════
@@ -207,17 +199,7 @@ function isIsolatedControlPlaneRunning(homeDir: string): { running: true; pid: n
 }
 
 function stopIsolatedControlPlane(homeDir: string): boolean {
-  const status = isIsolatedControlPlaneRunning(homeDir);
-  if (!status.running) return false;
-
-  try {
-    process.kill(status.pid, "SIGTERM");
-  } catch {}
-
-  try { fs.unlinkSync(getIsolatedControlPlanePidFile(homeDir)); } catch {}
-  try { fs.unlinkSync(getIsolatedControlPlanePortFile(homeDir)); } catch {}
-
-  return true;
+  return stopControlPlane({ homeDir });
 }
 
 function cleanupIsolatedControlPlaneFiles(homeDir: string): void {
@@ -230,18 +212,6 @@ function cleanupIsolatedControlPlaneFiles(homeDir: string): void {
 // ═══════════════════════════════════════════════════════════════════
 
 describe("tamandua control-plane CLI", { concurrency: 1 }, () => {
-  before(() => {
-    // Best-effort cleanup of any stale control plane that might interfere (real HOME belt)
-    stopControlPlane();
-    cleanupControlPlaneFiles();
-  });
-
-  after(() => {
-    // Best-effort cleanup of any leaked processes on real HOME
-    stopControlPlane();
-    cleanupControlPlaneFiles();
-  });
-
   // AC 6 (partial): tamandua control-plane status shows not running when down
   it("control-plane status shows not running when down", async () => {
     const tempHome = createTempHome();
@@ -255,7 +225,6 @@ describe("tamandua control-plane CLI", { concurrency: 1 }, () => {
       assert.equal(cleanStderr(stderr), "");
     } finally {
       stopIsolatedControlPlane(tempHome);
-      cleanupControlPlaneFiles();
       fs.rmSync(tempHome, { recursive: true, force: true });
     }
   });
@@ -266,8 +235,9 @@ describe("tamandua control-plane CLI", { concurrency: 1 }, () => {
       t.skip("CLI script not built — run npm run build first");
       return;
     }
-    if (!(await canBind(DEFAULT_CONTROL_PORT))) {
-      t.skip(`Port ${DEFAULT_CONTROL_PORT} is already in use`);
+    const controlPort = await reserveRandomPort();
+    if (!(await canBind(controlPort))) {
+      t.skip(`Port ${controlPort} is already in use`);
       return;
     }
 
@@ -275,12 +245,12 @@ describe("tamandua control-plane CLI", { concurrency: 1 }, () => {
     try {
       cleanupIsolatedControlPlaneFiles(tempHome);
 
-      const { stdout, stderr, exitCode } = await runCli(["control-plane", "start"], tempHome);
+      const { stdout, stderr, exitCode } = await runCli(["control-plane", "start", "--port", String(controlPort)], tempHome);
 
       assert.equal(exitCode, 0, `CLI exited with code ${exitCode}, stderr: ${cleanStderr(stderr)}`);
       assert.ok(stdout.includes("started"), `Expected "started" in output, got: ${stdout}`);
       assert.ok(stdout.includes("PID"), `Expected "PID" in output, got: ${stdout}`);
-      assert.ok(stdout.includes(`localhost:${DEFAULT_CONTROL_PORT}`), `Expected port ${DEFAULT_CONTROL_PORT} in output, got: ${stdout}`);
+      assert.ok(stdout.includes(`localhost:${controlPort}`), `Expected port ${controlPort} in output, got: ${stdout}`);
       assert.ok(stdout.includes("/control/health"), `Expected /control/health endpoint in output, got: ${stdout}`);
 
       // Verify it actually started via isolated PID file
@@ -289,13 +259,11 @@ describe("tamandua control-plane CLI", { concurrency: 1 }, () => {
       assert.notEqual(status.pid, null);
 
       // Verify health endpoint reachable
-      const res = await waitForHttpUp(`http://127.0.0.1:${DEFAULT_CONTROL_PORT}/control/health`);
+      const res = await waitForHttpUp(`http://127.0.0.1:${controlPort}/control/health`);
       assert.ok(res.status >= 200 && res.status < 500);
 
     } finally {
       stopIsolatedControlPlane(tempHome);
-      stopControlPlane();
-      cleanupControlPlaneFiles();
       fs.rmSync(tempHome, { recursive: true, force: true });
     }
   });
@@ -327,18 +295,10 @@ describe("tamandua control-plane CLI", { concurrency: 1 }, () => {
       const res = await waitForHttpUp(`http://127.0.0.1:${customPort}/control/health`);
       assert.ok(res.status >= 200 && res.status < 500);
 
-      // Verify default port is NOT reachable
-      try {
-        await fetch(`http://127.0.0.1:${DEFAULT_CONTROL_PORT}/control/health`);
-        assert.fail("Control plane should not be reachable on default port when custom port was used");
-      } catch {
-        // Expected
-      }
+      assert.equal(readIsolatedControlPlanePort(tempHome), customPort);
 
     } finally {
       stopIsolatedControlPlane(tempHome);
-      stopControlPlane();
-      cleanupControlPlaneFiles();
       fs.rmSync(tempHome, { recursive: true, force: true });
     }
   });
@@ -372,8 +332,6 @@ describe("tamandua control-plane CLI", { concurrency: 1 }, () => {
 
     } finally {
       stopIsolatedControlPlane(tempHome);
-      stopControlPlane();
-      cleanupControlPlaneFiles();
       fs.rmSync(tempHome, { recursive: true, force: true });
     }
   });
@@ -384,8 +342,9 @@ describe("tamandua control-plane CLI", { concurrency: 1 }, () => {
       t.skip("CLI script not built — run npm run build first");
       return;
     }
-    if (!(await canBind(DEFAULT_CONTROL_PORT))) {
-      t.skip(`Port ${DEFAULT_CONTROL_PORT} is already in use`);
+    const controlPort = await reserveRandomPort();
+    if (!(await canBind(controlPort))) {
+      t.skip(`Port ${controlPort} is already in use`);
       return;
     }
 
@@ -394,7 +353,7 @@ describe("tamandua control-plane CLI", { concurrency: 1 }, () => {
       cleanupIsolatedControlPlaneFiles(tempHome);
 
       // First start
-      const first = await runCli(["control-plane", "start"], tempHome);
+      const first = await runCli(["control-plane", "start", "--port", String(controlPort)], tempHome);
       assert.equal(first.exitCode, 0);
       assert.ok(first.stdout.includes("started"));
 
@@ -404,19 +363,17 @@ describe("tamandua control-plane CLI", { concurrency: 1 }, () => {
       const firstPid = runningStatus.pid;
 
       // Second start - should show "already running" with the same PID
-      const second = await runCli(["control-plane", "start"], tempHome);
+      const second = await runCli(["control-plane", "start", "--port", String(controlPort)], tempHome);
       assert.equal(second.exitCode, 0);
       assert.ok(second.stdout.includes("already running"), `Expected "already running", got: ${second.stdout}`);
       assert.ok(second.stdout.includes(`PID ${firstPid}`), `Expected PID ${firstPid}, got: ${second.stdout}`);
-      assert.ok(second.stdout.includes(`localhost:${DEFAULT_CONTROL_PORT}`));
+      assert.ok(second.stdout.includes(`localhost:${controlPort}`));
       assert.ok(second.stdout.includes("/control/health"));
       // Should NOT show "started" (second attempt didn't restart)
       assert.ok(!second.stdout.includes("Control plane started"));
 
     } finally {
       stopIsolatedControlPlane(tempHome);
-      stopControlPlane();
-      cleanupControlPlaneFiles();
       fs.rmSync(tempHome, { recursive: true, force: true });
     }
   });
@@ -466,8 +423,9 @@ describe("tamandua control-plane CLI", { concurrency: 1 }, () => {
       t.skip("CLI script not built — run npm run build first");
       return;
     }
-    if (!(await canBind(DEFAULT_CONTROL_PORT))) {
-      t.skip(`Port ${DEFAULT_CONTROL_PORT} is already in use`);
+    const controlPort = await reserveRandomPort();
+    if (!(await canBind(controlPort))) {
+      t.skip(`Port ${controlPort} is already in use`);
       return;
     }
 
@@ -476,14 +434,14 @@ describe("tamandua control-plane CLI", { concurrency: 1 }, () => {
       cleanupIsolatedControlPlaneFiles(tempHome);
 
       // Start control plane
-      const start = await runCli(["control-plane", "start"], tempHome);
+      const start = await runCli(["control-plane", "start", "--port", String(controlPort)], tempHome);
       assert.equal(start.exitCode, 0);
 
       const runningStatus = isIsolatedControlPlaneRunning(tempHome);
       assert.equal(runningStatus.running, true);
 
       const port = readIsolatedControlPlanePort(tempHome);
-      assert.equal(port, DEFAULT_CONTROL_PORT);
+      assert.equal(port, controlPort);
 
       // Check status via CLI with same isolated HOME
       const { stdout, stderr, exitCode } = await runCli(["control-plane", "status"], tempHome);
@@ -498,8 +456,6 @@ describe("tamandua control-plane CLI", { concurrency: 1 }, () => {
 
     } finally {
       stopIsolatedControlPlane(tempHome);
-      stopControlPlane();
-      cleanupControlPlaneFiles();
       fs.rmSync(tempHome, { recursive: true, force: true });
     }
   });
@@ -510,8 +466,9 @@ describe("tamandua control-plane CLI", { concurrency: 1 }, () => {
       t.skip("CLI script not built — run npm run build first");
       return;
     }
-    if (!(await canBind(DEFAULT_CONTROL_PORT))) {
-      t.skip(`Port ${DEFAULT_CONTROL_PORT} is already in use`);
+    const controlPort = await reserveRandomPort();
+    if (!(await canBind(controlPort))) {
+      t.skip(`Port ${controlPort} is already in use`);
       return;
     }
 
@@ -520,7 +477,7 @@ describe("tamandua control-plane CLI", { concurrency: 1 }, () => {
       cleanupIsolatedControlPlaneFiles(tempHome);
 
       // Start control plane
-      const start = await runCli(["control-plane", "start"], tempHome);
+      const start = await runCli(["control-plane", "start", "--port", String(controlPort)], tempHome);
       assert.equal(start.exitCode, 0);
 
       // Verify it's running via isolated helper
@@ -546,8 +503,6 @@ describe("tamandua control-plane CLI", { concurrency: 1 }, () => {
 
     } finally {
       stopIsolatedControlPlane(tempHome);
-      stopControlPlane();
-      cleanupControlPlaneFiles();
       fs.rmSync(tempHome, { recursive: true, force: true });
     }
   });
@@ -558,18 +513,13 @@ describe("tamandua control-plane CLI", { concurrency: 1 }, () => {
     try {
       cleanupIsolatedControlPlaneFiles(tempHome);
 
-      // Ensure nothing is running on real HOME too (belt)
-      stopControlPlane();
-      await new Promise<void>((resolve) => setTimeout(resolve, 500));
-
       const { stdout, stderr, exitCode } = await runCli(["control-plane", "stop"], tempHome);
 
       assert.equal(exitCode, 0);
       assert.ok(stdout.includes("not running"), `Expected "not running", got: ${stdout}`);
       assert.equal(cleanStderr(stderr), "");
     } finally {
-      stopControlPlane();
-      cleanupControlPlaneFiles();
+      stopIsolatedControlPlane(tempHome);
       fs.rmSync(tempHome, { recursive: true, force: true });
     }
   });

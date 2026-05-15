@@ -138,11 +138,16 @@ Tests are safe for parallel execution with `node --test tests/*.test.ts src/**/*
 
 ### Parallel Test Safety
 
+Tamandua is often used to develop and test itself. A real daemon, MCP server, or dashboard may be running while `npm test` executes from this same checkout. Breaking test isolation can stop the live daemon, corrupt live `~/.tamandua` state, or make an active self-improvement run fail.
+
 All tests use isolated temporary HOME and TAMANDUA_STATE_DIR directories per test, so PID/port files never conflict across parallel test files.
 
-- **Random ports:** Tests that spawn listeners use `reserveRandomPort()` (bind-to-0, capture assigned port) instead of hardcoded ports. No test binds to default ports 3334/3338/3339 unless explicitly testing production defaults, and those tests use `t.skip()` or conditional `canBind()` checks to avoid false failures when a real daemon holds the port.
-- **Temp HOME isolation:** CLI integration tests create temporary HOME directories via `fs.mkdtempSync()`, pass `HOME` env to spawned CLI subprocesses, and clean up with `fs.rmSync(tempHome, { recursive: true, force: true })` in `finally` blocks.
-- **Real CLI defaults remain 3334/3338/3339:** The production daemon, MCP, and control plane use ports 3334, 3338, and 3339 respectively. Only test code uses random ports.
+- **Random ports:** Tests that spawn listeners use `reserveRandomPort()` (bind-to-0, capture assigned port) instead of hardcoded ports. Normal tests must not bind, fetch, or probe default ports 3334/3338/3339; default-port behavior should be asserted as constants or covered behind an explicit opt-in/manual test.
+- **Temp HOME isolation:** CLI integration tests create temporary HOME directories via `fs.mkdtempSync()`, pass `HOME` env to spawned CLI subprocesses, and clean up with `fs.rmSync(tempHome, { recursive: true, force: true })` in `finally` blocks. Helpers that run `dist/cli/cli.js` must require an explicit isolated env; do not fall back to raw `process.env`.
+- **Scoped daemon control:** Tests must not call `stopDaemon()`, `stopMcp()`, or `stopControlPlane()` against real HOME. Pass an explicit `{ homeDir: tempHome }` or stop the exact child process handle created by the test. Do not import/unlink real pid files such as `MCP_PID_FILE` or `CONTROL_PLANE_PID_FILE` for cleanup.
+- **Process cleanup safety:** If a test kills a PID from a file, first ensure that PID belongs to the test environment, for example by checking its `/proc/<pid>/environ` HOME or by using daemonctl helpers with `{ homeDir }`.
+- **Guard coverage:** `tests/test-isolation-guard.test.ts` scans for patterns that can touch the live daemon. Update it when adding new service lifecycle tests.
+- **Real CLI defaults remain 3334/3338/3339:** The production daemon, MCP, and control plane use ports 3334, 3338, and 3339 respectively. Only production code should use those defaults during normal automated tests.
 
 `npm test` remains a convenience alias that runs the full parallel suite.
 

@@ -18,16 +18,13 @@ import http from "node:http";
 import assert from "node:assert/strict";
 import { spawn, execSync } from "node:child_process";
 import { once } from "node:events";
-import { describe, it, before, after } from "node:test";
+import { describe, it, after } from "node:test";
 
 const cliPath = path.resolve(process.cwd(), "dist", "cli", "cli.js");
 
 // Import daemonctl helpers for direct API-level testing
 import {
   startMcp,
-  stopMcp,
-  MCP_PID_FILE,
-  MCP_PORT_FILE,
 } from "../dist/server/daemonctl.js";
 
 // ── Helpers ────────────────────────────────────────────────────────
@@ -278,25 +275,10 @@ function cleanStderr(stderr: string): string {
     .trim();
 }
 
-// ── Module-level cleanup helpers (use real HOME paths) ─────────────
-
-function cleanupRealMcpFiles(): void {
-  try { fs.unlinkSync(MCP_PID_FILE); } catch {}
-  try { fs.unlinkSync(MCP_PORT_FILE); } catch {}
-}
-
 // ── Tests ──────────────────────────────────────────────────────────
 
 describe("MCP lifecycle integration", { concurrency: 1 }, () => {
-  before(() => {
-    stopMcp();
-    cleanupRealMcpFiles();
-  });
-
   after(() => {
-    stopMcp();
-    cleanupRealMcpFiles();
-
     // Belt-and-suspenders: kill any leaked mcp-standalone/daemon orphans
     // that survived because a prior test run was SIGKILL'd before its
     // finally block could execute.
@@ -327,10 +309,6 @@ describe("MCP lifecycle integration", { concurrency: 1 }, () => {
       // pgrep may fail if no processes match — that's fine
     }
 
-    // Belt: also sweep for stale mcp.pid/mcp-port in real HOME
-    // that may have been left by a SIGKILL'd parallel test.
-    try { fs.unlinkSync(MCP_PID_FILE); } catch {}
-    try { fs.unlinkSync(MCP_PORT_FILE); } catch {}
   });
 
   // ────────────────────────────────────────────────────────────────
@@ -527,9 +505,7 @@ describe("MCP lifecycle integration", { concurrency: 1 }, () => {
       // Wait for process to fully exit
       await new Promise<void>((resolve) => setTimeout(resolve, 500));
 
-      // Verify isMcpRunning() returns false (checking the isolated HOME PID file)
-      // Since we used an isolated HOME, the real MCP_PID_FILE won't reflect this test's instance.
-      // Instead, verify via CLI status and HTTP reachability.
+      // Verify the isolated MCP state via CLI status and HTTP reachability.
       status = await runCli(["mcp", "status"], cliEnv);
       assert.match(status.stdout, /MCP server is not running/);
 
@@ -850,9 +826,7 @@ describe("MCP lifecycle integration", { concurrency: 1 }, () => {
       // Verify via isMcpRunning() on the isolated PID file
       const isolatedPidFile = path.join(tempEnv.homeDir, ".tamandua", "mcp.pid");
 
-      // We can't directly test isMcpRunning() with isolated environment since
-      // it reads from the real HOME. Instead we test the isolated PID file
-      // directly.
+      // Verify the isolated PID file directly.
       assert.ok(fs.existsSync(isolatedPidFile), "PID file should exist in isolated env");
       const pid1 = parseInt(fs.readFileSync(isolatedPidFile, "utf-8").trim(), 10);
       assert.ok(pid1 > 0, "PID should be positive");

@@ -163,17 +163,8 @@ describe("dashboard daemon (MCP decoupled)", { concurrency: 1 }, () => {
       const health = await waitForHttpUp(`http://127.0.0.1:${dashboardPort}/api/health`);
       assert.equal(health.status, 200);
 
-      // MCP should NOT be reachable on the default MCP port.
-      // If 3338 is already occupied by another process, skip this check.
-      if (await canBind(3338)) {
-        let mcpReachable = true;
-        try {
-          await fetch(`http://127.0.0.1:3338/mcp`);
-        } catch {
-          mcpReachable = false;
-        }
-        assert.equal(mcpReachable, false, "MCP port should NOT be reachable without --with-mcp");
-      }
+      const mcpPidFile = path.join(tempHome, ".tamandua", "mcp.pid");
+      assert.equal(fs.existsSync(mcpPidFile), false, "MCP should not be started without --with-mcp");
 
       process.kill(child.pid!, "SIGTERM");
       const exitCode = await waitForExit(child);

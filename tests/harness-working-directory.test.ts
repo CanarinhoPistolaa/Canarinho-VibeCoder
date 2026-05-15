@@ -132,7 +132,7 @@ describe("working-directory-for-harness", () => {
             }));
           } finally {
             shutdownAllCrons();
-            stopDaemon();
+            stopDaemon({ homeDir: process.env.HOME });
           }
         `,
         {
@@ -184,7 +184,7 @@ describe("working-directory-for-harness", () => {
             }));
           } finally {
             shutdownAllCrons();
-            stopDaemon();
+            stopDaemon({ homeDir: process.env.HOME });
           }
         `,
         {

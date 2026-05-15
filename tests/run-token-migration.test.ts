@@ -151,7 +151,7 @@ describe("run token spend persistence", () => {
             const row = db.prepare("SELECT tokens_spent FROM runs WHERE id = ?").get(started.runId);
             console.log(JSON.stringify({ tokensSpent: row.tokens_spent }));
           } finally {
-            try { await stopDaemon(); } catch {}
+            try { stopDaemon({ homeDir: process.env.HOME }); } catch {}
             shutdownAllCrons();
           }
         `,

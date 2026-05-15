@@ -31,13 +31,13 @@ interface CliResult {
   exitCode: number | null;
 }
 
-function runCli(args: string[], env?: Record<string, string>): Promise<CliResult> {
+function runCli(args: string[], env: Record<string, string>): Promise<CliResult> {
   return new Promise<CliResult>((resolve) => {
     let stdout = "";
     let stderr = "";
 
     const child = spawn("node", ["--no-warnings", CLI_SCRIPT, ...args], {
-      env: env ? { ...process.env, ...env } : process.env,
+      env: { ...process.env, ...env },
       stdio: ["ignore", "pipe", "pipe"],
     });
 
@@ -501,15 +501,23 @@ describe("tamandua workflow resume CLI", { concurrency: 1 }, () => {
       return;
     }
 
-    const { stdout, stderr, exitCode } = await runCli([
-      "workflow", "resume", "nonexistent-run-id",
-    ]);
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "tamandua-resume-missing-"));
+    const homeDir = path.join(root, "home");
+    fs.mkdirSync(homeDir, { recursive: true });
+    try {
+      const { stdout, stderr, exitCode } = await runCli(
+        ["workflow", "resume", "nonexistent-run-id"],
+        { HOME: homeDir },
+      );
 
-    assert.notEqual(exitCode, 0, "Should exit with non-zero code");
-    assert.ok(
-      stderr.includes("No run found matching") || stderr.includes("not found"),
-      `Expected not-found error in stderr, got: ${stderr}`,
-    );
+      assert.notEqual(exitCode, 0, "Should exit with non-zero code");
+      assert.ok(
+        stderr.includes("No run found matching") || stderr.includes("not found"),
+        `Expected not-found error in stderr, got: ${stderr}`,
+      );
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
   });
 
   // Resume with missing run-id prints usage error
@@ -519,12 +527,19 @@ describe("tamandua workflow resume CLI", { concurrency: 1 }, () => {
       return;
     }
 
-    const { stdout, stderr, exitCode } = await runCli(["workflow", "resume"]);
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "tamandua-resume-usage-"));
+    const homeDir = path.join(root, "home");
+    fs.mkdirSync(homeDir, { recursive: true });
+    try {
+      const { stdout, stderr, exitCode } = await runCli(["workflow", "resume"], { HOME: homeDir });
 
-    assert.notEqual(exitCode, 0, "Should exit with non-zero code when no run-id provided");
-    assert.ok(
-      stderr.includes("Missing run-id"),
-      `Expected "Missing run-id" error, got stderr: "${cleanStderr(stderr)}"`,
-    );
+      assert.notEqual(exitCode, 0, "Should exit with non-zero code when no run-id provided");
+      assert.ok(
+        stderr.includes("Missing run-id"),
+        `Expected "Missing run-id" error, got stderr: "${cleanStderr(stderr)}"`,
+      );
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
   });
 });

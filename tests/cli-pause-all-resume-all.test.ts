@@ -32,13 +32,13 @@ interface CliResult {
   exitCode: number | null;
 }
 
-function runCli(args: string[], env?: Record<string, string>): Promise<CliResult> {
+function runCli(args: string[], env: Record<string, string>): Promise<CliResult> {
   return new Promise<CliResult>((resolve) => {
     let stdout = "";
     let stderr = "";
 
     const child = spawn("node", ["--no-warnings", CLI_SCRIPT, ...args], {
-      env: env ? { ...process.env, ...env } : process.env,
+      env: { ...process.env, ...env },
       stdio: ["ignore", "pipe", "pipe"],
     });
 

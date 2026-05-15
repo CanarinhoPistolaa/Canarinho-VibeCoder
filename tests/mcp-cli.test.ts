@@ -14,7 +14,7 @@
  * PID/port files with parallel tests (US-003 isolation).
  */
 
-import { describe, it, before, after } from "node:test";
+import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import http from "node:http";
@@ -28,8 +28,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 // In dev (tsx), compiled CLI is in dist/cli/
 const CLI_SCRIPT = path.resolve(__dirname, "..", "dist", "cli", "cli.js");
 
-// Import daemonctl for real HOME cleanup (belt for leaked processes)
-import { stopMcp, MCP_PID_FILE, MCP_PORT_FILE } from "../dist/server/daemonctl.js";
+import { stopMcp } from "../dist/server/daemonctl.js";
 import { DEFAULT_MCP_PORT } from "../dist/server/mcp-server.js";
 
 // ═══════════════════════════════════════════════════════════════════
@@ -114,16 +113,14 @@ interface CliResult {
   exitCode: number | null;
 }
 
-function runCli(args: string[], homeDir?: string): Promise<CliResult> {
+function runCli(args: string[], homeDir: string): Promise<CliResult> {
   return new Promise<CliResult>((resolve) => {
     let stdout = "";
     let stderr = "";
 
-    const env = homeDir ? { ...process.env, HOME: homeDir } : process.env;
-
     const child = spawn("node", ["--no-warnings", CLI_SCRIPT, ...args], {
       stdio: ["ignore", "pipe", "pipe"],
-      env,
+      env: { ...process.env, HOME: homeDir },
     });
 
     child.stdout?.on("data", (chunk: Buffer) => {
@@ -153,11 +150,6 @@ function cleanStderr(stderr: string): string {
     })
     .join("\n")
     .trim();
-}
-
-function cleanupMcpFiles(): void {
-  try { fs.unlinkSync(MCP_PID_FILE); } catch {}
-  try { fs.unlinkSync(MCP_PORT_FILE); } catch {}
 }
 
 // ═══════════════════════════════════════════════════════════════════
@@ -208,17 +200,7 @@ function isIsolatedMcpRunning(homeDir: string): { running: true; pid: number } |
 }
 
 function stopIsolatedMcp(homeDir: string): boolean {
-  const status = isIsolatedMcpRunning(homeDir);
-  if (!status.running) return false;
-
-  try {
-    process.kill(status.pid, "SIGTERM");
-  } catch {}
-
-  try { fs.unlinkSync(getIsolatedMcpPidFile(homeDir)); } catch {}
-  try { fs.unlinkSync(getIsolatedMcpPortFile(homeDir)); } catch {}
-
-  return true;
+  return stopMcp({ homeDir });
 }
 
 function cleanupIsolatedMcpFiles(homeDir: string): void {
@@ -231,18 +213,6 @@ function cleanupIsolatedMcpFiles(homeDir: string): void {
 // ═══════════════════════════════════════════════════════════════════
 
 describe("tamandua mcp CLI", { concurrency: 1 }, () => {
-  before(() => {
-    // Best-effort cleanup of any stale MCP that might interfere (real HOME belt)
-    stopMcp();
-    cleanupMcpFiles();
-  });
-
-  after(() => {
-    // Best-effort cleanup of any leaked processes on real HOME
-    stopMcp();
-    cleanupMcpFiles();
-  });
-
   // AC 5: tamandua mcp status shows not running when MCP is down
   it("mcp status shows not running when MCP is down", async () => {
     const tempHome = createTempHome();
@@ -256,7 +226,6 @@ describe("tamandua mcp CLI", { concurrency: 1 }, () => {
       assert.equal(cleanStderr(stderr), "");
     } finally {
       stopIsolatedMcp(tempHome);
-      cleanupMcpFiles();
       fs.rmSync(tempHome, { recursive: true, force: true });
     }
   });
@@ -297,8 +266,6 @@ describe("tamandua mcp CLI", { concurrency: 1 }, () => {
 
     } finally {
       stopIsolatedMcp(tempHome);
-      stopMcp();
-      cleanupMcpFiles();
       fs.rmSync(tempHome, { recursive: true, force: true });
     }
   });
@@ -334,8 +301,6 @@ describe("tamandua mcp CLI", { concurrency: 1 }, () => {
 
     } finally {
       stopIsolatedMcp(tempHome);
-      stopMcp();
-      cleanupMcpFiles();
       fs.rmSync(tempHome, { recursive: true, force: true });
     }
   });
@@ -379,8 +344,6 @@ describe("tamandua mcp CLI", { concurrency: 1 }, () => {
 
     } finally {
       stopIsolatedMcp(tempHome);
-      stopMcp();
-      cleanupMcpFiles();
       fs.rmSync(tempHome, { recursive: true, force: true });
     }
   });
@@ -425,8 +388,6 @@ describe("tamandua mcp CLI", { concurrency: 1 }, () => {
 
     } finally {
       stopIsolatedMcp(tempHome);
-      stopMcp();
-      cleanupMcpFiles();
       fs.rmSync(tempHome, { recursive: true, force: true });
     }
   });
@@ -475,8 +436,6 @@ describe("tamandua mcp CLI", { concurrency: 1 }, () => {
 
     } finally {
       stopIsolatedMcp(tempHome);
-      stopMcp();
-      cleanupMcpFiles();
       fs.rmSync(tempHome, { recursive: true, force: true });
     }
   });
@@ -487,18 +446,13 @@ describe("tamandua mcp CLI", { concurrency: 1 }, () => {
     try {
       cleanupIsolatedMcpFiles(tempHome);
 
-      // Ensure nothing is running on real HOME too (belt)
-      stopMcp();
-      await new Promise<void>((resolve) => setTimeout(resolve, 500));
-
       const { stdout, stderr, exitCode } = await runCli(["mcp", "stop"], tempHome);
 
       assert.equal(exitCode, 0);
       assert.ok(stdout.includes("not running"), `Expected "not running", got: ${stdout}`);
       assert.equal(cleanStderr(stderr), "");
     } finally {
-      stopMcp();
-      cleanupMcpFiles();
+      stopIsolatedMcp(tempHome);
       fs.rmSync(tempHome, { recursive: true, force: true });
     }
   });
@@ -532,8 +486,6 @@ describe("tamandua mcp CLI", { concurrency: 1 }, () => {
 
     } finally {
       stopIsolatedMcp(tempHome);
-      stopMcp();
-      cleanupMcpFiles();
       fs.rmSync(tempHome, { recursive: true, force: true });
     }
   });

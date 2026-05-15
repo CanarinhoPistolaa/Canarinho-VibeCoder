@@ -30,13 +30,13 @@ interface CliResult {
   exitCode: number | null;
 }
 
-function runCli(args: string[], env?: Record<string, string>): Promise<CliResult> {
+function runCli(args: string[], env: Record<string, string>): Promise<CliResult> {
   return new Promise<CliResult>((resolve) => {
     let stdout = "";
     let stderr = "";
 
     const child = spawn("node", ["--no-warnings", CLI_SCRIPT, ...args], {
-      env: env ? { ...process.env, ...env } : process.env,
+      env: { ...process.env, ...env },
       stdio: ["ignore", "pipe", "pipe"],
     });
 
@@ -445,12 +445,19 @@ describe("tamandua workflow pause CLI", { concurrency: 1 }, () => {
       return;
     }
 
-    const { stdout, stderr, exitCode } = await runCli(["workflow", "pause"]);
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "tamandua-pause-usage-"));
+    const homeDir = path.join(root, "home");
+    fs.mkdirSync(homeDir, { recursive: true });
+    try {
+      const { stdout, stderr, exitCode } = await runCli(["workflow", "pause"], { HOME: homeDir });
 
-    assert.notEqual(exitCode, 0, "Should exit with non-zero code when no run-id provided");
-    assert.ok(
-      stderr.includes("Missing run-id"),
-      `Expected "Missing run-id" error, got stderr: "${cleanStderr(stderr)}"`,
-    );
+      assert.notEqual(exitCode, 0, "Should exit with non-zero code when no run-id provided");
+      assert.ok(
+        stderr.includes("Missing run-id"),
+        `Expected "Missing run-id" error, got stderr: "${cleanStderr(stderr)}"`,
+      );
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
   });
 });

@@ -1,4 +1,4 @@
-import { describe, it, afterEach } from "node:test";
+import { describe, it, beforeEach, afterEach } from "node:test";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
@@ -18,6 +18,15 @@ interface JsonResponse {
 
 const SECRET = "test-secret";
 let cleanupDirs: string[] = [];
+let originalStateDir: string | undefined;
+let originalDbPath: string | undefined;
+let originalAllowSharedHarnessWorkdir: string | undefined;
+
+beforeEach(() => {
+  originalStateDir = process.env.TAMANDUA_STATE_DIR;
+  originalDbPath = process.env.TAMANDUA_DB_PATH;
+  originalAllowSharedHarnessWorkdir = process.env.TAMANDUA_ALLOW_SHARED_HARNESS_WORKDIR;
+});
 
 afterEach(async () => {
   shutdownAllCrons();
@@ -25,9 +34,12 @@ afterEach(async () => {
     fs.rmSync(dir, { recursive: true, force: true });
   }
   cleanupDirs = [];
-  delete process.env.TAMANDUA_STATE_DIR;
-  delete process.env.TAMANDUA_DB_PATH;
-  delete process.env.TAMANDUA_ALLOW_SHARED_HARNESS_WORKDIR;
+  if (originalStateDir === undefined) delete process.env.TAMANDUA_STATE_DIR;
+  else process.env.TAMANDUA_STATE_DIR = originalStateDir;
+  if (originalDbPath === undefined) delete process.env.TAMANDUA_DB_PATH;
+  else process.env.TAMANDUA_DB_PATH = originalDbPath;
+  if (originalAllowSharedHarnessWorkdir === undefined) delete process.env.TAMANDUA_ALLOW_SHARED_HARNESS_WORKDIR;
+  else process.env.TAMANDUA_ALLOW_SHARED_HARNESS_WORKDIR = originalAllowSharedHarnessWorkdir;
 });
 
 function makeTempRoot(): string {
