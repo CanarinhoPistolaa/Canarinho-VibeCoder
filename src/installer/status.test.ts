@@ -4,7 +4,7 @@ import path from "node:path";
 import assert from "node:assert/strict";
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { DatabaseSync } from "node:sqlite";
-import { describe, it } from "node:test";
+import { describe, it, beforeEach, afterEach } from "node:test";
 import { once } from "node:events";
 
 const cliPath = path.resolve(process.cwd(), "dist", "cli", "cli.js");
@@ -328,5 +328,97 @@ describe("dashboard run detail worktree enrichment", () => {
       process.env.HOME = origHome;
       try { fs.rmSync(env.root, { recursive: true, force: true }); } catch { /* cleanup */ }
     }
+  });
+});
+
+describe("stopWorkflow", () => {
+  let tempRoot: string;
+  let originalDbPath: string | undefined;
+  let originalHome: string | undefined;
+  let db: DatabaseSync;
+
+  beforeEach(() => {
+    originalDbPath = process.env.TAMANDUA_DB_PATH;
+    originalHome = process.env.HOME;
+    tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), "tamandua-stopwf-"));
+    const dbPath = path.join(tempRoot, ".tamandua", "tamandua.db");
+    process.env.TAMANDUA_DB_PATH = dbPath;
+    process.env.HOME = tempRoot;
+
+    fs.mkdirSync(path.dirname(dbPath), { recursive: true });
+    db = new DatabaseSync(dbPath);
+    db.exec("PRAGMA journal_mode=WAL");
+    db.exec(`CREATE TABLE IF NOT EXISTS runs (
+      id TEXT PRIMARY KEY,
+      workflow_id TEXT NOT NULL DEFAULT 'test',
+      task TEXT NOT NULL DEFAULT 'test',
+      status TEXT NOT NULL DEFAULT 'running',
+      context TEXT NOT NULL DEFAULT '{}',
+      tokens_spent INTEGER NOT NULL DEFAULT 0,
+      scheduling_status TEXT,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+    )`);
+    db.exec(`CREATE TABLE IF NOT EXISTS steps (
+      id TEXT PRIMARY KEY,
+      run_id TEXT NOT NULL,
+      step_id TEXT NOT NULL,
+      agent_id TEXT NOT NULL,
+      step_index INTEGER NOT NULL DEFAULT 0,
+      input_template TEXT NOT NULL DEFAULT '',
+      expects TEXT NOT NULL DEFAULT '',
+      status TEXT NOT NULL DEFAULT 'waiting',
+      output TEXT,
+      retry_count INTEGER DEFAULT 0,
+      max_retries INTEGER DEFAULT 4,
+      type TEXT NOT NULL DEFAULT 'single',
+      loop_config TEXT,
+      current_story_id TEXT,
+      abandoned_count INTEGER DEFAULT 0,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+    )`);
+  });
+
+  afterEach(() => {
+    if (originalDbPath) process.env.TAMANDUA_DB_PATH = originalDbPath;
+    else delete process.env.TAMANDUA_DB_PATH;
+    if (originalHome) process.env.HOME = originalHome;
+    else delete process.env.HOME;
+    try { db.close(); } catch {}
+    fs.rmSync(tempRoot, { recursive: true, force: true });
+  });
+
+  it("cancels a running workflow", async () => {
+    const { stopWorkflow } = await import("../../dist/installer/status.js");
+
+    db.prepare("INSERT INTO runs (id, workflow_id, task, status) VALUES (?, ?, ?, ?)").run("run-cancel", "wf", "test task", "running");
+    db.prepare("INSERT INTO steps (id, run_id, step_id, agent_id, step_index, status) VALUES (?, ?, ?, ?, ?, ?)").run("s1", "run-cancel", "implement", "dev", 0, "waiting");
+    db.prepare("INSERT INTO steps (id, run_id, step_id, agent_id, step_index, status) VALUES (?, ?, ?, ?, ?, ?)").run("s2", "run-cancel", "test", "qa", 1, "running");
+
+    const result = await stopWorkflow("run-cancel");
+    assert.equal(result.ok, true);
+    assert.equal(result.runId, "run-cancel");
+
+    // Run should be canceled
+    const run = db.prepare("SELECT status FROM runs WHERE id = ?").get("run-cancel") as { status: string };
+    assert.equal(run.status, "canceled");
+
+    // Steps should be canceled
+    const steps = db.prepare("SELECT status FROM steps WHERE run_id = ?").all("run-cancel") as Array<{ status: string }>;
+    for (const s of steps) {
+      assert.equal(s.status, "canceled");
+    }
+  });
+
+  it("throws when run not found", async () => {
+    const { stopWorkflow } = await import("../../dist/installer/status.js");
+    await assert.rejects(() => stopWorkflow("nonexistent"), /Run not found/i);
+  });
+
+  it("throws when run is already terminal (completed)", async () => {
+    const { stopWorkflow } = await import("../../dist/installer/status.js");
+    db.prepare("INSERT INTO runs (id, workflow_id, task, status) VALUES (?, ?, ?, ?)").run("run-done", "wf", "test", "completed");
+    await assert.rejects(() => stopWorkflow("run-done"), /already completed/i);
   });
 });

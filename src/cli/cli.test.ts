@@ -105,6 +105,67 @@ describe("parseWorkflowRunArgs", () => {
     assert.equal(result.taskTitle, "do something");
     assert.equal(result.noHurrySaveTokensMode, true);
   });
+
+  it("parses --working-directory-for-harness=VALUE inline form", () => {
+    const result = parseWorkflowRunArgs([
+      "--working-directory-for-harness=/some/path",
+      "task",
+    ]);
+    assert.equal(result.taskTitle, "task");
+    assert.equal(result.workingDirectoryForHarness, "/some/path");
+  });
+
+  it("throws when inline --working-directory-for-harness= has empty value", () => {
+    assert.throws(
+      () => parseWorkflowRunArgs(["--working-directory-for-harness=", "task"]),
+      /Missing value for --working-directory-for-harness/i,
+    );
+  });
+
+  it("parses --worktree-origin-repository=VALUE inline form", () => {
+    const result = parseWorkflowRunArgs([
+      "--worktree-origin-repository=/repo/path",
+      "task",
+    ]);
+    assert.equal(result.taskTitle, "task");
+    assert.equal(result.worktreeOriginRepository, "/repo/path");
+  });
+
+  it("throws when inline --worktree-origin-repository= has empty value", () => {
+    assert.throws(
+      () => parseWorkflowRunArgs(["--worktree-origin-repository=", "task"]),
+      /Missing value for --worktree-origin-repository/i,
+    );
+  });
+
+  it("parses --worktree-origin-ref=VALUE inline form", () => {
+    const result = parseWorkflowRunArgs([
+      "--worktree-origin-ref=main",
+      "task",
+    ]);
+    assert.equal(result.taskTitle, "task");
+    assert.equal(result.worktreeOriginRef, "main");
+  });
+
+  it("throws when inline --worktree-origin-ref= has empty value", () => {
+    assert.throws(
+      () => parseWorkflowRunArgs(["--worktree-origin-ref=", "task"]),
+      /Missing value for --worktree-origin-ref/i,
+    );
+  });
+
+  it("throws when --working-directory-for-harness has missing value (separate form)", () => {
+    assert.throws(
+      () => parseWorkflowRunArgs(["--working-directory-for-harness"]),
+      /Missing value for --working-directory-for-harness/i,
+    );
+  });
+
+  it("handles inline form with no additional task args", () => {
+    const result = parseWorkflowRunArgs(["--working-directory-for-harness=/tmp"]);
+    assert.equal(result.taskTitle, "");
+    assert.equal(result.workingDirectoryForHarness, "/tmp");
+  });
 });
 
 describe("CLI entrypoint regression: no ExperimentalWarning", () => {

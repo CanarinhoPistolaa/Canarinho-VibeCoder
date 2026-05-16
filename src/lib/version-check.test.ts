@@ -98,4 +98,62 @@ describe("version-check", () => {
       "checkedAt should be non-empty after runVersionCheck",
     );
   });
+
+  it("runVersionCheck writes safe default when git operations fail", async () => {
+    // Force git commands to fail by using a non-existent GIT_DIR
+    const originalGitDir = process.env.GIT_DIR;
+    try {
+      process.env.GIT_DIR = "/nonexistent/git/dir/that/does/not/exist";
+
+      // Should not throw — the error handler writes safe defaults
+      await assert.doesNotReject(() => runVersionCheck());
+
+      const statusPath = path.join(testStateDir, "version-status.json");
+      assert.ok(fs.existsSync(statusPath), "safe default should be written");
+
+      const status = readVersionStatus();
+      assert.equal(status.updateAvailable, false, "safe default should be false");
+      assert.equal(status.currentHead, "");
+      assert.equal(status.remoteHead, "");
+    } finally {
+      if (originalGitDir === undefined) {
+        delete process.env.GIT_DIR;
+      } else {
+        process.env.GIT_DIR = originalGitDir;
+      }
+    }
+  });
+
+  it("readVersionStatus returns defaults for missing fields", () => {
+    const statusPath = path.join(testStateDir, "version-status.json");
+    fs.mkdirSync(testStateDir, { recursive: true });
+    fs.writeFileSync(statusPath, JSON.stringify({ updateAvailable: true }), "utf-8");
+
+    const status = readVersionStatus();
+    assert.equal(status.updateAvailable, true);
+    assert.equal(status.currentHead, "");
+    assert.equal(status.remoteHead, "");
+    assert.equal(status.checkedAt, "");
+  });
+
+  it("readVersionStatus coerces non-boolean updateAvailable to boolean", () => {
+    const statusPath = path.join(testStateDir, "version-status.json");
+    fs.mkdirSync(testStateDir, { recursive: true });
+    fs.writeFileSync(
+      statusPath,
+      JSON.stringify({
+        updateAvailable: 1,
+        currentHead: null,
+        remoteHead: 123,
+        checkedAt: null,
+      }),
+      "utf-8",
+    );
+
+    const status = readVersionStatus();
+    assert.equal(status.updateAvailable, true); // Number 1 → Boolean true
+    assert.equal(typeof status.currentHead, "string");
+    assert.equal(typeof status.remoteHead, "string");
+    assert.equal(typeof status.checkedAt, "string");
+  });
 });

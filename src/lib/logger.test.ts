@@ -88,4 +88,47 @@ describe("logger", () => {
     const content = fs.readFileSync(logPath, "utf-8");
     assert.ok(content.includes("standalone log test"));
   });
+
+  it("rotates log file when it exceeds 5MB", () => {
+    // Create a large log file to trigger rotation
+    const largeSize = 5 * 1024 * 1024 + 100; // 5MB + 100 bytes
+    const fd = fs.openSync(logPath, "w");
+    const buf = Buffer.alloc(1, "x");
+    // Use write at the offset just beyond MAX_LOG_SIZE to create a sparse file
+    fs.writeSync(fd, buf, 0, 1, largeSize - 1);
+    fs.closeSync(fd);
+
+    // Now write a new message — this should trigger rotation
+    logger.info("after rotation");
+
+    // The original file should have been renamed to .1
+    const rotatedPath = logPath + ".1";
+    assert.ok(fs.existsSync(rotatedPath), "rotated file should exist");
+
+    // The current log file should contain only the new message
+    const currentContent = fs.readFileSync(logPath, "utf-8");
+    assert.ok(
+      currentContent.includes("after rotation"),
+      "current log file should have the new message",
+    );
+  });
+
+  it("readRecentLogs uses default limit of 50", async () => {
+    // When called with no arguments, should default to 50
+    const lines = await readRecentLogs();
+    assert.ok(Array.isArray(lines), "should return an array");
+  });
+
+  it("readRecentLogs returns empty array for non-existent log file", async () => {
+    // Create a fresh temp dir with no log file yet
+    const emptyDir = fs.mkdtempSync(path.join(os.tmpdir(), "tamandua-logger-empty-"));
+    try {
+      process.env.TAMANDUA_STATE_DIR = emptyDir;
+      const lines = await readRecentLogs(10);
+      assert.deepEqual(lines, []);
+    } finally {
+      process.env.TAMANDUA_STATE_DIR = testStateDir;
+      fs.rmSync(emptyDir, { recursive: true, force: true });
+    }
+  });
 });

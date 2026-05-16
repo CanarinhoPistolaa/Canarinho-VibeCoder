@@ -1,9 +1,13 @@
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
 import assert from "node:assert/strict";
-import { describe, it } from "node:test";
+import { afterEach, beforeEach, describe, it } from "node:test";
 import {
   getMaxRoleTimeoutSeconds,
   getRoleTimeoutSeconds,
   inferRole,
+  installWorkflow,
 } from "../../dist/installer/install.js";
 
 describe("install exports", () => {
@@ -108,5 +112,113 @@ describe("install exports", () => {
       assert.equal(inferRole("Developer"), "coding");
       assert.equal(inferRole("VERIFIER"), "verification");
     });
+  });
+});
+
+describe("installWorkflow", () => {
+  let tempHome: string;
+  let originalHome: string | undefined;
+  let originalStateDir: string | undefined;
+
+  beforeEach(() => {
+    originalHome = process.env.HOME;
+    originalStateDir = process.env.TAMANDUA_STATE_DIR;
+    tempHome = fs.mkdtempSync(path.join(os.tmpdir(), "tamandua-install-"));
+    process.env.HOME = tempHome;
+    delete process.env.TAMANDUA_STATE_DIR;
+
+    // Create minimal pi config so readPiConfig doesn't fail on ENOENT
+    const piAgentDir = path.join(tempHome, ".pi", "agent");
+    fs.mkdirSync(piAgentDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(piAgentDir, "settings.json"),
+      JSON.stringify({ defaultProvider: "openai", defaultModel: "gpt-4" }),
+      "utf-8",
+    );
+  });
+
+  afterEach(() => {
+    if (originalHome) process.env.HOME = originalHome;
+    else delete process.env.HOME;
+    if (originalStateDir) process.env.TAMANDUA_STATE_DIR = originalStateDir;
+    else delete process.env.TAMANDUA_STATE_DIR;
+    fs.rmSync(tempHome, { recursive: true, force: true });
+  });
+
+  it("installs bug-fix workflow successfully", async () => {
+    const result = await installWorkflow({ workflowId: "bug-fix" });
+
+    assert.equal(result.workflowId, "bug-fix");
+    assert.ok(result.workflowDir.includes("bug-fix"), "workflowDir should contain bug-fix");
+
+    // Verify workflow directory exists
+    assert.ok(fs.existsSync(result.workflowDir), "workflow dir should exist");
+
+    // Verify workflow.yml was copied
+    const ymlPath = path.join(result.workflowDir, "workflow.yml");
+    assert.ok(fs.existsSync(ymlPath), "workflow.yml should exist");
+
+    // Verify metadata.json was written
+    const metadataPath = path.join(result.workflowDir, "metadata.json");
+    assert.ok(fs.existsSync(metadataPath), "metadata.json should exist");
+    const metadata = JSON.parse(fs.readFileSync(metadataPath, "utf-8"));
+    assert.equal(metadata.workflowId, "bug-fix");
+    assert.ok(metadata.installedAt, "should have installedAt timestamp");
+
+    // Verify agents.json was created with the workflow agents
+    const agentsPath = path.join(tempHome, ".tamandua", "agents.json");
+    assert.ok(fs.existsSync(agentsPath), "agents.json should exist");
+    const agentsList = JSON.parse(fs.readFileSync(agentsPath, "utf-8"));
+    assert.ok(Array.isArray(agentsList), "agents list should be an array");
+
+    // Should have at least the main agent plus the workflow agents
+    assert.ok(agentsList.length >= 2, `expected at least 2 agents, got ${agentsList.length}`);
+
+    // The main agent should be marked as default
+    const mainAgent = agentsList.find((a: Record<string, unknown>) => a.id === "main");
+    assert.ok(mainAgent, "main agent should exist");
+    assert.equal(mainAgent.default, true, "main agent should be default");
+
+    // Workflow agents should have workspace and agentDir
+    const wfAgents = agentsList.filter((a: Record<string, unknown>) =>
+      typeof a.id === "string" && a.id.startsWith("bug-fix_")
+    );
+    assert.ok(wfAgents.length > 0, "should have workflow agents");
+    for (const agent of wfAgents) {
+      assert.ok(agent.workspace, `agent ${agent.id} should have workspace`);
+      assert.ok(agent.agentDir, `agent ${agent.id} should have agentDir`);
+      assert.ok(agent.config, `agent ${agent.id} should have config`);
+    }
+  });
+
+  it("installs feature-dev workflow successfully", async () => {
+    const result = await installWorkflow({ workflowId: "feature-dev" });
+    assert.equal(result.workflowId, "feature-dev");
+
+    const agentsPath = path.join(tempHome, ".tamandua", "agents.json");
+    const agentsList = JSON.parse(fs.readFileSync(agentsPath, "utf-8"));
+
+    const wfAgents = agentsList.filter((a: Record<string, unknown>) =>
+      typeof a.id === "string" && a.id.startsWith("feature-dev_")
+    );
+    assert.ok(wfAgents.length > 0, "feature-dev should have agents");
+  });
+
+  it("idempotent: reinstalling same workflow does not crash", async () => {
+    const result1 = await installWorkflow({ workflowId: "bug-fix" });
+    // Second install of the same workflow should work (overwrite)
+    const result2 = await installWorkflow({ workflowId: "bug-fix" });
+    assert.equal(result2.workflowId, "bug-fix");
+
+    // The workflow directory should still exist and have metadata
+    const metadataPath = path.join(result2.workflowDir, "metadata.json");
+    assert.ok(fs.existsSync(metadataPath));
+  });
+
+  it("throws on non-existent workflow", async () => {
+    await assert.rejects(
+      () => installWorkflow({ workflowId: "nonexistent-wf-xyz" }),
+      /not found/i,
+    );
   });
 });

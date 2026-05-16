@@ -4,22 +4,25 @@ import path from "node:path";
 import assert from "node:assert/strict";
 import { afterEach, beforeEach, describe, it } from "node:test";
 import { DatabaseSync } from "node:sqlite";
-import { checkActiveRuns } from "../../dist/installer/uninstall.js";
+import { checkActiveRuns, uninstallWorkflow, uninstallAllWorkflows } from "../../dist/installer/uninstall.js";
 
-describe("uninstall checkActiveRuns", () => {
+describe("uninstall", () => {
   let tempDir: string;
   let dbPath: string;
   let db: DatabaseSync;
   let originalDbPath: string | undefined;
   let originalHome: string | undefined;
+  let originalStateDir: string | undefined;
 
   beforeEach(() => {
     originalDbPath = process.env.TAMANDUA_DB_PATH;
     originalHome = process.env.HOME;
+    originalStateDir = process.env.TAMANDUA_STATE_DIR;
     tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "tamandua-uninstall-"));
     dbPath = path.join(tempDir, ".tamandua", "tamandua.db");
     process.env.TAMANDUA_DB_PATH = dbPath;
     process.env.HOME = tempDir;
+    process.env.TAMANDUA_STATE_DIR = path.join(tempDir, ".tamandua");
 
     fs.mkdirSync(path.dirname(dbPath), { recursive: true });
     db = new DatabaseSync(dbPath);
@@ -63,6 +66,8 @@ describe("uninstall checkActiveRuns", () => {
     else delete process.env.TAMANDUA_DB_PATH;
     if (originalHome) process.env.HOME = originalHome;
     else delete process.env.HOME;
+    if (originalStateDir) process.env.TAMANDUA_STATE_DIR = originalStateDir;
+    else delete process.env.TAMANDUA_STATE_DIR;
     try { db.close(); } catch {}
     fs.rmSync(tempDir, { recursive: true, force: true });
   });
@@ -111,5 +116,32 @@ describe("uninstall checkActiveRuns", () => {
     const runsA = await checkActiveRuns("wf-a");
     assert.equal(runsA.length, 1);
     assert.equal(runsA[0]!.id, "r1");
+  });
+
+  describe("uninstallAllWorkflows", () => {
+    it("returns empty array when no workflows dir exists", async () => {
+      const results = await uninstallAllWorkflows();
+      assert.deepEqual(results, []);
+    });
+
+    it("processes workflow dirs when present", async () => {
+      // Create a workflow directory
+      const wfDir = path.join(tempDir, ".tamandua", "workflows", "wf-empty");
+      fs.mkdirSync(wfDir, { recursive: true });
+
+      // Create agents.json with an entry for this workflow
+      const tamanduaDir = path.join(tempDir, ".tamandua");
+      fs.mkdirSync(path.join(tamanduaDir, "agents"), { recursive: true });
+      fs.writeFileSync(
+        path.join(tamanduaDir, "agents.json"),
+        JSON.stringify([
+          { id: "wf-empty_dev-agent", workflowId: "wf-empty", name: "Dev" },
+        ]),
+        "utf-8",
+      );
+
+      const results = await uninstallAllWorkflows();
+      assert.ok(results.length >= 1, "should process at least one workflow");
+    });
   });
 });

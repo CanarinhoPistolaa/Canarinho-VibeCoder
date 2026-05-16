@@ -8,7 +8,7 @@ import { DatabaseSync } from "node:sqlite";
 // We test the migration by directly importing getDb, which calls migrate().
 // But since getDb() uses a cached connection and resolves DB path from
 // env/home, we test the migration logic directly with an isolated DB.
-import { getDb } from "../dist/db.js";
+import { getDb, getDbPath, getSystemTokenSpend, incrementSystemTokenSpend } from "../dist/db.js";
 
 describe("run_worktrees table migration", () => {
   let tempHome: string;
@@ -302,5 +302,53 @@ describe("run_worktrees table migration", () => {
       "EXPLAIN QUERY PLAN SELECT * FROM run_worktrees WHERE status = ?",
     ).all("ready");
     assert.ok(explain.length > 0, "query plan should be valid");
+  });
+});
+
+describe("getDbPath", () => {
+  it("returns path ending with .tamandua/tamandua.db under HOME", () => {
+    const result = getDbPath();
+    assert.ok(result.endsWith(path.join(".tamandua", "tamandua.db")), `expected path ending with .tamandua/tamandua.db, got ${result}`);
+  });
+
+  it("respects TAMANDUA_DB_PATH env var", () => {
+    const customPath = "/tmp/custom-tamandua.db";
+    process.env.TAMANDUA_DB_PATH = customPath;
+    try {
+      const result = getDbPath();
+      assert.equal(result, customPath);
+    } finally {
+      delete process.env.TAMANDUA_DB_PATH;
+    }
+  });
+});
+
+describe("getSystemTokenSpend", () => {
+  let startingSpend: number;
+
+  before(() => {
+    // Reset tamandua_stats to a known baseline
+    const db = getDb();
+    db.prepare("UPDATE tamandua_stats SET system_tokens_spent = 0 WHERE id = 1").run();
+    // Also ensure the row exists (migrate() creates it)
+    db.prepare("INSERT OR IGNORE INTO tamandua_stats (id, system_tokens_spent) VALUES (1, 0)").run();
+    startingSpend = getSystemTokenSpend();
+  });
+
+  it("returns 0 after reset", () => {
+    assert.equal(startingSpend, 0);
+  });
+
+  it("returns updated value after incrementSystemTokenSpend", () => {
+    incrementSystemTokenSpend(100);
+    const result = getSystemTokenSpend();
+    assert.equal(result, 100);
+  });
+
+  it("accumulates across multiple increments", () => {
+    incrementSystemTokenSpend(50);
+    incrementSystemTokenSpend(25);
+    const result = getSystemTokenSpend();
+    assert.equal(result, 175);
   });
 });

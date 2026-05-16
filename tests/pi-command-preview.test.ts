@@ -27,6 +27,76 @@ describe("formatPiCommandPreview", () => {
     assert.deepEqual(preview.truncatedIndices, [2]);
     assert.ok(preview.argvPreview[2].endsWith("…"));
   });
+
+  it("redacts -p flag value (prompt as separate arg)", () => {
+    const preview = formatPiCommandPreview("/usr/bin/pi", ["--print", "-p", "secret content"]);
+
+    assert.equal(preview.argvPreview[2], "<prompt elided>");
+    assert.deepEqual(preview.redactedIndices, [2]);
+    assert.equal(preview.promptElided, true);
+  });
+
+  it("redacts --prompt flag value (prompt as separate arg)", () => {
+    const preview = formatPiCommandPreview("/usr/bin/pi", ["--print", "--prompt", "secret content"]);
+
+    assert.equal(preview.argvPreview[2], "<prompt elided>");
+    assert.deepEqual(preview.redactedIndices, [2]);
+    assert.equal(preview.promptElided, true);
+  });
+
+  it("redacts prompt with -- separator (forcePositional path)", () => {
+    const preview = formatPiCommandPreview("/usr/bin/pi", ["--print", "--", "final positional prompt"]);
+
+    assert.equal(preview.argvPreview[2], "<prompt elided>");
+    assert.deepEqual(preview.redactedIndices, [2]);
+    assert.equal(preview.promptElided, true);
+  });
+
+  it("redacts --prompt=value with -- separator", () => {
+    const preview = formatPiCommandPreview("/usr/bin/pi", ["--print", "--", "--prompt=secret"]);
+
+    // After --, all args are positional; last positional is redacted
+    assert.equal(preview.promptElided, true);
+    assert.ok(preview.commandPreview.includes("<prompt elided>"));
+  });
+
+  it("collects -m flag value as non-redacted option value", () => {
+    const preview = formatPiCommandPreview("/usr/bin/pi", ["--print", "-m", "claude-sonnet", "prompt here"]);
+
+    // -m flag value should NOT be redacted, but the prompt should be
+    assert.ok(preview.argvPreview[2] === "-m" || preview.argvPreview[1] === "-m");
+    assert.equal(preview.promptElided, true);
+  });
+
+  it("handles CLI flags that take values without redacting flag values", () => {
+    // --session takes a value, it should not be redacted
+    const preview = formatPiCommandPreview("/usr/bin/pi", [
+      "--print", "--session", "my-session-id", "--model", "gpt-4", "prompt text",
+    ]);
+
+    assert.equal(preview.promptElided, true);
+    // prompt text should be redacted
+    assert.ok(preview.argvPreview[5] === "<prompt elided>");
+  });
+
+  it("truncates command preview when total length exceeds max", () => {
+    // Use very short maxCommandPreviewLength and many args to ensure truncation
+    const longPath = "/very/long/path/to/pi/binary/that/is/sixty/chars/!".repeat(3);
+    const preview = formatPiCommandPreview(longPath, ["--print", "prompt"], {
+      maxCommandPreviewLength: 50,
+    });
+
+    assert.equal(preview.commandTruncated, true);
+    assert.ok(preview.commandPreview.endsWith("…"));
+    assert.ok(preview.commandPreview.length <= 53); // 50 + "…"
+  });
+
+  it("returns empty redactedIndices when no prompts present", () => {
+    const preview = formatPiCommandPreview("/usr/bin/pi", ["--model", "gpt-4", "--session", "sess1"]);
+
+    assert.deepEqual(preview.redactedIndices, []);
+    assert.equal(preview.promptElided, false);
+  });
 });
 
 describe("runPi logging", () => {

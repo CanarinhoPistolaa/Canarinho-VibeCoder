@@ -5,9 +5,39 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 cd "$SCRIPT_DIR"
 
+shopt -s globstar nullglob
+
+RUNTIME_DIR="$(mktemp -d "${TMPDIR:-/tmp}/tamandua-coverage.XXXXXX")"
+trap 'rm -rf "$RUNTIME_DIR"' EXIT
+
+export HOME="$RUNTIME_DIR/home"
+mkdir -p "$HOME"
+
+export GIT_AUTHOR_NAME="Tamandua Coverage"
+export GIT_AUTHOR_EMAIL="coverage@tamandua.local"
+export GIT_COMMITTER_NAME="$GIT_AUTHOR_NAME"
+export GIT_COMMITTER_EMAIL="$GIT_AUTHOR_EMAIL"
+
+COVERAGE_OUTPUT="${TAMANDUA_COVERAGE_OUTPUT:-$RUNTIME_DIR/coverage-output.txt}"
+
+# The tests import compiled files from dist/. Restrict the coverage aggregate to
+# those Tamandua-owned files so dependency code, pi installs, tests, and other
+# repository artifacts do not dilute the reported number.
+COVERAGE_ARGS=(
+  --experimental-test-coverage
+  --test-coverage-include='dist/**/*.js'
+  --test-coverage-exclude='**/node_modules/**'
+  --test-coverage-exclude='tests/**'
+  --test-coverage-exclude='src/**/*.test.ts'
+)
+
+TEST_FILES=(
+  tests/*.test.ts
+  src/**/*.test.ts
+)
+
 set +e
-node --test --experimental-test-coverage tests/*.test.ts src/**/*.test.ts > /tmp/tamandua-coverage-output.txt 2>&1
-NODE_EXIT=$?
+node --test --test-timeout=120000 "${COVERAGE_ARGS[@]}" "${TEST_FILES[@]}" > "$COVERAGE_OUTPUT" 2>&1
 set -e
 
 LC_ALL=C awk -F'|' '
@@ -20,4 +50,4 @@ LC_ALL=C awk -F'|' '
     END {
       if (!found) print 0
     }
-  ' /tmp/tamandua-coverage-output.txt
+  ' "$COVERAGE_OUTPUT"

@@ -270,3 +270,338 @@ steps:
     }
   });
 });
+
+describe("loadWorkflowSpec validation errors", () => {
+  it("throws when workflow.yml does not exist (ENOENT)", async () => {
+    const dir = mkdtempSync("/tmp/tamandua-test-workflow-spec-");
+    try {
+      await assert.rejects(
+        () => loadWorkflowSpec(dir),
+        /No workflow\.yml found/i,
+      );
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("throws on invalid YAML", async () => {
+    const yml = `id: [unclosed`;
+    const dir = createTempWorkflow(yml);
+    try {
+      await assert.rejects(
+        () => loadWorkflowSpec(dir),
+        /Failed to parse workflow\.yml/i,
+      );
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("throws when YAML parses to non-object (string)", async () => {
+    const yml = `"just a string"`;
+    const dir = createTempWorkflow(yml);
+    try {
+      await assert.rejects(
+        () => loadWorkflowSpec(dir),
+        /did not parse to an object/i,
+      );
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("throws when YAML parses to null", async () => {
+    const yml = `null`;
+    const dir = createTempWorkflow(yml);
+    try {
+      await assert.rejects(
+        () => loadWorkflowSpec(dir),
+        /did not parse to an object/i,
+      );
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("throws when missing required field: id", async () => {
+    const yml = `
+agents:
+  - id: dev
+    workspace:
+      baseDir: agents/dev
+steps:
+  - id: step1
+    agent: dev
+`;
+    const dir = createTempWorkflow(yml);
+    try {
+      await assert.rejects(
+        () => loadWorkflowSpec(dir),
+        /missing required field: id/i,
+      );
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("throws when id is empty string", async () => {
+    const yml = `
+id: ""
+agents:
+  - id: dev
+    workspace:
+      baseDir: agents/dev
+steps:
+  - id: step1
+    agent: dev
+`;
+    const dir = createTempWorkflow(yml);
+    try {
+      await assert.rejects(
+        () => loadWorkflowSpec(dir),
+        /missing required field: id/i,
+      );
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("throws when missing required field: agents", async () => {
+    const yml = `
+id: test-workflow
+steps:
+  - id: step1
+    agent: dev
+`;
+    const dir = createTempWorkflow(yml);
+    try {
+      await assert.rejects(
+        () => loadWorkflowSpec(dir),
+        /missing required field: agents/i,
+      );
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("throws when agents is empty array", async () => {
+    const yml = `
+id: test-workflow
+agents: []
+steps:
+  - id: step1
+    agent: dev
+`;
+    const dir = createTempWorkflow(yml);
+    try {
+      await assert.rejects(
+        () => loadWorkflowSpec(dir),
+        /missing required field: agents.*non-empty/i,
+      );
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("throws when missing required field: steps", async () => {
+    const yml = `
+id: test-workflow
+agents:
+  - id: dev
+    workspace:
+      baseDir: agents/dev
+`;
+    const dir = createTempWorkflow(yml);
+    try {
+      await assert.rejects(
+        () => loadWorkflowSpec(dir),
+        /missing required field: steps/i,
+      );
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("throws when agent is missing id", async () => {
+    const yml = `
+id: test-workflow
+agents:
+  - name: bob
+    workspace:
+      baseDir: agents/dev
+steps:
+  - id: step1
+    agent: bob
+`;
+    const dir = createTempWorkflow(yml);
+    try {
+      await assert.rejects(
+        () => loadWorkflowSpec(dir),
+        /agent\[0\].*missing required field: id/i,
+      );
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("throws when agent is missing workspace", async () => {
+    const yml = `
+id: test-workflow
+agents:
+  - id: dev
+steps:
+  - id: step1
+    agent: dev
+`;
+    const dir = createTempWorkflow(yml);
+    try {
+      await assert.rejects(
+        () => loadWorkflowSpec(dir),
+        /agent\[0\].*missing required field: workspace/i,
+      );
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("throws when agent workspace is missing baseDir", async () => {
+    const yml = `
+id: test-workflow
+agents:
+  - id: dev
+    workspace:
+      other: value
+steps:
+  - id: step1
+    agent: dev
+`;
+    const dir = createTempWorkflow(yml);
+    try {
+      await assert.rejects(
+        () => loadWorkflowSpec(dir),
+        /agent\[0\].*missing required field: baseDir/i,
+      );
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("throws when step is missing id", async () => {
+    const yml = `
+id: test-workflow
+agents:
+  - id: dev
+    workspace:
+      baseDir: agents/dev
+steps:
+  - agent: dev
+`;
+    const dir = createTempWorkflow(yml);
+    try {
+      await assert.rejects(
+        () => loadWorkflowSpec(dir),
+        /step\[0\].*missing required field: id/i,
+      );
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("throws when step is missing agent", async () => {
+    const yml = `
+id: test-workflow
+agents:
+  - id: dev
+    workspace:
+      baseDir: agents/dev
+steps:
+  - id: step1
+`;
+    const dir = createTempWorkflow(yml);
+    try {
+      await assert.rejects(
+        () => loadWorkflowSpec(dir),
+        /step\[0\].*missing required field: agent/i,
+      );
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("validates second agent in array", async () => {
+    const yml = `
+id: test-workflow
+agents:
+  - id: dev
+    workspace:
+      baseDir: agents/dev
+  - name: no-id
+    workspace:
+      baseDir: agents/qa
+steps:
+  - id: step1
+    agent: dev
+`;
+    const dir = createTempWorkflow(yml);
+    try {
+      await assert.rejects(
+        () => loadWorkflowSpec(dir),
+        /agent\[1\].*missing required field: id/i,
+      );
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("validates second step in array", async () => {
+    const yml = `
+id: test-workflow
+agents:
+  - id: dev
+    workspace:
+      baseDir: agents/dev
+steps:
+  - id: step1
+    agent: dev
+  - id: step2
+`;
+    const dir = createTempWorkflow(yml);
+    try {
+      await assert.rejects(
+        () => loadWorkflowSpec(dir),
+        /step\[1\].*missing required field: agent/i,
+      );
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("validates multi-agent workflow successfully", async () => {
+    const yml = `
+id: multi-agent-wf
+agents:
+  - id: dev
+    workspace:
+      baseDir: agents/dev
+  - id: qa
+    workspace:
+      baseDir: agents/qa
+steps:
+  - id: step1
+    agent: dev
+  - id: step2
+    agent: qa
+`;
+    const dir = createTempWorkflow(yml);
+    try {
+      const spec = await loadWorkflowSpec(dir);
+      assert.equal(spec.id, "multi-agent-wf");
+      assert.equal(spec.agents.length, 2);
+      assert.equal(spec.agents[0].id, "dev");
+      assert.equal(spec.agents[1].id, "qa");
+      assert.equal(spec.steps.length, 2);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});
