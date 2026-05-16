@@ -114,6 +114,36 @@ waiting → pending → running → done/failed
 - Agent completes → `done`, pipeline advances
 - Agent fails → retry or escalate
 
+### CLI Help Convention
+
+Every CLI command and subcommand supports `--help` / `-h` through a shared infrastructure
+in `src/cli/cli.ts` (canonical implementation: commit `bf326a5c015b4da479df83e87bbc2bd7c1063857`).
+
+**Core infrastructure functions:**
+
+- `hasHelpFlag(args: string[]): boolean` — detects `--help` or `-h` anywhere in `args`
+- `printHelp(text: string): void` — writes `text` to stdout and exits with code 0
+- `printHelpSubcommand(subcommands: Record<string, string>): void` — renders an aligned
+  subcommand listing from a `{ name: description }` map
+
+**Per-command help functions** follow the `get<Thing>Help()` naming convention:
+one function per command or subcommand that returns a multi-line help string.
+Examples: `getStepPeekHelp()`, `getWorkflowRunHelp()`, `getUpdateHelp()`,
+`getDashboardStartHelp()`. The full pattern is `get{Group}{Action}Help` —
+e.g. `getMcpStartHelp` covers `tamandua mcp start --help`.
+
+**--help dispatch** runs at the very top of `main()` before any command execution,
+I/O, or side effects (including update warnings). This guarantees `--help` is always
+available and never triggers unintended operations.
+
+**`getUsageText()`** (global usage, shown when no recognized command is passed with
+`--help`) opens with: `Run tamandua <command> --help for detailed command help.`
+followed by a top-level command listing.
+
+**When adding or changing commands:** every new command or subcommand needs:
+- A corresponding `get<Thing>Help()` function
+- A `--help` dispatch if-block in `main()` (before the command execution path)
+
 ## State
 
 - SQLite database: `~/.tamandua/tamandua.db`
@@ -130,13 +160,13 @@ When making changes, review whether these artifacts need updating:
 - `docs/creating-workflows.md` — user-facing workflow documentation
 - `skills/tamandua-agents/SKILL.md` — provisioned to agents as AGENTS.md/IDENTITY.md/SOUL.md
 - `src/server/mcp-server.ts` — MCP tools registered for agent use
-- `src/cli/cli.ts` — CLI commands that agents invoke
+- `src/cli/cli.ts` — CLI commands that agents invoke, and per-command help functions (`get<Thing>Help()`)
 - `src/server/index.html` — dashboard UI
 - `README.md` — project overview
 
 Changes that typically cascade to multiple artifacts:
 - **Step lifecycle**: step claim/complete/fail/pipeline logic
-- **CLI commands**: new or changed commands (step, workflow, logs, dashboard)
+- **CLI commands**: new or changed commands (step, workflow, logs, dashboard) — when adding/changing commands, verify the corresponding `get<Thing>Help()` is also updated and that the `--help` dispatch if-block exists in `main()`
 - **Agent provisioning**: personas, workspace files, skill provisioning
 - **Workflow structure**: new step types, loop wiring, pipeline ordering
 - **Output format contracts**: agent output blocks (STATUS/CHANGES/TESTS)

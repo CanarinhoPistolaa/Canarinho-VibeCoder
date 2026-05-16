@@ -1,0 +1,63 @@
+# Progress Log
+Run: 17dcdffc-52bd-471a-b752-f929d1db1703
+Task: Adjust AGENTS.md to make it clear that for new commands help should always be provided similarly to how it was done in commit bf326a5c015b4da479df83e87bbc2bd7c1063857 and it is one of the things that should be updated to match behavior/functionality changes.
+Started: 2026-05-16
+
+## Codebase Patterns
+- CLI help infrastructure lives in `src/cli/cli.ts` with three shared functions: `hasHelpFlag`, `printHelp`, `printHelpSubcommand`
+- Per-command help functions follow `get{Group}{Action}Help()` naming convention (e.g., `getStepPeekHelp`, `getMcpStartHelp`)
+- --help dispatch sits at the very top of `main()` before any side effects
+- `getUsageText()` opens with "Run tamandua <command> --help for detailed command help."
+- Tests use Node's built-in `node:test` and `node:assert`, run with `npm test`
+- Build with `npm run build` (tsc + HTML copy + version injection)
+
+## Story Plan
+
+### US-001: Document CLI help infrastructure convention in AGENTS.md
+
+**Description:** As a developer, I need AGENTS.md to document the CLI --help infrastructure pattern so I know what convention to follow when adding or modifying commands.
+
+Implementation notes:
+- Add a new CLI Help Convention subsection under Architecture
+- Document three core functions: hasHelpFlag(args) detects --help/-h anywhere in args, printHelp(text) writes to stdout and exits 0, printHelpSubcommand(subcommands) renders aligned subcommand listing from Record string,string
+- Document per-command getStarHelp naming pattern (e.g. getStepPeekHelp, getWorkflowRunHelp) — one function per command that returns the help string
+- Document that --help dispatch runs at the very top of main() before any command execution, side effects, or update warnings
+- Document that getUsageText() has Run tamandua command --help for detailed command help as its first line
+- Reference commit bf326a5c015b4da479df83e87bbc2bd7c1063857 as the canonical implementation of this pattern
+
+**Acceptance Criteria:**
+- AGENTS.md contains a section documenting the CLI help infrastructure functions (hasHelpFlag, printHelp, printHelpSubcommand)
+- AGENTS.md documents the getStarHelp function naming convention
+- AGENTS.md documents that --help detection runs before command dispatch and suppresses side effects
+- All existing tests pass
+- Typecheck passes
+
+### US-002: Update Artifacts to Review on Changes for CLI help text
+
+**Description:** As a developer, I need the AGENTS.md artifacts review checklist to explicitly mention CLI help text functions so I don't forget to add/update them when changing CLI commands.
+
+Implementation notes:
+- The existing entry src/cli/cli.ts — CLI commands that agents invoke should be expanded or accompanied by a new entry about CLI help text (getStarHelp functions)
+- Under Changes that typically cascade to multiple artifacts, the CLI commands bullet should mention that help text functions (getStarHelp) must be added/updated for new or changed commands
+- Add a concrete note: each new command or subcommand needs a corresponding getCommandHelp function AND a --help dispatch if-block in main()
+
+**Acceptance Criteria:**
+- AGENTS.md Artifacts to Review on Changes explicitly references CLI help text functions as something to review when commands change
+- AGENTS.md Changes that typically cascade mentions help text under the CLI commands bullet
+- AGENTS.md documents that new commands need both a getStarHelp function and a main dispatch entry
+- All existing tests pass
+- Typecheck passes
+
+---
+
+## 2026-05-16 - US-001: Document CLI help infrastructure convention in AGENTS.md
+- Added "CLI Help Convention" subsection under Architecture in AGENTS.md
+- Documented three core functions: hasHelpFlag, printHelp, printHelpSubcommand
+- Documented get<Thing>Help() naming convention with examples
+- Documented --help dispatch at top of main() before side effects
+- Documented getUsageText() opening line
+- Documented that new commands need both a getStarHelp function and a --help dispatch if-block
+- Referenced commit bf326a5c015b4da479df83e87bbc2bd7c1063857 as canonical implementation
+- Files changed: AGENTS.md (30 lines added)
+- **Learnings:** The help infrastructure is clean and self-documenting. All per-command help functions are pure string-returning functions, making them easy to test independently. The --help dispatch if-blocks in main() use sequential `if` statements (not `else if`), allowing subcommand matching to fall through to group-level help. 4 pre-existing test failures in cli-worktree.test.ts (no such table: runs — DB migration isolation issue, unrelated to this change).
+---
