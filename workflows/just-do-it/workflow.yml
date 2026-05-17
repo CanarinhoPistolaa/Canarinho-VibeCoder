@@ -4,6 +4,7 @@ id: just-do-it
 name: Just Do It
 version: 1
 description: |
+  Analyze user prompts and automatically dispatch to the best-suited bundled workflow.
   Meta-workflow that analyzes user prompts and dispatches to the most
   appropriate workflow for the task. The dispatcher agent studies the
   available workflows, selects the one best suited for what the user asked,
@@ -12,7 +13,6 @@ description: |
 
   If just-do-it is itself launched as no-hurry, the dispatched workflow
   will always be no-hurry regardless of the user prompt content.
-
 polling:
   model: default
   timeoutSeconds: 120

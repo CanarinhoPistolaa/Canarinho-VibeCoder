@@ -4,6 +4,7 @@ id: feature-dev-merge-worktree
 name: Feature Development + Merge Workflow (Worktree)
 version: 1
 description: |
+  Plan, implement, test, and squash-merge features story-by-story in a worktree with automated verification.
   Worktree variant of the story-based execution pipeline for local-only repos.
   Runs in a detached git worktree created from an origin repository.
 
@@ -15,7 +16,6 @@ description: |
   After integration/E2E testing, the workflow performs a final squash merge
   in the origin repository: all workflow branch changes are squashed into one
   commit and merged back into the original branch.
-
 run:
   workspace: worktree
 

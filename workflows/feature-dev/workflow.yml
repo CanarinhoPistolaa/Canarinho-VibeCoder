@@ -4,6 +4,7 @@ id: feature-dev
 name: Feature Development Workflow (local-only)
 version: 5
 description: |
+  Plan, implement, test, and verify features story-by-story in a local-only pipeline without merge or PR.
   Story-based execution pipeline for local-only repos. Planner decomposes tasks
   into user stories. Setup prepares the environment and establishes baseline.
   Developer implements each story (with tests) in a fresh session. Verifier
@@ -13,7 +14,6 @@ description: |
   Use this workflow when the repo has no remote (or no `gh` CLI), or when you
   just want the work committed locally on a feature branch. For the full
   PR-creating pipeline, use `feature-dev-github-pr`.
-
 polling:
   model: default
   timeoutSeconds: 120

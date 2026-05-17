@@ -3,12 +3,12 @@ id: bug-fix-merge
 name: Bug Triage & Fix + Merge
 version: 1
 description: |
+  Triage, investigate, and fix bugs in a new branch with automatic squash-merge and automated verification.
   Bug fix pipeline with automatic squash-merge. Triager analyzes the report
   and reproduces the issue. Investigator traces root cause. Setup creates the
   bugfix branch and captures the original branch. Fixer implements the fix
   with a regression test. Verifier confirms correctness. Merger squash-merges
   the fix back into the original branch (NO push, NO gh pr create).
-
 polling:
   model: default
   timeoutSeconds: 120

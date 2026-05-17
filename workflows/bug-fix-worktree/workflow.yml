@@ -3,6 +3,7 @@ id: bug-fix-worktree
 name: Bug Fix Workflow (Worktree)
 version: 1
 description: |
+  Triage, investigate, and fix bugs in a worktree with automated verification.
   Worktree variant of the bug fix pipeline without merge — stops after verification.
   Runs in a detached git worktree created from an origin repository.
 
@@ -10,7 +11,6 @@ description: |
   cause. Setup prepares the worktree environment ({{original_branch}} is
   pre-seeded by the harness since the worktree starts detached). Fixer implements
   the fix with a regression test. Verifier confirms correctness. No merge step.
-
 run:
   workspace: worktree
 

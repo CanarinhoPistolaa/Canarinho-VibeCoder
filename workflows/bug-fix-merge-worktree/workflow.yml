@@ -3,6 +3,7 @@ id: bug-fix-merge-worktree
 name: Bug Triage & Fix + Merge (Worktree)
 version: 1
 description: |
+  Triage, investigate, and fix bugs in a worktree with automatic squash-merge and automated verification.
   Worktree variant of the bug fix pipeline with automatic squash-merge.
   Runs in a detached git worktree created from an origin repository.
 
@@ -12,7 +13,6 @@ description: |
   implements the fix with a regression test. Verifier confirms correctness.
   Merger squash-merges the fix back into the original branch in the origin
   repository.
-
 run:
   workspace: worktree
 

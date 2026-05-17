@@ -58,6 +58,12 @@ describe("workflow parsing", () => {
       }
     });
 
+    it(`${id} has a non-empty description`, async () => {
+      const spec = await loadWorkflowSpec(wfDir(id));
+      assert.ok(typeof spec.description === "string", `${id}: description must be a string`);
+      assert.ok(spec.description.trim().length > 0, `${id}: description must not be empty`);
+    });
+
     it(`${id} agent workspace files exist`, async () => {
       const spec = await loadWorkflowSpec(wfDir(id));
       for (const agent of spec.agents) {

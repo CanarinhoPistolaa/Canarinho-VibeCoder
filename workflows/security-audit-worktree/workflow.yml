@@ -3,6 +3,7 @@ id: security-audit-worktree
 name: Security Audit & Fix (Worktree)
 version: 1
 description: |
+  Scan, prioritize, and fix security vulnerabilities in a worktree with automated verification.
   Worktree variant of the local-only security vulnerability scanning and remediation
   pipeline. Runs in a detached git worktree created from an origin repository.
 
@@ -13,7 +14,6 @@ description: |
   integration validation.
 
   Stops after testing — does NOT create a pull request or use gh pr create.
-
 run:
   workspace: worktree
 

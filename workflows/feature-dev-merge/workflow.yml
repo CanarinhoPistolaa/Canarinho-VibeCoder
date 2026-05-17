@@ -4,6 +4,7 @@ id: feature-dev-merge
 name: Feature Development + Merge Workflow
 version: 2
 description: |
+  Plan, implement, test, and squash-merge features story-by-story with automated verification for local repos.
   Story-based execution pipeline for local-only repos. Planner decomposes tasks
   into user stories. Setup prepares the environment, captures the starting
   branch, and establishes baseline. Developer implements each story (with
@@ -12,7 +13,6 @@ description: |
   After integration/E2E testing, the workflow performs a final squash merge:
   all workflow branch changes are squashed into one commit and merged back into
   the original branch captured during setup.
-
 polling:
   model: default
   timeoutSeconds: 120

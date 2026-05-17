@@ -4,6 +4,7 @@ id: feature-dev-github-pr
 name: Feature Development (GitHub PR)
 version: 5
 description: |
+  Plan, implement, test, and review features story-by-story via GitHub pull requests with automated verification.
   Story-based execution pipeline. Planner decomposes tasks into user stories.
   Setup prepares the environment and establishes baseline.
   Developer implements each story (with tests) in a fresh session. Verifier checks each story.
@@ -11,7 +12,6 @@ description: |
 
   Requires a GitHub remote and an authenticated `gh` CLI for the pr/review steps.
   For local-only repos without a remote, use the `feature-dev` workflow instead.
-
 polling:
   model: default
   timeoutSeconds: 120

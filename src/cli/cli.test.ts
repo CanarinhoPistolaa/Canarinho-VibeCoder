@@ -829,9 +829,21 @@ describe("--help infrastructure", () => {
     const result = cli(["workflow", "list", "--help"]);
     try {
       assert.equal(result.status, 0);
-      assert.match(result.stdout ?? "", /List available bundled workflows/);
+      assert.match(result.stdout ?? "", /List available bundled workflows with descriptions/);
       assert.match(result.stdout ?? "", /workflows\/ directory/);
       assert.doesNotMatch(result.stdout ?? "", /tamandua get-ready/);
+    } finally {
+      fs.rmSync(result.testEnv.tmpDir, { recursive: true, force: true });
+    }
+  });
+
+  it("tamandua workflow list prints descriptions for each workflow", () => {
+    const result = cli(["workflow", "list"]);
+    try {
+      assert.equal(result.status, 0);
+      assert.match(result.stdout ?? "", /Available workflows:/);
+      // Each line should have format "  <id> - <description>"
+      assert.match(result.stdout ?? "", /^  \S+ - \S/m);
     } finally {
       fs.rmSync(result.testEnv.tmpDir, { recursive: true, force: true });
     }

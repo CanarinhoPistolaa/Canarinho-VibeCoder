@@ -3,13 +3,13 @@ id: security-audit-merge
 name: Security Audit & Fix + Merge
 version: 1
 description: |
+  Scan, prioritize, fix, and squash-merge security vulnerabilities with automated verification.
   Security vulnerability scanning and remediation pipeline with automatic squash-merge.
   Scanner explores the codebase for vulnerabilities. Prioritizer ranks and groups findings.
   Setup creates the security branch and captures the original branch. Fixer implements
   each fix with regression tests. Verifier confirms each fix. Tester runs final
   integration validation. Merger squash-merges the audit fixes back into the
   original branch (NO push, NO gh pr create).
-
 polling:
   model: default
   timeoutSeconds: 120

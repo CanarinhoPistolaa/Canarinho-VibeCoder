@@ -12,7 +12,7 @@ import { installWorkflow } from "../installer/install.js";
 import { uninstallAllWorkflows, uninstallWorkflow, checkActiveRuns } from "../installer/uninstall.js";
 import { getWorkflowStatus, listRuns, stopWorkflow, type RunInfo, type RunDetail } from "../installer/status.js";
 import { runWorkflow, resumeWorkflow, type RunWorkflowResult } from "../installer/run.js";
-import { listBundledWorkflows } from "../installer/workflow-fetch.js";
+import { listBundledWorkflows, getWorkflowShortDescription } from "../installer/workflow-fetch.js";
 import { getRecentEvents, getRunEvents, readEventsFromCursor, type EventCursorSource, type TamanduaEvent } from "../installer/events.js";
 import { formatLogsTailLines } from "../installer/logs-tail-format.js";
 import { parseLogsSelector, lookupRunIdByNumber } from "./logs-selector.js";
@@ -755,13 +755,13 @@ Examples:
 }
 
 function getWorkflowListHelp(): string {
-  return `tamandua workflow list — List available bundled workflows
+  return `tamandua workflow list — List available bundled workflows with descriptions
 
 Usage: tamandua workflow list
 
 Lists all bundled workflows that are available for installation from the
-source checkout. These are the workflows defined in the workflows/ directory
-of the Tamandua source tree.
+source checkout, showing a one-line description for each. These are the
+workflows defined in the workflows/ directory of the Tamandua source tree.
 
 Examples:
   tamandua workflow list`;
@@ -1662,7 +1662,10 @@ async function main() {
 
   if (action === "list") {
     const workflows = await listBundledWorkflows();
-    workflows.length === 0 ? console.log("No workflows available.") : (console.log("Available workflows:"), workflows.forEach(w => console.log(`  ${w}`)));
+    if (workflows.length === 0) { console.log("No workflows available."); return; }
+    const descriptions = await Promise.all(workflows.map(w => getWorkflowShortDescription(w)));
+    console.log("Available workflows:");
+    for (let i = 0; i < workflows.length; i++) { console.log(`  ${workflows[i]} - ${descriptions[i]}`); }
     return;
   }
 

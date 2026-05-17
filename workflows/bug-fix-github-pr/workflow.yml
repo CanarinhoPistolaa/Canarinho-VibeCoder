@@ -3,11 +3,11 @@ id: bug-fix-github-pr
 name: Bug Triage & Fix (GitHub PR)
 version: 1
 description: |
+  Triage, investigate, and fix bugs in a new branch with automated verification and a GitHub pull request.
   Bug fix pipeline. Triager analyzes the report and reproduces the issue.
   Investigator traces root cause. Setup creates the bugfix branch.
   Fixer implements the fix with a regression test. Verifier confirms correctness.
   PR agent creates the pull request.
-
 polling:
   model: default
   timeoutSeconds: 120

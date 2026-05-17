@@ -4,6 +4,7 @@ id: feature-dev-worktree
 name: Feature Development Workflow (Worktree)
 version: 1
 description: |
+  Plan, implement, test, and verify features story-by-story in a worktree without merge or PR.
   Worktree variant of the story-based execution pipeline for local-only repos.
   Runs in a detached git worktree created from an origin repository.
 
@@ -13,7 +14,6 @@ description: |
   a fresh session. Verifier checks each story. Then integration/E2E testing.
 
   Stops after testing — does NOT create a pull request or run code review.
-
 run:
   workspace: worktree
 

@@ -1,5 +1,6 @@
 import fs from "node:fs/promises";
 import path from "node:path";
+import { parse as parseYaml } from "yaml";
 import {
   resolveBundledWorkflowsDir,
   resolveBundledWorkflowDir,
@@ -57,6 +58,54 @@ export async function listBundledWorkflows(): Promise<string[]> {
     if (code === "ENOENT") return [];
     throw err;
   }
+}
+
+/**
+ * Extract the first sentence (up to and including the first period, exclamation
+ * mark, or question mark) from a workflow's description field and return it
+ * trimmed. Falls back to the workflow ID when the YAML is missing, unparseable,
+ * or has no description.
+ */
+export async function getWorkflowShortDescription(
+  workflowId: string,
+): Promise<string> {
+  const dir = resolveBundledWorkflowDir(workflowId);
+  const ymlPath = path.join(dir, "workflow.yml");
+
+  let raw: string;
+  try {
+    raw = await fs.readFile(ymlPath, "utf-8");
+  } catch {
+    return workflowId;
+  }
+
+  let parsed: unknown;
+  try {
+    parsed = parseYaml(raw);
+  } catch {
+    return workflowId;
+  }
+
+  if (!parsed || typeof parsed !== "object") {
+    return workflowId;
+  }
+
+  const description = (parsed as Record<string, unknown>).description;
+  if (typeof description !== "string" || !description.trim()) {
+    return workflowId;
+  }
+
+  const desc = description.trim();
+  // Split on the first sentence-ending punctuation followed by whitespace or end-of-string.
+  const match = desc.match(/^(.+?[.!?])(\s|$)/);
+  if (match) {
+    // If the first sentence contains a newline within it, it is multi-line.
+    // Keep the trimmed first line / sentence as-is.
+    return match[1].trim().replace(/\s+/g, " ");
+  }
+
+  // No sentence-ending punctuation found; return the whole description trimmed.
+  return desc.replace(/\s+/g, " ");
 }
 
 /**

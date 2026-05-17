@@ -3,11 +3,11 @@ id: bug-fix
 name: Bug Fix Workflow (local-only)
 version: 1
 description: |
+  Triage, investigate, and fix bugs in a new branch with automated verification.
   Bug fix pipeline without merge — stops after verification. Triager analyzes
   the report and reproduces the issue. Investigator traces root cause. Setup
   creates the bugfix branch. Fixer implements the fix with a regression test.
   Verifier confirms correctness. No merge step.
-
 polling:
   model: default
   timeoutSeconds: 120

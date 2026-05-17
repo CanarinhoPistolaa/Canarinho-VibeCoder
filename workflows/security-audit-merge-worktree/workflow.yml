@@ -3,6 +3,7 @@ id: security-audit-merge-worktree
 name: Security Audit & Fix + Merge (Worktree)
 version: 1
 description: |
+  Scan, prioritize, fix, and squash-merge security vulnerabilities in a worktree with automated verification.
   Worktree variant of the security vulnerability scanning and remediation pipeline
   with automatic squash-merge. Runs in a detached git worktree created from an
   origin repository.
@@ -13,7 +14,6 @@ description: |
   each fix with regression tests. Verifier confirms each fix. Tester runs final
   integration validation. Merger squash-merges the audit fixes back into the
   original branch in the origin repository.
-
 run:
   workspace: worktree
 

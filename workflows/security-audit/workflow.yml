@@ -3,6 +3,7 @@ id: security-audit
 name: Security Audit & Fix (local-only)
 version: 1
 description: |
+  Scan, prioritize, and fix security vulnerabilities with automated verification in a local-only pipeline.
   Local-only security vulnerability scanning and remediation pipeline.
   Scanner explores the codebase for vulnerabilities. Prioritizer ranks and groups findings.
   Setup creates the security branch. Fixer implements each fix with regression tests.
@@ -11,7 +12,6 @@ description: |
   Stops after testing — does NOT create a pull request or use gh pr create.
   Use this workflow for local-only or non-GitHub repos. For the PR-creating
   variant, use `security-audit-github-pr`.
-
 polling:
   model: default
   timeoutSeconds: 120
