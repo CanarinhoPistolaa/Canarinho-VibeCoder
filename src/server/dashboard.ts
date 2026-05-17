@@ -70,7 +70,7 @@ function handleListRuns(_req: http.IncomingMessage, res: http.ServerResponse): v
   try {
     const db = getDb();
 
-    const runs = db.prepare(`
+    const rawRuns = db.prepare(`
       SELECT
         r.id,
         r.workflow_id,
@@ -91,7 +91,18 @@ function handleListRuns(_req: http.IncomingMessage, res: http.ServerResponse): v
       GROUP BY r.id
       ORDER BY r.created_at DESC
       LIMIT 100
-    `).all();
+    `).all() as Array<Record<string, unknown>>;
+
+    const runs = rawRuns.map((row) => {
+      let no_hurry = false;
+      try {
+        const ctx = JSON.parse(String(row.context ?? "{}"));
+        no_hurry = ctx.no_hurry_save_tokens_mode === "true";
+      } catch {
+        // malformed context → no_hurry stays false
+      }
+      return { ...row, no_hurry };
+    });
 
     jsonResponse(res, { runs });
   } catch (err) {

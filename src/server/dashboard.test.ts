@@ -1371,6 +1371,284 @@ describe("dashboard version status API", () => {
   });
 });
 
+describe("dashboard hurry status icons UI", () => {
+  it("includes .hurry-icon CSS class in dashboard HTML", async () => {
+    const { server, baseUrl } = await startDashboard();
+
+    try {
+      const response = await fetch(`${baseUrl}/`);
+      assert.equal(response.status, 200);
+
+      const html = await response.text();
+      assert.match(html, /\.hurry-icon\s*\{/);
+      assert.match(html, /margin-left:\s*4px/);
+    } finally {
+      await stopDashboard(server);
+    }
+  });
+
+  it("renders turtle icon for no_hurry=true runs with correct tooltip", async () => {
+    const { server, baseUrl } = await startDashboard();
+
+    try {
+      const response = await fetch(`${baseUrl}/`);
+      assert.equal(response.status, 200);
+
+      const html = await response.text();
+      // Should include the turtle emoji for no_hurry runs
+      assert.match(html, /🐢/);
+      // Should include the no-hurry tooltip text
+      assert.match(html, /No hurry toker-saving mode\./);
+    } finally {
+      await stopDashboard(server);
+    }
+  });
+
+  it("renders runner icon for no_hurry=false runs with correct tooltip", async () => {
+    const { server, baseUrl } = await startDashboard();
+
+    try {
+      const response = await fetch(`${baseUrl}/`);
+      assert.equal(response.status, 200);
+
+      const html = await response.text();
+      // Should include the runner emoji for regular runs
+      assert.match(html, /🏃/);
+      // Should include the full regular-run tooltip text
+      assert.match(html, /Regular run - as fast as possible! Expensive in system tokens/);
+      assert.match(html, /Use --no-hurry-please-save-tokens-mode next time/);
+      assert.match(html, /trade-offs are on speed only/);
+    } finally {
+      await stopDashboard(server);
+    }
+  });
+
+  it("icon rendering is conditional on running or paused status only", async () => {
+    const { server, baseUrl } = await startDashboard();
+
+    try {
+      const response = await fetch(`${baseUrl}/`);
+      assert.equal(response.status, 200);
+
+      const html = await response.text();
+      // The icon span should be conditionally rendered for running or paused status
+      assert.match(html, /r\.status\s*===\s*['"]running['"]\s*\|\|\s*r\.status\s*===\s*['"]paused['"]/);
+    } finally {
+      await stopDashboard(server);
+    }
+  });
+
+  it("has title attribute for tooltip on the hurry-icon span", async () => {
+    const { server, baseUrl } = await startDashboard();
+
+    try {
+      const response = await fetch(`${baseUrl}/`);
+      assert.equal(response.status, 200);
+
+      const html = await response.text();
+      // Should have a title attribute on the hurry-icon span for tooltip
+      assert.match(html, /class="hurry-icon"\s+title=/);
+      // Tooltip should switch based on no_hurry boolean
+      assert.match(html, /r\.no_hurry\s*\?\s*'No hurry toker-saving mode\.'/);
+      assert.match(html, /Regular run - as fast as possible! Expensive in system tokens/);
+    } finally {
+      await stopDashboard(server);
+    }
+  });
+});
+
+describe("dashboard /api/runs no_hurry field", () => {
+  it("no_hurry is true when context.no_hurry_save_tokens_mode === 'true'", async () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "tamandua-dashboard-nohurry-"));
+    const homeDir = path.join(root, "home");
+    fs.mkdirSync(homeDir, { recursive: true });
+    const dbPath = path.join(homeDir, ".tamandua", "tamandua.db");
+    const previousHome = process.env.HOME;
+    const previousDbPath = process.env.TAMANDUA_DB_PATH;
+    process.env.HOME = homeDir;
+    process.env.TAMANDUA_DB_PATH = dbPath;
+
+    const db = getDb();
+    db.prepare(`
+      INSERT INTO runs (id, run_number, workflow_id, task, status, context, tokens_spent, created_at, updated_at)
+      VALUES ('run-nohurry-true', 1, 'wf-1', 'task', 'running', '{"no_hurry_save_tokens_mode":"true"}', 0, '2026-01-01', '2026-01-01')
+    `).run();
+
+    const { server, baseUrl } = await startDashboard();
+
+    try {
+      const response = await fetch(`${baseUrl}/api/runs`);
+      assert.equal(response.status, 200);
+
+      const body = await response.json() as { runs: Array<{ id: string; no_hurry: boolean }> };
+      assert.ok(Array.isArray(body.runs));
+      const run = body.runs.find((r) => r.id === "run-nohurry-true");
+      assert.ok(run, "run not found in response");
+      assert.equal(run.no_hurry, true);
+    } finally {
+      await stopDashboard(server);
+      if (previousHome === undefined) delete process.env.HOME;
+      else process.env.HOME = previousHome;
+      if (previousDbPath === undefined) delete process.env.TAMANDUA_DB_PATH;
+      else process.env.TAMANDUA_DB_PATH = previousDbPath;
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it("no_hurry is false when context.no_hurry_save_tokens_mode === 'false'", async () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "tamandua-dashboard-nohurry-"));
+    const homeDir = path.join(root, "home");
+    fs.mkdirSync(homeDir, { recursive: true });
+    const dbPath = path.join(homeDir, ".tamandua", "tamandua.db");
+    const previousHome = process.env.HOME;
+    const previousDbPath = process.env.TAMANDUA_DB_PATH;
+    process.env.HOME = homeDir;
+    process.env.TAMANDUA_DB_PATH = dbPath;
+
+    const db = getDb();
+    db.prepare(`
+      INSERT INTO runs (id, run_number, workflow_id, task, status, context, tokens_spent, created_at, updated_at)
+      VALUES ('run-nohurry-false', 1, 'wf-1', 'task', 'running', '{"no_hurry_save_tokens_mode":"false"}', 0, '2026-01-01', '2026-01-01')
+    `).run();
+
+    const { server, baseUrl } = await startDashboard();
+
+    try {
+      const response = await fetch(`${baseUrl}/api/runs`);
+      assert.equal(response.status, 200);
+
+      const body = await response.json() as { runs: Array<{ id: string; no_hurry: boolean }> };
+      const run = body.runs.find((r) => r.id === "run-nohurry-false");
+      assert.ok(run, "run not found in response");
+      assert.equal(run.no_hurry, false);
+    } finally {
+      await stopDashboard(server);
+      if (previousHome === undefined) delete process.env.HOME;
+      else process.env.HOME = previousHome;
+      if (previousDbPath === undefined) delete process.env.TAMANDUA_DB_PATH;
+      else process.env.TAMANDUA_DB_PATH = previousDbPath;
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it("no_hurry is false when context is missing no_hurry_save_tokens_mode", async () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "tamandua-dashboard-nohurry-"));
+    const homeDir = path.join(root, "home");
+    fs.mkdirSync(homeDir, { recursive: true });
+    const dbPath = path.join(homeDir, ".tamandua", "tamandua.db");
+    const previousHome = process.env.HOME;
+    const previousDbPath = process.env.TAMANDUA_DB_PATH;
+    process.env.HOME = homeDir;
+    process.env.TAMANDUA_DB_PATH = dbPath;
+
+    const db = getDb();
+    db.prepare(`
+      INSERT INTO runs (id, run_number, workflow_id, task, status, context, tokens_spent, created_at, updated_at)
+      VALUES ('run-nohurry-missing', 1, 'wf-1', 'task', 'running', '{"other_key":"value"}', 0, '2026-01-01', '2026-01-01')
+    `).run();
+
+    const { server, baseUrl } = await startDashboard();
+
+    try {
+      const response = await fetch(`${baseUrl}/api/runs`);
+      assert.equal(response.status, 200);
+
+      const body = await response.json() as { runs: Array<{ id: string; no_hurry: boolean }> };
+      const run = body.runs.find((r) => r.id === "run-nohurry-missing");
+      assert.ok(run, "run not found in response");
+      assert.equal(run.no_hurry, false);
+    } finally {
+      await stopDashboard(server);
+      if (previousHome === undefined) delete process.env.HOME;
+      else process.env.HOME = previousHome;
+      if (previousDbPath === undefined) delete process.env.TAMANDUA_DB_PATH;
+      else process.env.TAMANDUA_DB_PATH = previousDbPath;
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it("no_hurry is false when context JSON is malformed", async () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "tamandua-dashboard-nohurry-"));
+    const homeDir = path.join(root, "home");
+    fs.mkdirSync(homeDir, { recursive: true });
+    const dbPath = path.join(homeDir, ".tamandua", "tamandua.db");
+    const previousHome = process.env.HOME;
+    const previousDbPath = process.env.TAMANDUA_DB_PATH;
+    process.env.HOME = homeDir;
+    process.env.TAMANDUA_DB_PATH = dbPath;
+
+    const db = getDb();
+    db.prepare(`
+      INSERT INTO runs (id, run_number, workflow_id, task, status, context, tokens_spent, created_at, updated_at)
+      VALUES ('run-nohurry-malformed', 1, 'wf-1', 'task', 'running', 'not valid json {{{', 0, '2026-01-01', '2026-01-01')
+    `).run();
+
+    const { server, baseUrl } = await startDashboard();
+
+    try {
+      const response = await fetch(`${baseUrl}/api/runs`);
+      assert.equal(response.status, 200);
+
+      const body = await response.json() as { runs: Array<{ id: string; no_hurry: boolean }> };
+      const run = body.runs.find((r) => r.id === "run-nohurry-malformed");
+      assert.ok(run, "run not found in response");
+      assert.equal(run.no_hurry, false);
+    } finally {
+      await stopDashboard(server);
+      if (previousHome === undefined) delete process.env.HOME;
+      else process.env.HOME = previousHome;
+      if (previousDbPath === undefined) delete process.env.TAMANDUA_DB_PATH;
+      else process.env.TAMANDUA_DB_PATH = previousDbPath;
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it("no_hurry is never undefined — always a boolean", async () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "tamandua-dashboard-nohurry-"));
+    const homeDir = path.join(root, "home");
+    fs.mkdirSync(homeDir, { recursive: true });
+    const dbPath = path.join(homeDir, ".tamandua", "tamandua.db");
+    const previousHome = process.env.HOME;
+    const previousDbPath = process.env.TAMANDUA_DB_PATH;
+    process.env.HOME = homeDir;
+    process.env.TAMANDUA_DB_PATH = dbPath;
+
+    const db = getDb();
+    // Insert runs with various context states
+    db.prepare(`
+      INSERT INTO runs (id, run_number, workflow_id, task, status, context, tokens_spent, created_at, updated_at)
+      VALUES ('run-a', 1, 'wf-1', 'task', 'running', '{}', 0, '2026-01-01', '2026-01-01')
+    `).run();
+    db.prepare(`
+      INSERT INTO runs (id, run_number, workflow_id, task, status, context, tokens_spent, created_at, updated_at)
+      VALUES ('run-b', 2, 'wf-1', 'task', 'running', '{"no_hurry_save_tokens_mode":"true"}', 0, '2026-01-01', '2026-01-01')
+    `).run();
+    db.prepare(`
+      INSERT INTO runs (id, run_number, workflow_id, task, status, context, tokens_spent, created_at, updated_at)
+      VALUES ('run-c', 3, 'wf-1', 'task', 'running', 'broken', 0, '2026-01-01', '2026-01-01')
+    `).run();
+
+    const { server, baseUrl } = await startDashboard();
+
+    try {
+      const response = await fetch(`${baseUrl}/api/runs`);
+      assert.equal(response.status, 200);
+
+      const body = await response.json() as { runs: Array<{ id: string; no_hurry: boolean }> };
+      for (const run of body.runs) {
+        assert.equal(typeof run.no_hurry, "boolean", `run ${run.id} no_hurry should be boolean, got ${typeof run.no_hurry}`);
+      }
+    } finally {
+      await stopDashboard(server);
+      if (previousHome === undefined) delete process.env.HOME;
+      else process.env.HOME = previousHome;
+      if (previousDbPath === undefined) delete process.env.TAMANDUA_DB_PATH;
+      else process.env.TAMANDUA_DB_PATH = previousDbPath;
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+});
+
 function createMinimalGitRepo(dir: string): string {
   fs.mkdirSync(dir, { recursive: true });
   spawnSync("git", ["init", "-b", "main", dir], { stdio: "ignore" });

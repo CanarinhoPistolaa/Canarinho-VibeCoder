@@ -87,6 +87,7 @@
     .badge-canceled { background: #8b949e33; color: #8b949e; border: 1px solid #8b949e66; }
     .badge-paused { background: #d2992233; color: #d29922; border: 1px solid #d2992266; }
     .badge-blocked { background: #d2992233; color: #d29922; border: 1px solid #d2992266; }
+    .hurry-icon { margin-left: 4px; cursor: default; }
     .progress-bar {
       width: 120px;
       height: 6px;
@@ -502,7 +503,7 @@
           <td><a class="mono run-link" href="/runs/${encodeURIComponent(r.id)}/kanban" title="Open kanban view">${esc(r.id).slice(0, 8)}</a></td>
           <td>${esc(r.workflow_id)}</td>
           <td class="truncate" title="${esc(r.task || "")}">${esc(task)}</td>
-          <td><span class="badge ${badgeClass}">${r.status}</span></td>
+          <td><span class="badge ${badgeClass}">${r.status}</span>${(r.status === 'running' || r.status === 'paused') ? `<span class="hurry-icon" title="${r.no_hurry ? 'No hurry toker-saving mode.' : 'Regular run - as fast as possible! Expensive in system tokens. Use --no-hurry-please-save-tokens-mode next time if you do not care that much about speed but want to spend less tokens (quality/accuracy is always the same regardless, trade-offs are on speed only).'}">${r.no_hurry ? '🐢' : '🏃'}</span>` : ''}</td>
           <td>
             <div class="progress-bar" title="${done}/${total} steps (${failed} failed)">
               <div class="progress-fill ${fillClass}" style="width:${pct}%"></div>
