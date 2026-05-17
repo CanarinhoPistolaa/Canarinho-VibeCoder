@@ -185,6 +185,80 @@
     .action-btn:hover { border-color: #58a6ff; color: #58a6ff; }
     .action-btn.pause-btn:hover { border-color: #d29922; color: #d29922; }
     .action-btn.resume-btn:hover { border-color: #3fb950; color: #3fb950; }
+    .action-btn.relaunch-btn:hover { border-color: #f0883e; color: #f0883e; }
+    .modal-overlay {
+      display: none;
+      position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+      background: rgba(0,0,0,0.7);
+      z-index: 1000;
+      align-items: center; justify-content: center;
+    }
+    .modal-overlay.active { display: flex; }
+    .modal-dialog {
+      background: #161b22;
+      border: 1px solid #30363d;
+      border-radius: 8px;
+      padding: 24px;
+      max-width: 640px;
+      width: 90%;
+      color: #c9d1d9;
+    }
+    .modal-dialog h3 {
+      font-size: 16px;
+      font-weight: 600;
+      color: #e6edf3;
+      margin-bottom: 16px;
+    }
+    .modal-field { margin-bottom: 16px; }
+    .modal-field label {
+      display: block;
+      font-size: 12px;
+      font-weight: 500;
+      color: #8b949e;
+      margin-bottom: 4px;
+    }
+    .modal-field textarea {
+      width: 100%;
+      min-height: 60px;
+      resize: vertical;
+      border: 1px solid #30363d;
+      border-radius: 6px;
+      background: #0d1117;
+      color: #c9d1d9;
+      font-family: "SF Mono", "Fira Code", monospace;
+      font-size: 12px;
+      line-height: 1.4;
+      padding: 8px 10px;
+    }
+    .modal-field textarea[readonly] {
+      background: #0b0f14;
+      color: #8b949e;
+      cursor: default;
+    }
+    .modal-buttons {
+      display: flex;
+      justify-content: space-between;
+      margin-top: 20px;
+    }
+    .modal-btn {
+      padding: 6px 16px;
+      border-radius: 6px;
+      border: 1px solid #30363d;
+      background: #21262d;
+      color: #c9d1d9;
+      cursor: pointer;
+      font-size: 12px;
+      font-weight: 500;
+      font-family: inherit;
+      transition: border-color 120ms ease, color 120ms ease, background 120ms ease;
+    }
+    .modal-btn:hover { background: #30363d; }
+    .modal-btn.primary {
+      background: #f0883e;
+      color: #0d1117;
+      border-color: #f0883e;
+    }
+    .modal-btn.primary:hover { background: #e67a22; }
     #version-banner {
       display: none;
       background: #ffd700;
@@ -306,6 +380,25 @@
     </p>
   </div>
 
+  <!-- Relaunch Modal -->
+  <div class="modal-overlay" id="relaunch-modal-overlay">
+    <div class="modal-dialog">
+      <h3>&#x1F503; Relaunch Run</h3>
+      <div class="modal-field">
+        <label for="relaunch-failure-reason">Reason for failure:</label>
+        <textarea id="relaunch-failure-reason" readonly rows="2" style="min-height:40px"></textarea>
+      </div>
+      <div class="modal-field">
+        <label for="relaunch-prompt">Prompt:</label>
+        <textarea id="relaunch-prompt" rows="4"></textarea>
+      </div>
+      <div class="modal-buttons">
+        <button class="modal-btn" onclick="closeRelaunchModal()">Cancel</button>
+        <button class="modal-btn primary" id="relaunch-submit-btn" onclick="handleRelaunchSubmit()">Relaunch</button>
+      </div>
+    </div>
+  </div>
+
   <script>
     const STATUS_CLASS = {
       running: "badge-running",
@@ -420,6 +513,7 @@
           <td class="actions">
             ${r.status === 'running' ? `<button class="action-btn pause-btn" onclick="event.preventDefault(); handlePause('${r.id}')">⏸ Pause</button>` : ''}
             ${r.status === 'paused' ? `<button class="action-btn resume-btn" onclick="event.preventDefault(); handleResume('${r.id}')">▶ Resume</button>` : ''}
+            ${(r.status === 'failed' || r.status === 'canceled') ? `<button class="action-btn relaunch-btn" onclick="event.preventDefault(); openRelaunchModal('${r.id}')">🔄 Relaunch</button>` : ''}
           </td>
           <td><a class="kanban-link" href="/runs/${encodeURIComponent(r.id)}/kanban" aria-label="Open kanban for run ${esc(r.id)}">Kanban &rarr;</a></td>
         </tr>`;
@@ -608,6 +702,56 @@
       } finally {
         setTimeout(() => { if (el) el.textContent = ''; }, 4000);
         refreshAll();
+      }
+    }
+
+    // ── Relaunch Modal Functions ────────────────────────────────────
+
+    let relaunchRunId = null;
+
+    async function openRelaunchModal(runId) {
+      try {
+        const res = await fetch(`/api/runs/${encodeURIComponent(runId)}`);
+        if (!res.ok) throw new Error(`Failed to load run detail (${res.status})`);
+        const data = await res.json();
+
+        relaunchRunId = runId;
+        document.getElementById('relaunch-failure-reason').value = data.failure_reason || 'Unknown';
+        document.getElementById('relaunch-prompt').value = data.prompt || '';
+        document.getElementById('relaunch-modal-overlay').classList.add('active');
+      } catch (err) {
+        alert('Failed to open relaunch dialog: ' + err.message);
+      }
+    }
+
+    function closeRelaunchModal() {
+      document.getElementById('relaunch-modal-overlay').classList.remove('active');
+      relaunchRunId = null;
+    }
+
+    async function handleRelaunchSubmit() {
+      if (!relaunchRunId) return;
+      const submitBtn = document.getElementById('relaunch-submit-btn');
+      submitBtn.disabled = true;
+      submitBtn.textContent = 'Launching...';
+      try {
+        const prompt = document.getElementById('relaunch-prompt').value.trim();
+        const res = await fetch(`/api/runs/${encodeURIComponent(relaunchRunId)}/relaunch`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ task: prompt || undefined })
+        });
+        if (!res.ok) {
+          const body = await res.json().catch(() => ({}));
+          throw new Error(body.error || `Relaunch failed (${res.status})`);
+        }
+        closeRelaunchModal();
+        refreshAll();
+      } catch (err) {
+        alert('Relaunch failed: ' + err.message);
+      } finally {
+        submitBtn.disabled = false;
+        submitBtn.textContent = 'Relaunch';
       }
     }
 

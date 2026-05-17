@@ -22,6 +22,7 @@ import { formatLogsTailLines } from "../installer/logs-tail-format.js";
 import { getMcpStatus } from "./daemonctl.js";
 import { buildKanbanSnapshot, buildKanbanCardDetail } from "./kanban-data.js";
 import { pauseRunWithDaemon, resumeRunWithDaemon } from "./control-client.js";
+import { runWorkflow } from "../installer/run.js";
 import { readVersionStatus } from "../lib/version-check.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -152,7 +153,7 @@ function handleRunDetail(
       // context may be malformed
     }
 
-    jsonResponse(res, { run, steps, events, worktree, failure_reason });
+    jsonResponse(res, { run, steps, events, worktree, failure_reason, prompt: (run as { task: string }).task });
   } catch (err) {
     errorResponse(res, `Failed to get run detail: ${(err as Error).message}`);
   }
@@ -376,6 +377,94 @@ async function handleResumeRun(
   }
 }
 
+async function handleRelaunchRun(
+  req: http.IncomingMessage,
+  res: http.ServerResponse,
+  runId: string,
+): Promise<void> {
+  try {
+    const db = getDb();
+
+    const run = db.prepare(
+      "SELECT id, workflow_id, task, status, context, notify_url FROM runs WHERE id = ?",
+    ).get(runId) as
+      | { id: string; workflow_id: string; task: string; status: string; context: string; notify_url: string | null }
+      | undefined;
+
+    if (!run) {
+      errorResponse(res, `Run not found: ${runId}`, 404);
+      return;
+    }
+
+    if (run.status !== "failed" && run.status !== "canceled") {
+      errorResponse(
+        res,
+        `Cannot relaunch run in ${run.status} state. Only failed or canceled runs can be relaunched.`,
+        409,
+      );
+      return;
+    }
+
+    // Parse request body for optional task override
+    const body = await parseBody(req);
+    let taskOverride: string | undefined;
+    if (body) {
+      try {
+        const parsed = JSON.parse(body) as { task?: string };
+        taskOverride = parsed.task?.trim() || undefined;
+      } catch {
+        errorResponse(res, "Invalid JSON body", 400);
+        return;
+      }
+    }
+
+    const taskTitle = taskOverride ?? run.task;
+
+    // Parse original context to extract workspace settings
+    let originalContext: Record<string, string> = {};
+    try {
+      originalContext = JSON.parse(run.context) as Record<string, string>;
+    } catch {
+      // context may be malformed — proceed with empty context
+    }
+
+    const workspaceMode = originalContext.workspace_mode ?? "direct";
+
+    if (workspaceMode === "worktree") {
+      const relaunched = await runWorkflow({
+        workflowId: run.workflow_id,
+        taskTitle,
+        notifyUrl: run.notify_url ?? undefined,
+        worktreeOriginRepository: originalContext.worktree_origin_repository,
+        worktreeOriginRef: originalContext.worktree_origin_ref,
+      });
+
+      jsonResponse(res, {
+        relaunched: true,
+        originalRunId: runId,
+        runId: relaunched.runId,
+        runNumber: relaunched.runNumber,
+      });
+    } else {
+      const relaunched = await runWorkflow({
+        workflowId: run.workflow_id,
+        taskTitle,
+        notifyUrl: run.notify_url ?? undefined,
+        workingDirectoryForHarness: originalContext.working_directory_for_harness,
+      });
+
+      jsonResponse(res, {
+        relaunched: true,
+        originalRunId: runId,
+        runId: relaunched.runId,
+        runNumber: relaunched.runNumber,
+      });
+    }
+  } catch (err) {
+    errorResponse(res, `Failed to relaunch run: ${(err as Error).message}`);
+  }
+}
+
 function handleVersionStatus(_req: http.IncomingMessage, res: http.ServerResponse): void {
   try {
     const status = readVersionStatus();
@@ -523,6 +612,13 @@ function route(req: http.IncomingMessage, res: http.ServerResponse): void {
   const resumeMatch = pathname.match(/^\/api\/runs\/([a-zA-Z0-9_-]+)\/resume$/);
   if (method === "POST" && resumeMatch) {
     handleResumeRun(req, res, resumeMatch[1]);
+    return;
+  }
+
+  // POST /api/runs/:id/relaunch
+  const relaunchMatch = pathname.match(/^\/api\/runs\/([a-zA-Z0-9_-]+)\/relaunch$/);
+  if (method === "POST" && relaunchMatch) {
+    handleRelaunchRun(req, res, relaunchMatch[1]);
     return;
   }
 

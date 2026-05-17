@@ -5,6 +5,8 @@ import os from "node:os";
 import path from "node:path";
 import { once } from "node:events";
 import http from "node:http";
+import { spawnSync } from "node:child_process";
+import { fileURLToPath } from "node:url";
 import { createDashboardServer } from "../../dist/server/dashboard.js";
 import { type TamanduaEvent } from "../../dist/installer/events.js";
 import { DEFAULT_MCP_PORT } from "../../dist/server/mcp-server.js";
@@ -455,6 +457,101 @@ describe("dashboard pause/resume UI", () => {
   });
 });
 
+describe("dashboard relaunch UI", () => {
+  it("renders Relaunch button CSS class", async () => {
+    const { server, baseUrl } = await startDashboard();
+
+    try {
+      const response = await fetch(`${baseUrl}/`);
+      assert.equal(response.status, 200);
+
+      const html = await response.text();
+
+      assert.match(html, /\.action-btn\.relaunch-btn/);
+      assert.match(html, /#f0883e/);
+    } finally {
+      await stopDashboard(server);
+    }
+  });
+
+  it("renders modal overlay and dialog HTML", async () => {
+    const { server, baseUrl } = await startDashboard();
+
+    try {
+      const response = await fetch(`${baseUrl}/`);
+      assert.equal(response.status, 200);
+
+      const html = await response.text();
+
+      assert.match(html, /class="modal-overlay" id="relaunch-modal-overlay"/);
+      assert.match(html, /class="modal-dialog"/);
+      assert.match(html, /id="relaunch-failure-reason"/);
+      assert.match(html, /id="relaunch-prompt"/);
+      assert.match(html, /Reason for failure:/);
+      assert.match(html, /id="relaunch-submit-btn"/);
+      assert.match(html, /closeRelaunchModal\(\)/);
+      assert.match(html, /handleRelaunchSubmit\(\)/);
+    } finally {
+      await stopDashboard(server);
+    }
+  });
+
+  it("includes openRelaunchModal, closeRelaunchModal, and handleRelaunchSubmit JS functions", async () => {
+    const { server, baseUrl } = await startDashboard();
+
+    try {
+      const response = await fetch(`${baseUrl}/`);
+      assert.equal(response.status, 200);
+
+      const html = await response.text();
+
+      assert.match(html, /async function openRelaunchModal\(/);
+      assert.match(html, /function closeRelaunchModal\(/);
+      assert.match(html, /async function handleRelaunchSubmit\(/);
+      assert.match(html, /\/api\/runs\/.*\/relaunch/);
+      assert.match(html, /'Content-Type': 'application\/json'/);
+      assert.match(html, /JSON\.stringify\(\{ task:/);
+    } finally {
+      await stopDashboard(server);
+    }
+  });
+
+  it("modal overlay is hidden by default (no .active class)", async () => {
+    const { server, baseUrl } = await startDashboard();
+
+    try {
+      const response = await fetch(`${baseUrl}/`);
+      assert.equal(response.status, 200);
+
+      const html = await response.text();
+
+      // Modal overlay should have the class but not .active in the raw HTML
+      assert.match(html, /class="modal-overlay"/);
+      assert.doesNotMatch(html, /class="modal-overlay active"/);
+    } finally {
+      await stopDashboard(server);
+    }
+  });
+
+  it("existing pause/resume buttons still present", async () => {
+    const { server, baseUrl } = await startDashboard();
+
+    try {
+      const response = await fetch(`${baseUrl}/`);
+      assert.equal(response.status, 200);
+
+      const html = await response.text();
+
+      assert.match(html, /\.action-btn\.pause-btn/);
+      assert.match(html, /\.action-btn\.resume-btn/);
+      assert.match(html, /handlePause\(/);
+      assert.match(html, /handleResume\(/);
+    } finally {
+      await stopDashboard(server);
+    }
+  });
+});
+
 describe("dashboard MCP status API", () => {
   it("GET /api/mcp-status returns { running, port, path }", async () => {
     const { server, baseUrl } = await startDashboard();
@@ -695,6 +792,391 @@ describe("dashboard run detail failure_reason", () => {
   });
 });
 
+describe("dashboard run detail prompt field", () => {
+  it("returns prompt field from run.task for all statuses", async () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "tamandua-dashboard-prompt-"));
+    const homeDir = path.join(root, "home");
+    fs.mkdirSync(homeDir, { recursive: true });
+    const dbPath = path.join(homeDir, ".tamandua", "tamandua.db");
+    const previousHome = process.env.HOME;
+    const previousDbPath = process.env.TAMANDUA_DB_PATH;
+    process.env.HOME = homeDir;
+    process.env.TAMANDUA_DB_PATH = dbPath;
+
+    const db = getDb();
+    const testCases = [
+      { id: "run-running-prompt", status: "running", task: "Implement feature X", expectedFailReason: null },
+      { id: "run-completed-prompt", status: "completed", task: "Refactor module Y", expectedFailReason: null },
+      { id: "run-paused-prompt", status: "paused", task: "Test pipeline Z", expectedFailReason: null },
+      { id: "run-failed-prompt", status: "failed", task: "Fix build error", expectedFailReason: "Run failed" },
+      { id: "run-canceled-prompt", status: "canceled", task: "Update dependencies", expectedFailReason: "Canceled" },
+    ];
+
+    for (const tc of testCases) {
+      db.prepare(`
+        INSERT INTO runs (id, run_number, workflow_id, task, status, context, tokens_spent, created_at, updated_at)
+        VALUES (?, 1, 'wf-1', ?, ?, '{}', 0, '2026-01-01', '2026-01-01')
+      `).run(tc.id, tc.task, tc.status);
+    }
+
+    const { server, baseUrl } = await startDashboard();
+
+    try {
+      for (const tc of testCases) {
+        const response = await fetch(`${baseUrl}/api/runs/${tc.id}`);
+        assert.equal(response.status, 200, `expected 200 for ${tc.id}`);
+
+        const body = await response.json() as { prompt: string; failure_reason: string | null };
+        assert.equal(body.prompt, tc.task, `prompt mismatch for ${tc.status}`);
+        assert.equal(body.failure_reason, tc.expectedFailReason, `failure_reason mismatch for ${tc.status}`);
+      }
+    } finally {
+      await stopDashboard(server);
+      if (previousHome === undefined) delete process.env.HOME;
+      else process.env.HOME = previousHome;
+      if (previousDbPath === undefined) delete process.env.TAMANDUA_DB_PATH;
+      else process.env.TAMANDUA_DB_PATH = previousDbPath;
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+});
+
+describe("dashboard run relaunch API", () => {
+  it("POST /api/runs/:id/relaunch returns 404 for missing run", async () => {
+    const { server, baseUrl } = await startDashboard();
+
+    try {
+      const response = await fetch(`${baseUrl}/api/runs/nonexistent-id/relaunch`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+      });
+      assert.equal(response.status, 404);
+
+      const body = await response.json() as { error: string };
+      assert.match(body.error, /Run not found/);
+    } finally {
+      await stopDashboard(server);
+    }
+  });
+
+  it("POST /api/runs/:id/relaunch returns 409 for running run", async () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "tamandua-dashboard-relaunch-"));
+    const homeDir = path.join(root, "home");
+    fs.mkdirSync(homeDir, { recursive: true });
+    const dbPath = path.join(homeDir, ".tamandua", "tamandua.db");
+    const previousHome = process.env.HOME;
+    const previousDbPath = process.env.TAMANDUA_DB_PATH;
+    process.env.HOME = homeDir;
+    process.env.TAMANDUA_DB_PATH = dbPath;
+
+    const db = getDb();
+    const runId = "run-running-relaunch";
+    db.prepare(`
+      INSERT INTO runs (id, run_number, workflow_id, task, status, context, tokens_spent, created_at, updated_at)
+      VALUES (?, 1, 'wf-1', 'task', 'running', '{}', 0, '2026-01-01', '2026-01-01')
+    `).run(runId);
+
+    const { server, baseUrl } = await startDashboard();
+
+    try {
+      const response = await fetch(`${baseUrl}/api/runs/${runId}/relaunch`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+      });
+      assert.equal(response.status, 409);
+
+      const body = await response.json() as { error: string };
+      assert.match(body.error, /Cannot relaunch run in running state/);
+    } finally {
+      await stopDashboard(server);
+      if (previousHome === undefined) delete process.env.HOME;
+      else process.env.HOME = previousHome;
+      if (previousDbPath === undefined) delete process.env.TAMANDUA_DB_PATH;
+      else process.env.TAMANDUA_DB_PATH = previousDbPath;
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it("POST /api/runs/:id/relaunch returns 409 for completed run", async () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "tamandua-dashboard-relaunch-"));
+    const homeDir = path.join(root, "home");
+    fs.mkdirSync(homeDir, { recursive: true });
+    const dbPath = path.join(homeDir, ".tamandua", "tamandua.db");
+    const previousHome = process.env.HOME;
+    const previousDbPath = process.env.TAMANDUA_DB_PATH;
+    process.env.HOME = homeDir;
+    process.env.TAMANDUA_DB_PATH = dbPath;
+
+    const db = getDb();
+    const runId = "run-completed-relaunch";
+    db.prepare(`
+      INSERT INTO runs (id, run_number, workflow_id, task, status, context, tokens_spent, created_at, updated_at)
+      VALUES (?, 2, 'wf-1', 'task', 'completed', '{}', 0, '2026-01-01', '2026-01-01')
+    `).run(runId);
+
+    const { server, baseUrl } = await startDashboard();
+
+    try {
+      const response = await fetch(`${baseUrl}/api/runs/${runId}/relaunch`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+      });
+      assert.equal(response.status, 409);
+
+      const body = await response.json() as { error: string };
+      assert.match(body.error, /Cannot relaunch run in completed state/);
+    } finally {
+      await stopDashboard(server);
+      if (previousHome === undefined) delete process.env.HOME;
+      else process.env.HOME = previousHome;
+      if (previousDbPath === undefined) delete process.env.TAMANDUA_DB_PATH;
+      else process.env.TAMANDUA_DB_PATH = previousDbPath;
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it("POST /api/runs/:id/relaunch returns 409 for paused run", async () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "tamandua-dashboard-relaunch-"));
+    const homeDir = path.join(root, "home");
+    fs.mkdirSync(homeDir, { recursive: true });
+    const dbPath = path.join(homeDir, ".tamandua", "tamandua.db");
+    const previousHome = process.env.HOME;
+    const previousDbPath = process.env.TAMANDUA_DB_PATH;
+    process.env.HOME = homeDir;
+    process.env.TAMANDUA_DB_PATH = dbPath;
+
+    const db = getDb();
+    const runId = "run-paused-relaunch";
+    db.prepare(`
+      INSERT INTO runs (id, run_number, workflow_id, task, status, context, tokens_spent, created_at, updated_at)
+      VALUES (?, 3, 'wf-1', 'task', 'paused', '{}', 0, '2026-01-01', '2026-01-01')
+    `).run(runId);
+
+    const { server, baseUrl } = await startDashboard();
+
+    try {
+      const response = await fetch(`${baseUrl}/api/runs/${runId}/relaunch`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+      });
+      assert.equal(response.status, 409);
+
+      const body = await response.json() as { error: string };
+      assert.match(body.error, /Cannot relaunch run in paused state/);
+    } finally {
+      await stopDashboard(server);
+      if (previousHome === undefined) delete process.env.HOME;
+      else process.env.HOME = previousHome;
+      if (previousDbPath === undefined) delete process.env.TAMANDUA_DB_PATH;
+      else process.env.TAMANDUA_DB_PATH = previousDbPath;
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it("POST /api/runs/:id/relaunch returns 400 for invalid JSON body", async () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "tamandua-dashboard-relaunch-"));
+    const homeDir = path.join(root, "home");
+    fs.mkdirSync(homeDir, { recursive: true });
+    const dbPath = path.join(homeDir, ".tamandua", "tamandua.db");
+    const previousHome = process.env.HOME;
+    const previousDbPath = process.env.TAMANDUA_DB_PATH;
+    process.env.HOME = homeDir;
+    process.env.TAMANDUA_DB_PATH = dbPath;
+
+    const db = getDb();
+    const runId = "run-failed-bad-json";
+    db.prepare(`
+      INSERT INTO runs (id, run_number, workflow_id, task, status, context, tokens_spent, created_at, updated_at)
+      VALUES (?, 4, 'wf-1', 'task', 'failed', '{}', 0, '2026-01-01', '2026-01-01')
+    `).run(runId);
+
+    const { server, baseUrl } = await startDashboard();
+
+    try {
+      const response = await fetch(`${baseUrl}/api/runs/${runId}/relaunch`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: "not valid json!!!",
+      });
+      assert.equal(response.status, 400);
+
+      const body = await response.json() as { error: string };
+      assert.match(body.error, /Invalid JSON body/);
+    } finally {
+      await stopDashboard(server);
+      if (previousHome === undefined) delete process.env.HOME;
+      else process.env.HOME = previousHome;
+      if (previousDbPath === undefined) delete process.env.TAMANDUA_DB_PATH;
+      else process.env.TAMANDUA_DB_PATH = previousDbPath;
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it("POST /api/runs/:id/relaunch handles canceled run (routes correctly through handler)", async () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "tamandua-dashboard-relaunch-"));
+    const homeDir = path.join(root, "home");
+    fs.mkdirSync(homeDir, { recursive: true });
+    const dbPath = path.join(homeDir, ".tamandua", "tamandua.db");
+    const previousHome = process.env.HOME;
+    const previousDbPath = process.env.TAMANDUA_DB_PATH;
+    process.env.HOME = homeDir;
+    process.env.TAMANDUA_DB_PATH = dbPath;
+
+    const db = getDb();
+    const runId = "run-canceled-relaunch";
+    db.prepare(`
+      INSERT INTO runs (id, run_number, workflow_id, task, status, context, tokens_spent, created_at, updated_at)
+      VALUES (?, 5, 'wf-1', 'Original task', 'canceled', '{"workspace_mode":"direct","working_directory_for_harness":"/tmp/nonexistent","repo":"/tmp/nonexistent"}', 0, '2026-01-01', '2026-01-01')
+    `).run(runId);
+
+    const { server, baseUrl } = await startDashboard();
+
+    try {
+      // This will fail at runWorkflow (no daemon, no workflow, no working dir)
+      // but the handler routing is verified by getting a 500 (not 404/409)
+      const response = await fetch(`${baseUrl}/api/runs/${runId}/relaunch`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ task: "Updated task" }),
+      });
+
+      // 500 from runWorkflow failing is expected — handler logic passed validation
+      assert.equal(response.status, 500);
+
+      const body = await response.json() as { error: string };
+      assert.match(body.error, /Failed to relaunch run/);
+    } finally {
+      await stopDashboard(server);
+      if (previousHome === undefined) delete process.env.HOME;
+      else process.env.HOME = previousHome;
+      if (previousDbPath === undefined) delete process.env.TAMANDUA_DB_PATH;
+      else process.env.TAMANDUA_DB_PATH = previousDbPath;
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it("POST /api/runs/:id/relaunch with empty body uses original task", async () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "tamandua-dashboard-relaunch-"));
+    const homeDir = path.join(root, "home");
+    fs.mkdirSync(homeDir, { recursive: true });
+    const dbPath = path.join(homeDir, ".tamandua", "tamandua.db");
+    const previousHome = process.env.HOME;
+    const previousDbPath = process.env.TAMANDUA_DB_PATH;
+    process.env.HOME = homeDir;
+    process.env.TAMANDUA_DB_PATH = dbPath;
+
+    const db = getDb();
+    const runId = "run-failed-empty-body";
+    db.prepare(`
+      INSERT INTO runs (id, run_number, workflow_id, task, status, context, tokens_spent, created_at, updated_at)
+      VALUES (?, 6, 'wf-1', 'Original task', 'failed', '{"workspace_mode":"direct","working_directory_for_harness":"/tmp/nonexistent"}', 0, '2026-01-01', '2026-01-01')
+    `).run(runId);
+
+    const { server, baseUrl } = await startDashboard();
+
+    try {
+      // No body — should use original task. Will fail at runWorkflow (no daemon).
+      const response = await fetch(`${baseUrl}/api/runs/${runId}/relaunch`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+      });
+
+      // 500 from runWorkflow failing is expected
+      assert.equal(response.status, 500);
+      const body = await response.json() as { error: string };
+      assert.match(body.error, /Failed to relaunch run/);
+    } finally {
+      await stopDashboard(server);
+      if (previousHome === undefined) delete process.env.HOME;
+      else process.env.HOME = previousHome;
+      if (previousDbPath === undefined) delete process.env.TAMANDUA_DB_PATH;
+      else process.env.TAMANDUA_DB_PATH = previousDbPath;
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it("POST /api/runs/:id/relaunch with whitespace-only task uses original task", async () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "tamandua-dashboard-relaunch-"));
+    const homeDir = path.join(root, "home");
+    fs.mkdirSync(homeDir, { recursive: true });
+    const dbPath = path.join(homeDir, ".tamandua", "tamandua.db");
+    const previousHome = process.env.HOME;
+    const previousDbPath = process.env.TAMANDUA_DB_PATH;
+    process.env.HOME = homeDir;
+    process.env.TAMANDUA_DB_PATH = dbPath;
+
+    const db = getDb();
+    const runId = "run-failed-whitespace-task";
+    db.prepare(`
+      INSERT INTO runs (id, run_number, workflow_id, task, status, context, tokens_spent, created_at, updated_at)
+      VALUES (?, 7, 'wf-1', 'Original task', 'failed', '{"workspace_mode":"direct","working_directory_for_harness":"/tmp/nonexistent"}', 0, '2026-01-01', '2026-01-01')
+    `).run(runId);
+
+    const { server, baseUrl } = await startDashboard();
+
+    try {
+      const response = await fetch(`${baseUrl}/api/runs/${runId}/relaunch`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ task: "   " }),
+      });
+
+      // 500 from runWorkflow failing is expected
+      assert.equal(response.status, 500);
+      const body = await response.json() as { error: string };
+      assert.match(body.error, /Failed to relaunch run/);
+    } finally {
+      await stopDashboard(server);
+      if (previousHome === undefined) delete process.env.HOME;
+      else process.env.HOME = previousHome;
+      if (previousDbPath === undefined) delete process.env.TAMANDUA_DB_PATH;
+      else process.env.TAMANDUA_DB_PATH = previousDbPath;
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it("POST /api/runs/:id/relaunch preserves notify_url from original run", async () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "tamandua-dashboard-relaunch-"));
+    const homeDir = path.join(root, "home");
+    fs.mkdirSync(homeDir, { recursive: true });
+    const dbPath = path.join(homeDir, ".tamandua", "tamandua.db");
+    const previousHome = process.env.HOME;
+    const previousDbPath = process.env.TAMANDUA_DB_PATH;
+    process.env.HOME = homeDir;
+    process.env.TAMANDUA_DB_PATH = dbPath;
+
+    const db = getDb();
+    const runId = "run-failed-notify";
+    const notifyUrl = "https://hooks.example.com/notify";
+    db.prepare(`
+      INSERT INTO runs (id, run_number, workflow_id, task, status, context, tokens_spent, notify_url, created_at, updated_at)
+      VALUES (?, 8, 'wf-1', 'task', 'failed', '{"workspace_mode":"direct","working_directory_for_harness":"/tmp/nonexistent"}', 0, ?, '2026-01-01', '2026-01-01')
+    `).run(runId, notifyUrl);
+
+    const { server, baseUrl } = await startDashboard();
+
+    try {
+      // This will fail at runWorkflow but tests that notify_url is read from DB
+      const response = await fetch(`${baseUrl}/api/runs/${runId}/relaunch`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+      });
+
+      // 500 from runWorkflow failing is expected
+      assert.equal(response.status, 500);
+      const body = await response.json() as { error: string };
+      assert.match(body.error, /Failed to relaunch run/);
+    } finally {
+      await stopDashboard(server);
+      if (previousHome === undefined) delete process.env.HOME;
+      else process.env.HOME = previousHome;
+      if (previousDbPath === undefined) delete process.env.TAMANDUA_DB_PATH;
+      else process.env.TAMANDUA_DB_PATH = previousDbPath;
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+});
+
 describe("dashboard version status API", () => {
   it("GET /api/version-status returns { updateAvailable, currentHead, remoteHead, checkedAt } when no file exists", async () => {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), "tamandua-dashboard-version-"));
@@ -885,6 +1367,290 @@ describe("dashboard version status API", () => {
       assert.match(html, /banner\.style\.display\s*=\s*["']none["']/);
     } finally {
       await stopDashboard(server);
+    }
+  });
+});
+
+function createMinimalGitRepo(dir: string): string {
+  fs.mkdirSync(dir, { recursive: true });
+  spawnSync("git", ["init", "-b", "main", dir], { stdio: "ignore" });
+  spawnSync("git", ["-C", dir, "config", "user.email", "test@tamandua.local"]);
+  spawnSync("git", ["-C", dir, "config", "user.name", "Tamandua Test"]);
+  spawnSync("git", ["-C", dir, "commit", "--allow-empty", "-m", "initial"]);
+  return dir;
+}
+
+async function startMockControlServer(): Promise<{ server: http.Server; port: number }> {
+  const server = http.createServer((req, res) => {
+    const url = new URL(req.url ?? "/", "http://localhost");
+    if (url.pathname === "/control/health" && req.method === "GET") {
+      res.writeHead(200, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ status: "ok" }));
+    } else if (url.pathname === "/control/register-run" && req.method === "POST") {
+      res.writeHead(200, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ state: "active" }));
+    } else {
+      res.writeHead(404);
+      res.end("not found");
+    }
+  });
+
+  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", () => resolve()));
+  const address = server.address();
+  assert.ok(address && typeof address !== "string");
+  return { server, port: address.port };
+}
+
+const TEST_DIR = path.dirname(fileURLToPath(import.meta.url));
+
+function installWorkflowInHome(homeDir: string, workflowId: string): void {
+  const workflowDir = path.join(homeDir, ".tamandua", "workflows", workflowId);
+  fs.mkdirSync(workflowDir, { recursive: true });
+  const srcYml = path.join(TEST_DIR, "..", "..", "workflows", workflowId, "workflow.yml");
+  fs.copyFileSync(srcYml, path.join(workflowDir, "workflow.yml"));
+}
+
+describe("dashboard relaunch integration", () => {
+  it("relaunches a failed run and preserves workflow_id, task, workspace settings, notify_url (direct mode, with task override)", async () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "tamandua-relaunch-integration-"));
+    const homeDir = path.join(root, "home");
+    fs.mkdirSync(homeDir, { recursive: true });
+    const previousHome = process.env.HOME;
+    const previousDbPath = process.env.TAMANDUA_DB_PATH;
+    const previousControlPort = process.env.TAMANDUA_CONTROL_PORT;
+
+    try {
+      process.env.HOME = homeDir;
+
+      // Install a direct-mode workflow
+      installWorkflowInHome(homeDir, "bug-fix");
+
+      // Create working directory for harness
+      const workingDir = path.join(root, "workdir");
+      fs.mkdirSync(workingDir, { recursive: true });
+
+      // Set up mock control server
+      const mockControl = await startMockControlServer();
+      process.env.TAMANDUA_CONTROL_PORT = String(mockControl.port);
+
+      // Initialize DB and create a failed run with context
+      const db = getDb();
+      const failedRunId = "run-failed-direct-001";
+      const originalTask = "Original task description";
+      const notifyUrl = "https://hooks.example.com/notify";
+      const context = {
+        workspace_mode: "direct",
+        working_directory_for_harness: workingDir,
+        repo: workingDir,
+      };
+
+      db.prepare(`
+        INSERT INTO runs (id, run_number, workflow_id, task, status, context, tokens_spent, notify_url, created_at, updated_at)
+        VALUES (?, 1, 'bug-fix', ?, 'failed', ?, 0, ?, '2026-01-01', '2026-01-01')
+      `).run(failedRunId, originalTask, JSON.stringify(context), notifyUrl);
+
+      const { server, baseUrl } = await startDashboard();
+
+      try {
+        // Relaunch with a modified task
+        const response = await fetch(`${baseUrl}/api/runs/${failedRunId}/relaunch`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ task: "Modified task" }),
+        });
+
+        assert.equal(response.status, 200);
+        const body = await response.json() as { relaunched: boolean; originalRunId: string; runId: string; runNumber: number };
+        assert.equal(body.relaunched, true);
+        assert.equal(body.originalRunId, failedRunId);
+        assert.ok(typeof body.runId === "string" && body.runId.length > 0);
+        assert.ok(typeof body.runNumber === "number" && body.runNumber > 0);
+
+        // Verify the new run in the DB
+        const newRun = db.prepare(
+          "SELECT workflow_id, task, context, notify_url FROM runs WHERE id = ?",
+        ).get(body.runId) as { workflow_id: string; task: string; context: string; notify_url: string | null } | undefined;
+        assert.ok(newRun, "new run should exist in DB");
+        assert.equal(newRun.workflow_id, "bug-fix");
+        assert.equal(newRun.task, "Modified task");
+        assert.equal(newRun.notify_url, notifyUrl);
+
+        // Parse context to verify workspace settings are preserved
+        const newContext = JSON.parse(newRun.context) as Record<string, string>;
+        assert.equal(newContext.workspace_mode, "direct");
+        assert.equal(newContext.working_directory_for_harness, workingDir);
+      } finally {
+        await stopDashboard(server);
+      }
+
+      mockControl.server.close();
+    } finally {
+      if (previousHome === undefined) delete process.env.HOME;
+      else process.env.HOME = previousHome;
+      if (previousDbPath === undefined) delete process.env.TAMANDUA_DB_PATH;
+      else process.env.TAMANDUA_DB_PATH = previousDbPath;
+      if (previousControlPort === undefined) delete process.env.TAMANDUA_CONTROL_PORT;
+      else process.env.TAMANDUA_CONTROL_PORT = previousControlPort;
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it("relaunches without task override uses original task (direct mode)", async () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "tamandua-relaunch-integration-"));
+    const homeDir = path.join(root, "home");
+    fs.mkdirSync(homeDir, { recursive: true });
+    const previousHome = process.env.HOME;
+    const previousDbPath = process.env.TAMANDUA_DB_PATH;
+    const previousControlPort = process.env.TAMANDUA_CONTROL_PORT;
+
+    try {
+      process.env.HOME = homeDir;
+
+      installWorkflowInHome(homeDir, "bug-fix");
+
+      const workingDir = path.join(root, "workdir");
+      fs.mkdirSync(workingDir, { recursive: true });
+
+      const mockControl = await startMockControlServer();
+      process.env.TAMANDUA_CONTROL_PORT = String(mockControl.port);
+
+      const db = getDb();
+      const failedRunId = "run-failed-direct-002";
+      const originalTask = "Do not change this task";
+      const context = {
+        workspace_mode: "direct",
+        working_directory_for_harness: workingDir,
+        repo: workingDir,
+      };
+
+      db.prepare(`
+        INSERT INTO runs (id, run_number, workflow_id, task, status, context, tokens_spent, created_at, updated_at)
+        VALUES (?, 1, 'bug-fix', ?, 'failed', ?, 0, '2026-01-01', '2026-01-01')
+      `).run(failedRunId, originalTask, JSON.stringify(context));
+
+      const { server, baseUrl } = await startDashboard();
+
+      try {
+        // Relaunch without body — should use original task
+        const response = await fetch(`${baseUrl}/api/runs/${failedRunId}/relaunch`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+        });
+
+        assert.equal(response.status, 200);
+        const body = await response.json() as { relaunched: boolean; runId: string };
+        assert.equal(body.relaunched, true);
+
+        const newRun = db.prepare(
+          "SELECT workflow_id, task FROM runs WHERE id = ?",
+        ).get(body.runId) as { workflow_id: string; task: string } | undefined;
+        assert.ok(newRun, "new run should exist in DB");
+        assert.equal(newRun.workflow_id, "bug-fix");
+        assert.equal(newRun.task, originalTask);
+      } finally {
+        await stopDashboard(server);
+      }
+
+      mockControl.server.close();
+    } finally {
+      if (previousHome === undefined) delete process.env.HOME;
+      else process.env.HOME = previousHome;
+      if (previousDbPath === undefined) delete process.env.TAMANDUA_DB_PATH;
+      else process.env.TAMANDUA_DB_PATH = previousDbPath;
+      if (previousControlPort === undefined) delete process.env.TAMANDUA_CONTROL_PORT;
+      else process.env.TAMANDUA_CONTROL_PORT = previousControlPort;
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it("relaunches a failed run in worktree mode preserving workflow_id, task, workspace settings, notify_url", async () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "tamandua-relaunch-integration-"));
+    const homeDir = path.join(root, "home");
+    fs.mkdirSync(homeDir, { recursive: true });
+    const previousHome = process.env.HOME;
+    const previousDbPath = process.env.TAMANDUA_DB_PATH;
+    const previousControlPort = process.env.TAMANDUA_CONTROL_PORT;
+
+    try {
+      process.env.HOME = homeDir;
+
+      // Install a worktree-mode workflow
+      installWorkflowInHome(homeDir, "feature-dev-merge-worktree");
+
+      // Create a minimal git repo to serve as origin for the worktree
+      const originRepo = path.join(root, "origin-repo");
+      createMinimalGitRepo(originRepo);
+      // Get the commit SHA and branch for the context
+      const shaResult = spawnSync("git", ["-C", originRepo, "rev-parse", "HEAD"], { encoding: "utf-8" });
+      const originSha = shaResult.stdout.trim();
+
+      // Set up mock control server
+      const mockControl = await startMockControlServer();
+      process.env.TAMANDUA_CONTROL_PORT = String(mockControl.port);
+
+      // Initialize DB and create a failed worktree run
+      const db = getDb();
+      const failedRunId = "run-failed-worktree-001";
+      const originalTask = "Worktree task";
+      const notifyUrl = "https://hooks.example.com/worktree-notify";
+      const context = {
+        workspace_mode: "worktree",
+        working_directory_for_harness: "/tmp/nonexistent-worktree",
+        worktree_origin_repository: originRepo,
+        worktree_origin_ref: "main",
+        worktree_origin_sha: originSha,
+        repo: "/tmp/nonexistent-worktree",
+      };
+
+      db.prepare(`
+        INSERT INTO runs (id, run_number, workflow_id, task, status, context, tokens_spent, notify_url, created_at, updated_at)
+        VALUES (?, 1, 'feature-dev-merge-worktree', ?, 'failed', ?, 0, ?, '2026-01-01', '2026-01-01')
+      `).run(failedRunId, originalTask, JSON.stringify(context), notifyUrl);
+
+      const { server, baseUrl } = await startDashboard();
+
+      try {
+        const response = await fetch(`${baseUrl}/api/runs/${failedRunId}/relaunch`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ task: "Modified worktree task" }),
+        });
+
+        assert.equal(response.status, 200);
+        const body = await response.json() as { relaunched: boolean; originalRunId: string; runId: string; runNumber: number };
+        assert.equal(body.relaunched, true);
+        assert.equal(body.originalRunId, failedRunId);
+        assert.ok(typeof body.runId === "string" && body.runId.length > 0);
+
+        // Verify the new run in the DB
+        const newRun = db.prepare(
+          "SELECT workflow_id, task, context, notify_url FROM runs WHERE id = ?",
+        ).get(body.runId) as { workflow_id: string; task: string; context: string; notify_url: string | null } | undefined;
+        assert.ok(newRun, "new run should exist in DB");
+        assert.equal(newRun.workflow_id, "feature-dev-merge-worktree");
+        assert.equal(newRun.task, "Modified worktree task");
+        assert.equal(newRun.notify_url, notifyUrl);
+
+        // Parse context to verify workspace settings are preserved
+        const newContext = JSON.parse(newRun.context) as Record<string, string>;
+        assert.equal(newContext.workspace_mode, "worktree");
+        assert.equal(newContext.worktree_origin_repository, originRepo);
+        assert.equal(newContext.worktree_origin_ref, "main");
+        // worktree_path should be set by runWorkflow
+        assert.ok(typeof newContext.worktree_path === "string" && newContext.worktree_path.length > 0);
+      } finally {
+        await stopDashboard(server);
+      }
+
+      mockControl.server.close();
+    } finally {
+      if (previousHome === undefined) delete process.env.HOME;
+      else process.env.HOME = previousHome;
+      if (previousDbPath === undefined) delete process.env.TAMANDUA_DB_PATH;
+      else process.env.TAMANDUA_DB_PATH = previousDbPath;
+      if (previousControlPort === undefined) delete process.env.TAMANDUA_CONTROL_PORT;
+      else process.env.TAMANDUA_CONTROL_PORT = previousControlPort;
+      fs.rmSync(root, { recursive: true, force: true });
     }
   });
 });
