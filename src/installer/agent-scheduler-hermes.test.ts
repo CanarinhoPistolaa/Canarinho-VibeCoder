@@ -110,7 +110,7 @@ echo "session_id: 20260518_late"`,
     assert.ok(args.includes("--yolo"));
     assert.ok(args.includes("-Q"));
     assert.ok(!args.includes("--ignore-user-config"));
-    assert.ok(args.includes("--ignore-rules"));
+    assert.ok(!args.includes("--ignore-rules"));
   });
 
   it("preserves multi-line output with mixed content", async () => {

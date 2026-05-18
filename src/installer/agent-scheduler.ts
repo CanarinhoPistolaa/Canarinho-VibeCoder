@@ -384,13 +384,11 @@ export async function runHermes(
   // --yolo skips permission confirmations (hermes equivalent of pi -y).
   // -Q suppresses banner/spinner (but NOT session_id).
   // Keep user config enabled so Hermes uses the configured provider/model.
-  // --ignore-rules avoids injecting unrelated repo/user instructions.
   const args = [
     "chat",
     "--max-turns", "8192",
     "--yolo",
     "-Q",
-    "--ignore-rules",
     "-q", prompt,
   ];
 
