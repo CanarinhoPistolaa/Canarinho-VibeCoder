@@ -109,7 +109,7 @@ echo "session_id: 20260518_late"`,
     assert.ok(args.includes("8192"));
     assert.ok(args.includes("--yolo"));
     assert.ok(args.includes("-Q"));
-    assert.ok(args.includes("--ignore-user-config"));
+    assert.ok(!args.includes("--ignore-user-config"));
     assert.ok(args.includes("--ignore-rules"));
   });
 
