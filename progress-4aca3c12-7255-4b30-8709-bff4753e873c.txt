@@ -12,6 +12,15 @@ Started: 2026-05-18
 - Test isolation uses `fs.mkdtempSync()` for temp HOME directories with cleanup in `finally` blocks.
 - Tests that need the built CLI invoke `tamandua` via shell, not via direct imports.
 - Git commits must end with: `Co-Authored-By: Tamandua <tamandua@tetradactyla.org>`
+- When running `node --test` from within an existing `node --test` process, must unset `NODE_TEST_CONTEXT` env var to avoid recursive test detection skipping subprocess tests.
+- The `tamandua` binary at `bin/tamandua` is a shell script (`#!/bin/sh`), not a JS file. Use `tamandua` on PATH, not `node bin/tamandua`.
+- `step claim` requires the FULL UUID run ID, not the 8-char prefix. The 8-char prefix from `workflow run` output must be resolved via DB query.
+- `tamandua workflow install` requires `~/.pi/agent/settings.json` to exist (minimal pi config).
+- Worktree-mode workflows need `--worktree-origin-repository` pointing to a clean git repo (no uncommitted changes).
+- The daemon auto-starts when running `tamandua workflow run`; it spawns detached and must be stopped via `tamandua dashboard stop`.
+- Test suites that spawn daemon processes should use `{ concurrency: 1 }` to prevent port conflicts.
+- Workflow pipeline step advancement is purely DB-driven; completing steps with `tamandua step complete` advances the pipeline without requiring actual agent execution.
+- For loop steps with `verify_each`, completing the implement step triggers the verify step. Completing the verify step calls `checkLoopContinuation` which marks the loop done when all stories are done.
 
 ## Story Plan
 
@@ -82,6 +91,7 @@ Implementation notes:
 - Tests for the e2e test pass
 - Typecheck passes
 
+
 ---
 
 ## 2026-05-18 09:30 - US-001: Create e2e-tests infrastructure, scripts, and update AGENTS.md
@@ -108,4 +118,49 @@ Implementation notes:
 - `npm test` globs (`tests/*.test.ts src/**/*.test.ts`) naturally exclude `e2e-tests/` without any config changes
 - `tsconfig.json` only compiles `src/**/*.ts`, naturally excluding `e2e-tests/`
 - 4 pre-existing test failures in `tests/cli-worktree.test.ts` (SQLite "no such table: runs") are unrelated to these changes
+
+## 2026-05-18 10:35 - US-002: Create minimal sample project fixture with deliberate bug
+- Created `e2e-tests/fixtures/sample-project/` directory with TypeScript sample project
+- `package.json`: type "module", scripts: build (tsc), test (node --test test/*.test.ts)
+- `tsconfig.json`: ES2022 target, Node16 module, strict mode
+- `src/math.ts`: add(a,b) returns a - b (the deliberate bug, should be a + b)
+- `test/math.test.ts`: two tests:
+  - "returns the difference" — passes because it expects subtraction: add(5,3) === 2 matches the bug
+  - "correctly expects addition" — fails because add(5,3) returns 2 but expects 8
+- Removed `e2e-tests/.gitkeep` now that directory has real content
+- Created `tests/sample-project-fixture.test.ts` with 6 tests:
+  - has package.json with type module and scripts
+  - has tsconfig.json with ES2022+ settings
+  - has src/math.ts with buggy add() returning a - b
+  - has test/math.test.ts with test exposing the bug
+  - fixture compiles and shows test failure when run (copies to temp dir, npm install, build, test — verifies non-zero exit)
+  - fixture has all four required files
+- All 6 fixture tests pass
+- Fixture verified: 1 test passes (matches bug), 1 test fails (expects correct behavior), exit code 1
+- No new test failures introduced (8 pre-existing failures remain)
+
+**Learnings:**
+- When running `node --test` from within an existing `node --test` process, must unset `NODE_TEST_CONTEXT` env var to avoid recursive test detection skipping subprocess tests
+- The fixture test imports from `../dist/math.js` (compiled output), not `../src/math.js` (source)
+- `spawnSync` is more reliable than `execSync` + `assert.throws` for verifying subprocess exit codes
+- `cp -r "${dir}"/. "${tmp}"/` is the correct idiom to copy directory contents including hidden files
+
+## 2026-05-18 12:00 - US-003: Write e2e integration test exercising feature-dev-merge-worktree and bug-fix-merge-worktree
+- Created `e2e-tests/workflows-e2e.test.ts` with 2 end-to-end tests:
+  1. `feature-dev-merge-worktree`: exercises the full 6-step pipeline (plan → setup → implement → verify → test → finalize_merge)
+  2. `bug-fix-merge-worktree`: exercises the full 6-step pipeline (triage → investigate → setup → fix → verify → finalize_merge)
+- Tests use temp HOME isolation via `fs.mkdtempSync()` with cleanup in `finally` blocks
+- Each test: creates temp HOME, installs the workflow, prepares a clean git repo from the sample project fixture, spawns a workflow run, resolves the full run ID from the DB prefix, claims and completes each step with appropriate output, and verifies the run status shows "completed" with all steps [done]
+- Uses `{ concurrency: 1 }` on the describe block to prevent daemon port conflicts between parallel tests
+- Implements helpers: `createTempHome` (with minimal pi config), `prepareGitRepo` (git init + commit), `spawnWorkflowRun` (captures run ID from output), `resolveFullRunId` (DB prefix → UUID), `stepClaim`, `stepComplete`, `cleanupTempHome` (stop daemon + rm -rf)
+- Both e2e tests pass
+- Typecheck passes
+- All pre-existing regular tests still pass (8 pre-existing failures unrelated)
+
+**Learnings:**
+- `step claim` requires the FULL UUID run ID, not the 8-char prefix output by `workflow run`
+- `tamandua workflow install` requires `~/.pi/agent/settings.json` (minimal pi config)
+- The daemon auto-starts via `workflow run` and must be stopped via `tamandua dashboard stop`
+- For loop steps with `verify_each`, completing implement triggers verify; completing verify calls `checkLoopContinuation` which marks the loop step done when all stories are done
+- Workspace/worktree creation is triggered by `runWorkflow` — the test can still advance pipeline via `step claim`/`step complete` even though the worktree is detached HEAD
 ---
