@@ -79,6 +79,7 @@ export type Story = {
 export type WorkflowSpec = {
   id: string;
   name?: string;
+  description?: string;
   version?: number;
   polling?: PollingConfig;
   agents: WorkflowAgent[];

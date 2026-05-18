@@ -43,17 +43,31 @@ steps:
       NO_HURRY_SAVE_TOKENS_MODE: {{no_hurry_save_tokens_mode}}
 
       Instructions:
-      1. Discover available workflows: `tamandua workflow list`
+      1. Discover available workflows: `tamandua workflow list --json`
+         Parse the JSON output. Each entry has id, name, description.
       2. Analyze the TASK above — what is the user asking for?
-      3. Select the most appropriate workflow based on the task type:
-         - Feature development → feature-dev, feature-dev-merge, feature-dev-github-pr,
-           feature-dev-worktree, feature-dev-merge-worktree
-         - Bug fixing → bug-fix, bug-fix-merge, bug-fix-github-pr,
-           bug-fix-worktree, bug-fix-merge-worktree
-         - Security audit → security-audit, security-audit-merge, security-audit-github-pr,
-           security-audit-worktree, security-audit-merge-worktree
-      4. Choose the variant based on user needs: merge vs non-merge, worktree vs direct,
-         PR vs local-only
+      3. Identify the task category using prefix-based matching:
+         - "add", "implement", "create", "feature", "build", "new endpoint" → feature-dev*
+         - "bug", "fix", "broken", "error", "crash", "regression" → bug-fix*
+         - "security", "audit", "vulnerability", "CVE", "scan" → security-audit*
+         - "quick question", "format this", "check X", "tell me", "explain",
+           or any short discrete task with no coding/PR needed → do-now (standalone)
+         - "review my code", "verify", "compare", "check correctness",
+           or tasks where the result needs a second-pass check → do-review-do-verify (standalone)
+         If the task spans multiple categories, pick the primary one. When in doubt, default to feature-dev*.
+      4. Choose the variant by composing a suffix onto the family prefix:
+         - Prompt mentions "PR", "pull request", "GitHub" → use -github-pr variant
+         - Prompt mentions "merge", "land", "ship" → use variant with -merge
+         - Prompt mentions "worktree" → use variant with -worktree
+         - Both PR and merge → -github-pr takes precedence (PR flow includes merge)
+         - Both PR and worktree → compose -github-pr-worktree
+         - Both merge and worktree → compose -merge-worktree
+         - None of these → base variant (family prefix only, e.g. feature-dev)
+         - do-now and do-review-do-verify are standalone: use them directly, no suffix.
+         After composing the target ID, verify it exists in the --json output.
+         If not found, fall back to the closest available variant from the JSON output
+         in order: base → -worktree → -merge → -merge-worktree → -github-pr → -github-pr-worktree.
+         If none exist, fall back to do-now as the universal catch-all.
       5. Decide no-hurry mode:
          - If {{no_hurry_save_tokens_mode}} is true, launch the dispatched workflow
            with --no-hurry ALWAYS (parent was no-hurry)

@@ -1,0 +1,126 @@
+# Progress Log
+Run: d6ce4391-0a02-461d-83e2-9d1320919e5a
+Task: Add support for newer available workflows in the just-do-it workflows
+Started: 2026-05-17
+
+## Codebase Patterns
+- All CLI tests use isolated temp HOME directories via `fs.mkdtempSync` and `spawn` with `HOME` env override
+- CLI script path: `dist/cli/cli.js` (built from `src/cli/cli.ts`)
+- Workflow YAML specs are loaded via `loadWorkflowSpec()` from `src/installer/workflow-spec.js`
+- Bundled workflow directories are resolved via `resolveBundledWorkflowDir()` from `src/installer/paths.js`
+- `getWorkflowShortDescription()` extracts the first sentence from a workflow's description field
+- `listBundledWorkflows()` returns sorted directory names under the bundled workflows dir
+- CLI command handlers follow the pattern: `if (group === "workflow") { if (action === "list") { ... } }`
+- New imports go in the import block at the top of `src/cli/cli.ts`
+- Dispatcher AGENTS.md is a workflow persona file at `workflows/just-do-it/agents/dispatcher/AGENTS.md`
+- New workflows (do-now, do-review-do-verify) are standalone, non-family workflows
+- Workflow YAML `|` block scalars preserve content as-is; `readFileSync` returns raw text including all indentation
+- `assert.match` regex `.` does NOT match newlines by default; use `[\s\S]` for cross-line patterns
+
+## Story Plan
+
+### US-001: Add --json flag to tamandua workflow list
+
+**Description:** As a developer, I need to add a --json output mode to the workflow list CLI command so that the dispatcher agent can programmatically discover available workflows with their names, descriptions, and categories.
+
+Implementation notes:
+- Modify the workflow list handler in src/cli/cli.ts to detect a --json flag
+- When --json is passed, load each bundled workflow YAML spec to extract id, name, description, and any category field
+- Output a JSON array: [{id, name, description}]
+- Keep existing human-readable output as default (no --json)
+- Update getWorkflowListHelp() text to document --json
+
+**Acceptance Criteria:**
+- tamandua workflow list --json outputs valid JSON array with id/name/description
+- tamandua workflow list (without --json) still outputs human-readable format unchanged
+- tamandua workflow list --help documents --json flag
+- Tests for workflow list --json output pass
+- Typecheck passes
+
+### US-002: Update dispatcher AGENTS.md for dynamic workflow discovery
+
+**Description:** As a developer, I need to update the dispatcher agent AGENTS.md instructions so it dynamically discovers and categorizes workflows instead of relying on hardcoded lists.
+
+Implementation notes:
+- Replace hardcoded workflow variant tables with instructions to run tamandua workflow list --json
+- Add categorization rules based on workflow ID prefix
+- Add rules for do-now (simple single-shot tasks) and do-review-do-verify (tasks needing review)
+- Add fallback rule for unknown workflow IDs
+
+**Acceptance Criteria:**
+- AGENTS.md no longer contains hardcoded workflow ID lists
+- AGENTS.md describes prefix-based categorization from --json output
+- AGENTS.md includes rules for do-now and do-review-do-verify
+- AGENTS.md includes fallback rule for unknown workflows
+- Typecheck passes
+
+### US-003: Update workflow.yml dispatch step for dynamic workflow selection
+
+**Description:** As a developer, I need to update the just-do-it workflow.yml dispatch step input prompt to instruct the dispatcher to use dynamic workflow discovery via --json.
+
+Implementation notes:
+- Replace hardcoded workflow lists in the step input with instructions to parse tamandua workflow list --json
+- Update to describe prefix-based categorization
+- Include rules for do-now and do-review-do-verify
+- Keep no-hurry decision logic intact
+- Keep output format unchanged
+
+**Acceptance Criteria:**
+- workflow.yml dispatch step no longer contains hardcoded workflow lists
+- workflow.yml step input instructs agent to use --json for discovery
+- workflow.yml step input includes rules for do-now and do-review-do-verify
+- workflow.yml parses successfully
+- Typecheck passes
+
+---
+
+## US-001: Add --json flag to tamandua workflow list
+- Added `--json` flag detection to workflow list handler in `src/cli/cli.ts`
+- Imported `loadWorkflowSpec` and `resolveBundledWorkflowDir` for YAML loading
+- Added `description` field to `WorkflowSpec` type in `src/installer/types.ts`
+- Updated `getWorkflowListHelp()` to document `--json` flag with usage and examples
+- Created `tests/cli-workflow-list-json.test.ts` with 4 test cases:
+  1. `--json` outputs valid JSON array with id/name/description
+  2. without `--json` outputs human-readable format unchanged
+  3. `--help` documents `--json` flag
+  4. each entry has string description (even if empty)
+- All 4 tests pass, typecheck passes, human-readable output unchanged
+- Full test suite: 1291/1295 pass (4 pre-existing failures in unrelated cli-worktree tests)
+- **Learnings:** `WorkflowSpec` type didn't have `description` field despite YAML files including it; added to type for cleaner code
+- Files changed: `src/cli/cli.ts`, `src/installer/types.ts`, `tests/cli-workflow-list-json.test.ts`
+
+## 2026-05-17 - US-002: Update dispatcher AGENTS.md for dynamic workflow discovery
+- Rewrote `workflows/just-do-it/agents/dispatcher/AGENTS.md` to eliminate all hardcoded workflow ID lists
+- Added "Workflow Discovery" section instructing agents to run `tamandua workflow list --json` at session start
+- Added "Prefix-Based Categorization" documenting family prefixes (feature-dev*, bug-fix*, security-audit*, do-now, do-review-do-verify, just-do-it) and variant suffixes
+- Step 1 (task category) now includes do-now and do-review-do-verify as first-class categories with hallmark keywords
+- Step 2 (variant selection) now uses dynamic suffix composition: agents filter JSON output by prefix to discover available variants
+- Added standalone workflow rule for do-now and do-review-do-verify (no suffix composition)
+- Added fallback rule: try base→worktree→merge→merge-worktree→github-pr→github-pr-worktree, then fall back to do-now as universal catch-all
+- Added Step 3 (verify and launch) requiring confirmation against --json output before launching
+- Preserved no-hurry decision rules, launching instructions, output format, and What NOT To Do sections unchanged
+- Examples table now shows composition logic rather than hardcoded workflow IDs
+- Build passes, all 1291/1295 tests pass (4 pre-existing cli-worktree failures unchanged)
+- **Learnings:** New standalone workflows (do-now, do-review-do-verify) integrate cleanly alongside prefix-based families; dispatcher AGENTS.md personifies the just-do-it meta-workflow and explicitly warns against self-dispatch
+- Files changed: `workflows/just-do-it/agents/dispatcher/AGENTS.md`
+
+## 2026-05-17 - US-003: Update workflow.yml dispatch step for dynamic workflow selection
+- Updated `workflows/just-do-it/workflow.yml` dispatch step input to remove all hardcoded workflow variant lists
+- Replaced `tamandua workflow list` with `tamandua workflow list --json` for dynamic discovery
+- Replaced hardcoded category→workflow mappings (feature-dev, feature-dev-merge, etc.) with prefix-based categorization (feature-dev*, bug-fix*, security-audit*)
+- Added do-now and do-review-do-verify as standalone workflow categories with hallmark keywords
+- Added variant suffix composition rules (PR→-github-pr, merge→-merge, worktree→-worktree, composition logic)
+- Added fallback order: base → -worktree → -merge → -merge-worktree → -github-pr → -github-pr-worktree → do-now catch-all
+- Added rule to verify composed ID against --json output before launching
+- Preserved no-hurry decision logic, launch instructions, and output format unchanged
+- Added 7 new tests in `tests/workflow-validation.test.ts` under "US-003: just-do-it dispatch step dynamic workflow selection":
+  1. dispatch step input uses --json for discovery, not hardcoded lists
+  2. prefix-based categorization with feature-dev*, bug-fix*, security-audit*
+  3. do-now and do-review-do-verify as standalone workflows
+  4. variant suffix composition rules
+  5. fallback order and do-now catch-all
+  6. no-hurry decision logic preserved
+  7. output format preserved
+- All 221 tests pass (217 workflow-validation + 4 cli-workflow-list-json), build passes, typecheck passes
+- **Learnings:** YAML `|` block scalars in workflow.yml preserve content exactly as-is; `assert.match` regex `.` doesn't match newlines by default; "composing" ≠ "compose" in regex (character difference at position 7)
+- Files changed: `workflows/just-do-it/workflow.yml`, `tests/workflow-validation.test.ts`

@@ -13,6 +13,8 @@ import { uninstallAllWorkflows, uninstallWorkflow, checkActiveRuns } from "../in
 import { getWorkflowStatus, listRuns, stopWorkflow, type RunInfo, type RunDetail } from "../installer/status.js";
 import { runWorkflow, resumeWorkflow, type RunWorkflowResult } from "../installer/run.js";
 import { listBundledWorkflows, getWorkflowShortDescription } from "../installer/workflow-fetch.js";
+import { loadWorkflowSpec } from "../installer/workflow-spec.js";
+import { resolveBundledWorkflowDir } from "../installer/paths.js";
 import { getRecentEvents, getRunEvents, readEventsFromCursor, type EventCursorSource, type TamanduaEvent } from "../installer/events.js";
 import { formatLogsTailLines } from "../installer/logs-tail-format.js";
 import { parseLogsSelector, lookupRunIdByNumber } from "./logs-selector.js";
@@ -759,14 +761,18 @@ Examples:
 function getWorkflowListHelp(): string {
   return `tamandua workflow list — List available bundled workflows with descriptions
 
-Usage: tamandua workflow list
+Usage: tamandua workflow list [--json]
 
 Lists all bundled workflows that are available for installation from the
 source checkout, showing a one-line description for each. These are the
 workflows defined in the workflows/ directory of the Tamandua source tree.
 
+Options:
+  --json    Output a JSON array of {id, name, description} for programmatic consumption
+
 Examples:
-  tamandua workflow list`;
+  tamandua workflow list
+  tamandua workflow list --json`;
 }
 
 function getWorkflowRunsHelp(): string {
@@ -1663,8 +1669,28 @@ async function main() {
   }
 
   if (action === "list") {
+    const jsonFlag = args.includes("--json");
     const workflows = await listBundledWorkflows();
-    if (workflows.length === 0) { console.log("No workflows available."); return; }
+    if (workflows.length === 0) {
+      if (jsonFlag) console.log("[]");
+      else console.log("No workflows available.");
+      return;
+    }
+    if (jsonFlag) {
+      const specs = await Promise.all(
+        workflows.map(async (wid) => {
+          try {
+            const dir = resolveBundledWorkflowDir(wid);
+            const spec = await loadWorkflowSpec(dir);
+            return { id: spec.id, name: spec.name || spec.id, description: spec.description || "" };
+          } catch {
+            return { id: wid, name: wid, description: "" };
+          }
+        }),
+      );
+      console.log(JSON.stringify(specs));
+      return;
+    }
     const descriptions = await Promise.all(workflows.map(w => getWorkflowShortDescription(w)));
     console.log("Available workflows:");
     for (let i = 0; i < workflows.length; i++) { console.log(`  ${workflows[i]} - ${descriptions[i]}`); }

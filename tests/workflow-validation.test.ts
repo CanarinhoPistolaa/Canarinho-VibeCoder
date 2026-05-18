@@ -1255,3 +1255,64 @@ describe("US-004: verifier agent persona", () => {
     assert.match(content, /judge/i);
   });
 });
+
+describe("US-003: just-do-it dispatch step dynamic workflow selection", () => {
+  const justDoItYml = readFileSync(resolve(wfDir("just-do-it"), "workflow.yml"), "utf-8");
+
+  it("dispatch step input uses --json for discovery, not hardcoded lists", () => {
+    // AC 1: No hardcoded workflow variant lists
+    assert.doesNotMatch(justDoItYml, /feature-dev,\s*feature-dev-merge,\s*feature-dev-github-pr/);
+    assert.doesNotMatch(justDoItYml, /bug-fix,\s*bug-fix-merge,\s*bug-fix-github-pr/);
+    assert.doesNotMatch(justDoItYml, /security-audit,\s*security-audit-merge,\s*security-audit-github-pr/);
+
+    // AC 2: Instructs agent to use --json for discovery
+    assert.match(justDoItYml, /tamandua workflow list --json/);
+    assert.match(justDoItYml, /Parse the JSON output/);
+  });
+
+  it("dispatch step input describes prefix-based categorization with feature-dev*, bug-fix*, security-audit*", () => {
+    assert.match(justDoItYml, /feature-dev\*/);
+    assert.match(justDoItYml, /bug-fix\*/);
+    assert.match(justDoItYml, /security-audit\*/);
+    assert.match(justDoItYml, /prefix-based/);
+  });
+
+  it("dispatch step input includes do-now and do-review-do-verify as standalone workflows", () => {
+    // AC 3: Includes rules for do-now and do-review-do-verify
+    assert.match(justDoItYml, /do-now.*standalone/);
+    assert.match(justDoItYml, /do-review-do-verify.*standalone/);
+
+    // Do-now category keywords
+    assert.match(justDoItYml, /quick question|format this|check X|tell me|explain/);
+    // Do-review-do-verify category keywords
+    assert.match(justDoItYml, /review my code|verify|compare|check correctness/);
+  });
+
+  it("dispatch step input includes variant suffix composition rules", () => {
+    assert.match(justDoItYml, /-github-pr/);
+    assert.match(justDoItYml, /-merge-worktree/);
+    assert.match(justDoItYml, /composing.*suffix/);
+    assert.match(justDoItYml, /verify it exists in the --json output/);
+  });
+
+  it("dispatch step input includes fallback order and do-now catch-all", () => {
+    assert.match(justDoItYml, /fall back/);
+    assert.match(justDoItYml, /base → -worktree → -merge → -merge-worktree → -github-pr → -github-pr-worktree/);
+    assert.match(justDoItYml, /fall back to do-now/);
+  });
+
+  it("dispatch step preserves no-hurry decision logic", () => {
+    assert.match(justDoItYml, /\{\{no_hurry_save_tokens_mode\}\}/);
+    assert.match(justDoItYml, /--no-hurry ALWAYS/);
+    assert.match(justDoItYml, /URGENT.*ASAP.*immediately.*right now/);
+    assert.match(justDoItYml, /when you get a chance.*no rush.*whenever/);
+  });
+
+  it("dispatch step preserves output format unchanged", () => {
+    assert.match(justDoItYml, /STATUS: done/);
+    assert.match(justDoItYml, /SELECTED_WORKFLOW:/);
+    assert.match(justDoItYml, /NO_HURRY:.*true\|false/);
+    assert.match(justDoItYml, /REASONING:/);
+    assert.match(justDoItYml, /LAUNCHED_RUN_ID:/);
+  });
+});
