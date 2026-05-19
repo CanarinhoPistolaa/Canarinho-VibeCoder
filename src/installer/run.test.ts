@@ -286,6 +286,40 @@ describe("runWorkflow", () => {
         /--worktree-origin-repository is only valid for workflows with run.workspace: worktree/,
       );
     });
+
+    it("does not leak daemon process when validation fails before daemon registration", async () => {
+      const workflowId = "test-no-daemon-leak";
+      writeMinimalWorkflow(tempHome, workflowId, "direct");
+
+      // Clean up any daemon from previous tests so we can detect leaks
+      stopDaemon({ homeDir: tempHome });
+
+      // Verify no daemon is running after cleanup
+      const pidBefore = readPid(getPidFile({ homeDir: tempHome }));
+      assert.equal(pidBefore, null, "No daemon should be running before test");
+
+      try {
+        await runWorkflow({
+          workflowId,
+          taskTitle: "Test daemon leak regression",
+          worktreeOriginRepository: "/some/repo",
+        });
+        assert.fail("Expected error was not thrown");
+      } catch (err) {
+        assert.match(
+          (err as Error).message,
+          /--worktree-origin-repository is only valid for workflows with run.workspace: worktree/,
+        );
+      }
+
+      // After validation failure, no daemon process should be running
+      const pidAfter = readPid(getPidFile({ homeDir: tempHome }));
+      assert.equal(
+        pidAfter,
+        null,
+        "Daemon should not be running after validation error — process leak regression",
+      );
+    });
   });
 
   describe("worktree mode: creation error handling", () => {

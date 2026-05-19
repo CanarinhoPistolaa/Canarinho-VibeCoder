@@ -73,8 +73,6 @@ export async function runWorkflow(
   const workflowDir = resolveWorkflowDir(workflowId);
   const workflow = await loadWorkflowSpec(workflowDir);
 
-  await ensureDaemonControlAvailable();
-
   const db = getDb();
   const now = new Date().toISOString();
   const runId = crypto.randomUUID();
@@ -231,6 +229,8 @@ export async function runWorkflow(
   // Without this kickoff, claimStep (which only matches 'pending') would never find
   // the first step and the run would loop forever on peek=HAS_WORK / claim=NO_WORK.
   advancePipeline(runId);
+
+  await ensureDaemonControlAvailable();
 
   const registration = await registerRunWithDaemon(runId, 5000);
   if (!registration || registration.status < 200 || registration.status >= 300) {
