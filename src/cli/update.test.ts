@@ -1,9 +1,13 @@
 import assert from "node:assert/strict";
-import { describe, it } from "node:test";
+import { after, describe, it } from "node:test";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
 import {
   createDefaultUpdateServices,
   defaultRunCommand,
   installAllBundledWorkflowsForUpdate,
+  runUpdate,
 } from "../../dist/cli/update.js";
 
 describe("update exports", () => {
@@ -98,6 +102,78 @@ describe("update exports", () => {
       );
       // wf-a and wf-c should have been installed before the throw
       assert.deepEqual(installed, ["wf-a", "wf-c"]);
+    });
+  });
+
+  describe("runUpdate refreshes version status", () => {
+    const originalStateDir = process.env.TAMANDUA_STATE_DIR;
+    const testStateDir = fs.mkdtempSync(path.join(os.tmpdir(), "tamandua-update-version-status-"));
+    process.env.TAMANDUA_STATE_DIR = testStateDir;
+
+    after(() => {
+      if (originalStateDir === undefined) {
+        delete process.env.TAMANDUA_STATE_DIR;
+      } else {
+        process.env.TAMANDUA_STATE_DIR = originalStateDir;
+      }
+      fs.rmSync(testStateDir, { recursive: true, force: true });
+    });
+
+    it("writes version-status.json after no_change update", async () => {
+      const fakeHead = "abc1234def5678abc1234def5678abc1234def";
+      let revParseCalls = 0;
+
+      const mockRunCommand = async (
+        command: string,
+        args: string[],
+        _options: unknown,
+      ): Promise<{ stdout: string; stderr: string }> => {
+        if (command === "git" && args[0] === "rev-parse" && args[1] === "HEAD") {
+          revParseCalls++;
+          return { stdout: fakeHead, stderr: "" };
+        }
+        if (command === "git" && args[0] === "pull") {
+          return { stdout: "Already up to date.", stderr: "" };
+        }
+        throw new Error(`Unexpected command: ${command} ${args.join(" ")}`);
+      };
+
+      const result = await runUpdate({
+        runCommand: mockRunCommand,
+        output: { log: () => {}, warn: () => {} },
+        services: {
+          snapshot: () => ({
+            dashboard: { running: false, pid: null, port: 3334 },
+            mcp: { running: false, pid: null, port: 3338 },
+            controlPlane: { running: false, pid: null, port: 3339 },
+          }),
+          stopDashboard: () => false,
+          stopMcp: () => false,
+          stopControlPlane: () => false,
+          startDashboard: async () => ({ pid: 1, port: 3334 }),
+          startMcp: async () => ({ pid: 2, port: 3338 }),
+          startControlPlane: async () => ({ pid: 3, port: 3339 }),
+        },
+      });
+
+      assert.equal(result.status, "no_change");
+      assert.equal(revParseCalls, 2); // before + after git pull
+
+      // Version status should have been refreshed by runVersionCheck()
+      const statusPath = path.join(testStateDir, "version-status.json");
+      assert.ok(fs.existsSync(statusPath), `Expected ${statusPath} to exist`);
+
+      const raw = fs.readFileSync(statusPath, "utf-8");
+      const status = JSON.parse(raw);
+      assert.equal(typeof status.updateAvailable, "boolean");
+      assert.notEqual(status.checkedAt, "");
+      // checkedAt should be recent (within last 60 seconds)
+      const checkedMs = new Date(status.checkedAt).getTime();
+      const nowMs = Date.now();
+      assert.ok(
+        Math.abs(nowMs - checkedMs) < 60_000,
+        `checkedAt ${status.checkedAt} should be within 60s of now`,
+      );
     });
   });
 });

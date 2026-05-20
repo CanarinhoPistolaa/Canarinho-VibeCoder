@@ -16,6 +16,7 @@ import {
   stopDaemon,
   stopMcp,
 } from "../server/daemonctl.js";
+import { runVersionCheck } from "../lib/version-check.js";
 
 export type UpdateServiceStatus =
   | { running: true; pid: number; port: number }
@@ -302,6 +303,7 @@ export async function runUpdate(options: RunUpdateOptions = {}): Promise<UpdateR
     if (!options.force) {
       output.log(`No source changes after git pull; already at ${shortHead(afterHead)}.`);
       output.log("Skipping build, workflow install, and service restart.");
+      await runVersionCheck();
       return { status: "no_change", sourcePath, head: afterHead };
     }
     output.log(`No source changes after git pull (at ${shortHead(afterHead)}), but --force set; rebuilding anyway.`);
@@ -319,6 +321,7 @@ export async function runUpdate(options: RunUpdateOptions = {}): Promise<UpdateR
       `${formatActiveRuns(activeRuns)}\n\n` +
       "Run `tamandua update --force` to continue despite active runs.",
     );
+    await runVersionCheck();
     return {
       status: "blocked_active_runs",
       sourcePath,
@@ -349,6 +352,7 @@ export async function runUpdate(options: RunUpdateOptions = {}): Promise<UpdateR
   }
 
   output.log("Tamandua update complete.");
+  await runVersionCheck();
   return {
     status: "updated",
     sourcePath,
