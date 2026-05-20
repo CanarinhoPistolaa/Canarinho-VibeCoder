@@ -125,12 +125,6 @@ describe("www/index.html structure", () => {
     assert.ok(html.includes("do-review-do-verify"), "should reference do-review-do-verify");
   });
 
-  // YAML example
-  it("contains YAML example in a code block", () => {
-    assert.ok(/id:\s*my-workflow/.test(html), "should contain YAML with my-workflow id");
-    assert.ok(/<pre><code>.*id:\s*my-workflow/s.test(html), "YAML should be in a code block");
-  });
-
   // Footer
   it("footer contains MIT license", () => {
     assert.ok(html.includes("MIT"), "footer should mention MIT license");
@@ -148,6 +142,21 @@ describe("www/index.html structure", () => {
       html.includes("docs/creating-workflows.md"),
       "should link to creating-workflows.md"
     );
+  });
+
+  // ── US-002: Full guide link ─────────────────────────────────────────
+
+  it("Full guide link points to raw GitHub creating-workflows.md", () => {
+    assert.ok(
+      html.includes("https://raw.githubusercontent.com/igorhvr/tamandua/refs/heads/main/docs/creating-workflows.md"),
+      "Full guide link should point to raw GitHub URL"
+    );
+  });
+
+  it("Full guide link text reads 'Full guide.'", () => {
+    const fullGuideLink = html.match(/<a[^>]+href="https:\/\/raw\.githubusercontent\.com\/igorhvr\/tamandua\/refs\/heads\/main\/docs\/creating-workflows\.md"[^>]*>([^<]+)<\/a>/);
+    assert.ok(fullGuideLink, "should have Full guide link");
+    assert.strictEqual(fullGuideLink[1], "Full guide.", "link text should be 'Full guide.'");
   });
 
   it("links to GitHub repository", () => {
@@ -335,15 +344,6 @@ describe("www/index.html structure", () => {
     const liCount = (whyList.match(/<li\b/g) || []).length;
     assert.ok(liCount === 4,
       `why-list should have exactly 4 li items, got ${liCount}`);
-  });
-
-  // ── US-006: YAML Code Block ────────────────────────────────────────
-
-  it("build-your-own YAML block has .yaml-code class", () => {
-    assert.ok(
-      /class="yaml-code"/.test(html),
-      "YAML code block should have class='yaml-code'"
-    );
   });
 
   // ── US-006: Footer Enhancements ─────────────────────────────────────
