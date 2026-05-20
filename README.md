@@ -10,7 +10,7 @@ You don't need to hire a dev team. You need to define one. Tamandua gives you a 
 curl -fsSL https://raw.githubusercontent.com/igorhvr/tamandua/main/scripts/install.sh | bash
 ```
 
-Or just tell your pi agent: **"install github.com/igorhvr/tamandua"**
+Or just tell your agent: **"Clone github.com/igorhvr/tamandua to my home dir, install it and learn the skill included inside it."**
 
 ### Install from local checkout
 
