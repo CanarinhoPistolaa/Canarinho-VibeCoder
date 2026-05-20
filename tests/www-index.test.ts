@@ -233,15 +233,15 @@ describe("www/index.html structure", () => {
     }
   });
 
-  it("MCP nav link href is still '#mcp'", () => {
+  it("MCP nav link href is now '#skills-and-mcp'", () => {
     assert.ok(
-      /<a[^>]+href="#mcp"[^>]*>/.test(html),
-      "nav should have an <a href='#mcp' ...> element"
+      /<a[^>]+href="#skills-and-mcp"[^>]*>/.test(html),
+      "nav should have an <a href='#skills-and-mcp' ...> element"
     );
   });
 
   it("MCP section contains 'Skill included.' text before 'Remote MCP Tools' heading", () => {
-    const mcpSection = html.match(/<section[^>]*id="mcp"[^>]*>[\s\S]*?<\/section>/)?.[0] || "";
+    const mcpSection = html.match(/<section[^>]*id="skills-and-mcp"[^>]*>[\s\S]*?<\/section>/)?.[0] || "";
     assert.ok(
       mcpSection.includes('<strong>Skill included.</strong>'),
       "MCP section should contain '<strong>Skill included.</strong>'"
@@ -259,14 +259,14 @@ describe("www/index.html structure", () => {
     );
   });
 
-  it("Skill included explainer describes agent workspace provisioning", () => {
+  it("Skill included explainer describes agent-friendly design", () => {
     assert.ok(
-      html.includes('bundled and provisioned to all agent workspaces'),
-      "explainer should mention bundling and provisioning"
+      html.includes('build-and-forget with tamandua'),
+      "explainer should mention build-and-forget with tamandua"
     );
     assert.ok(
-      html.includes('query runs'),
-      "explainer should mention querying runs"
+      html.includes('CLI itself is also designed'),
+      "explainer should mention CLI being agent-friendly"
     );
   });
 
