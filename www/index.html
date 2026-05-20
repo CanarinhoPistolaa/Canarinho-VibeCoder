@@ -24,8 +24,9 @@
         <li><a href="#install">Install</a></li>
         <li><a href="#why-it-works">Why It Works</a></li>
         <li><a href="#how-it-works">How It Works</a></li>
+        <li><a href="#dashboard">Dashboard &amp; Kanban</a></li>
         <li><a href="#build-your-own">Build Your Own</a></li>
-        <li><a href="#mcp">MCP Tools</a></li>
+        <li><a href="#mcp">Usable by Agents</a></li>
       </ul>
     </nav>
   </header>
@@ -373,6 +374,29 @@ Steps:
   [pending] test (tester)</code></pre>
     </section>
 
+    <!-- Dashboard -->
+    <section id="dashboard" class="section-reveal" aria-labelledby="dashboard-heading">
+      <h2 id="dashboard-heading">Dashboard &amp; Kanban</h2>
+      <p>When you start the management dashboard (<code>tamandua dashboard</code>), Tamandua automatically starts the remote MCP server too.</p>
+      <ul>
+        <li>Dashboard: <code>http://localhost:3334</code></li>
+        <li>MCP endpoint: <code>http://localhost:3338/mcp</code> (fixed port)</li>
+      </ul>
+      <p>Use <code>tamandua dashboard status</code> to verify both endpoints are up.</p>
+
+      <figure class="screenshot">
+        <img src="assets/dashboard-screenshot.png" alt="Tamandua dashboard showing workflow runs, step progress, and token usage statistics" width="1440" height="900" loading="lazy">
+        <figcaption>The Tamandua dashboard at <code>http://localhost:3334</code> — real-time view of workflow runs, step status, and agent activity.</figcaption>
+      </figure>
+
+      <p>Each run also has a swim-lane Kanban view at <code>http://localhost:3334/runs/&lt;run-id&gt;/kanban</code>. Lanes are derived dynamically from the workflow's steps. Single steps render one card per lane; loop steps render one card per story. Cards are colour-coded by status (todo / running / done / failed).</p>
+
+      <figure class="screenshot">
+        <img src="assets/dashboard-kanban.png" alt="Tamandua kanban board showing swim-lane workflow step cards colour-coded by status" width="1440" height="900" loading="lazy">
+        <figcaption>Kanban swim-lane view — one card per step or story, colour-coded by status: todo, running, done, failed.</figcaption>
+      </figure>
+    </section>
+
     <!-- Build Your Own -->
     <section id="build-your-own" class="section-reveal" aria-labelledby="build-heading">
       <h2 id="build-heading">Build Your Own</h2>
@@ -384,6 +408,7 @@ Steps:
 
     <!-- Remote MCP -->
     <section id="mcp" class="section-reveal" aria-labelledby="mcp-heading">
+      <p><strong>Skill included.</strong> The tamandua-agents skill is bundled and provisioned to all agent workspaces. Remote MCP tools are exposed so agents can query runs, start workflows, and check status autonomously.</p>
       <h2 id="mcp-heading">Remote MCP Tools</h2>
       <p>The remote MCP endpoint exposes 9 tools at <code>http://localhost:3338/mcp</code>:</p>
 
@@ -452,29 +477,6 @@ Steps:
         </tbody>
       </table>
       </div>
-    </section>
-
-    <!-- Dashboard -->
-    <section id="dashboard" class="section-reveal" aria-labelledby="dashboard-heading">
-      <h2 id="dashboard-heading">Dashboard &amp; Kanban</h2>
-      <p>When you start the management dashboard (<code>tamandua dashboard</code>), Tamandua automatically starts the remote MCP server too.</p>
-      <ul>
-        <li>Dashboard: <code>http://localhost:3334</code></li>
-        <li>MCP endpoint: <code>http://localhost:3338/mcp</code> (fixed port)</li>
-      </ul>
-      <p>Use <code>tamandua dashboard status</code> to verify both endpoints are up.</p>
-
-      <figure class="screenshot">
-        <img src="assets/dashboard-screenshot.png" alt="Tamandua dashboard showing workflow runs, step progress, and token usage statistics" width="1440" height="900" loading="lazy">
-        <figcaption>The Tamandua dashboard at <code>http://localhost:3334</code> — real-time view of workflow runs, step status, and agent activity.</figcaption>
-      </figure>
-
-      <p>Each run also has a swim-lane Kanban view at <code>http://localhost:3334/runs/&lt;run-id&gt;/kanban</code>. Lanes are derived dynamically from the workflow's steps. Single steps render one card per lane; loop steps render one card per story. Cards are colour-coded by status (todo / running / done / failed).</p>
-
-      <figure class="screenshot">
-        <img src="assets/dashboard-kanban.png" alt="Tamandua kanban board showing swim-lane workflow step cards colour-coded by status" width="1440" height="900" loading="lazy">
-        <figcaption>Kanban swim-lane view — one card per step or story, colour-coded by status: todo, running, done, failed.</figcaption>
-      </figure>
     </section>
 
     <!-- Security -->

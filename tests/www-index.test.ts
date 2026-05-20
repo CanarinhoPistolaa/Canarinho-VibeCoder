@@ -166,6 +166,110 @@ describe("www/index.html structure", () => {
     );
   });
 
+  // ── US-002: Dashboard & Kanban nav link and section reorder ──────
+
+  it("nav contains 'Dashboard & Kanban' link between 'How It Works' and 'Build Your Own'", () => {
+    const navLinksMatch = html.match(/<ul[^>]*id="nav-links"[^>]*>([\s\S]*?)<\/ul>/);
+    assert.ok(navLinksMatch, "should have nav-links ul");
+    const navLinks = navLinksMatch[1];
+    const howPos = navLinks.indexOf('How It Works');
+    const dashPos = navLinks.indexOf('Dashboard &amp; Kanban');
+    const buildPos = navLinks.indexOf('Build Your Own');
+    assert.ok(howPos >= 0, "nav should contain 'How It Works'");
+    assert.ok(dashPos >= 0, "nav should contain 'Dashboard &amp; Kanban'");
+    assert.ok(buildPos >= 0, "nav should contain 'Build Your Own'");
+    assert.ok(howPos < dashPos, "'How It Works' should come before 'Dashboard &amp; Kanban' in nav");
+    assert.ok(dashPos < buildPos, "'Dashboard &amp; Kanban' should come before 'Build Your Own' in nav");
+  });
+
+  it("Dashboard nav link href is '#dashboard'", () => {
+    assert.ok(
+      /<a[^>]+href="#dashboard"[^>]*>Dashboard &amp; Kanban<\/a>/.test(html),
+      "nav should have <a href='#dashboard'>Dashboard &amp; Kanban</a>"
+    );
+  });
+
+  it("dashboard section appears before build-your-own section in HTML source", () => {
+    const dashboardPos = html.search(/<section[^>]*id="dashboard"/);
+    const buildPos = html.search(/<section[^>]*id="build-your-own"/);
+    assert.ok(dashboardPos >= 0, "should have <section id='dashboard'>");
+    assert.ok(buildPos >= 0, "should have <section id='build-your-own'>");
+    assert.ok(dashboardPos < buildPos, "dashboard section should appear before build-your-own section");
+  });
+
+  it("nav link order matches expected sequence", () => {
+    const navLinksMatch = html.match(/<ul[^>]*id="nav-links"[^>]*>([\s\S]*?)<\/ul>/);
+    assert.ok(navLinksMatch, "should have nav-links ul");
+    const navLinks = navLinksMatch[1];
+    const expected = ['Features', 'Workflows', 'Install', 'Why It Works', 'How It Works', 'Dashboard', 'Build Your Own', 'Usable by Agents'];
+    let lastPos = -1;
+    for (const text of expected) {
+      const pos = navLinks.indexOf(text);
+      assert.ok(pos >= 0, `nav should contain '${text}'`);
+      assert.ok(pos > lastPos, `'${text}' should appear after previous link in nav order`);
+      lastPos = pos;
+    }
+  });
+
+  // ── US-001: Rename MCP Tools nav link to Usable by Agents ─────────
+
+  it("nav contains 'Usable by Agents' link, not 'MCP Tools'", () => {
+    assert.ok(
+      html.includes('Usable by Agents'),
+      "nav should contain 'Usable by Agents' text"
+    );
+    // After the rename, 'MCP Tools' should NOT appear as nav text
+    // (it may still appear in explanatory text elsewhere)
+    const navMatch = html.match(/<nav[^>]*>[\s\S]*?<\/nav>/);
+    if (navMatch) {
+      assert.ok(
+        navMatch[0].includes('Usable by Agents'),
+        "nav block should contain 'Usable by Agents'"
+      );
+      assert.ok(
+        !/>MCP Tools</.test(navMatch[0]),
+        "nav block should NOT contain '>MCP Tools<' as link text"
+      );
+    }
+  });
+
+  it("MCP nav link href is still '#mcp'", () => {
+    assert.ok(
+      /<a[^>]+href="#mcp"[^>]*>/.test(html),
+      "nav should have an <a href='#mcp' ...> element"
+    );
+  });
+
+  it("MCP section contains 'Skill included.' text before 'Remote MCP Tools' heading", () => {
+    const mcpSection = html.match(/<section[^>]*id="mcp"[^>]*>[\s\S]*?<\/section>/)?.[0] || "";
+    assert.ok(
+      mcpSection.includes('<strong>Skill included.</strong>'),
+      "MCP section should contain '<strong>Skill included.</strong>'"
+    );
+    assert.ok(
+      mcpSection.includes('tamandua-agents skill'),
+      "MCP section should mention 'tamandua-agents skill'"
+    );
+    // Verify ordering: Skill included text comes before Remote MCP Tools heading
+    const skillPos = mcpSection.indexOf('Skill included.');
+    const headingPos = mcpSection.indexOf('Remote MCP Tools');
+    assert.ok(
+      skillPos < headingPos,
+      "'Skill included.' should appear before 'Remote MCP Tools' heading"
+    );
+  });
+
+  it("Skill included explainer describes agent workspace provisioning", () => {
+    assert.ok(
+      html.includes('bundled and provisioned to all agent workspaces'),
+      "explainer should mention bundling and provisioning"
+    );
+    assert.ok(
+      html.includes('query runs'),
+      "explainer should mention querying runs"
+    );
+  });
+
   // MCP tools table
   it("describes Remote MCP tools", () => {
     assert.ok(html.includes("tamandua.runs.list"), "should mention tamandua.runs.list");
