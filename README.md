@@ -50,6 +50,15 @@ iterate — and a clean abort path: delete the worktree and nothing in your orig
 has changed. The origin repository only sees changes when a `-merge` variant squashes
 the result back into the original branch.
 
+### Rugpull Handling
+
+When a merge workflow (`-merge`, `-merge-worktree`) fails at the `finalize_merge`
+step and the base branch tip has moved since the run started, Tamandua automatically
+launches a fresh replacement run with the same parameters. This "rugpull" detection
+runs after the final merge failure — if the base branch stayed put, no replacement is
+triggered. Pass `--no-relaunch-upon-rugpull` to `workflow run` to suppress the
+automatic replacement.
+
 ### Feature Development
 
 Story-based feature development. The planner decomposes your task into ordered user
@@ -113,7 +122,7 @@ Single-agent workflows for quick one-off tasks and workflow auto-selection.
 | Workflow ID | Agents | Pipeline | Description |
 |------------|--------|----------|-------------|
 | `do-now` | 1 | execute | Submit any task. Get back a success/failure report. No planning, no stories. |
-| `just-do-it` | 1 | dispatch | Describe what you want. Dispatches to the most appropriate workflow automatically. |
+| `just-do-it` | 1 | dispatch | Describe what you want. Dispatches to the most appropriate workflow automatically. For coding tasks (feature-dev*, bug-fix*, security-audit*) it defaults to merge-worktree variants unless the prompt gives a specific reason otherwise. |
 | `do-review-do-verify` | 3 | do → review → do-again → verify | Two-pass execution: do the work, review it, revise, then verify the result. |
 
 Install all bundled workflows at once with:

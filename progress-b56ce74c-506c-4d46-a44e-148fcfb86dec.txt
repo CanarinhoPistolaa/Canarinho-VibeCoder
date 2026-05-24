@@ -1,0 +1,48 @@
+# Progress Log
+Run: b56ce74c-506c-4d46-a44e-148fcfb86dec
+Task: Update only README.md and files under www/ to document current user-facing additions
+Started: 2026-05-24
+
+## Codebase Patterns
+- Build copies www/ → dist/www/ via `cp -r www dist/www` (see package.json build script)
+- Tests read from dist/www/index.html, not www/index.html directly
+- Tests use node:test and node:assert/strict
+- Test files in tests/ directory follow naming pattern {target}.test.ts
+- Table tests validate existence, wrapper counts, aria-label, and tabindex
+
+## Story Plan
+
+### US-001: Update www/index.html workflow catalog to 21 workflows / five families and add Quarantine Broken Tests
+
+**Description:** As a developer, I need to update www/index.html to match README.md's current workflow catalog, which correctly states 21 bundled workflows organized into five families.
+
+Implementation notes:
+- In the Bundled Workflows intro paragraph, change "18 bundled workflows organized into four families" to "21 bundled workflows organized into five families"
+- Add a new Quarantine Broken Tests h3 section between Security Audit and Quick Tasks, mirroring the table structure from README.md
+- The Quarantine Broken Tests table has these rows: local-only (quarantine-broken-tests, 3 agents, setup → quarantine → verify), + Merge (quarantine-broken-tests-merge, 4 agents, setup → quarantine → verify → finalize_merge), Worktree + Merge (quarantine-broken-tests-merge-worktree, 4 agents, setup → quarantine → verify → finalize_merge)
+- Use the same table-wrapper pattern with aria-label, tabindex, caption, thead/tbody, and scope attributes as the other family tables
+
+**Acceptance Criteria:**
+- www/index.html reads "21 bundled workflows organized into five families"
+- Quarantine Broken Tests h3 section exists between Security Audit and Quick Tasks sections
+- Quarantine Broken Tests table has 3 rows with correct workflow IDs, agent counts, and pipelines
+- Table has .table-wrapper, aria-label, tabindex="0", caption, scope attributes matching other family tables
+- Build succeeds: running ./build copies www/index.html to dist/www/index.html without errors
+- Typecheck passes
+
+### US-002: Document just-do-it merge-worktree default in README.md and www/index.html
+
+### US-003: Document rugpull replacement-run behavior and --no-relaunch-upon-rugpull in README.md and www/index.html
+
+### US-004: Update tests for new documentation content in www/index.html and README.md
+
+---
+## 2026-05-24 - US-001: Update www/index.html workflow catalog to 21 workflows / five families and add Quarantine Broken Tests
+- Updated intro paragraph: "18 bundled workflows organized into four families" → "21 bundled workflows organized into five families"
+- Added Quarantine Broken Tests h3 + table between Security Audit and Quick Tasks sections
+- Table has 3 rows: local-only, + Merge, Worktree + Merge
+- Table uses same .table-wrapper, aria-label, tabindex="0", caption, scope pattern as other family tables
+- Updated tests/www-index.test.ts: added Quarantine Broken Tests table test, bumped table/wrapper counts from 5→6/6→7
+- Files changed: www/index.html, tests/www-index.test.ts
+- **Learnings:** Build copies www/ to dist/www/; tests read from dist/; table counts include both workflow and MCP tool tables
+---

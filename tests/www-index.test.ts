@@ -119,10 +119,55 @@ describe("www/index.html structure", () => {
     assert.ok(html.includes("security-audit-github-pr"), "should reference security-audit-github-pr");
   });
 
+  it("has Quarantine Broken Tests table with correct data", () => {
+    assert.ok(html.includes("quarantine-broken-tests"), "should reference quarantine-broken-tests workflow");
+    assert.ok(html.includes("quarantine-broken-tests-merge"), "should reference quarantine-broken-tests-merge");
+    assert.ok(html.includes("quarantine-broken-tests-merge-worktree"), "should reference quarantine-broken-tests-merge-worktree");
+  });
+
+  it("Quarantine Broken Tests table has 3 data rows", () => {
+    // Find the Quarantine Broken Tests tbody and count <tr> rows
+    const qbtMatch = html.match(/Quarantine Broken Tests variants[\s\S]*?<tbody>([\s\S]*?)<\/tbody>/);
+    assert.ok(qbtMatch, "should have Quarantine Broken Tests tbody");
+    const rowCount = (qbtMatch[1].match(/<tr\b/g) || []).length;
+    assert.strictEqual(rowCount, 3, `Quarantine Broken Tests table should have 3 data rows, got ${rowCount}`);
+  });
+
   it("has Quick Tasks table with correct data", () => {
     assert.ok(html.includes("do-now"), "should reference do-now workflow");
     assert.ok(html.includes("just-do-it"), "should reference just-do-it workflow");
     assert.ok(html.includes("do-review-do-verify"), "should reference do-review-do-verify");
+  });
+
+  it("documents rugpull replacement-run behavior", () => {
+    assert.ok(
+      html.includes("rugpull") || html.includes("Rugpull"),
+      "www/index.html should document rugpull handling"
+    );
+    assert.ok(
+      html.includes("--no-relaunch-upon-rugpull"),
+      "www/index.html should document --no-relaunch-upon-rugpull option"
+    );
+    assert.ok(
+      html.includes("replacement run") || html.includes("replacement-run"),
+      "www/index.html should mention replacement run behavior"
+    );
+  });
+
+  it("just-do-it row describes merge-worktree default for coding tasks", () => {
+    // Find the table row containing just-do-it
+    const justDoItMatch = html.match(/<code>just-do-it<\/code>[\s\S]*?<\/tr>/);
+    assert.ok(justDoItMatch, "should have just-do-it table row");
+    const rowText = justDoItMatch[0];
+    assert.ok(
+      rowText.includes("merge-worktree") || rowText.includes("merge-worktree variants"),
+      "just-do-it description should mention merge-worktree default"
+    );
+    assert.ok(
+      /feature-dev.*bug-fix.*security-audit/.test(rowText) ||
+      rowText.includes("coding tasks"),
+      "just-do-it description should reference coding task workflows"
+    );
   });
 
   // Footer
@@ -286,9 +331,9 @@ describe("www/index.html structure", () => {
   // Table counts
   it("has at least 5 tables with thead/tbody", () => {
     const tableCount = (html.match(/<table\b/g) || []).length;
-    assert.ok(tableCount >= 5, `should have at least 5 tables, got ${tableCount}`);
+    assert.ok(tableCount >= 6, `should have at least 6 tables, got ${tableCount}`);
     const theadCount = (html.match(/<thead>/g) || []).length;
-    assert.ok(theadCount >= 5, `should have at least 5 thead elements, got ${theadCount}`);
+    assert.ok(theadCount >= 6, `should have at least 6 thead elements, got ${theadCount}`);
   });
 
   // Heading hierarchy
@@ -537,17 +582,17 @@ describe("www/index.html structure", () => {
 
   it("table wrapper divs have aria-label for accessibility", () => {
     const wrappers = html.match(/class="table-wrapper"[^>]*>/g) || [];
-    assert.ok(wrappers.length >= 6,
-      `should have at least 6 table wrappers with class, got ${wrappers.length}`);
+    assert.ok(wrappers.length >= 7,
+      `should have at least 7 table wrappers with class, got ${wrappers.length}`);
     const withAriaLabel = wrappers.filter(w => /aria-label="/.test(w)).length;
-    assert.ok(withAriaLabel >= 6,
+    assert.ok(withAriaLabel >= 7,
       `all table wrappers should have aria-label, got ${withAriaLabel}`);
   });
 
   it("table wrappers have tabindex for keyboard scrollability", () => {
     const wrappers = html.match(/class="table-wrapper"[^>]*>/g) || [];
     const withTabindex = wrappers.filter(w => /tabindex="0"/.test(w)).length;
-    assert.ok(withTabindex >= 6,
+    assert.ok(withTabindex >= 7,
       `all table wrappers should have tabindex="0", got ${withTabindex}`);
   });
 

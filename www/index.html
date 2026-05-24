@@ -78,9 +78,12 @@
     <!-- Workflow Families -->
     <section id="workflows" class="section-reveal" aria-labelledby="workflows-heading">
       <h2 id="workflows-heading">Bundled Workflows</h2>
-      <p>Tamandua ships with 18 bundled workflows organized into four families. Use <code>tamandua workflow list</code> to see available workflows, and <code>tamandua workflow install &lt;id&gt;</code> to install one.</p>
+      <p>Tamandua ships with 21 bundled workflows organized into five families. Use <code>tamandua workflow list</code> to see available workflows, and <code>tamandua workflow install &lt;id&gt;</code> to install one.</p>
 
       <p>Worktree variants (<code>*-worktree</code>, <code>*-merge-worktree</code>) run in a detached git worktree created from your origin repository. Your main working copy stays untouched until the workflow completes. This gives you full isolation — continue working while agents iterate — and a clean abort path: delete the worktree and nothing in your origin repo has changed.</p>
+
+      <h3>Rugpull Handling</h3>
+      <p>When a merge workflow (<code>-merge</code>, <code>-merge-worktree</code>) fails at the <code>finalize_merge</code> step and the base branch tip has moved since the run started, Tamandua automatically launches a fresh replacement run with the same parameters. This &quot;rugpull&quot; detection runs after the final merge failure &mdash; if the base branch stayed put, no replacement is triggered. Pass <code>--no-relaunch-upon-rugpull</code> to <code>workflow run</code> to suppress the automatic replacement.</p>
 
       <h3>Feature Development</h3>
       <p>Story-based feature development. The planner decomposes your task into ordered user stories. Each story goes through implement → verify → test before the next one starts.</p>
@@ -226,6 +229,42 @@
       </table>
       </div>
 
+      <h3>Quarantine Broken Tests</h3>
+      <p>Detect failing tests, disable them minimally, and iterate until the full test suite passes. Useful for establishing a clean baseline on a branch with known test failures.</p>
+      <div class="table-wrapper" aria-label="Quarantine Broken Tests variants — horizontally scrollable" tabindex="0">
+      <table>
+        <caption>Quarantine Broken Tests variants</caption>
+        <thead>
+          <tr>
+            <th scope="col">Variant</th>
+            <th scope="col">Workflow ID</th>
+            <th scope="col">Agents</th>
+            <th scope="col">Pipeline</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>Local-only</td>
+            <td><code>quarantine-broken-tests</code></td>
+            <td>3</td>
+            <td>setup → quarantine → verify</td>
+          </tr>
+          <tr>
+            <td>+ Merge</td>
+            <td><code>quarantine-broken-tests-merge</code></td>
+            <td>4</td>
+            <td>setup → quarantine → verify → finalize_merge</td>
+          </tr>
+          <tr>
+            <td>Worktree + Merge</td>
+            <td><code>quarantine-broken-tests-merge-worktree</code></td>
+            <td>4</td>
+            <td>setup → quarantine → verify → finalize_merge</td>
+          </tr>
+        </tbody>
+      </table>
+      </div>
+
       <h3>Quick Tasks</h3>
       <p>Single-agent workflows for quick one-off tasks and workflow auto-selection.</p>
       <div class="table-wrapper" aria-label="Quick Tasks variants — horizontally scrollable" tabindex="0">
@@ -250,7 +289,7 @@
             <td><code>just-do-it</code></td>
             <td>1</td>
             <td>dispatch</td>
-            <td>Describe what you want. Dispatches to the most appropriate workflow automatically.</td>
+            <td>Describe what you want. Dispatches to the most appropriate workflow automatically. For coding tasks (feature-dev*, bug-fix*, security-audit*) it defaults to merge-worktree variants unless the prompt gives a specific reason otherwise.</td>
           </tr>
           <tr>
             <td><code>do-review-do-verify</code></td>

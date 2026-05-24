@@ -52,6 +52,10 @@ describe("README workflow documentation", () => {
       "Must have Security Audit family section"
     );
     assert.ok(
+      readmeContent.includes("### Quarantine Broken Tests"),
+      "Must have Quarantine Broken Tests family section"
+    );
+    assert.ok(
       readmeContent.includes("### Quick Tasks"),
       "Must have Quick Tasks family section"
     );
@@ -61,6 +65,21 @@ describe("README workflow documentation", () => {
     assert.ok(
       readmeContent.includes("tamandua workflow list"),
       "README should mention tamandua workflow list"
+    );
+  });
+
+  it("documents rugpull replacement-run behavior", () => {
+    assert.ok(
+      readmeContent.includes("### Rugpull Handling"),
+      "README must have a Rugpull Handling section"
+    );
+    assert.ok(
+      readmeContent.includes("--no-relaunch-upon-rugpull"),
+      "README must document --no-relaunch-upon-rugpull option"
+    );
+    assert.ok(
+      readmeContent.includes("replacement run") || readmeContent.includes("replacement-run"),
+      "README must mention replacement run behavior"
     );
   });
 });
