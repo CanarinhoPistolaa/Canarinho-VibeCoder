@@ -89,8 +89,12 @@ export function detectRugpull(runId: string): RugpullResult {
       return { isRugpull: false, reason: "Worktree record not found" };
     }
 
+    // Resolve the current tip of the recorded origin ref, not HEAD.
+    // HEAD in the origin repository may point to a different branch
+    // (e.g. main) while the run used --worktree-origin-ref develop.
+    const originRef = context.worktree_origin_ref || "HEAD";
     try {
-      currentSha = execFileSync("git", ["rev-parse", "HEAD"], {
+      currentSha = execFileSync("git", ["rev-parse", originRef], {
         cwd: wt.worktree_origin_repository,
         encoding: "utf8",
         stdio: ["ignore", "pipe", "pipe"],
@@ -98,7 +102,7 @@ export function detectRugpull(runId: string): RugpullResult {
     } catch {
       return {
         isRugpull: false,
-        reason: "Failed to resolve current HEAD in origin repository",
+        reason: `Failed to resolve ref "${originRef}" in origin repository`,
       };
     }
   } else {
@@ -113,8 +117,13 @@ export function detectRugpull(runId: string): RugpullResult {
       };
     }
 
+    // Resolve the current tip of the recorded base branch, not HEAD.
+    // HEAD may point to a feature branch after a final-merge failure
+    // or rebase state, which would falsely flag a rugpull when the
+    // base branch is unchanged.
+    const baseRef = context.original_branch || "HEAD";
     try {
-      currentSha = execFileSync("git", ["rev-parse", "HEAD"], {
+      currentSha = execFileSync("git", ["rev-parse", baseRef], {
         cwd: repo,
         encoding: "utf8",
         stdio: ["ignore", "pipe", "pipe"],
@@ -122,7 +131,7 @@ export function detectRugpull(runId: string): RugpullResult {
     } catch {
       return {
         isRugpull: false,
-        reason: "Failed to resolve current HEAD in working directory",
+        reason: `Failed to resolve ref "${baseRef}" in working directory`,
       };
     }
   }

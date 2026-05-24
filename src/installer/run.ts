@@ -117,6 +117,27 @@ export async function runWorkflow(
     seededContext[RUN_CONTEXT_WORKING_DIRECTORY_FOR_HARNESS_KEY] =
       workingDirectoryForHarness;
     seededContext.repo = workingDirectoryForHarness;
+
+    // Capture original branch for rugpull detection in direct mode — records
+    // the base branch name at run creation so downstream detection can compare
+    // its current tip against the recorded base_branch_sha instead of depending
+    // on whatever HEAD happens to be after a final-merge failure.
+    try {
+      const branchName = execFileSync(
+        "git",
+        ["rev-parse", "--abbrev-ref", "HEAD"],
+        {
+          cwd: workingDirectoryForHarness,
+          encoding: "utf8",
+          stdio: ["ignore", "pipe", "pipe"],
+        },
+      ).trim();
+      // HEAD is not a branch name (detached HEAD), so fall back to empty.
+      seededContext.original_branch =
+        branchName !== "HEAD" ? branchName : "";
+    } catch {
+      seededContext.original_branch = "";
+    }
   } else if (workspaceMode === "worktree") {
     if (requestedWorkingDirectoryForHarness) {
       throw new Error(

@@ -117,12 +117,13 @@ function insertWorktree(
   db: ReturnType<typeof import("../../dist/db.js")["getDb"]>,
   runId: string,
   originRepo: string,
+  opts?: { worktreeOriginRef?: string; originalBranch?: string },
 ): void {
   const now = new Date().toISOString();
   db.prepare(
-    `INSERT INTO run_worktrees (run_id, worktree_origin_repository, worktree_origin_git_common_dir, worktree_path, worktree_origin_sha, status, cleanup_policy, created_at)
-     VALUES (?, ?, ?, ?, 'deadbeefdeadbeefdeadbeefdeadbeefdeadbeef', 'creating', 'remove_on_success', ?)`,
-  ).run(runId, originRepo, path.join(originRepo, ".git"), path.join(originRepo, "wt"), now);
+    `INSERT INTO run_worktrees (run_id, worktree_origin_repository, worktree_origin_git_common_dir, worktree_path, worktree_origin_ref, worktree_origin_sha, original_branch, status, cleanup_policy, created_at)
+     VALUES (?, ?, ?, ?, ?, 'deadbeefdeadbeefdeadbeefdeadbeefdeadbeef', ?, 'creating', 'remove_on_success', ?)`,
+  ).run(runId, originRepo, path.join(originRepo, ".git"), path.join(originRepo, "wt"), opts?.worktreeOriginRef ?? null, opts?.originalBranch ?? null, now);
 }
 
 // ── Test suite ──
@@ -225,6 +226,212 @@ describe("detectRugpull", () => {
 
     const result = detectRugpull(runId);
     assert.equal(result.isRugpull, true, "should detect rugpull for worktree mode");
+  });
+
+  it("worktree mode: does NOT false-rugpull when origin HEAD moves but origin_ref is unchanged", async () => {
+    // Regression: HEAD in origin repo may be on main while the run used
+    // --worktree-origin-ref develop. If main moves but develop does not,
+    // the old HEAD-based detection would falsely flag a rugpull.
+    const { detectRugpull } = await import(
+      "../../dist/installer/rugpull.js"
+    );
+    const { getDb } = await import("../../dist/db.js");
+    const db = getDb();
+
+    // Create an origin repo with main committed.
+    const originDir = path.join(tempHome, "test-origin-wt-false-positive");
+    initGitRepo(originDir); // main branch, commit A
+    const mainSha = runGit(["rev-parse", "main"], originDir);
+    assert.ok(mainSha);
+
+    // Create develop branch at the same commit as main.
+    runGit(["branch", "develop"], originDir);
+    const developSha = runGit(["rev-parse", "develop"], originDir);
+    assert.equal(developSha, mainSha, "develop and main start at same commit");
+
+    // Move main forward (simulating someone pushing to main while the run
+    // was using develop).
+    fs.writeFileSync(path.join(originDir, "on-main.txt"), "main moved");
+    runGit(["add", "on-main.txt"], originDir);
+    runGit(["commit", "-m", "main moves forward"], originDir);
+    const newMainSha = runGit(["rev-parse", "main"], originDir);
+    assert.notEqual(newMainSha, developSha, "main moved, develop did not");
+
+    // Now verify develop is still at the old SHA.
+    const developStill = runGit(["rev-parse", "develop"], originDir);
+    assert.equal(developStill, developSha, "develop unchanged");
+
+    const runId = "run-wt-false-positive-01";
+    insertRun(db, runId, "bug-fix-merge-worktree", {
+      repo: path.join(originDir, "wt"),
+      working_directory_for_harness: path.join(originDir, "wt"),
+      base_branch_sha: developSha!,
+      workspace_mode: "worktree",
+      worktree_path: path.join(originDir, "wt"),
+      worktree_origin_repository: originDir,
+      worktree_origin_ref: "develop",
+      worktree_origin_sha: developSha!,
+    }, "failed");
+    insertStep(db, "step-wt-fp-01", runId, "finalize_merge", "failed", 0, "single");
+    insertWorktree(db, runId, originDir, { worktreeOriginRef: "develop" });
+
+    const result = detectRugpull(runId);
+    assert.equal(result.isRugpull, false,
+      "should NOT detect rugpull: origin_ref (develop) did not move even though HEAD (main) did");
+    assert.ok(
+      result.reason?.includes("not changed"),
+      `reason should indicate SHA unchanged, got: ${result.reason}`,
+    );
+  });
+
+  it("worktree mode: detects true rugpull when origin_ref actually moved", async () => {
+    // True positive: the actual origin ref used by the run moved.
+    const { detectRugpull } = await import(
+      "../../dist/installer/rugpull.js"
+    );
+    const { getDb } = await import("../../dist/db.js");
+    const db = getDb();
+
+    const originDir = path.join(tempHome, "test-origin-wt-true-pos");
+    const developSha = initGitRepo(originDir);
+    runGit(["branch", "develop"], originDir);
+
+    // Move develop forward (actual rugpull).
+    runGit(["checkout", "develop"], originDir);
+    fs.writeFileSync(path.join(originDir, "on-develop.txt"), "develop moved");
+    runGit(["add", "on-develop.txt"], originDir);
+    runGit(["commit", "-m", "develop moves"], originDir);
+    const newDevelopSha = runGit(["rev-parse", "develop"], originDir);
+    assert.notEqual(newDevelopSha, developSha, "develop moved");
+
+    const runId = "run-wt-true-pos-01";
+    insertRun(db, runId, "bug-fix-merge-worktree", {
+      repo: path.join(originDir, "wt"),
+      working_directory_for_harness: path.join(originDir, "wt"),
+      base_branch_sha: developSha!,
+      workspace_mode: "worktree",
+      worktree_path: path.join(originDir, "wt"),
+      worktree_origin_repository: originDir,
+      worktree_origin_ref: "develop",
+      worktree_origin_sha: developSha!,
+    }, "failed");
+    insertStep(db, "step-wt-tp-01", runId, "finalize_merge", "failed", 0, "single");
+    insertWorktree(db, runId, originDir, { worktreeOriginRef: "develop" });
+
+    const result = detectRugpull(runId);
+    assert.equal(result.isRugpull, true, "should detect rugpull when origin_ref actually moved");
+    assert.ok(result.reason?.includes("moved"), "reason should mention base moved");
+  });
+
+  it("direct mode: does NOT false-rugpull when HEAD is on feature branch but base branch is unchanged", async () => {
+    // Regression: after a final-merge failure, HEAD may be on the feature
+    // branch, but the base branch (original_branch) did not move.
+    const { detectRugpull } = await import(
+      "../../dist/installer/rugpull.js"
+    );
+    const { getDb } = await import("../../dist/db.js");
+    const db = getDb();
+
+    // Create a repo with main at commit A.
+    const dir = path.join(tempHome, "test-direct-false-positive");
+    const mainSha = initGitRepo(dir);
+
+    // Create a feature branch at the same commit.
+    runGit(["branch", "feature/fix"], dir);
+
+    // Move the feature branch forward (simulating work done on it).
+    runGit(["checkout", "feature/fix"], dir);
+    fs.writeFileSync(path.join(dir, "feature-work.txt"), "feature work");
+    runGit(["add", "feature-work.txt"], dir);
+    runGit(["commit", "-m", "work on feature"], dir);
+    const featureSha = runGit(["rev-parse", "feature/fix"], dir);
+    assert.notEqual(featureSha, mainSha, "feature moved, main did not");
+
+    // main is still at the original SHA.
+    const mainStill = runGit(["rev-parse", "main"], dir);
+    assert.equal(mainStill, mainSha, "main unchanged");
+
+    // Simulate: run started on main (base_branch_sha = mainSha), final-merge
+    // failed, leaving HEAD on feature/fix.
+    const runId = "run-direct-fp-01";
+    insertRun(db, runId, "feature-dev-merge", {
+      repo: dir,
+      working_directory_for_harness: dir,
+      base_branch_sha: mainSha!,
+      original_branch: "main",
+      workspace_mode: "direct",
+    }, "failed");
+    insertStep(db, "step-dir-fp-01", runId, "finalize_merge", "failed", 0, "single");
+
+    const result = detectRugpull(runId);
+    assert.equal(result.isRugpull, false,
+      "should NOT detect rugpull: base branch (main) did not move even though HEAD (feature/fix) did");
+    assert.ok(
+      result.reason?.includes("not changed"),
+      `reason should indicate SHA unchanged, got: ${result.reason}`,
+    );
+  });
+
+  it("direct mode: detects true rugpull when original_branch actually moved", async () => {
+    // True positive: the recorded base branch actually moved.
+    const { detectRugpull } = await import(
+      "../../dist/installer/rugpull.js"
+    );
+    const { getDb } = await import("../../dist/db.js");
+    const db = getDb();
+
+    const dir = path.join(tempHome, "test-direct-true-pos");
+    const mainSha = initGitRepo(dir);
+
+    // Move main forward (true rugpull).
+    fs.writeFileSync(path.join(dir, "main-moved.txt"), "main advanced");
+    runGit(["add", "main-moved.txt"], dir);
+    runGit(["commit", "-m", "main moves forward"], dir);
+    const newMainSha = runGit(["rev-parse", "main"], dir);
+    assert.notEqual(newMainSha, mainSha, "main moved");
+
+    const runId = "run-direct-tp-01";
+    insertRun(db, runId, "feature-dev-merge", {
+      repo: dir,
+      working_directory_for_harness: dir,
+      base_branch_sha: mainSha!,
+      original_branch: "main",
+      workspace_mode: "direct",
+    }, "failed");
+    insertStep(db, "step-dir-tp-01", runId, "finalize_merge", "failed", 0, "single");
+
+    const result = detectRugpull(runId);
+    assert.equal(result.isRugpull, true, "should detect rugpull when base branch actually moved");
+    assert.ok(result.reason?.includes("moved"), "reason should mention base moved");
+  });
+
+  it("direct mode: falls back to HEAD when original_branch is missing", async () => {
+    // Backward compatibility: when original_branch is not in context
+    // (e.g. runs created before this fix), fall back to HEAD.
+    const { detectRugpull } = await import(
+      "../../dist/installer/rugpull.js"
+    );
+    const { getDb } = await import("../../dist/db.js");
+    const db = getDb();
+
+    const dir = path.join(tempHome, "test-direct-fallback");
+    const initialSha = initGitRepo(dir);
+    const newSha = makeCommit(dir, "second commit");
+    assert.notEqual(newSha, initialSha);
+
+    const runId = "run-direct-fallback-01";
+    insertRun(db, runId, "feature-dev-merge", {
+      repo: dir,
+      working_directory_for_harness: dir,
+      base_branch_sha: initialSha,
+      workspace_mode: "direct",
+      // no original_branch — falls back to HEAD
+    }, "failed");
+    insertStep(db, "step-dir-fb-01", runId, "finalize_merge", "failed", 0, "single");
+
+    const result = detectRugpull(runId);
+    assert.equal(result.isRugpull, true,
+      "should still detect rugpull via HEAD fallback when original_branch is missing");
   });
 
   it("returns isRugpull=false for non-merge workflows", async () => {
