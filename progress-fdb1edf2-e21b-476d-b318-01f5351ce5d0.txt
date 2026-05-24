@@ -1,0 +1,165 @@
+# Progress Log
+Run: fdb1edf2-e21b-476d-b318-01f5351ce5d0
+Task: Create new workflows quarantine-broken-tests quarantine-broken-tests-merge quarantine-broken-tests-merge-worktree
+Started: 2026-05-23
+
+## Codebase Patterns
+
+- Workflow validation tests auto-discover all workflow directories and validate:
+  - YAML parsing (id matches directory name)
+  - All workspace.files paths resolve to existing files
+  - Agent roles are valid (analysis, coding, verification, testing, pr, scanning)
+  - Description is non-empty
+  - All agents declare tamandua-agents skill
+  - All steps reference valid agents
+  - Polling config is valid
+- README catalog test (`readme-workflow-catalog.test.ts`) auto-discovers workflows and checks README has entries for each
+- Shared setup personas live at `agents/shared/setup/` and are referenced via relative paths (`../../agents/shared/setup/AGENTS.md`) from workflow agent definitions
+- Merger agent persona files are workflow-local (not shared) because merge instructions vary per workflow family
+- Merge workflows use `role: pr` for merger agent; non-merge workflows have no merger
+- Shell-script shebang `#!/bin/sh` requires `bash <script>` or `sh <script>` invocation (not direct `node <script>`)
+- The Tamandua CLI dist is at `dist/cli/cli.js` and the shell wrapper at `bin/tamandua` resolves it
+- commit convention: `Co-Authored-By: Tamandua <tamandua@tetradactyla.org>` footer required on every commit
+- Worktree variant agent symlink chains:
+  - Worktree variant agents/ symlink to merge variant agents/
+  - Merge variant setup agent symlinks to shared setup (`../../../agents/shared/setup`)
+  - The chain: merge-worktree/agents/X -> merge/agents/X -> (for setup) shared/setup
+  - Symlink depth is important: from merge/agents/, shared setup requires 3 levels up (`../../../agents/shared/setup`) because agents/ is inside the workflow directory (`workflows/<id>/agents/`)
+- Worktree workflow.yml changes from merge variant:
+  - `id` changes to add `-worktree` suffix
+  - `run.workspace: worktree` is added
+  - Setup step gets `WORKTREE_ORIGIN_REPOSITORY` and note that `ORIGINAL_BRANCH` is pre-seeded
+  - Setup step must NOT include `git branch --show-current` command
+  - Finalize_merge step gets `WORKTREE_ORIGIN_REPOSITORY` and "Worktree Mode" instructions with `git -C`
+  - All Phase 1 and Phase 3 cd/git commands use `{{worktree_origin_repository}}`
+  - Phase 2 rebase still uses `{{repo}}` (the worktree)
+- README table variant naming convention: Local-only, + Merge, Worktree, Worktree + Merge (never "+ Merge (Worktree)")
+
+---
+
+## Story Plan
+
+### US-001: Create quarantine-broken-tests base workflow
+
+**Description:** As a developer, I need to create the base quarantine-broken-tests workflow so that agents can autonomously detect and disable failing tests in a local-only pipeline.
+
+**Acceptance Criteria:**
+- workflows/quarantine-broken-tests/workflow.yml exists and parses without errors via loadWorkflowSpec
+- workflows/quarantine-broken-tests/agents/quarantiner/ contains AGENTS.md, SOUL.md, and IDENTITY.md
+- workflows/quarantine-broken-tests/agents/verifier/ contains AGENTS.md, SOUL.md, and IDENTITY.md
+- All workspace.files paths resolve to existing files
+- Workflow description is non-empty
+- All agent roles are valid (setup=coding, quarantiner=coding, verifier=verification)
+- Polling config is valid
+- npm run build succeeds
+- Tests for quarantine-broken-tests workflow pass
+- Typecheck passes
+
+### US-002: Create quarantine-broken-tests-merge workflow
+
+**Description:** As a developer, I need to create the quarantine-broken-tests-merge workflow so that quarantine results are squash-merged back into the original branch automatically.
+
+**Acceptance Criteria:**
+- workflows/quarantine-broken-tests-merge/workflow.yml parses without errors
+- All workspace.files paths resolve to existing files
+- agents/merger/ contains AGENTS.md, SOUL.md, IDENTITY.md with correct merge process description
+- Setup step template includes ORIGINAL_BRANCH capture instruction
+- Finalize_merge step template follows feature-dev-merge merger pattern
+- Workflow description is non-empty
+- All agent roles are valid
+- npm run build succeeds
+- Tests for quarantine-broken-tests-merge workflow pass
+- Typecheck passes
+
+### US-003: Create quarantine-broken-tests-merge-worktree workflow
+
+**Description:** As a developer, I need to create the quarantine-broken-tests-merge-worktree variant so the quarantine workflow can run in an isolated git worktree.
+
+**Acceptance Criteria:**
+- workflows/quarantine-broken-tests-merge-worktree/workflow.yml parses without errors
+- All four symlinks in agents/ point to existing directories
+- All workspace.files paths resolve to existing files (via symlinks)
+- run.workspace is set to worktree
+- Setup step template includes WORKTREE_ORIGIN_REPOSITORY
+- Finalize_merge step template uses git -C {{worktree_origin_repository}}
+- Workflow description is non-empty
+- All agent roles are valid
+- npm run build succeeds
+- Tests for quarantine-broken-tests-merge-worktree workflow pass
+- Typecheck passes
+
+### US-004: Add quarantine workflows to README catalog and run full validation
+
+**Description:** As a developer, I need to update the README catalog with the three new quarantine workflows and validate everything passes together.
+
+**Acceptance Criteria:**
+- README.md contains quarantine workflow catalog entries with correct ids and pipeline descriptions
+- Description of quarantine workflows accurately describes what they do (run tests, find failures, disable, repeat)
+- npm run build succeeds
+- npm test passes (workflow validation tests auto-discover and validate new workflows)
+- All three workflow IDs appear without errors in workflow validation test output
+- Typecheck passes
+
+---
+
+## 2026-05-23 - US-001: Create quarantine-broken-tests base workflow
+- Created workflows/quarantine-broken-tests/ directory
+- Created workflow.yml with 3 agents (setup, quarantiner, verifier), 3 steps, pipeline: setup → quarantine → verify
+- Created agents/quarantiner/ with AGENTS.md, SOUL.md, IDENTITY.md
+- Created agents/verifier/ with AGENTS.md, SOUL.md, IDENTITY.md
+- Setup agent references shared personas via ../../agents/shared/setup/
+- Quarantine step runs tests, finds failures, disables them (skip/comment), iterates until all pass
+- Verifier step does final confirmation
+- Max retries: 4 on each step, escalate on exhaustion
+- Added Quarantine entry to README
+- Updated readme-workflow-catalog test: count 18→19, added test for new workflow family
+- **Learnings:** Shared setup personas path from quarantine agents/ is ../../agents/shared/setup (same depth as feature-dev workflows)
+- Files changed: workflow.yml, 6 persona files (quarantiner and verifier), README.md, readme-workflow-catalog.test.ts
+
+## 2026-05-23 - US-002: Create quarantine-broken-tests-merge workflow
+- Created workflows/quarantine-broken-tests-merge/ directory
+- Created workflow.yml with 4 agents (setup, quarantiner, verifier, merger), 4 steps
+- Pipeline: setup → quarantine → verify → finalize_merge
+- Added merger agent with role: pr, standard merge process
+- Setup step captures ORIGINAL_BRANCH before checkout (like feature-dev-merge)
+- Finalize_merge step follows feature-dev-merge pattern (fast-forward check → squash merge → commit message)
+- Copied quarantiner and verifier persona files from base quarantine workflow
+- Updated README: added merge row to quarantine table, count 19→20
+- Updated readme-workflow-catalog test count: 19→20
+- **Learnings:** Merger persona is workflow-local, not shared. Merge workflows add one agent (role: pr) and one step (finalize_merge) to the base pipeline
+- Files changed: workflow.yml, agents/merger/{AGENTS.md,SOUL.md,IDENTITY.md}, README.md, readme-workflow-catalog.test.ts
+
+## 2026-05-23 - US-003: Create quarantine-broken-tests-merge-worktree workflow
+- Created workflows/quarantine-broken-tests-merge-worktree/ directory with workflow.yml and agent symlinks
+- Workflow has 4 agents (same as merge variant): setup, quarantiner, verifier, merger
+- Pipeline: setup → quarantine → verify → finalize_merge
+- run.workspace: worktree
+- Setup step adapted for detached worktree: ORIGINAL_BRANCH pre-seeded, no git branch --show-current, WORKTREE_ORIGIN_REPOSITORY included
+- Finalize_merge step uses git -C {{worktree_origin_repository}} for all origin repository operations with Worktree Mode section
+- Created setup symlink in quarantine-broken-tests-merge/agents/ (→ ../../../agents/shared/setup) to complete the path chain
+- All four agent symlinks verified: setup → merge/setup → shared/setup, quarantiner → merge/quarantiner, verifier → merge/verifier, merger → merge/merger
+- Added + Merge (Worktree) row to README Quarantine table
+- Updated readme-workflow-catalog test count: 20 → 21
+- **Learnings:**
+  - Symlink depth from merge workflow's agents/ dir: shared setup needs `../../../agents/shared/setup` (3 levels), not `../../agents/shared/setup` (2 levels)
+  - The intermediate symlink in merge variant's agents/setup must be created first before worktree variant's setup symlink
+  - README catalog and test count must be updated for any new workflow to pass CI
+  - The agent persona files resolve correctly through the symlink chain (test confirms workspace.files exist)
+- Files changed: 8 files (workflow.yml, 4 symlinks, merge/setup symlink, README.md, test count)
+
+## 2026-05-23 - US-004: Add quarantine workflows to README catalog and run full validation
+- Fixed README.md: changed workflow count from 18 → 21 and "four families" → "five families"
+- Fixed variant label in Quarantine table: "Worktree + Merge" instead of "+ Merge (Worktree)" to match convention
+- README Quarantine Broken Tests section now has proper description, table with 3 rows
+- npm run build succeeds
+- npm test passes: all 1871 tests pass, 0 failures
+- Workflow validation tests confirm all three quarantine workflows parse correctly:
+  - quarantine-broken-tests: 3 agents (setup, quarantiner, verifier)
+  - quarantine-broken-tests-merge: 4 agents (adds merger)
+  - quarantine-broken-tests-merge-worktree: 4 agents, worktree mode
+- README catalog test: "documents all 21 bundled workflows" passes
+- Agent count and pipeline accuracy tests pass for all three quarantine workflows
+- **Learnings:**
+  - The Quarantine table doesn't need a "Worktree" (non-merge) row since there's no quarantine-broken-tests-worktree variant — only local-only, merge, and merge-worktree
+  - README variant labels use "Worktree + Merge" not "+ Merge (Worktree)" to match family conventions
+- Files changed: README.md (workflow count 18→21, four→five families, table label fix)

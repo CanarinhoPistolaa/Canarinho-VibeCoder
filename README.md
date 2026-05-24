@@ -39,7 +39,7 @@ That's it. Run `tamandua workflow list` to see available workflows.
 
 ## What You Get: Bundled Workflows
 
-Tamandua ships with 18 bundled workflows organized into four families. Use `tamandua workflow list` to see available workflows, and `tamandua workflow install <id>` to install one.
+Tamandua ships with 21 bundled workflows organized into five families. Use `tamandua workflow list` to see available workflows, and `tamandua workflow install <id>` to install one.
 
 ### Worktree Variants
 
@@ -94,6 +94,17 @@ patches each one, re-audits after all fixes are applied, and runs regression tes
 | Worktree | `security-audit-worktree` | 6 | scan → prioritize → setup → fix → verify → test |
 | Worktree + Merge | `security-audit-merge-worktree` | 7 | scan → prioritize → setup → fix → verify → test → finalize_merge |
 | GitHub PR | `security-audit-github-pr` | 7 | scan → prioritize → setup → fix → verify → test → pr |
+
+### Quarantine Broken Tests
+
+Detect failing tests, disable them minimally, and iterate until the full test suite
+passes. Useful for establishing a clean baseline on a branch with known test failures.
+
+| Variant | Workflow ID | Agents | Pipeline |
+|---------|------------|--------|----------|
+| Local-only | `quarantine-broken-tests` | 3 | setup → quarantine → verify |
+| + Merge | `quarantine-broken-tests-merge` | 4 | setup → quarantine → verify → finalize_merge |
+| Worktree + Merge | `quarantine-broken-tests-merge-worktree` | 4 | setup → quarantine → verify → finalize_merge |
 
 ### Quick Tasks
 
