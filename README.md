@@ -241,6 +241,7 @@ You're installing agent teams that run code on your machine. We take that seriou
 | `tamandua dashboard` | Start the web dashboard (also starts remote MCP on `http://localhost:3338/mcp`) |
 | `tamandua logs [<lines>|<run-id>|#<run-number>]` | View recent log entries |
 | `tamandua logs-tail [<lines>|<run-id>|#<run-number>]` | Follow recent activity as new events arrive |
+| `tamandua nudge` | Wake all scheduled agents for running runs to poll immediately |
 
 When you start the management dashboard (`tamandua dashboard`), Tamandua automatically starts the remote MCP server too.
 

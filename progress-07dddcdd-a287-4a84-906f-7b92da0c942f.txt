@@ -1,0 +1,195 @@
+# Progress Log
+Run: 07dddcdd-a287-4a84-906f-7b92da0c942f
+Task: Implement /tmp/tamandua-nudge-design.md
+Started: 2026-05-23
+
+## Codebase Patterns
+
+- `agent-scheduler.ts` uses module-level state (`inFlightJobs`, `jobMetadata`, `activeTimers`, `pendingStartTimers`, `inFlightChildren`) — no class, just const maps/sets
+- Tests import from `../../dist/...` and run with `node --test src/**/*.test.ts` after `npm run build` (tsc)
+- Test helpers use isolated state via `shutdownAllCrons()` in `afterEach`
+- `setupAgentCrons` takes `workflow`, `runId`, `options` and creates `CreateCronJobParams`
+- `executePollingRound` is the core polling function called by setInterval timers
+- `inFlightJobs` Set is used to prevent duplicate concurrent pi processes for the same job
+- Workflow specs are loaded from disk via `loadWorkflowSpec(resolveWorkflowDir(workflowId))`
+- Agent IDs in `jobMetadata` are stored as full prefixed form `workflowId_shortAgent`
+- For nudge tests, use temp HOME + TAMANDUA_STATE_DIR to isolate workflow filesystem access
+- Control-server handlers like `handleRegisterRun`, `handlePauseRun` use `import()` for dynamic imports to avoid circular deps
+- DB direct insertion in tests uses `import("node:sqlite")` and the daemon's temp db path
+- `handleRegisterRun` is idempotent — calling it on an already-admitted run returns `{ state: "active" }`
+- The SQL `WHERE status = 'running'` naturally excludes both paused and terminal runs
+- CLI tests use `cli()` helper that spawns `child_process.spawnSync` with temp HOME and TAMANDUA_STATE_DIR
+- Daemon-dependent CLI tests spawn `node dist/server/daemon.js <port>` with `cleanChildEnv`, wait for `/control/health` to respond 200
+- `logs-tail-format.ts` exports `formatLogsTailLabel`, `formatLogsTailLine`, `formatLogsTailLines` and uses a central `EVENT_LABELS` Record for friendly display names
+- Event label tests use `makeEvent()` helper that constructs minimal `TamanduaEvent` objects, imported from `../../dist/installer/events.js`
+
+---
+
+## Story Plan
+
+### US-001: Add tryMarkJobInFlight race-safe guard to agent-scheduler
+### US-002: Add nudgeScheduledRuns to agent-scheduler with timer reset
+### US-003: Add POST /control/nudge endpoint and handler to control-server
+### US-004: Add nudgeWithDaemon to control-client
+### US-005: Add tamandua nudge CLI command
+### US-006: Add nudge event labels to logs-tail-format
+### US-007: Update README and SKILL.md for tamandua nudge
+
+---
+
+## 2026-05-23 - US-001: Add tryMarkJobInFlight race-safe guard to agent-scheduler
+- Added `tryMarkJobInFlight(jobId: string): boolean` to `src/installer/agent-scheduler.ts`
+  - Atomically checks `inFlightJobs` and adds if not present
+  - Synchronous (no await) to close TOCTOU window
+- Moved in-flight guard in `executePollingRound()` to before the run-status check (first async)
+  - Was: after stale-claim sweeper, before persona reading
+  - Now: immediately after working-directory check, before run-status check
+- Preserved existing `finally` block that calls `inFlightJobs.delete(job.id)`
+- Added 7 tests in `src/installer/agent-scheduler.test.ts` covering:
+  - first call returns true
+  - second call returns false
+  - different jobIds are independent
+  - three-call sequence
+  - concurrent-call simulation
+  - cross-job independence
+  - shutdown clears state
+- **Learnings:** The key race was that `inFlightJobs` check happened *after* several awaited calls (run status DB lookup, stale-claim recovery). Moving the check-and-add before any `await` eliminates the window where two concurrent calls could both pass the guard.
+
+---
+
+## 2026-05-24 - US-002: Add nudgeScheduledRuns to agent-scheduler with timer reset
+- Added `NudgeJobDetail` and `NudgeResult` interfaces to `src/installer/agent-scheduler.ts`
+- Implemented `nudgeScheduledRuns(runIds, opts?)` function:
+  - Iterates `jobMetadata` for jobs matching requested `runIds`
+  - Skips jobs in `inFlightJobs` with status `skipped_in_flight`
+  - Loads workflow spec from disk via `loadWorkflowSpec(resolveWorkflowDir(workflowId))`
+  - Finds matching agent by comparing short/full IDs
+  - Launches `executePollingRound()` fire-and-forget (protected by `tryMarkJobInFlight`)
+  - Active timers: clears existing interval, recreates with same interval from now
+  - Pending-start timers: clears timeout, creates active interval timer from now
+  - Preserves harness type from existing `jobMetadata`
+  - Accepts optional `opts.loadWorkflowSpec` override for test injection
+- Added 9 tests in `src/installer/agent-scheduler.test.ts`:
+  - empty runIds → empty result
+  - non-existent runIds → empty result
+  - in-flight jobs skipped with correct status
+  - non-in-flight jobs launched with correct status
+  - only matching runs are nudged (run-filtering)
+  - pending-start timer converted to active interval on nudge
+  - harness type preserved through nudge
+  - missing workflow returns error in result
+  - mixed in-flight and launchable jobs handled correctly
+- Files changed: `src/installer/agent-scheduler.ts`, `src/installer/agent-scheduler.test.ts`
+- **Learnings:** 
+  - `nudgeScheduledRuns` uses fire-and-forget for `executePollingRound` — errors are caught by `.catch()` handler but don't block the result
+  - Tests use temp HOME + `TAMANDUA_STATE_DIR` to isolate workflow filesystem access from real state
+  - `createAgentCronJob` DB read is wrapped in try/catch so tests work without a real DB
+  - The `opts.loadWorkflowSpec` injection pattern lets tests override the filesystem-dependent workflow loading
+
+---
+
+## 2026-05-24 - US-003: Add POST /control/nudge endpoint and handler to control-server
+- Added `handleNudge()` function to `src/server/control-server.ts`:
+  - Queries SQLite for runs with `status = 'running'` (excludes paused and terminal)
+  - Calls `handleRegisterRun()` for each running run to attempt admission (idempotent)
+  - Collects successfully admitted run IDs (skip paused/queued/non-active)
+  - Calls `nudgeScheduledRuns()` with the collected run IDs
+  - Emits `run.nudged` events for each run with launched/skipped counts
+  - Emits `agent.nudged` and `agent.nudge.skipped` events per job
+  - Returns aggregate JSON response: `{ runningRuns, scheduledRuns, launched, skippedInFlight, skippedPaused, runs, errors }`
+  - Returns zero counts cleanly when no runs are running
+- Added `POST /control/nudge` route in `createControlServer()` with x-tamandua-secret auth
+- Updated file header comment to document the new endpoint
+- Added 6 tests in `src/server/control-server.test.ts`:
+  - returns zero counts when no runs are running
+  - requires valid x-tamandua-secret (401 if missing)
+  - excludes paused runs
+  - excludes terminal runs (completed, failed, canceled)
+  - returns aggregate counts when runs are running
+  - emits events with correct shape
+- Files changed: `src/server/control-server.ts`, `src/server/control-server.test.ts`
+- **Learnings:**
+  - `handleRegisterRun()` is idempotent — calling it on an already-active run returns `{ state: "active" }`
+  - Paused runs (status='paused') and terminal runs (completed/failed/canceled) are naturally excluded by `WHERE status = 'running'`
+  - Nudge events (`run.nudged`, `agent.nudged`, `agent.nudge.skipped`) follow the same `emitEvent()` pattern as existing events (`run.paused`, `run.resumed`)
+  - The response includes per-run detail (`runs[]`) for diagnostics, matching the design doc shape
+
+---
+
+## 2026-05-24 - US-004: Add nudgeWithDaemon to control-client
+- Added `nudgeWithDaemon(timeoutMs?)` to `src/server/control-client.ts`:
+  - Calls `controlRequest("POST", "/control/nudge", {}, timeoutMs)`
+  - Same secret, port, timeout behavior as other control-client functions
+  - Exported alongside existing `registerRunWithDaemon`, `pauseRunWithDaemon`, etc.
+- Created `src/server/control-client.test.ts` with 2 tests:
+  - nudgeWithDaemon returns response when daemon is reachable (spawns test daemon, inserts running run, verifies response shape)
+  - nudgeWithDaemon returns null when daemon is not reachable (no crash)
+- Files changed: `src/server/control-client.ts`, `src/server/control-client.test.ts`
+- **Learnings:**
+  - `control-client.ts` reads daemon secret from `~/.tamandua/daemon-secret` and port from `TAMANDUA_CONTROL_PORT` env var — tests must set HOME and TAMANDUA_CONTROL_PORT to match the temp daemon
+  - The daemon's reconciler creates the DB schema lazily on its first tick (~1s delay) — tests inserting runs directly must wait for the reconciler or trigger getDb() themselves
+  - `nudgeWithDaemon` is the thinnest possible client wrapper — delegates entirely to the existing `controlRequest()` helper
+
+---
+
+## 2026-05-24 - US-005: Add tamandua nudge CLI command
+- Added `getNudgeHelp()` function to `src/cli/cli.ts` with usage and description
+- Added `nudge` to global help in `getUsageText()`
+- Added `tamandua nudge` to the `--help` dispatch
+- Added `nudge` to `shouldSkipUpdateWarning()` (suppress update warning noise)
+- Added `nudge` command handler in `main()`:
+  1. Rejects extra arguments with clear usage message
+  2. Calls `nudgeWithDaemon()` 
+  3. If daemon unreachable: tries `ensureDaemonControlAvailable()`, retries nudge
+  4. If still unreachable: prints "Failed to nudge: control plane is not reachable." and exits 1
+  5. If non-200 response: prints error message and exits 1
+  6. If zero running runs: prints "No running Tamandua runs to nudge."
+  7. If successful: prints summary "Nudged {N} running run(s): launched {L} agent(s), skipped {S} in-flight."
+- Added 6 tests in `src/cli/cli.test.ts`:
+  - tamandua --help includes tamandua nudge in command listing
+  - tamandua nudge --help shows usage with no args/no options
+  - tamandua nudge extra-arg fails with usage message
+  - tamandua nudge with daemon unreachable prints clear error message
+  - tamandua nudge with daemon running and no runs prints zero-runs message
+  - tamandua nudge with daemon running and active runs prints summary
+- Files changed: `src/cli/cli.ts`, `src/cli/cli.test.ts`
+- **Learnings:**
+  - The `ensureDaemonControlAvailable()` function starts the daemon if needed and waits for the control plane to become reachable
+  - Daemon-dependent CLI tests need to spawn the daemon with `cleanChildEnv`, wait for `/control/health` to return 200, and then run the CLI with matching HOME/TAMANDUA_CONTROL_PORT env vars
+  - The daemon's reconciler lazily creates the DB schema on its first tick — tests inserting runs must `await sleep(2000)` before touching the DB
+  - `__dirname` is not available in ESM test files — must use `fileURLToPath(import.meta.url)` + `path.dirname()` instead
+
+---
+
+## 2026-05-24 - US-006: Add nudge event labels to logs-tail-format
+- Added three entries to `EVENT_LABELS` in `src/installer/logs-tail-format.ts`:
+  - `"run.nudged": "Run nudged"`
+  - `"agent.nudged": "Agent nudged"`
+  - `"agent.nudge.skipped": "Nudge skipped"`
+- Created `src/installer/logs-tail-format.test.ts` with 9 tests:
+  - formatLogsTailLabel: run.nudged → 'Run nudged'
+  - formatLogsTailLabel: agent.nudged → 'Agent nudged'
+  - formatLogsTailLabel: agent.nudge.skipped → 'Nudge skipped'
+  - formatLogsTailLabel: preserves existing event labels (run.started, step.pending, story.done, pipeline.advanced)
+  - formatLogsTailLabel: falls back to raw event name for unknown events
+  - formatLogsTailLine: includes nudge event labels in formatted output
+  - formatLogsTailLine: includes agent.nudged label in formatted output
+  - formatLogsTailLine: includes nudge skipped label in formatted output
+  - formatLogsTailLines: formats multiple nudge events correctly
+- Files changed: `src/installer/logs-tail-format.ts`, `src/installer/logs-tail-format.test.ts`
+- **Learnings:**
+  - `logs-tail-format.ts` uses a central `EVENT_LABELS` Record for friendly display names — adding labels is a one-line-per-event change
+  - `formatLogsTailLabel` falls back to raw event name when no label exists (safe for future events)
+  - Test events are created with `makeEvent()` helper constructing minimal `TamanduaEvent` objects with required `ts`, `event`, `runId` fields
+  - Tests import from `../../dist/...` (post-build) following the project convention
+
+---
+
+## 2026-05-24 - US-007: Update README and SKILL.md for tamandua nudge
+- Added `tamandua nudge` entry to the Management commands table in `README.md`:
+  - `| \`tamandua nudge\` | Wake all scheduled agents for running runs to poll immediately |`
+- Added `tamandua nudge` to the workflow-level commands section in `skills/tamandua-agents/SKILL.md`:
+  - Listed the command in the bash code block with other workflow-level commands
+  - Added descriptive paragraph: "Wakes all scheduled agents for all currently running runs, causing them to poll once immediately without waiting for their normal timers. Does not resume paused runs or interrupt in-flight agents."
+- All 1896 tests pass, build succeeds
+- Files changed: `README.md`, `skills/tamandua-agents/SKILL.md`

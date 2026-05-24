@@ -12,6 +12,7 @@
  *   POST /control/terminate-run   – tear down a run's scheduling
  *   POST /control/pause-run       – pause a run (clear timers, set paused)
  *   POST /control/resume-run      – resume a paused run
+ *   POST /control/nudge           – nudge all scheduled agents for running runs
  *
  * Authentication: header `x-tamandua-secret: <token>` matches the token in
  * `~/.tamandua/daemon-secret` (mode 0600). Localhost-only binding is the
@@ -480,6 +481,117 @@ async function handleResumeRun(runId: string): Promise<JsonResponse> {
   return handleRegisterRun(runId);
 }
 
+async function handleNudge(): Promise<JsonResponse> {
+  const db = getDb();
+
+  // Query SQLite for running runs only — excludes paused and terminal.
+  const runningRuns = db
+    .prepare(
+      `SELECT id, workflow_id, status, scheduling_status, context, created_at
+       FROM runs WHERE status = 'running'`,
+    )
+    .all() as unknown as RunRow[];
+
+  if (runningRuns.length === 0) {
+    return ok({
+      runningRuns: 0,
+      scheduledRuns: 0,
+      launched: 0,
+      skippedInFlight: 0,
+      skippedPaused: 0,
+      runs: [],
+      errors: [],
+    });
+  }
+
+  const { nudgeScheduledRuns } = await import("../installer/agent-scheduler.js");
+
+  const scheduledRunIds: string[] = [];
+  const admissionErrors: Array<{ runId: string; error: string }> = [];
+
+  // For each running run, attempt admission (idempotent via handleRegisterRun).
+  // Skipped runs (paused/queued) are not nudged.
+  for (const run of runningRuns) {
+    try {
+      const result = await handleRegisterRun(run.id);
+      const state = result.body.state as string | undefined;
+      if (state === "active") {
+        scheduledRunIds.push(run.id);
+      }
+    } catch (err) {
+      admissionErrors.push({
+        runId: run.id,
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
+  }
+
+  // Call nudgeScheduledRuns with the admitted run IDs.
+  const nudgeResult = await nudgeScheduledRuns(scheduledRunIds);
+
+  // Build per-run detail and emit events.
+  const runsDetail: Array<Record<string, unknown>> = [];
+
+  for (const runId of scheduledRunIds) {
+    const runJobs = nudgeResult.jobs.filter((j) => j.runId === runId);
+    const runLaunched = runJobs.filter((j) => j.status === "launched").length;
+    const runSkipped = runJobs.filter((j) => j.status === "skipped_in_flight").length;
+    const runErrors = nudgeResult.errors.filter((e) => e.runId === runId);
+
+    const run = runningRuns.find((r) => r.id === runId);
+
+    emitEvent({
+      ts: new Date().toISOString(),
+      event: "run.nudged",
+      runId,
+      workflowId: run?.workflow_id,
+      detail: `Launched ${runLaunched}; skipped ${runSkipped} in-flight`,
+    });
+
+    for (const job of runJobs) {
+      if (job.status === "launched") {
+        emitEvent({
+          ts: new Date().toISOString(),
+          event: "agent.nudged",
+          runId: job.runId,
+          agentId: job.agentId,
+          workflowId: run?.workflow_id,
+        });
+      } else if (job.status === "skipped_in_flight") {
+        emitEvent({
+          ts: new Date().toISOString(),
+          event: "agent.nudge.skipped",
+          runId: job.runId,
+          agentId: job.agentId,
+          workflowId: run?.workflow_id,
+          detail: "Previous polling round still in flight",
+        });
+      }
+    }
+
+    runsDetail.push({
+      runId,
+      workflowId: run?.workflow_id,
+      launched: runLaunched,
+      skippedInFlight: runSkipped,
+      errors: runErrors.map((e) => e.error),
+    });
+  }
+
+  return ok({
+    runningRuns: runningRuns.length,
+    scheduledRuns: scheduledRunIds.length,
+    launched: nudgeResult.launched,
+    skippedInFlight: nudgeResult.skippedInFlight,
+    skippedPaused: 0,
+    runs: runsDetail,
+    errors: [
+      ...admissionErrors.map((e) => e.error),
+      ...nudgeResult.errors.map((e) => e.error),
+    ],
+  });
+}
+
 async function handleJobs(): Promise<JsonResponse> {
   try {
     const { listCronJobs } = await import("../installer/agent-scheduler.js");
@@ -593,6 +705,11 @@ export function createControlServer(options: ControlServerOptions = {}): http.Se
         }
         if (pathname === "/control/resume-run") {
           const r = await handleResumeRun(runId);
+          respond(r.status, r.body);
+          return;
+        }
+        if (pathname === "/control/nudge") {
+          const r = await handleNudge();
           respond(r.status, r.body);
           return;
         }

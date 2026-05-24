@@ -54,7 +54,12 @@ tamandua workflow pause-all [--drain]
 tamandua workflow resume <run-id>
 tamandua workflow resume-all
 tamandua workflow stop <run-id>
+tamandua nudge
 ```
+
+`tamandua nudge` wakes all scheduled agents for all currently running runs,
+causing them to poll once immediately without waiting for their normal
+timers. Does not resume paused runs or interrupt in-flight agents.
 
 `resume` works for both paused runs (restarted via the daemon) and failed
 runs (resumed directly). `pause-all --drain` lets in-progress steps finish

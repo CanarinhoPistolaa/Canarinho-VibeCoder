@@ -4,6 +4,7 @@ const EVENT_LABELS: Record<string, string> = {
   "run.started": "Run started",
   "run.completed": "Run completed",
   "run.failed": "Run failed",
+  "run.nudged": "Run nudged",
   "run.tokens.updated": "Token spend updated",
   "system.tokens.updated": "System token spend updated",
   "step.pending": "Step pending",
@@ -16,6 +17,8 @@ const EVENT_LABELS: Record<string, string> = {
   "story.verified": "Story verified",
   "story.retry": "Story retry",
   "story.failed": "Story failed",
+  "agent.nudged": "Agent nudged",
+  "agent.nudge.skipped": "Nudge skipped",
   "pipeline.advanced": "Pipeline advanced",
 };
 

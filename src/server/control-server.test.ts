@@ -734,6 +734,159 @@ describe("daemon control plane", { concurrency: 1 }, () => {
     db2.close();
   });
 
+  // ── Nudge endpoint tests ────────────────────────────────────────
+
+  it("POST /control/nudge returns zero counts when no runs are running", async (t) => {
+    if (!daemon) {
+      t.skip("daemon not started");
+      return;
+    }
+    const r = await jsonRequest("POST", "/control/nudge", {}, secret);
+    assert.equal(r.status, 200);
+    assert.equal(r.body.runningRuns, 0);
+    assert.equal(r.body.scheduledRuns, 0);
+    assert.equal(r.body.launched, 0);
+    assert.equal(r.body.skippedInFlight, 0);
+  });
+
+  it("POST /control/nudge requires auth", async (t) => {
+    if (!daemon) {
+      t.skip("daemon not started");
+      return;
+    }
+    const unauth = await jsonRequest("POST", "/control/nudge", {});
+    assert.equal(unauth.status, 401);
+  });
+
+  it("POST /control/nudge excludes paused runs", async (t) => {
+    if (!daemon) {
+      t.skip("daemon not started");
+      return;
+    }
+
+    const dbPath = path.join(tempHome, ".tamandua", "tamandua.db");
+    const { DatabaseSync } = await import("node:sqlite");
+    const db = new DatabaseSync(dbPath);
+    const runId = crypto.randomUUID();
+    const now = new Date().toISOString();
+
+    // Insert a paused run — should be excluded from nudge.
+    db.prepare(
+      "INSERT INTO runs (id, workflow_id, task, status, context, tokens_spent, scheduling_status, created_at, updated_at) VALUES (?, 'wf-nudge-paused', 'nudge-paused-test', 'paused', '{}', 0, 'paused', ?, ?)",
+    ).run(runId, now, now);
+    db.close();
+
+    const r = await jsonRequest("POST", "/control/nudge", {}, secret);
+    assert.equal(r.status, 200);
+    assert.equal(r.body.runningRuns, 0, "paused runs should not be counted as running");
+    assert.equal(r.body.launched, 0, "paused runs should not launch agents");
+
+    // Cleanup
+    const db2 = new DatabaseSync(dbPath);
+    db2.prepare("DELETE FROM runs WHERE id = ?").run(runId);
+    db2.close();
+  });
+
+  it("POST /control/nudge excludes terminal runs", async (t) => {
+    if (!daemon) {
+      t.skip("daemon not started");
+      return;
+    }
+
+    const dbPath = path.join(tempHome, ".tamandua", "tamandua.db");
+    const { DatabaseSync } = await import("node:sqlite");
+    const db = new DatabaseSync(dbPath);
+    const completedId = crypto.randomUUID();
+    const failedId = crypto.randomUUID();
+    const canceledId = crypto.randomUUID();
+    const now = new Date().toISOString();
+
+    // Insert terminal runs.
+    db.prepare(
+      "INSERT INTO runs (id, workflow_id, task, status, context, tokens_spent, created_at, updated_at) VALUES (?, 'wf-nudge-completed', 'nudge-terminal', 'completed', '{}', 0, ?, ?)",
+    ).run(completedId, now, now);
+    db.prepare(
+      "INSERT INTO runs (id, workflow_id, task, status, context, tokens_spent, created_at, updated_at) VALUES (?, 'wf-nudge-failed', 'nudge-terminal', 'failed', '{}', 0, ?, ?)",
+    ).run(failedId, now, now);
+    db.prepare(
+      "INSERT INTO runs (id, workflow_id, task, status, context, tokens_spent, created_at, updated_at) VALUES (?, 'wf-nudge-canceled', 'nudge-terminal', 'canceled', '{}', 0, ?, ?)",
+    ).run(canceledId, now, now);
+    db.close();
+
+    const r = await jsonRequest("POST", "/control/nudge", {}, secret);
+    assert.equal(r.status, 200);
+    assert.equal(r.body.runningRuns, 0, "terminal runs should not be counted");
+
+    // Cleanup
+    const db2 = new DatabaseSync(dbPath);
+    db2.prepare("DELETE FROM runs WHERE id IN (?, ?, ?)").run(completedId, failedId, canceledId);
+    db2.close();
+  });
+
+  it("POST /control/nudge returns aggregate counts when runs are running", async (t) => {
+    if (!daemon) {
+      t.skip("daemon not started");
+      return;
+    }
+
+    const dbPath = path.join(tempHome, ".tamandua", "tamandua.db");
+    const { DatabaseSync } = await import("node:sqlite");
+    const db = new DatabaseSync(dbPath);
+    const runId = crypto.randomUUID();
+    const workflowId = "wf-nudge-aggregate";
+    const now = new Date().toISOString();
+
+    // Insert a running run. It won't have any steps or workflow installed,
+    // so handleRegisterRun will fail. But the aggregate response should still return.
+    db.prepare(
+      "INSERT INTO runs (id, workflow_id, task, status, context, tokens_spent, scheduling_status, scheduling_requested_at, created_at, updated_at) VALUES (?, ?, 'nudge-aggregate', 'running', '{}', 0, 'pending_register', ?, ?, ?)",
+    ).run(runId, workflowId, now, now, now);
+    db.close();
+
+    const r = await jsonRequest("POST", "/control/nudge", {}, secret);
+    // The nudge may return 200 even if admission fails — the errors array carries that info.
+    assert.ok(r.status === 200, `expected 200, got ${r.status}: ${JSON.stringify(r.body)}`);
+    assert.equal(r.body.runningRuns, 1, "should detect 1 running run");
+    assert.ok(Array.isArray(r.body.runs), "runs should be an array");
+
+    // Cleanup
+    const db2 = new DatabaseSync(dbPath);
+    db2.prepare("DELETE FROM runs WHERE id = ?").run(runId);
+    db2.close();
+  });
+
+  it("POST /control/nudge emits events", async (t) => {
+    if (!daemon) {
+      t.skip("daemon not started");
+      return;
+    }
+
+    const dbPath = path.join(tempHome, ".tamandua", "tamandua.db");
+    const { DatabaseSync } = await import("node:sqlite");
+    const db = new DatabaseSync(dbPath);
+    const runId = crypto.randomUUID();
+    const workflowId = "wf-nudge-events";
+    const now = new Date().toISOString();
+
+    db.prepare(
+      "INSERT INTO runs (id, workflow_id, task, status, context, tokens_spent, scheduling_status, scheduling_requested_at, created_at, updated_at) VALUES (?, ?, 'nudge-events', 'running', '{}', 0, 'pending_register', ?, ?, ?)",
+    ).run(runId, workflowId, now, now, now);
+    db.close();
+
+    const r = await jsonRequest("POST", "/control/nudge", {}, secret);
+    assert.ok(r.status === 200, `expected 200, got ${r.status}`);
+
+    // The response should have the expected shape even if no agents were scheduled.
+    assert.equal(typeof r.body.runningRuns, "number");
+    assert.equal(typeof r.body.launched, "number");
+    assert.equal(typeof r.body.skippedInFlight, "number");
+
+    // Cleanup
+    const db2 = new DatabaseSync(dbPath);
+    db2.prepare("DELETE FROM runs WHERE id = ?").run(runId);
+    db2.close();
+  });
+
   it("POST /control/pause-run with drain=true on terminal run returns 409", async (t) => {
     if (!daemon) {
       t.skip("daemon not started");

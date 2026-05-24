@@ -2,7 +2,7 @@ import { spawn } from "node:child_process";
 import { createInterface } from "node:readline";
 import fs from "node:fs";
 import path from "node:path";
-import { resolveTamanduaCli, resolveWorkflowWorkspaceDir } from "./paths.js";
+import { resolveTamanduaCli, resolveWorkflowDir, resolveWorkflowWorkspaceDir } from "./paths.js";
 import type { WorkflowSpec, WorkflowAgent, HarnessType } from "./types.js";
 import { logger } from "../lib/logger.js";
 import { getRoleTimeoutSeconds, inferRole } from "./install.js";
@@ -39,6 +39,37 @@ const jobMetadata = new Map<string, CronJobInfo>();
  * every interval even though pi rounds can take 10–30 minutes.
  */
 const inFlightJobs = new Set<string>();
+
+// ── Nudge types ─────────────────────────────────────────────────────
+
+export interface NudgeJobDetail {
+  runId: string;
+  agentId: string;
+  status: "launched" | "skipped_in_flight" | "error";
+  error?: string;
+}
+
+export interface NudgeResult {
+  runIds: string[];
+  launched: number;
+  skippedInFlight: number;
+  errors: Array<{ runId?: string; agentId?: string; error: string }>;
+  jobs: NudgeJobDetail[];
+}
+
+/**
+ * Atomically check and mark a job as in-flight.
+ *
+ * Returns `true` if the job was not already in flight (caller should
+ * proceed) and `false` if it was (caller should skip).  The check-and-add
+ * is synchronous to close the TOCTOU window between the guard and the
+ * first `await` inside `executePollingRound`.
+ */
+export function tryMarkJobInFlight(jobId: string): boolean {
+  if (inFlightJobs.has(jobId)) return false;
+  inFlightJobs.add(jobId);
+  return true;
+}
 
 /**
  * Maps job id → in-flight child handle, exposing pid + pgid. Used by
@@ -1295,6 +1326,18 @@ export async function executePollingRound(
     return;
   }
 
+  // ── Race-safe in-flight guard ───────────────────────────────────
+  // Must happen synchronously *before* any awaited async work so
+  // concurrent nudge + timer tick invocations cannot launch duplicate
+  // harness processes.
+  if (!tryMarkJobInFlight(job.id)) {
+    logger.info("Polling round skipped — previous harness still in flight", {
+      ...context,
+      reason: "previous_round_in_flight",
+    });
+    return;
+  }
+
   // ── Run-scoped status check ──────────────────────────────────────
   // If this run is no longer 'running' (terminal/paused) tear down the
   // job and skip. Without this check, timers leaked from previous CLI
@@ -1354,16 +1397,6 @@ export async function executePollingRound(
     });
   }
 
-  // Skip this tick if a harness for the same job is still running.
-  if (inFlightJobs.has(job.id)) {
-    logger.info("Polling round skipped — previous harness still in flight", {
-      ...context,
-      reason: "previous_round_in_flight",
-    });
-    return;
-  }
-
-  inFlightJobs.add(job.id);
   try {
     let agentPersonaInstructions = "";
     try {
@@ -1800,6 +1833,172 @@ export function shutdownAllCrons(): void {
     logger.info("Shut down all cron jobs", { count });
   }
 }
+
+// ── Nudge ─────────────────────────────────────────────────────────────
+
+/**
+ * Trigger immediate polling for all scheduled jobs in the given runs.
+ *
+ * Jobs currently in flight are skipped. Pending-start timers are
+ * converted to active interval timers after launch. Active timers are
+ * cleared and recreated from now after a launched polling round.
+ *
+ * The function loads workflow specs from disk via
+ * `loadWorkflowSpec(resolveWorkflowDir(…))` to find matching agents.
+ */
+export async function nudgeScheduledRuns(
+  runIds: string[],
+  opts?: {
+    /** Override for tests — defaults to loadWorkflowSpec from workflow-spec.js. */
+    loadWorkflowSpec?: (workflowDir: string) => Promise<WorkflowSpec>;
+  },
+): Promise<NudgeResult> {
+  const runIdSet = new Set(runIds);
+  const result: NudgeResult = {
+    runIds: [...runIds],
+    launched: 0,
+    skippedInFlight: 0,
+    errors: [],
+    jobs: [],
+  };
+
+  // Resolve spec loader — lazy-import to avoid circular dep at module
+  // init and to allow test overrides.
+  const loadSpec: (workflowDir: string) => Promise<WorkflowSpec> =
+    opts?.loadWorkflowSpec ??
+    (await import("./workflow-spec.js")).loadWorkflowSpec;
+
+  // Collect matching jobs from jobMetadata.
+  const matchingJobs: Array<{ info: CronJobInfo; id: string }> = [];
+  for (const [id, info] of jobMetadata) {
+    if (runIdSet.has(info.runId)) {
+      matchingJobs.push({ info, id });
+    }
+  }
+
+  // Process each job.
+  for (const { info, id: jobId } of matchingJobs) {
+    // ── In-flight guard ──────────────────────────────────────────
+    if (inFlightJobs.has(jobId)) {
+      result.skippedInFlight++;
+      result.jobs.push({
+        runId: info.runId,
+        agentId: info.agentId,
+        status: "skipped_in_flight",
+      });
+      continue;
+    }
+
+    try {
+      // Load workflow spec from disk.
+      const flowDir = resolveWorkflowDir(info.workflowId);
+      const workflow = await loadSpec(flowDir);
+
+      // Find matching agent.
+      // jobMetadata stores agentId as the full prefixed form
+      //   e.g. "feature-dev-merge-worktree_developer"
+      // Workflow agents use the short id (e.g. "developer").
+      const shortAgentId = info.agentId.startsWith(`${info.workflowId}_`)
+        ? info.agentId.slice(info.workflowId.length + 1)
+        : info.agentId;
+
+      const agent = workflow.agents.find(
+        (a) =>
+          a.id === shortAgentId ||
+          `${info.workflowId}_${a.id}` === info.agentId,
+      );
+
+      if (!agent) {
+        const errMsg = `Agent ${info.agentId} not found in workflow ${info.workflowId}`;
+        result.errors.push({
+          runId: info.runId,
+          agentId: info.agentId,
+          error: errMsg,
+        });
+        result.jobs.push({
+          runId: info.runId,
+          agentId: info.agentId,
+          status: "error",
+          error: errMsg,
+        });
+        continue;
+      }
+
+      // ── Launch polling round (fire-and-forget) ────────────────
+      // tryMarkJobInFlight inside executePollingRound prevents
+      // duplicate launches with near-simultaneous timer ticks.
+      executePollingRound(info, agent, workflow).catch((err) => {
+        logger.error("Nudge-launched polling round failed", {
+          jobId,
+          runId: info.runId,
+          agentId: info.agentId,
+          error: String(err),
+        });
+      });
+
+      // ── Timer reset ───────────────────────────────────────────
+      const activeTimer = activeTimers.get(jobId);
+      const pendingTimer = pendingStartTimers.get(jobId);
+      const intervalMs = info.intervalMinutes * 60 * 1000;
+
+      if (activeTimer) {
+        // Clear existing interval, recreate from now.
+        clearInterval(activeTimer);
+        activeTimers.delete(jobId);
+        const newTimer = setInterval(() => {
+          executePollingRound(info, agent, workflow).catch((err) => {
+            logger.error("Unhandled polling error", {
+              jobId,
+              runId: info.runId,
+              error: String(err),
+            });
+          });
+        }, intervalMs);
+        activeTimers.set(jobId, newTimer);
+      } else if (pendingTimer) {
+        // Convert pending-start to active interval.
+        clearTimeout(pendingTimer);
+        pendingStartTimers.delete(jobId);
+        const newTimer = setInterval(() => {
+          executePollingRound(info, agent, workflow).catch((err) => {
+            logger.error("Unhandled polling error", {
+              jobId,
+              runId: info.runId,
+              error: String(err),
+            });
+          });
+        }, intervalMs);
+        activeTimers.set(jobId, newTimer);
+      }
+      // If neither timer exists, the job's own startPolling() already
+      // created a timer — we leave it alone.
+
+      result.launched++;
+      result.jobs.push({
+        runId: info.runId,
+        agentId: info.agentId,
+        status: "launched",
+      });
+    } catch (err) {
+      const errorMsg = err instanceof Error ? err.message : String(err);
+      result.errors.push({
+        runId: info.runId,
+        agentId: info.agentId,
+        error: errorMsg,
+      });
+      result.jobs.push({
+        runId: info.runId,
+        agentId: info.agentId,
+        status: "error",
+        error: errorMsg,
+      });
+    }
+  }
+
+  return result;
+}
+
+// ── Internal helpers (exposed for daemon reconciler + tests) ─────────
 
 /** @internal — exposed for daemon reconciler. */
 export function _scheduledRunIds(): Set<string> {

@@ -1,11 +1,17 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { execFileSync, spawnSync } from "node:child_process";
+import { execFileSync, spawnSync, spawn } from "node:child_process";
+import type { ChildProcess } from "node:child_process";
 import fs from "node:fs";
+import http from "node:http";
 import os from "node:os";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { parseWorkflowRunArgs } from "../../dist/cli/workflow-run-args.js";
 import { cleanChildEnv } from "../../tests/helpers/test-env.ts";
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 function makeTestEnv() {
   const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "tamandua-cli-test-"));
@@ -1499,5 +1505,199 @@ describe("formatProcessList", () => {
         result.includes("Unable to scan"),
       "should produce valid output",
     );
+  });
+});
+
+describe("nudge command", { concurrency: 1 }, () => {
+  it("tamandua --help includes tamandua nudge in command listing", () => {
+    const result = cli(["--help"]);
+    try {
+      assert.equal(result.status, 0);
+      assert.match(result.stdout ?? "", /tamandua nudge.*Wake all scheduled agents for all running runs/);
+    } finally {
+      fs.rmSync(result.testEnv.tmpDir, { recursive: true, force: true });
+    }
+  });
+
+  it("tamandua nudge --help shows usage with no args/no options", () => {
+    const result = cli(["nudge", "--help"]);
+    try {
+      assert.equal(result.status, 0);
+      assert.match(result.stdout ?? "", /tamandua nudge — Wake all scheduled agents for running runs/);
+      assert.match(result.stdout ?? "", /Usage: tamandua nudge/);
+      assert.match(result.stdout ?? "", /Wakes all scheduled agents for all currently running runs/);
+      assert.match(result.stdout ?? "", /Does not\nresume paused runs or interrupt in-flight agents/);
+      assert.doesNotMatch(result.stdout ?? "", /tamandua get-ready/);
+    } finally {
+      fs.rmSync(result.testEnv.tmpDir, { recursive: true, force: true });
+    }
+  });
+
+  it("tamandua nudge extra-arg fails with usage message", () => {
+    const result = cli(["nudge", "extra-arg"]);
+    try {
+      assert.equal(result.status, 1);
+      const stderr = result.stderr ?? "";
+      assert.match(stderr, /Unknown nudge option: extra-arg/);
+      assert.match(stderr, /Usage: tamandua nudge/);
+    } finally {
+      fs.rmSync(result.testEnv.tmpDir, { recursive: true, force: true });
+    }
+  });
+
+  it("tamandua nudge with daemon unreachable prints clear error message", () => {
+    // Use a temp HOME with no daemon and a port that won't have a control plane.
+    const result = cli(["nudge"], { TAMANDUA_CONTROL_PORT: "65531" });
+    try {
+      assert.equal(result.status, 1);
+      const stderr = result.stderr ?? "";
+      assert.match(stderr, /Failed to nudge: control plane is not reachable/);
+    } finally {
+      fs.rmSync(result.testEnv.tmpDir, { recursive: true, force: true });
+    }
+  });
+
+  it("tamandua nudge with daemon running and no runs prints zero-runs message", async (t) => {
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "tamandua-nudge-test-"));
+    const { reserveDistinctRandomPorts, cleanChildEnv: testCleanChildEnv } = await import("../../tests/helpers/test-env.ts");
+    const [dp, cp] = await reserveDistinctRandomPorts(2);
+    const daemonScript = path.resolve(__dirname, "..", "..", "dist", "server", "daemon.js");
+
+    let daemon: ChildProcess | undefined;
+    try {
+      daemon = spawn("node", [daemonScript, String(dp)], {
+        env: cleanChildEnv({ HOME: tmpDir, TAMANDUA_CONTROL_PORT: String(cp) }),
+        stdio: ["ignore", "pipe", "pipe"],
+      });
+      daemon.stdout?.resume();
+      daemon.stderr?.resume();
+
+      // Wait for daemon to be up
+      const { setTimeout: sleep } = await import("node:timers/promises");
+      const startedAt = Date.now();
+      let up = false;
+      while (Date.now() - startedAt < 7000) {
+        try {
+          await new Promise<void>((resolve, reject) => {
+            const req = http.request({ method: "GET", hostname: "127.0.0.1", port: cp, path: "/control/health" }, (res) => {
+              res.resume();
+              res.on("end", () => {
+                if (res.statusCode === 200) resolve();
+                else reject(new Error(`status ${res.statusCode}`));
+              });
+            });
+            req.on("error", reject);
+            req.setTimeout(500);
+            req.end();
+          });
+          up = true;
+          break;
+        } catch {
+          await sleep(100);
+        }
+      }
+      if (!up) {
+        t.skip("daemon did not come up");
+        return;
+      }
+
+      // Run nudge with the daemon's HOME and control port
+      const result = cli(["nudge"], { HOME: tmpDir, TAMANDUA_CONTROL_PORT: String(cp) });
+      try {
+        assert.equal(result.status, 0);
+        assert.match(result.stdout ?? "", /No running Tamandua runs to nudge/);
+      } finally {
+        fs.rmSync(result.testEnv.tmpDir, { recursive: true, force: true });
+      }
+    } finally {
+      if (daemon && daemon.exitCode === null && daemon.pid) {
+        try { process.kill(daemon.pid, "SIGTERM"); } catch { /* gone */ }
+      }
+      await new Promise<void>((resolve) => setTimeout(resolve, 500));
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    }
+  });
+
+  it("tamandua nudge with daemon running and active runs prints summary", async (t) => {
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "tamandua-nudge-test-"));
+    const { reserveDistinctRandomPorts, cleanChildEnv: testCleanChildEnv2 } = await import("../../tests/helpers/test-env.ts");
+    const [dp, cp] = await reserveDistinctRandomPorts(2);
+    const daemonScript = path.resolve(__dirname, "..", "..", "dist", "server", "daemon.js");
+
+    let daemon: ChildProcess | undefined;
+    try {
+      daemon = spawn("node", [daemonScript, String(dp)], {
+        env: cleanChildEnv({ HOME: tmpDir, TAMANDUA_CONTROL_PORT: String(cp) }),
+        stdio: ["ignore", "pipe", "pipe"],
+      });
+      daemon.stdout?.resume();
+      daemon.stderr?.resume();
+
+      // Wait for daemon to be up
+      const { setTimeout: sleep } = await import("node:timers/promises");
+      const startedAt = Date.now();
+      let up = false;
+      while (Date.now() - startedAt < 7000) {
+        try {
+          await new Promise<void>((resolve, reject) => {
+            const req = http.request({ method: "GET", hostname: "127.0.0.1", port: cp, path: "/control/health" }, (res) => {
+              res.resume();
+              res.on("end", () => {
+                if (res.statusCode === 200) resolve();
+                else reject(new Error(`status ${res.statusCode}`));
+              });
+            });
+            req.on("error", reject);
+            req.setTimeout(500);
+            req.end();
+          });
+          up = true;
+          break;
+        } catch {
+          await sleep(100);
+        }
+      }
+      if (!up) {
+        t.skip("daemon did not come up");
+        return;
+      }
+
+      // Wait for the daemon's reconciler to create the DB schema (~1s first tick).
+      await sleep(2000);
+
+      // Insert a running run into the daemon's DB
+      const { DatabaseSync } = await import("node:sqlite");
+      const crypto = await import("node:crypto");
+      const dbPath = path.join(tmpDir, ".tamandua", "tamandua.db");
+      const runId = crypto.randomUUID();
+      const now = new Date().toISOString();
+      const db = new DatabaseSync(dbPath);
+      db.prepare(
+        "INSERT INTO runs (id, workflow_id, task, status, context, tokens_spent, scheduling_status, scheduling_requested_at, created_at, updated_at) VALUES (?, 'wf-nudge-cli', 'nudge-cli-test', 'running', '{}', 0, 'pending_register', ?, ?, ?)",
+      ).run(runId, now, now, now);
+      db.close();
+
+      // Run nudge with the daemon's HOME and control port
+      const result = cli(["nudge"], { HOME: tmpDir, TAMANDUA_CONTROL_PORT: String(cp) });
+      try {
+        assert.equal(result.status, 0);
+        // Should print a summary; there is 1 running run but no agents scheduled,
+        // so launched should be 0.
+        assert.match(result.stdout ?? "", /Nudged \d+ running run\(s\): launched \d+ agent\(s\), skipped \d+ in-flight\./);
+      } finally {
+        fs.rmSync(result.testEnv.tmpDir, { recursive: true, force: true });
+      }
+
+      // Cleanup DB
+      const db2 = new DatabaseSync(dbPath);
+      db2.prepare("DELETE FROM runs WHERE id = ?").run(runId);
+      db2.close();
+    } finally {
+      if (daemon && daemon.exitCode === null && daemon.pid) {
+        try { process.kill(daemon.pid, "SIGTERM"); } catch { /* gone */ }
+      }
+      await new Promise<void>((resolve) => setTimeout(resolve, 500));
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    }
   });
 });

@@ -120,3 +120,8 @@ export async function pauseRunWithDaemon(runId: string, drain = false): Promise<
 export async function resumeRunWithDaemon(runId: string): Promise<ControlPlaneResponse | null> {
   return controlRequest("POST", "/control/resume-run", { runId });
 }
+
+/** Request the daemon to nudge all scheduled agents for all running runs. */
+export async function nudgeWithDaemon(timeoutMs?: number): Promise<ControlPlaneResponse | null> {
+  return controlRequest("POST", "/control/nudge", {}, timeoutMs);
+}

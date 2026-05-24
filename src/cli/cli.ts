@@ -21,7 +21,7 @@ import { parseLogsSelector, lookupRunIdByNumber } from "./logs-selector.js";
 import { startDaemon, stopDaemon, getDaemonStatus, isRunning, startMcp, stopMcp, getMcpStatus, isMcpRunning, startControlPlane, stopControlPlane, getControlPlaneStatus, isControlPlaneRunning } from "../server/daemonctl.js";
 import { DEFAULT_MCP_PORT, MCP_ENDPOINT_PATH } from "../server/mcp-server.js";
 import { DEFAULT_CONTROL_PORT } from "../server/control-server.js";
-import { pauseRunWithDaemon, resumeRunWithDaemon } from "../server/control-client.js";
+import { pauseRunWithDaemon, resumeRunWithDaemon, nudgeWithDaemon, ensureDaemonControlAvailable } from "../server/control-client.js";
 import { claimStep, completeStep, failStep, getStories, peekStep } from "../installer/step-ops.js";
 import { ensureCliSymlink } from "../installer/symlink.js";
 import { resolveSourcePath, resolveSkillPath } from "../installer/paths.js";
@@ -1041,6 +1041,19 @@ Examples:
   tamandua workflow pause abc12345 --drain`;
 }
 
+function getNudgeHelp(): string {
+  return `tamandua nudge — Wake all scheduled agents for running runs
+
+Usage: tamandua nudge
+
+Wakes all scheduled agents for all currently running runs, causing them to
+poll once immediately without waiting for their normal timers. Does not
+resume paused runs or interrupt in-flight agents.
+
+Examples:
+  tamandua nudge            # Nudge all scheduled agents for active runs`;
+}
+
 function getWorktreeGroupHelp(): string {
   return `tamandua worktree — Manage git worktrees for workflow runs
 
@@ -1109,6 +1122,7 @@ function getUsageText(): string {
     "", "tamandua version                      Show installed version",
     "tamandua skill-path                  Print path to the bundled tamandua-agents skill",
     "tamandua source-path                  Print source checkout path",
+    "tamandua nudge                       Wake all scheduled agents for all running runs",
     "tamandua update [--force]             Pull latest, rebuild, reinstall",
   ].join("\n") + "\n";
 }
@@ -1121,6 +1135,7 @@ function shouldSkipUpdateWarning(group: string, action: string): boolean {
   if (group === "update") return true;
   if (group === "version" || group === "--version" || group === "-v") return true;
   if (group === "step" && (action === "peek" || action === "claim")) return true;
+  if (group === "nudge") return true;
   return false;
 }
 
@@ -1206,6 +1221,9 @@ async function main() {
       if (action === "remove") { printHelp(getWorktreeRemoveHelp()); }
       if (action === "prune") { printHelp(getWorktreePruneHelp()); }
       printHelp(getWorktreeGroupHelp());
+    }
+    if (group === "nudge") {
+      printHelp(getNudgeHelp());
     }
     printHelp(getUsageText());
   }
@@ -1354,6 +1372,42 @@ async function main() {
     else if (sub && sub !== "start" && !sub.startsWith("-")) { const p = parseInt(sub, 10); if (!Number.isNaN(p)) port = p; }
     if (isRunning().running) { const status = getDaemonStatus(); if (status.running) console.log(`Dashboard already running (PID ${status.pid})`); console.log(`  http://localhost:${port}`); return; }
     const result = await startDaemon(port); console.log(`Dashboard started (PID ${result.pid})\n  http://localhost:${result.port}`); return;
+  }
+
+  if (group === "nudge") {
+    if (args.length > 1) {
+      process.stderr.write(`Unknown nudge option: ${args.slice(1).join(" ")}\nUsage: tamandua nudge\n`);
+      process.exit(1);
+    }
+    let response = await nudgeWithDaemon();
+    if (response === null) {
+      try {
+        await ensureDaemonControlAvailable();
+        response = await nudgeWithDaemon();
+      } catch {
+        process.stderr.write("Failed to nudge: control plane is not reachable.\n");
+        process.exit(1);
+      }
+    }
+    if (response === null) {
+      process.stderr.write("Failed to nudge: control plane is not reachable.\n");
+      process.exit(1);
+    }
+    if (response.status !== 200) {
+      const errMsg = typeof response.body.error === "string" ? response.body.error : "Unknown error";
+      process.stderr.write(`Failed to nudge: ${errMsg}\n`);
+      process.exit(1);
+    }
+    const body = response.body;
+    const runningRuns = typeof body.runningRuns === "number" ? body.runningRuns : 0;
+    if (runningRuns === 0) {
+      console.log("No running Tamandua runs to nudge.");
+      return;
+    }
+    const launched = typeof body.launched === "number" ? body.launched : 0;
+    const skippedInFlight = typeof body.skippedInFlight === "number" ? body.skippedInFlight : 0;
+    console.log(`Nudged ${runningRuns} running run(s): launched ${launched} agent(s), skipped ${skippedInFlight} in-flight.`);
+    return;
   }
 
   if (group === "control-plane") {
