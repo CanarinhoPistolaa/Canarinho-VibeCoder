@@ -1535,6 +1535,89 @@ describe("formatProcessList", () => {
       "should produce valid output",
     );
   });
+
+  // Regression: BSD ps on macOS outputs a column header that must be stripped.
+  it("strips BSD ps header on darwin and parses processes correctly", async () => {
+    const { formatProcessList } = await import("../../dist/cli/status-format.js");
+    const result = formatProcessList({
+      isDaemonRunning: () => true,
+      execSync: () =>
+        "  PID ELAPSED COMMAND\n" +
+        " 1001  02:30:00  /usr/bin/pi --print --session abc123\n" +
+        " 2001  00:45:00  /usr/bin/hermes agent --provider openrouter\n",
+    });
+    assert.match(result, /Running Processes/);
+    // Header line must NOT appear in the output.
+    assert.doesNotMatch(result, /^\s*PID\s+ELAPSED/m);
+    // Process data must still be parsed correctly.
+    assert.match(result, /\[pi\s*\] PID 1001/);
+    assert.match(result, /up 02:30:00/);
+    assert.match(result, /\[hermes\s*\] PID 2001/);
+  });
+
+  // Regression: darwin path must not strip data rows when there is no header.
+  it("does not strip data rows on darwin when BSD header is absent", async () => {
+    const { formatProcessList } = await import("../../dist/cli/status-format.js");
+    const result = formatProcessList({
+      isDaemonRunning: () => true,
+      execSync: () =>
+        "  1001  02:30:00  /usr/bin/pi --print --session abc\n" +
+        "  2001  00:45:00  /usr/bin/hermes agent --provider openrouter\n",
+    });
+    assert.match(result, /Running Processes/);
+    // Both processes should appear (no data rows stripped).
+    assert.match(result, /\[pi\s*\] PID 1001/);
+    assert.match(result, /\[hermes\s*\] PID 2001/);
+  });
+
+  // Regression: linux path preserves existing GNU ps behavior.
+  it("preserves GNU ps behavior on linux platform", async () => {
+    const { listProcessesForStatus } = await import("../../dist/cli/status-format.js");
+    let receivedCmd = "";
+    const mockExSync = (cmd: string): string => {
+      receivedCmd = cmd;
+      return "  1001  02:30:00  /usr/bin/pi --print\n";
+    };
+    const output = listProcessesForStatus(mockExSync, "linux");
+    // Must use GNU-style --no-headers flag.
+    assert.match(receivedCmd, /ps -eo pid,etime,args --no-headers/);
+    assert.doesNotMatch(receivedCmd, /-ax/);
+    // Output is passed through unchanged.
+    assert.match(output, /1001/);
+  });
+
+  // Regression: BSD ps args on darwin.
+  it("uses BSD-compatible ps args on darwin platform", async () => {
+    const { listProcessesForStatus } = await import("../../dist/cli/status-format.js");
+    let receivedCmd = "";
+    const mockExSync = (cmd: string): string => {
+      receivedCmd = cmd;
+      return "  PID ELAPSED COMMAND\n  1001  02:30:00  /usr/bin/pi\n";
+    };
+    const output = listProcessesForStatus(mockExSync, "darwin");
+    // Must use BSD-compatible flags (no --no-headers).
+    assert.match(receivedCmd, /ps -ax -o pid,etime,command/);
+    assert.doesNotMatch(receivedCmd, /--no-headers/);
+    // Header is stripped.
+    assert.doesNotMatch(output, /^\s*PID\s/m);
+    assert.match(output, /1001/);
+  });
+
+  // Regression: ps failure degrades gracefully without leaking raw usage text.
+  it("degrades gracefully on ps failure without raw usage text", async () => {
+    const { formatProcessList } = await import("../../dist/cli/status-format.js");
+    const result = formatProcessList({
+      isDaemonRunning: () => true,
+      execSync: () => {
+        throw new Error("ps: illegal option -- -\nusage: ps ...");
+      },
+    });
+    assert.match(result, /Running Processes/);
+    assert.match(result, /Unable to scan for agent processes/);
+    // Raw ps usage text must NOT appear in output.
+    assert.doesNotMatch(result, /illegal option/);
+    assert.doesNotMatch(result, /usage:/);
+  });
 });
 
 describe("nudge command", { concurrency: 1 }, () => {

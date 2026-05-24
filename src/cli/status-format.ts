@@ -8,6 +8,39 @@
  */
 import { execSync } from "node:child_process";
 import { getDaemonStatus, getMcpStatus, getControlPlaneStatus, isRunning } from "../server/daemonctl.js";
+
+/**
+ * Platform-aware process-listing helper for `tamandua status`.
+ *
+ * Branches on process.platform:
+ * - darwin (macOS/BSD): uses `ps -ax -o pid,etime,command`, strips the column header.
+ * - linux (GNU/procps): uses `ps -eo pid,etime,args --no-headers`.
+ *
+ * Always passes `{ stdio: ["pipe", "pipe", "pipe"] }` so stderr is captured
+ * and never leaks raw ps usage text to the user.
+ *
+ * @param platform Optional platform override for testing (defaults to process.platform).
+ */
+export function listProcessesForStatus(
+  exSync: (cmd: string, options?: Record<string, unknown>) => string | Buffer,
+  platform?: string,
+): string {
+  const options = { stdio: ["pipe", "pipe", "pipe"] };
+  const plat = platform ?? process.platform;
+
+  if (plat === "darwin") {
+    const output = exSync("ps -ax -o pid,etime,command", options).toString();
+    const lines = output.trim().split("\n");
+    // Strip the column-header line when present (BSD ps does not support --no-headers).
+    if (lines.length > 0 && /^\s*PID\s/i.test(lines[0])) {
+      return lines.slice(1).join("\n");
+    }
+    return output;
+  }
+
+  // Linux / GNU ps — preserve existing behavior.
+  return exSync("ps -eo pid,etime,args --no-headers", options).toString();
+}
 import { resolveSourcePath, resolveSkillPath } from "../installer/paths.js";
 import { readVersionStatus, type VersionStatus } from "../lib/version-check.js";
 import { listRuns as defaultListRuns, type RunInfo } from "../installer/status.js";
@@ -151,7 +184,7 @@ export function formatRunsSummary(opts?: {
 
 export function formatProcessList(opts?: {
   isDaemonRunning?: () => boolean;
-  execSync?: (cmd: string) => string;
+  execSync?: (cmd: string, options?: Record<string, unknown>) => string | Buffer;
 }): string {
   const daRunning = opts?.isDaemonRunning ?? (() => isRunning().running);
   const exSync = opts?.execSync ?? execSync;
@@ -166,7 +199,7 @@ export function formatProcessList(opts?: {
   }
 
   try {
-    const psOutput = exSync("ps -eo pid,etime,args --no-headers");
+    const psOutput = listProcessesForStatus(exSync);
     const processLines = psOutput
       .toString()
       .trim()
