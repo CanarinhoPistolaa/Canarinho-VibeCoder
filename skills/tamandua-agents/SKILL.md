@@ -1,6 +1,6 @@
 ---
 name: tamandua-agents
-description: Guide agents to run Tamandua workflow and step lifecycle commands consistently. Use when an agent must poll for work, claim a step, execute task input, and report completion or failure.
+description: Tamandua is a local CLI/workflow orchestrator for coordinating multi-agent coding runs on top of pi. Use this skill when the user mentions the word tamandua or when a task involves Tamandua workflows, runs, steps, agents, worktrees, dashboard/control-plane services, logs, pause/resume, or Tamandua-specific output contracts and documentation.
 ---
 
 # Tamandua Agents
