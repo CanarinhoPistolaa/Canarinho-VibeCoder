@@ -205,7 +205,7 @@ export async function relaunchRunAfterRugpull(
   if (context.no_relaunch_upon_rugpull === "true") {
     emitEvent({
       ts: new Date().toISOString(),
-      event: "run.rugpull_relaunched",
+      event: "run.rugpull_relaunch_suppressed",
       runId: failedRunId,
       workflowId: run.workflow_id,
       detail: "Relaunch suppressed by --no-relaunch-upon-rugpull flag",
@@ -229,6 +229,14 @@ export async function relaunchRunAfterRugpull(
       const worktreeOriginRef = context.worktree_origin_ref || undefined;
 
       if (!worktreeOriginRepo) {
+        emitEvent({
+          ts: new Date().toISOString(),
+          event: "run.rugpull_relaunch_failed",
+          runId: failedRunId,
+          workflowId: run.workflow_id,
+          detail:
+            "Rugpull relaunch not attempted: worktree_origin_repository is missing from run context",
+        });
         return { relaunched: false };
       }
 
@@ -246,6 +254,14 @@ export async function relaunchRunAfterRugpull(
         context.working_directory_for_harness || context.repo;
 
       if (!workingDir) {
+        emitEvent({
+          ts: new Date().toISOString(),
+          event: "run.rugpull_relaunch_failed",
+          runId: failedRunId,
+          workflowId: run.workflow_id,
+          detail:
+            "Rugpull relaunch not attempted: working_directory_for_harness is missing from run context",
+        });
         return { relaunched: false };
       }
 
@@ -258,9 +274,16 @@ export async function relaunchRunAfterRugpull(
         workingDirectoryForHarness: workingDir,
       });
     }
-  } catch {
+  } catch (err) {
     // If runWorkflow fails (e.g. daemon unreachable), treat as non-relaunched.
     // Callers should fire-and-forget this function so errors here don't cascade.
+    emitEvent({
+      ts: new Date().toISOString(),
+      event: "run.rugpull_relaunch_failed",
+      runId: failedRunId,
+      workflowId: run.workflow_id,
+      detail: `Rugpull relaunch failed: ${String(err)}`,
+    });
     return { relaunched: false };
   }
 

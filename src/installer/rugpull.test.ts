@@ -37,7 +37,9 @@ async function waitForRugpullEvents(
     const rugpullEvents = events.filter(
       (e) =>
         e.event === "run.rugpull_detected" ||
-        e.event === "run.rugpull_relaunched",
+        e.event === "run.rugpull_relaunched" ||
+        e.event === "run.rugpull_relaunch_suppressed" ||
+        e.event === "run.rugpull_relaunch_failed",
     );
     if (rugpullEvents.length > 0) return rugpullEvents;
     await new Promise((r) => setTimeout(r, 50));
@@ -829,14 +831,19 @@ describe("relaunchRunAfterRugpull", () => {
       process.env.TAMANDUA_STATE_DIR!,
       runId,
     );
-    const relaunchEvents = events.filter(
-      (e) => e.event === "run.rugpull_relaunched",
+    const suppressionEvents = events.filter(
+      (e) => e.event === "run.rugpull_relaunch_suppressed",
     );
-    assert.equal(relaunchEvents.length, 1, "should emit one suppression event");
+    assert.equal(suppressionEvents.length, 1, "should emit one suppression event");
     assert.ok(
-      String(relaunchEvents[0].detail).includes("suppressed"),
+      String(suppressionEvents[0].detail).includes("suppressed"),
       "event detail should mention suppression",
     );
+    // Verify no legacy relaunched event was emitted
+    const legacyRelaunched = events.filter(
+      (e) => e.event === "run.rugpull_relaunched",
+    );
+    assert.equal(legacyRelaunched.length, 0, "should not emit legacy relaunched event for suppression");
   });
 
   it("returns relaunched=false for nonexistent run", async () => {
@@ -883,6 +890,90 @@ describe("relaunchRunAfterRugpull", () => {
 
     const result = await relaunchRunAfterRugpull(runId);
     assert.equal(result.relaunched, false, "should not relaunch without origin repo");
+
+    // Verify failure event was emitted
+    const events = readEventsForRun(
+      process.env.TAMANDUA_STATE_DIR!,
+      runId,
+    );
+    const failedEvents = events.filter(
+      (e) => e.event === "run.rugpull_relaunch_failed",
+    );
+    assert.equal(failedEvents.length, 1, "should emit relaunch_failed event");
+    assert.ok(
+      String(failedEvents[0].detail).includes("worktree_origin_repository"),
+      "event detail should mention missing worktree_origin_repository",
+    );
+  });
+
+  it("emits run.rugpull_relaunch_failed when working_directory_for_harness is missing (direct mode)", async () => {
+    const { relaunchRunAfterRugpull } = await import(
+      "../../dist/installer/rugpull.js"
+    );
+    const { getDb } = await import("../../dist/db.js");
+    const db = getDb();
+
+    const runId = "run-no-wd-event-01";
+    insertRun(db, runId, "feature-dev-merge", {
+      // no working_directory_for_harness, no repo fallback
+      workspace_mode: "direct",
+    }, "failed");
+
+    await relaunchRunAfterRugpull(runId);
+
+    // Verify failure event was emitted
+    const events = readEventsForRun(
+      process.env.TAMANDUA_STATE_DIR!,
+      runId,
+    );
+    const failedEvents = events.filter(
+      (e) => e.event === "run.rugpull_relaunch_failed",
+    );
+    assert.equal(failedEvents.length, 1, "should emit relaunch_failed event");
+    assert.ok(
+      String(failedEvents[0].detail).includes("working_directory_for_harness"),
+      "event detail should mention missing working_directory_for_harness",
+    );
+  });
+
+  it("emits run.rugpull_relaunch_failed when runWorkflow throws", async () => {
+    const workflowId = "test-relaunch-failure";
+    writeWorkflowYml(tempHome, workflowId, "direct");
+
+    const { relaunchRunAfterRugpull } = await import(
+      "../../dist/installer/rugpull.js"
+    );
+    const { getDb } = await import("../../dist/db.js");
+    const db = getDb();
+
+    const runId = "run-workflow-fail-01";
+    insertRun(db, runId, workflowId, {
+      repo: repoDir,
+      working_directory_for_harness: repoDir,
+      workspace_mode: "direct",
+      harness_type: "pi",
+      no_hurry_save_tokens_mode: "false",
+    }, "failed");
+
+    // Make the daemon unreachable so runWorkflow throws
+    const savedPort = process.env.TAMANDUA_CONTROL_PORT;
+    delete process.env.TAMANDUA_CONTROL_PORT;
+    try {
+      const result = await relaunchRunAfterRugpull(runId);
+      assert.equal(result.relaunched, false, "should not relaunch when runWorkflow throws");
+
+      // Verify failure event was emitted
+      const events = readEventsForRun(
+        process.env.TAMANDUA_STATE_DIR!,
+        runId,
+      );
+      const failedEvents = events.filter(
+        (e) => e.event === "run.rugpull_relaunch_failed",
+      );
+      assert.equal(failedEvents.length, 1, "should emit relaunch_failed event on runWorkflow error");
+    } finally {
+      process.env.TAMANDUA_CONTROL_PORT = savedPort;
+    }
   });
 
   it("launches replacement run in direct mode with same workflow_id and task", async () => {
@@ -1357,14 +1448,19 @@ describe("failStep rugpull integration", () => {
     assert.equal(detectedEvents.length, 1, "rugpull should still be detected");
 
     // But relaunch should be suppressed
-    const relaunchedEvents = events.filter(
-      (e) => e.event === "run.rugpull_relaunched",
+    const suppressedEvents = events.filter(
+      (e) => e.event === "run.rugpull_relaunch_suppressed",
     );
-    assert.equal(relaunchedEvents.length, 1, "should emit relaunch event (suppression)");
+    assert.equal(suppressedEvents.length, 1, "should emit relaunch_suppressed event");
     assert.ok(
-      String(relaunchedEvents[0].detail).includes("suppressed"),
+      String(suppressedEvents[0].detail).includes("suppressed"),
       "relaunch event should indicate suppression",
     );
+    // Verify no legacy relaunched event was emitted
+    const legacyRelaunched = events.filter(
+      (e) => e.event === "run.rugpull_relaunched",
+    );
+    assert.equal(legacyRelaunched.length, 0, "should not emit legacy relaunched event for suppression");
   });
 
   it("does NOT trigger rugpull when planner step fails", async () => {

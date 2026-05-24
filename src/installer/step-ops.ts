@@ -1776,10 +1776,22 @@ export async function failStep(stepId: string, error: string): Promise<{ status:
               workflowId: wfId2,
               detail: rugResult.reason,
             });
-            await relaunchRunAfterRugpull(step.run_id);
+            const relaunchResult = await relaunchRunAfterRugpull(step.run_id);
+            if (!relaunchResult.relaunched) {
+              // The function itself emits events for all failure/suppression paths,
+              // but log a warning so the failure is visible in system logs as well.
+              logger.warn("Rugpull relaunch did not launch a replacement run", {
+                runId: step.run_id,
+                result: relaunchResult,
+              });
+            }
           }
-        } catch {
+        } catch (err) {
           // fire-and-forget — errors must not prevent step failure from completing
+          logger.error("Rugpull detection/relaunch threw unexpectedly", {
+            runId: step.run_id,
+            error: String(err),
+          });
         }
       });
     }
