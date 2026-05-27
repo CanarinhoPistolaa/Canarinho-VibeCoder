@@ -924,16 +924,18 @@ describe("--help infrastructure", () => {
       try {
         assert.equal(initResult.status, 0);
         const loopResult = cli(["autoresearch", "loop",
+          "--measure-only",
           "--max-iterations", "1",
           "--cwd", testEnv.tmpDir,
         ]);
         try {
           assert.equal(loopResult.status, 0);
+          assert.match(loopResult.stdout ?? "", /\[measure-only\]/);
           assert.match(loopResult.stdout ?? "", /\[1\/1\]/);
           assert.match(loopResult.stdout ?? "", /Loop complete/);
           assert.match(loopResult.stdout ?? "", /Max iterations reached/);
           assert.match(loopResult.stdout ?? "", /Iterations: 1/);
-          assert.match(loopResult.stdout ?? "", /Best:/);
+          assert.match(loopResult.stdout ?? "", /Best/);
         } finally {
           fs.rmSync(loopResult.testEnv.tmpDir, { recursive: true, force: true });
         }
@@ -1037,16 +1039,18 @@ describe("--help infrastructure", () => {
       try {
         assert.equal(initResult.status, 0);
         const loopResult = cli(["autoresearch", "loop",
+          "--measure-only",
           "--max-iterations", "2",
           "--cwd", testEnv.tmpDir,
         ]);
         try {
           assert.equal(loopResult.status, 0);
+          assert.match(loopResult.stdout ?? "", /\[measure-only\]/);
           assert.match(loopResult.stdout ?? "", /\[1\/2\]/);
           assert.match(loopResult.stdout ?? "", /\[2\/2\]/);
           assert.match(loopResult.stdout ?? "", /Loop complete/);
           assert.match(loopResult.stdout ?? "", /Max iterations reached/);
-          assert.match(loopResult.stdout ?? "", /Best:/);
+          assert.match(loopResult.stdout ?? "", /Best/);
           assert.match(loopResult.stdout ?? "", /Iterations: 2/);
         } finally {
           fs.rmSync(loopResult.testEnv.tmpDir, { recursive: true, force: true });
@@ -1074,6 +1078,7 @@ describe("--help infrastructure", () => {
       try {
         assert.equal(initResult.status, 0);
         const loopResult = cli(["autoresearch", "loop",
+          "--measure-only",
           "--max-iterations", "5",
           "--target-metric", "0.2",
           "--cwd", testEnv.tmpDir,
@@ -1108,6 +1113,7 @@ describe("--help infrastructure", () => {
       try {
         assert.equal(initResult.status, 0);
         const loopResult = cli(["autoresearch", "loop",
+          "--measure-only",
           "--max-iterations", "10",
           "--max-consecutive-failures", "2",
           "--cwd", testEnv.tmpDir,
@@ -1142,15 +1148,18 @@ describe("--help infrastructure", () => {
       try {
         assert.equal(initResult.status, 0);
         const loopResult = cli(["autoresearch", "loop",
+          "--measure-only",
           "--max-iterations", "1",
           "--cwd", testEnv.tmpDir,
         ]);
         try {
           assert.equal(loopResult.status, 0);
+          assert.match(loopResult.stdout ?? "", /\[measure-only\]/);
           assert.match(loopResult.stdout ?? "", /\[1\/1\] Focus:/);
           assert.match(loopResult.stdout ?? "", /val=0\.3/);
           assert.match(loopResult.stdout ?? "", /decision=baseline/);
-          assert.match(loopResult.stdout ?? "", /best=0\.3/);
+          assert.match(loopResult.stdout ?? "", /best=0\.3 \(loop\)/);
+          assert.match(loopResult.stdout ?? "", /all-time/);
           assert.match(loopResult.stdout ?? "", /failures=0/);
           assert.match(loopResult.stdout ?? "", /Kept: 1/);
         } finally {
@@ -1179,6 +1188,7 @@ describe("--help infrastructure", () => {
       try {
         assert.equal(initResult.status, 0);
         const loopResult = cli(["autoresearch", "loop",
+          "--measure-only",
           "--max-iterations", "2",
           "--cwd", testEnv.tmpDir,
         ]);
@@ -1201,6 +1211,114 @@ describe("--help infrastructure", () => {
       }
     } finally {
       fs.rmSync(testEnv.tmpDir, { recursive: true, force: true });
+    }
+  });
+
+  it("tamandua autoresearch loop without action mode fails with clear error", () => {
+    const testEnv = makeTestEnv();
+    try {
+      const initResult = cli(["autoresearch", "init",
+        "--goal", "test mode requirement",
+        "--metric", "x",
+        "--direction", "lower",
+        "--command", "echo METRIC x=1",
+        "--cwd", testEnv.tmpDir,
+      ]);
+      assert.equal(initResult.status, 0);
+      const loopResult = cli(["autoresearch", "loop",
+        "--max-iterations", "1",
+        "--cwd", testEnv.tmpDir,
+      ]);
+      assert.notEqual(loopResult.status, 0);
+      assert.match(loopResult.stderr ?? "", /No action mode specified/);
+      assert.match(loopResult.stderr ?? "", /--measure-only/);
+      assert.match(loopResult.stderr ?? "", /--prompt/);
+    } finally {
+      fs.rmSync(testEnv.tmpDir, { recursive: true, force: true });
+    }
+  });
+
+  it("tamandua autoresearch loop --measure-only is accepted", () => {
+    const testEnv = makeTestEnv();
+    try {
+      const initResult = cli(["autoresearch", "init",
+        "--goal", "test measure-only",
+        "--metric", "x",
+        "--direction", "lower",
+        "--command", "echo METRIC x=1",
+        "--cwd", testEnv.tmpDir,
+      ]);
+      assert.equal(initResult.status, 0);
+      const loopResult = cli(["autoresearch", "loop",
+        "--measure-only",
+        "--max-iterations", "1",
+        "--cwd", testEnv.tmpDir,
+      ]);
+      assert.equal(loopResult.status, 0);
+      assert.match(loopResult.stdout ?? "", /\[measure-only\]/);
+    } finally {
+      fs.rmSync(testEnv.tmpDir, { recursive: true, force: true });
+    }
+  });
+
+  it("tamandua autoresearch loop --prompt is accepted", () => {
+    const testEnv = makeTestEnv();
+    try {
+      const initResult = cli(["autoresearch", "init",
+        "--goal", "test prompt mode",
+        "--metric", "x",
+        "--direction", "lower",
+        "--command", "echo METRIC x=1",
+        "--cwd", testEnv.tmpDir,
+      ]);
+      assert.equal(initResult.status, 0);
+      const loopResult = cli(["autoresearch", "loop",
+        "--prompt",
+        "--max-iterations", "1",
+        "--cwd", testEnv.tmpDir,
+      ]);
+      assert.equal(loopResult.status, 0);
+      // Prompt mode will try to invoke pi, which may not be available.
+      // The important thing is that it was accepted and ran.
+    } finally {
+      fs.rmSync(testEnv.tmpDir, { recursive: true, force: true });
+    }
+  });
+
+  it("tamandua autoresearch loop --measure-only --prompt fails with conflict error", () => {
+    const testEnv = makeTestEnv();
+    try {
+      const initResult = cli(["autoresearch", "init",
+        "--goal", "test conflict",
+        "--metric", "x",
+        "--direction", "lower",
+        "--command", "echo METRIC x=1",
+        "--cwd", testEnv.tmpDir,
+      ]);
+      assert.equal(initResult.status, 0);
+      const loopResult = cli(["autoresearch", "loop",
+        "--measure-only",
+        "--prompt",
+        "--max-iterations", "1",
+        "--cwd", testEnv.tmpDir,
+      ]);
+      assert.notEqual(loopResult.status, 0);
+      assert.match(loopResult.stderr ?? "", /one action mode at a time/);
+    } finally {
+      fs.rmSync(testEnv.tmpDir, { recursive: true, force: true });
+    }
+  });
+
+  it("tamandua autoresearch loop --help shows action mode flags", () => {
+    const result = cli(["autoresearch", "loop", "--help"]);
+    try {
+      assert.equal(result.status, 0);
+      assert.match(result.stdout ?? "", /--measure-only/);
+      assert.match(result.stdout ?? "", /--prompt/);
+      assert.match(result.stdout ?? "", /Action mode/);
+      assert.match(result.stdout ?? "", /REQUIRED/);
+    } finally {
+      fs.rmSync(result.testEnv.tmpDir, { recursive: true, force: true });
     }
   });
 

@@ -1350,9 +1350,14 @@ function getAutoresearchLoopHelp(): string {
 
 Usage: tamandua autoresearch loop [options]
 
-Runs a bounded AutoResearch experiment loop using the existing primitives:
-run-experiment to measure, log-experiment to classify, and next to guide.
-Displays live progress in the terminal for the entire loop.
+Runs a bounded AutoResearch experiment loop. An action mode is REQUIRED —
+the loop will fail without one.
+
+Action modes:
+  --measure-only    Repeated benchmark only (no optimization). Honest measurement;
+                    no code/config changes between iterations.
+  --prompt          pi-driven optimization. Between iterations, spawns pi to make
+                    one small code change guided by AutoResearch history.
 
 Options:
   --target-metric <number>        Stop loop when the target metric is reached
@@ -1368,20 +1373,20 @@ Stop conditions (the loop stops when any one is met):
   - User cancels with Ctrl-C / SIGINT
 
 Progress display shows for each iteration:
-  [N/MAX] iteration number, current hypothesis/focus, command being run,
-  measured metric, decision (keep/discard/crash), best metric so far,
+  [measure-only] or [prompt] label, [N/MAX] iteration number, current focus,
+  measured metric, decision (keep/discard/crash), best metric (loop + all-time),
   failure count, and stop reason.
 
 After the loop ends, a final summary prints: total iterations, best
-metric, best run number, and kept/discarded/crashed counts.
+metric (this loop and all-time), best run number, and kept/discarded/crashed counts.
 
 Cancellation (Ctrl-C / SIGINT) prints the last completed iteration info
 and leaves autoresearch.jsonl in a consistent state.
 
 Examples:
-  tamandua autoresearch loop --max-iterations 10
-  tamandua autoresearch loop --target-metric 0.5 --max-iterations 30
-  tamandua autoresearch loop --target-metric 1200 --max-consecutive-failures 5`;
+  tamandua autoresearch loop --measure-only --max-iterations 10
+  tamandua autoresearch loop --prompt --target-metric 0.5 --max-iterations 30
+  tamandua autoresearch loop --prompt --max-consecutive-failures 5`;
 }
 
 function getUsageText(): string {
@@ -2150,7 +2155,20 @@ async function main() {
         process.stderr.write(`Invalid --max-consecutive-failures "${maxFailRaw}".\n`);
         process.exit(1);
       }
-      await loopAutoresearch({ cwd, targetMetric, maxIterations, maxConsecutiveFailures });
+      const isMeasureOnly = args.includes("--measure-only");
+      const isPrompt = args.includes("--prompt");
+      if (!isMeasureOnly && !isPrompt) {
+        process.stderr.write(
+          "No action mode specified. Use --measure-only for repeated benchmarks (no optimization) or --prompt for pi-driven optimization.\n",
+        );
+        process.exit(1);
+      }
+      if (isMeasureOnly && isPrompt) {
+        process.stderr.write("Can only specify one action mode at a time (--measure-only or --prompt).\n");
+        process.exit(1);
+      }
+      const actionMode = isMeasureOnly ? "measure-only" : "prompt";
+      await loopAutoresearch({ cwd, targetMetric, maxIterations, maxConsecutiveFailures, actionMode });
       return;
     }
 

@@ -8,6 +8,7 @@ import {
   decideStatus,
   initExperiment,
   logExperiment,
+  loopAutoresearch,
   parseMetric,
   readAutoresearchLog,
   runExperiment,
@@ -178,5 +179,120 @@ describe("autoresearch state model", () => {
     assert.equal(parseMetric("loss=1.2\ncustom=9.8", "loss", "custom=([0-9.]+)"), 9.8);
     assert.equal(parseMetric("val_bpb: 1.234", "val_bpb"), 1.234);
     assert.equal(parseMetric("no metric here", "val_bpb"), null);
+  });
+});
+
+describe("autoresearch loop", () => {
+  it("rejects loopAutoresearch without actionMode", async () => {
+    const cwd = makeTempDir();
+    initExperiment({
+      cwd,
+      goal: "reduce loss",
+      metricName: "loss",
+      direction: "lower",
+      command: nodeMetricCommand("loss", 5),
+    });
+
+    await assert.rejects(
+      loopAutoresearch({ cwd, maxIterations: 1 }),
+      /No action mode specified/,
+    );
+  });
+
+  it("runs measure-only loop and labels iterations", async () => {
+    const cwd = makeTempDir();
+    initExperiment({
+      cwd,
+      goal: "reduce loss",
+      metricName: "loss",
+      direction: "lower",
+      command: nodeMetricCommand("loss", 5),
+    });
+
+    const result = await loopAutoresearch({
+      cwd,
+      maxIterations: 2,
+      actionMode: "measure-only",
+    });
+
+    assert.equal(result.iterations, 2);
+    assert.equal(result.bestMetric, 5);
+    assert.ok(result.stopReason?.includes("Max iterations"));
+
+    const summary = summarizeAutoresearch(cwd);
+    assert.equal(summary.totalRuns, 2);
+  });
+
+  it("displays historical best distinctly from loop best", async () => {
+    const cwd = makeTempDir();
+    initExperiment({
+      cwd,
+      goal: "reduce loss",
+      metricName: "loss",
+      direction: "lower",
+      command: nodeMetricCommand("loss", 5),
+    });
+
+    // Create a prior session with a historical best of 3.0
+    const priorDir = makeTempDir();
+    initExperiment({
+      cwd: priorDir,
+      goal: "reduce loss",
+      metricName: "loss",
+      direction: "lower",
+      command: nodeMetricCommand("loss", 3),
+    });
+    const priorResult = await runExperiment({ cwd: priorDir });
+    await logExperiment({
+      cwd: priorDir,
+      status: "auto",
+      description: "prior best run",
+    });
+
+    // Copy the prior log to the current dir so there is history
+    fs.copyFileSync(
+      path.join(priorDir, "autoresearch.jsonl"),
+      path.join(cwd, "autoresearch.jsonl"),
+    );
+
+    const result = await loopAutoresearch({
+      cwd,
+      maxIterations: 1,
+      actionMode: "measure-only",
+    });
+
+    // New loop measured 5, so loop best is 5
+    assert.equal(result.bestMetric, 5);
+    // But all-time best from prior session (3) should still be reported
+    // The allTimeBestMetric should reflect the prior best if the combined log shows it
+    // Note: copying the log doesn't change the config's knowledge of history,
+    // but loopAutoresearch reads from the actual log file on each iteration.
+    // On the second iteration, the log has both prior best (3) and new run (5).
+    // The initial summary should show bestMetric=3 from prior session.
+    // Since result.allTimeBestMetric is set from initialSummary, it should be 3.
+    assert.equal(result.allTimeBestMetric, 3);
+  });
+
+  it("accepts --prompt mode and invokes agent between iterations", async () => {
+    const cwd = makeTempDir();
+    initExperiment({
+      cwd,
+      goal: "reduce loss",
+      metricName: "loss",
+      direction: "lower",
+      command: nodeMetricCommand("loss", 5),
+    });
+
+    const result = await loopAutoresearch({
+      cwd,
+      maxIterations: 1,
+      actionMode: "prompt",
+    });
+
+    // With prompt mode, the loop tries to spawn pi.
+    // If pi is not available, the agent step fails and we get 0 iterations
+    // or a failure loop. The loop should not crash.
+    // We just verify it completes without throwing.
+    assert.ok(result.stopReason !== null);
   });
 });

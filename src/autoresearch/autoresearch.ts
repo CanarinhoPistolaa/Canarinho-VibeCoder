@@ -141,12 +141,15 @@ export type LoopAutoresearchOptions = {
   targetMetric?: number;
   maxIterations?: number;
   maxConsecutiveFailures?: number;
+  actionMode?: "measure-only" | "prompt";
 };
 
 export type LoopAutoresearchResult = {
   iterations: number;
   bestMetric: number | null;
   bestRun: number | null;
+  allTimeBestMetric: number | null;
+  allTimeBestRun: number | null;
   kept: number;
   discarded: number;
   crashed: number;
@@ -709,11 +712,79 @@ async function runHook(paths: AutoresearchPaths, name: "before" | "after", paylo
   });
 }
 
+function parsePiOutput(stdout: string): { status: string; changes: string; hypothesis?: string; learned?: string; nextFocus?: string } | null {
+  const statusMatch = stdout.match(/^STATUS:\s*(.+)$/m);
+  if (!statusMatch) return null;
+  const status = statusMatch[1].trim();
+  const changesMatch = stdout.match(/^CHANGES:\s*(.+)$/m);
+  const changes = changesMatch?.[1].trim() ?? "";
+  const hypothesisMatch = stdout.match(/^HYPOTHESIS:\s*(.+)$/m);
+  const hypothesis = hypothesisMatch?.[1].trim();
+  const learnedMatch = stdout.match(/^LEARNED:\s*(.+)$/m);
+  const learned = learnedMatch?.[1].trim();
+  const nextFocusMatch = stdout.match(/^NEXT_FOCUS:\s*(.+)$/m);
+  const nextFocus = nextFocusMatch?.[1].trim();
+  return { status, changes, hypothesis, learned, nextFocus };
+}
+
+async function runPiAgent(cwd: string, prompt: string): Promise<{ success: boolean; stdout: string; stderr: string; hypothesis?: string; learned?: string; nextFocus?: string }> {
+  return new Promise((resolve) => {
+    const piCmd = "pi";
+    const args = ["--print", "--no-tui", "--cwd", cwd, "--message", prompt, "--mode", "json"];
+    const child = spawn(piCmd, args, {
+      cwd,
+      stdio: ["pipe", "pipe", "pipe"],
+    });
+    let stdout = "";
+    let stderr = "";
+    let settled = false;
+    const settle = (result: { success: boolean; stdout: string; stderr: string; hypothesis?: string; learned?: string; nextFocus?: string }) => {
+      if (settled) return;
+      settled = true;
+      child.kill("SIGTERM");
+      resolve(result);
+    };
+    const timer = setTimeout(() => {
+      settle({ success: false, stdout, stderr: "pi agent timed out after 60s" });
+    }, 60_000);
+    child.stdout?.on("data", (chunk: Buffer) => { stdout += chunk.toString(); });
+    child.stderr?.on("data", (chunk: Buffer) => { stderr += chunk.toString(); });
+    child.on("close", (code) => {
+      clearTimeout(timer);
+      const parsed = parsePiOutput(stdout);
+      settle({
+        success: code === 0 && parsed?.status === "done",
+        stdout,
+        stderr,
+        hypothesis: parsed?.hypothesis,
+        learned: parsed?.learned,
+        nextFocus: parsed?.nextFocus,
+      });
+    });
+    child.on("error", (err) => {
+      clearTimeout(timer);
+      settle({ success: false, stdout, stderr: String(err) });
+    });
+  });
+}
+
 export async function loopAutoresearch(options: LoopAutoresearchOptions = {}): Promise<LoopAutoresearchResult> {
   const cwd = path.resolve(options.cwd ?? process.cwd());
   const config = readSessionConfig(cwd);
+
+  if (!options.actionMode) {
+    throw new Error(
+      "No action mode specified. Use --measure-only for repeated benchmarks (no optimization) or --prompt for pi-driven optimization.",
+    );
+  }
+
   const maxIterations = options.maxIterations ?? 20;
   const maxConsecutiveFailures = options.maxConsecutiveFailures ?? 3;
+  const isMeasureOnly = options.actionMode === "measure-only";
+
+  const initialSummary = summarizeAutoresearch(cwd);
+  const allTimeBestMetric = initialSummary.bestMetric;
+  const allTimeBestRun = initialSummary.bestRun;
 
   let bestMetric: number | null = null;
   let bestRun: number | null = null;
@@ -750,7 +821,54 @@ export async function loopAutoresearch(options: LoopAutoresearchOptions = {}): P
       const nextFocusLine = nextPromptLines.find((line) => line.startsWith("Next focus:"));
       const nextFocus = nextFocusLine?.replace("Next focus: ", "") ?? "Explore improvements";
 
-      process.stdout.write(`[${iterations}/${maxIterations}] Focus: ${nextFocus.slice(0, 80)}${nextFocus.length > 80 ? "..." : ""}\n`);
+      const modeLabel = isMeasureOnly ? "[measure-only]" : "[prompt]";
+      process.stdout.write(`${modeLabel} [${iterations}/${maxIterations}] Focus: ${nextFocus.slice(0, 80)}${nextFocus.length > 80 ? "..." : ""}\n`);
+
+      let hypothesis: string | undefined;
+      let learned: string | undefined;
+      let nextFocusOverride: string | undefined;
+
+      if (!isMeasureOnly) {
+        const remainingIters = maxIterations - iterations;
+        const targetMsg = options.targetMetric !== undefined
+          ? `You have at most ${remainingIters} remaining iterations. Target: ${config.metricName} ${config.direction === "lower" ? "<=" : ">="} ${options.targetMetric}.`
+          : `You have at most ${remainingIters} remaining iterations.`;
+        const failureMsg = `Stop if you cannot make progress after ${maxConsecutiveFailures} consecutive attempts.`;
+        const agentPrompt = [
+          summary.nextPrompt,
+          "",
+          "INSTRUCTIONS:",
+          `- This is iteration ${iterations} of an AutoResearch loop. ${targetMsg} ${failureMsg}`,
+          "- Make exactly ONE small code change to improve the metric.",
+          "- After your change, output exactly these fields on separate lines:",
+          "  STATUS: done (if you made a change) or STATUS: no_change (if you could not improve further)",
+          "  CHANGES: brief description of what you changed",
+          "  HYPOTHESIS: why you think this change will improve the metric",
+          "  LEARNED: what you learned (regardless of outcome)",
+          "  NEXT_FOCUS: what to try next",
+          "- Do not run experiments yourself — the loop will measure after you finish.",
+        ].join("\n");
+
+        process.stdout.write(`${modeLabel} [${iterations}/${maxIterations}] Invoking agent...\n`);
+        const agentResult = await runPiAgent(cwd, agentPrompt);
+
+        if (!agentResult.success) {
+          process.stdout.write(`${modeLabel} [${iterations}/${maxIterations}] Agent failed or reported no change.\n`);
+          consecutiveFailures++;
+          const truncatedStderr = agentResult.stderr ? ` (stderr: ${agentResult.stderr.slice(0, 120)})` : "";
+          process.stdout.write(`${modeLabel} [${iterations}/${maxIterations}] ${config.metricName}=skipped decision=agent_failure failures=${consecutiveFailures}${truncatedStderr}\n`);
+
+          if (consecutiveFailures >= maxConsecutiveFailures) {
+            stopReason = `Too many consecutive agent failures (${consecutiveFailures}/${maxConsecutiveFailures})`;
+            break;
+          }
+          continue;
+        }
+
+        hypothesis = agentResult.hypothesis;
+        learned = agentResult.learned;
+        nextFocusOverride = agentResult.nextFocus;
+      }
 
       const result = await runExperiment({ cwd });
       lastCompletedIteration = iterations;
@@ -763,6 +881,9 @@ export async function loopAutoresearch(options: LoopAutoresearchOptions = {}): P
         cwd,
         status: "auto",
         description,
+        hypothesis,
+        learned,
+        nextFocus: nextFocusOverride,
       });
 
       if (logEntry.status === "crash") {
@@ -788,8 +909,9 @@ export async function loopAutoresearch(options: LoopAutoresearchOptions = {}): P
       }
 
       const metricStr = result.metric !== null ? String(result.metric) : "crash";
-      const bestStr = bestMetric !== null ? String(bestMetric) : "-";
-      process.stdout.write(`[${iterations}/${maxIterations}] ${config.metricName}=${metricStr} decision=${logEntry.status} best=${bestStr} failures=${consecutiveFailures}\n`);
+      const loopBestStr = bestMetric !== null ? String(bestMetric) : "-";
+      const allTimeStr = allTimeBestMetric !== null ? `${allTimeBestMetric}${allTimeBestRun ? ` (run ${allTimeBestRun})` : ""}` : "-";
+      process.stdout.write(`${modeLabel} [${iterations}/${maxIterations}] ${config.metricName}=${metricStr} decision=${logEntry.status} best=${loopBestStr} (loop) | ${allTimeStr} (all-time) failures=${consecutiveFailures}\n`);
 
       if (options.targetMetric !== undefined && result.metric !== null) {
         const targetReached = config.direction === "lower"
@@ -813,13 +935,16 @@ export async function loopAutoresearch(options: LoopAutoresearchOptions = {}): P
 
     process.stdout.write(`\nLoop complete. ${stopReason}\n`);
     process.stdout.write(`Iterations: ${iterations}\n`);
-    process.stdout.write(`Best: ${bestMetric !== null ? `${config.metricName}=${bestMetric}` : "(none)"}${bestRun ? ` (run ${bestRun})` : ""}\n`);
+    process.stdout.write(`Best (this loop): ${bestMetric !== null ? `${config.metricName}=${bestMetric}` : "(none)"}${bestRun ? ` (run ${bestRun})` : ""}\n`);
+    process.stdout.write(`Best (all-time): ${allTimeBestMetric !== null ? `${config.metricName}=${allTimeBestMetric}` : "(none)"}${allTimeBestRun ? ` (run ${allTimeBestRun})` : ""}\n`);
     process.stdout.write(`Kept: ${kept}  Discarded: ${discarded}  Crashed: ${crashed}  Checks failed: ${checksFailed}\n`);
 
     return {
       iterations,
       bestMetric,
       bestRun,
+      allTimeBestMetric,
+      allTimeBestRun,
       kept,
       discarded,
       crashed,
