@@ -4,13 +4,13 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { getDb, nextRunNumber } from "../db.js";
 import { loadWorkflowSpec } from "./workflow-spec.js";
-import { resolveWorkflowDir } from "./paths.js";
+import { resolveWorkflowDir, resolvePiStateDir } from "./paths.js";
 import {
   ensureDaemonControlAvailable,
   registerRunWithDaemon,
 } from "../server/control-client.js";
 import { emitEvent } from "./events.js";
-import { advancePipeline } from "./step-ops.js";
+import { advancePipeline, scheduleRunCronTeardown } from "./step-ops.js";
 import {
   RUN_CONTEXT_WORKING_DIRECTORY_FOR_HARNESS_KEY,
   validateRunHarnessForScheduling,
@@ -114,9 +114,29 @@ export async function runWorkflow(
     workingDirectoryForHarness = path.resolve(
       requestedWorkingDirectoryForHarness ?? process.cwd(),
     );
+
+    // For just-do-it workflows, the dispatcher runs from a neutral
+    // workspace under Tamandua state so it doesn't occupy the user's
+    // target repository as its harness directory. The target repo path
+    // is preserved in context for child workflow launch.
+    if (workflowId === "just-do-it") {
+      const targetRepo = workingDirectoryForHarness;
+      const stateDir = resolvePiStateDir();
+      const dispatcherDir = path.join(
+        stateDir,
+        "just-do-it-workspaces",
+        runId,
+      );
+      await fs.mkdir(dispatcherDir, { recursive: true });
+      workingDirectoryForHarness = dispatcherDir;
+      seededContext.target_working_directory_for_harness = targetRepo;
+      seededContext.repo = targetRepo;
+    } else {
+      seededContext.repo = workingDirectoryForHarness;
+    }
+
     seededContext[RUN_CONTEXT_WORKING_DIRECTORY_FOR_HARNESS_KEY] =
       workingDirectoryForHarness;
-    seededContext.repo = workingDirectoryForHarness;
 
     // Capture original branch for rugpull detection in direct mode — records
     // the base branch name at run creation so downstream detection can compare
@@ -281,8 +301,16 @@ export async function runWorkflow(
         ? registration.body.error
         : "daemon registration failed";
     db.prepare(
-      "UPDATE runs SET scheduling_status = 'error', scheduling_error = ?, updated_at = datetime('now') WHERE id = ?",
+      "UPDATE runs SET status = 'failed', scheduling_status = NULL, scheduling_error = ?, updated_at = datetime('now') WHERE id = ?",
     ).run(message, runId);
+    emitEvent({
+      ts: new Date().toISOString(),
+      event: "run.failed",
+      runId,
+      workflowId,
+      detail: `Registration failed: ${message}`,
+    });
+    scheduleRunCronTeardown(runId);
     throw new Error(`Failed to register run with daemon: ${message}`);
   }
 
@@ -343,8 +371,16 @@ export async function resumeWorkflow(runId: string): Promise<ResumeResult> {
         ? registration.body.error
         : "daemon registration failed";
     db.prepare(
-      "UPDATE runs SET scheduling_status = 'error', scheduling_error = ?, updated_at = datetime('now') WHERE id = ?",
+      "UPDATE runs SET status = 'failed', scheduling_status = NULL, scheduling_error = ?, updated_at = datetime('now') WHERE id = ?",
     ).run(message, run.id);
+    emitEvent({
+      ts: new Date().toISOString(),
+      event: "run.failed",
+      runId: run.id,
+      workflowId: run.workflow_id,
+      detail: `Resume registration failed: ${message}`,
+    });
+    scheduleRunCronTeardown(run.id);
     throw new Error(`Failed to register resumed run with daemon: ${message}`);
   }
 

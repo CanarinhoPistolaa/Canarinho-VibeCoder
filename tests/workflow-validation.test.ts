@@ -1308,7 +1308,7 @@ describe("US-003: just-do-it dispatch step dynamic workflow selection", () => {
 
   it("dispatch step preserves no-hurry decision logic", () => {
     assert.match(justDoItYml, /\{\{no_hurry_save_tokens_mode\}\}/);
-    assert.match(justDoItYml, /--no-hurry ALWAYS/);
+    assert.match(justDoItYml, /--no-hurry-please-save-tokens-mode ALWAYS/);
     assert.match(justDoItYml, /URGENT.*ASAP.*immediately.*right now/);
     assert.match(justDoItYml, /when you get a chance.*no rush.*whenever/);
   });
@@ -1338,5 +1338,97 @@ describe("US-003: just-do-it dispatch step dynamic workflow selection", () => {
     // Verifies standalone rule text hasn't been altered
     assert.match(justDoItYml, /do-now.*standalone/);
     assert.match(justDoItYml, /do-review-do-verify.*standalone/);
+  });
+});
+
+describe("US-007: just-do-it CLI syntax and behavior validation", () => {
+  const justDoItYml = readFileSync(resolve(wfDir("just-do-it"), "workflow.yml"), "utf-8");
+  const dispatcherAgentsMd = readFileSync(resolve(wfDir("just-do-it"), "agents", "dispatcher", "AGENTS.md"), "utf-8");
+
+  // Extract dispatch step input from workflow.yml
+  const afterInput = justDoItYml.split("input: |")[1];
+  const dispatchStepInput = afterInput?.split("\n    expects:")[0] ?? "";
+
+  // AC 1: just-do-it workflow.yml dispatch step input has no --task flag
+  it("dispatch step input does NOT instruct using --task flag as a CLI argument", () => {
+    // No command line should pass --task with a value
+    assert.doesNotMatch(dispatchStepInput, /--task\s+"/);
+    assert.doesNotMatch(dispatchStepInput, /--task\s+'/);
+    // Should instruct using positional task text instead
+    assert.match(dispatchStepInput, /Task text is positional/);
+  });
+
+  // AC 2: just-do-it workflow.yml dispatch step input has no bare --no-hurry flag
+  it("dispatch step input does NOT contain bare --no-hurry flag", () => {
+    // --no-hurry should only appear as part of --no-hurry-please-save-tokens-mode
+    assert.doesNotMatch(dispatchStepInput, /--no-hurry(?!-please-save-tokens-mode)/);
+  });
+
+  // AC 3: just-do-it workflow.yml dispatch step input contains --no-hurry-please-save-tokens-mode
+  it("dispatch step input contains --no-hurry-please-save-tokens-mode", () => {
+    assert.match(dispatchStepInput, /--no-hurry-please-save-tokens-mode/);
+  });
+
+  // AC 4: just-do-it workflow.yml dispatch step input references --working-directory-for-harness
+  it("dispatch step input references --working-directory-for-harness", () => {
+    assert.match(dispatchStepInput, /--working-directory-for-harness/);
+  });
+
+  // AC 5: just-do-it workflow.yml dispatch step input references --worktree-origin-repository
+  it("dispatch step input references --worktree-origin-repository", () => {
+    assert.match(dispatchStepInput, /--worktree-origin-repository/);
+  });
+
+  // AC 6: just-do-it dispatch step input states runtime launch errors are fatal
+  it("dispatch step input states runtime launch errors are fatal", () => {
+    assert.match(dispatchStepInput, /[Ff][Aa][Tt][Aa][Ll]/);
+    assert.match(dispatchStepInput, /step fail/);
+    // Should also mention no fallback on runtime errors
+    assert.match(dispatchStepInput, /Do NOT try fallback/);
+  });
+
+  // AC 7: just-do-it AGENTS.md uses supported CLI flags only
+  it("dispatcher AGENTS.md uses --no-hurry-please-save-tokens-mode not bare --no-hurry", () => {
+    // The correct flag must appear
+    assert.match(dispatcherAgentsMd, /--no-hurry-please-save-tokens-mode/);
+    // Command examples in AGENTS.md must not use bare --no-hurry
+    const commandLines = dispatcherAgentsMd.split("\n").filter((l) => l.includes("tamandua workflow run"));
+    for (const line of commandLines) {
+      assert.doesNotMatch(line, /--no-hurry(?!-please-save-tokens-mode)/,
+        `AGENTS.md command line should not use bare --no-hurry: ${line.trim()}`);
+    }
+  });
+
+  it("dispatcher AGENTS.md uses positional task text not --task flag", () => {
+    // Command examples must not use --task as a flag
+    const commandLines = dispatcherAgentsMd.split("\n").filter((l) => l.includes("tamandua workflow run"));
+    assert.ok(commandLines.length > 0, "AGENTS.md should contain tamandua workflow run examples");
+    for (const line of commandLines) {
+      assert.doesNotMatch(line, /--task\s/,
+        `AGENTS.md command line should not use --task flag: ${line.trim()}`);
+    }
+    // Should show positional task text in examples
+    assert.match(dispatcherAgentsMd, /"<the user's original task>"/);
+  });
+
+  // Verify workflow.yml and AGENTS.md agree: both use --working-directory-for-harness and --worktree-origin-repository
+  it("AGENTS.md also references --working-directory-for-harness and --worktree-origin-repository", () => {
+    assert.match(dispatcherAgentsMd, /--working-directory-for-harness/);
+    assert.match(dispatcherAgentsMd, /--worktree-origin-repository/);
+  });
+
+  // Verify AGENTS.md also states runtime errors are fatal
+  it("AGENTS.md states runtime launch errors are fatal", () => {
+    assert.match(dispatcherAgentsMd, /[Ff][Aa][Tt][Aa][Ll]/);
+    assert.match(dispatcherAgentsMd, /step fail/);
+    assert.match(dispatcherAgentsMd, /Do NOT try|no fallback|not.*fallback/i);
+  });
+
+  // Verify workflow.yml and AGENTS.md agree on must-report behavior
+  it("dispatch step input and AGENTS.md both require step complete or step fail before exit", () => {
+    assert.match(dispatchStepInput, /step complete/);
+    assert.match(dispatchStepInput, /step fail/);
+    assert.match(dispatcherAgentsMd, /step complete/);
+    assert.match(dispatcherAgentsMd, /step fail/);
   });
 });

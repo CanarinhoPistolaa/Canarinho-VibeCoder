@@ -1,0 +1,155 @@
+# Progress Log
+Run: c8545643-c9b1-434e-9ef8-ff9a937d91bf
+Task: Fix two related Tamandua workflow-dispatch bugs around `just-do-it` and daemon registration failures.
+Started: 2026-05-26
+
+## Codebase Patterns
+
+- **Registration failure handling:** When `registerRunWithDaemon()` returns null/non-2xx after run creation, use `scheduleRunCronTeardown(runId)` for fire-and-forget scheduling teardown (calls `removeRunCrons` + `terminateRunWithDaemon` via dynamic import).
+- **Terminal run marking:** Set `status = 'failed'` and `scheduling_status = NULL` in a single UPDATE; the reconciler filters `WHERE status IN ('running')` so terminal runs are automatically excluded.
+- **Event emission:** Use `emitEvent()` from `./events.js` — writes to run-specific and global JSONL files. The event should use `detail` field for failure context.
+- **Tests use self-contained pattern:** In-memory `DatabaseSync`, custom `test()`/`assert()` functions, no framework dependencies. Tests import from `dist/` via dynamic `import()` for ESM compatibility.
+- **`scheduleRunCronTeardown`** is exported from `./step-ops.js` and handles DB update (clears scheduling_status for terminal runs), cron removal, and daemon termination — all fire-and-forget.
+- **Reconciler query** in `control-server.ts`: `WHERE status IN ('running') AND (scheduling_status IS NULL OR scheduling_status IN ('pending_register', 'active', 'error'))`
+- **Resume registration failure pattern** mirrors new-run registration failure: same 3-line pattern (UPDATE status='failed' + scheduling_status=NULL, emitEvent, scheduleRunCronTeardown), with event detail prefixed "Resume registration failed:" instead of "Registration failed:"
+- **just-do-it dispatcher workspace:** When `workflowId === "just-do-it"` and workspace mode is direct, the harness working directory is redirected to a neutral per-run workspace under `<tamandua-state>/just-do-it-workspaces/<runId>`. The original target repo is preserved in `target_working_directory_for_harness` context key. The `repo` context key points to the target repo (not the neutral workspace) for git operations.
+- **resolvePiStateDir()** from `./paths.js` returns `process.env.TAMANDUA_STATE_DIR` or `~/.tamandua`. Imported alongside `resolveWorkflowDir`.
+- **Workflow validation test extraction:** Dispatch step input is extracted from workflow.yml by splitting on `"input: |"` and `"\n    expects:"`. The `dispatchStepInput` variable is used for targeted tests.
+- **Regex patterns for CLI flag validation:** Use `--flag\s+"` to match flag-as-argument (not advisory text). Use negative lookahead `--no-hurry(?!-please-save-tokens-mode)` for bare flag detection where no advisory mentions exist. For multi-line matching in `assert.match`, check terms individually rather than using `.*` across newlines.
+
+---
+
+## Story Plan
+
+### US-001: Mark new runs as terminal failed on daemon registration failure
+
+### US-002: Mark resumed runs as terminal failed on daemon registration failure
+
+### US-003: Add tests for registration-failure terminal handling
+
+### US-004: Create neutral dispatcher workspace for just-do-it runs
+
+### US-005: Fix just-do-it dispatcher AGENTS.md with correct CLI syntax, target workspace propagation, and failure behavior
+
+### US-006: Fix just-do-it workflow.yml dispatch step with correct CLI syntax and behavior
+
+### US-007: Add workflow validation tests for just-do-it CLI syntax and behavior
+
+### US-008: Run full test suite to verify no regressions
+
+---
+
+## 2026-05-26 - US-001: Mark new runs as terminal failed on daemon registration failure
+- Changed `src/installer/run.ts`: registration failure block in `runWorkflow()` now sets `status = 'failed'`, `scheduling_status = NULL` (was `'error'`), emits `run.failed` event, and calls `scheduleRunCronTeardown(runId)`
+- Added import of `scheduleRunCronTeardown` from `./step-ops.js`
+- Created `tests/run-registration-failure.test.ts` with 6 tests (20 assertions):
+  - Registration-failed run has status='failed', scheduling_status=NULL, scheduling_error preserved
+  - Body.error from daemon is preserved in scheduling_error
+  - Reconciler query (status='running') excludes terminal failed runs
+  - Old-style scheduling_status='error' zombies are confirmed to be picked up by reconciler (pre-fix behavior) and excluded after fix
+  - Successful registration leaves status='running', scheduling_status='active' (no regression)
+  - run.failed event detail contains registration failure message
+- Build + typecheck passes. Full test suite: 1988/1989 pass (1 pre-existing failure in readme-workflow-catalog.test.ts, unrelated).
+- **Learnings:** The `scheduleRunCronTeardown` function already handles all fire-and-forget teardown (DB update, cron removal, daemon termination). The reconciler's `WHERE status IN ('running')` filter naturally excludes terminal runs — no reconciler changes needed.
+
+## 2026-05-26 - US-002: Mark resumed runs as terminal failed on daemon registration failure
+- Changed `src/installer/run.ts` `resumeWorkflow()`: registration failure block now applies the same terminal-failed treatment as US-001 in `runWorkflow()`:
+  - UPDATE sets `status = 'failed'`, `scheduling_status = NULL` (was leaving `status = 'running'` with `scheduling_status = 'error'`)
+  - Emits `run.failed` event with detail `Resume registration failed: ${message}`
+  - Calls `scheduleRunCronTeardown(run.id)` for fire-and-forget teardown
+- No new imports needed — `emitEvent` and `scheduleRunCronTeardown` already imported at top of file
+- Build + typecheck passes. Full test suite: 1988/1989 pass (same pre-existing failure).
+- **Learnings:** The `resumeWorkflow()` failure path was almost identical to `runWorkflow()`; the same 3-line pattern (UPDATE, emitEvent, scheduleRunCronTeardown) applies cleanly. The `event` uses `run.id` and `run.workflow_id` since the parameter is `runId` but the DB row is `run`.
+
+## 2026-05-26 - US-003: Add tests for registration-failure terminal handling
+- Extended `tests/run-registration-failure.test.ts` with 3 new tests (16 additional assertions, now 36 total):
+  - **Test: Resume registration failure → status='failed'** (10 assertions):
+    - Pre-registration state: resumed run starts as 'running' + 'pending_register'
+    - Post-failure: status='failed', scheduling_status=NULL, scheduling_error preserved
+    - Event emitted: run.failed with detail "Resume registration failed: ..."
+    - Reconciler exclusion: terminal failed resumed run not picked up
+  - **Test: Resume registration failure preserves body.error in scheduling_error** (3 assertions):
+    - Specific daemon error message preserved, status='failed', scheduling_status=NULL
+  - **Test: Successful resume leaves run as status='running', scheduling_status='active'** (3 assertions):
+    - No regression: successful resume produces running+active run that reconciler picks up
+- All 36 assertions pass. Full test suite: 1988/1989 pass (same pre-existing failure).
+- **Learnings:** The resume path mirrors the new-run path exactly. Both apply the same UPDATE pattern (status='failed', scheduling_status=NULL, scheduling_error=message, updated_at). Both emit run.failed events, with "Resume registration failed:" vs. "Registration failed:" prefix distinction. The reconciler query naturally excludes both.
+
+## 2026-05-26 - US-004: Create neutral dispatcher workspace for just-do-it runs
+- Changed `src/installer/run.ts`:
+  - Added `resolvePiStateDir` to imports from `./paths.js`
+  - In the direct workspace mode block, after resolving `workingDirectoryForHarness`: added a `just-do-it` conditional block that:
+    - Saves the resolved target repo path
+    - Creates neutral dispatcher workspace at `<tamandua-state>/just-do-it-workspaces/<runId>`
+    - Redirects `workingDirectoryForHarness` to the neutral workspace
+    - Sets `target_working_directory_for_harness` context key to preserve original target repo
+    - Sets `repo` context key to the target repo (for git operations)
+  - Non-just-do-it direct workflows use `else` branch: `seededContext.repo = workingDirectoryForHarness` (unchanged)
+- Extended `tests/run-registration-failure.test.ts` with 4 new tests (13 additional assertions, now 49 total):
+  - just-do-it context has target_working_directory_for_harness pointing to original target repo (5 assertions)
+  - just-do-it context stores full UUID in dispatcher workspace path (2 assertions)
+  - non-just-do-it direct workflow does NOT set target_working_directory_for_harness (4 assertions)
+  - just-do-it dispatcher workspace path is under resolvePiStateDir (2 assertions)
+- Build + typecheck passes. Full test suite: 1988/1989 pass. All 49 assertions pass.
+- **Learnings:** The `else` branch for `seededContext.repo` was needed since just-do-it's `repo` should point to the target repo (not the neutral workspace). The `fs.mkdir` with `{ recursive: true }` handles both creation and directory reuse cases naturally. The `resolvePiStateDir()` function respects `TAMANDUA_STATE_DIR` env var, making it consistent with the rest of the codebase.
+
+## 2026-05-26 - US-005: Fix just-do-it dispatcher AGENTS.md with correct CLI syntax, target workspace propagation, and failure behavior
+- Changed `workflows/just-do-it/agents/dispatcher/AGENTS.md`:
+  - Replaced all `--task` flag references with positional task text (task is positional after workflow ID, not `--task`)
+  - Replaced all `--no-hurry` flag references with `--no-hurry-please-save-tokens-mode` (the actual CLI flag)
+  - Added **Context Variables** section documenting `task`, `no_hurry_save_tokens_mode`, and `target_working_directory_for_harness`
+  - Rewrote **Launching Runs** section with correct CLI syntax:
+    - Direct child: `tamandua workflow run <id> "<task>" --working-directory-for-harness "{{target_working_directory_for_harness}}"`
+    - Worktree child: `tamandua workflow run <id> "<task>" --worktree-origin-repository "{{target_working_directory_for_harness}}"`
+    - No-hurry: `--no-hurry-please-save-tokens-mode`
+  - Added **Failure Behavior** section:
+    - Variant fallback is only for static workflow ID availability in `workflow list --json`
+    - Runtime `tamandua workflow run` failures are FATAL — use `step fail`, no fallback
+    - Must always call `step complete` or `step fail` before exiting
+  - Updated **What NOT To Do** section with new rules (no `--task`, no `--no-hurry`, no fallback on runtime errors, always report)
+- Build + typecheck passes. Full test suite: 1988/1989 pass (same pre-existing failure).
+- **Learnings:** The CLI uses positional task text (not `--task`), `--no-hurry-please-save-tokens-mode` (not `--no-hurry`). Context variables use `{{variable_name}}` template syntax in the workflow.yml prompt. `target_working_directory_for_harness` is the new context key from US-004 that preserves the original target repo path.
+
+## 2026-05-26 - US-006: Fix just-do-it workflow.yml dispatch step with correct CLI syntax and behavior
+- Updated `workflows/just-do-it/workflow.yml` dispatch step input template:
+  - Step 5: Replaced `--no-hurry` with `--no-hurry-please-save-tokens-mode`
+  - Added Step 6: "Resolve the target workspace" — document `target_working_directory_for_harness` context variable
+  - Rewrote Step 7 (was 6): "Launch the run" with correct CLI syntax:
+    - Task text is positional (never `--task` flag)
+    - Direct child: `--working-directory-for-harness "{{target_working_directory_for_harness}}"`
+    - Worktree child: `--worktree-origin-repository "{{target_working_directory_for_harness}}"`
+    - No-hurry: `--no-hurry-please-save-tokens-mode`
+  - Added Step 8: "Failure behavior" — variant fallback only for static workflow ID availability; runtime launch errors are FATAL (step fail); always call step complete or step fail before exiting
+  - Renumbered Step 9 (was 7): "Report what you did"
+- Updated `tests/workflow-validation.test.ts`: fixed `--no-hurry ALWAYS` → `--no-hurry-please-save-tokens-mode ALWAYS` in existing test assertion
+- Verification:
+  - No `--task` flag or bare `--no-hurry` flag in workflow.yml (only "never use --task flag" advisory)
+  - `--no-hurry-please-save-tokens-mode` flag used correctly
+  - `--working-directory-for-harness` for direct child workflows
+  - `--worktree-origin-repository` for worktree child workflows
+  - Runtime launch errors marked as FATAL with step fail
+  - Workflow.yml and AGENTS.md agree on CLI syntax
+  - All 235 workflow validation tests pass; 1986/1989 full test suite (3 pre-existing failures)
+- **Learnings:** The workflow.yml dispatch step input is a YAML block scalar (`|`) — indentation must be consistent. The template variables `{{target_working_directory_for_harness}}` are rendered at dispatch time by the step input processor. AGENTS.md and workflow.yml should agree on all CLI syntax since the agent reads both during session provisioning.
+
+## 2026-05-26 - US-007: Add workflow validation tests for just-do-it CLI syntax and behavior
+- Extended `tests/workflow-validation.test.ts` with new `US-007` describe block containing 11 tests:
+  - **AC 1:** dispatch step input does NOT instruct using `--task` flag (`--task\s+"` and `--task\s+'` patterns)
+  - **AC 2:** dispatch step input does NOT contain bare `--no-hurry` flag (negative lookahead: `--no-hurry(?!-please-save-tokens-mode)`)
+  - **AC 3:** dispatch step input contains `--no-hurry-please-save-tokens-mode`
+  - **AC 4:** dispatch step input references `--working-directory-for-harness`
+  - **AC 5:** dispatch step input references `--worktree-origin-repository`
+  - **AC 6:** dispatch step input states runtime launch errors are fatal (FATAL + step fail + no fallback)
+  - **AC 7a:** dispatcher AGENTS.md uses `--no-hurry-please-save-tokens-mode` not bare `--no-hurry` (including per-command-line check)
+  - **AC 7b:** dispatcher AGENTS.md uses positional task text not `--task` flag (per-command-line check)
+  - **Cross-validation:** AGENTS.md also references `--working-directory-for-harness` and `--worktree-origin-repository`
+  - **Cross-validation:** AGENTS.md states runtime launch errors are fatal
+  - **Cross-validation:** Both dispatch step input and AGENTS.md require step complete or step fail before exit
+- Key testing patterns used:
+  - `--task\s+"` to match flag-as-argument (not advisory text like "never use --task flag")
+  - Negative lookahead `--no-hurry(?!-please-save-tokens-mode)` for bare flag detection
+  - Per-command-line validation on AGENTS.md: filter lines containing `tamandua workflow run`, then assert each
+  - Separate `assert.match` calls instead of cross-line `.*` regex for multi-line text
+- All 246 workflow validation tests pass (11 new). Full test suite: 1999/2000 pass (1 pre-existing readme failure). Typecheck passes.
+- **Learnings:** When extracting dispatch step input from workflow.yml, split on `"input: |"` and `"\n    expects:"` (matching the YAML indentation). Test patterns for CLI flag validation should avoid matching advisory/warning text (e.g. "never use --task flag"). Regex `.` does not match newlines by default in Node.js `assert.match` — use separate assertions for multi-line content.
+---

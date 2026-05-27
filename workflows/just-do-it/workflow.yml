@@ -71,18 +71,39 @@ steps:
          If none exist, fall back to do-now as the universal catch-all.
       5. Decide no-hurry mode:
          - If {{no_hurry_save_tokens_mode}} is true, launch the dispatched workflow
-           with --no-hurry ALWAYS (parent was no-hurry)
+           with --no-hurry-please-save-tokens-mode ALWAYS (parent was no-hurry)
          - If {{no_hurry_save_tokens_mode}} is false, detect urgency from the user's
            prompt: markers like "URGENT", "ASAP", "immediately", "right now", "as fast
            as possible" indicate normal (fast) mode; polite or casual language
            ("when you get a chance", "no rush", "whenever") indicates no-hurry
          - Default: normal mode unless urgency markers are absent AND the prompt
            tone is relaxed
-      6. Launch the run:
-         - Use `tamandua workflow run <selected-workflow-id> --task "<the user's original task>"`
-         - If no-hurry was decided, add `--no-hurry` to the command
-         - Capture the RUN_ID from the output
-      7. Report what you did
+      6. Resolve the target workspace:
+         - The target_working_directory_for_harness context variable holds the repo
+           path to pass to the child workflow.
+         - If {{target_working_directory_for_harness}} is empty or not set, use the
+           current directory as the default target.
+      7. Launch the run:
+         - Task text is positional after the workflow ID, never use --task flag.
+         - For direct child workflows (no -worktree suffix):
+           `tamandua workflow run <selected-workflow-id> "<the user's original task>" --working-directory-for-harness "{{target_working_directory_for_harness}}"`
+         - For worktree child workflows (-worktree suffix):
+           `tamandua workflow run <selected-workflow-id> "<the user's original task>" --worktree-origin-repository "{{target_working_directory_for_harness}}"`
+         - If target_working_directory_for_harness is empty, omit the workspace flag
+           and let the child default to the current directory.
+         - If no-hurry was decided, add `--no-hurry-please-save-tokens-mode` to the command.
+         - Capture the RUN_ID from the output.
+      8. Failure behavior:
+         - Variant fallback (trying the next variant) is ONLY for static workflow ID
+           availability in `tamandua workflow list --json` output — when the composed
+           ID does not appear in the list at all.
+         - If a workflow ID exists in the list but `tamandua workflow run` fails for
+           any runtime reason (daemon registration failure, scheduling conflict,
+           invalid parameters, etc.), that is FATAL. Do NOT try fallback workflows.
+           Report failure immediately with `tamandua step fail`.
+         - You MUST always call either `tamandua step complete` (on success) or
+           `tamandua step fail` (on failure) before exiting. Never exit without reporting.
+      9. Report what you did
 
       Reply with:
       STATUS: done

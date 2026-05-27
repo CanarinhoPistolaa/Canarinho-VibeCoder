@@ -107,51 +107,81 @@ Before launching, confirm the final workflow ID is present in the `--json` outpu
 
 ## No-Hurry Decision Rules
 
-The `--no-hurry` flag controls whether the dispatched workflow uses cheaper models and relaxed timing to save tokens.
+The `--no-hurry-please-save-tokens-mode` flag controls whether the dispatched workflow uses cheaper models and relaxed timing to save tokens.
 
 ### Rule 1: Respect the parent (ALWAYS)
 
-If `NO_HURRY_SAVE_TOKENS_MODE` is `true`, the dispatched workflow MUST be launched with `--no-hurry`. The parent made this choice and you cannot override it. No further analysis needed.
+If `NO_HURRY_SAVE_TOKENS_MODE` is `true`, the dispatched workflow MUST be launched with `--no-hurry-please-save-tokens-mode`. The parent made this choice and you cannot override it. No further analysis needed.
 
 ### Rule 2: Detect urgency markers (when parent is normal)
 
 If `NO_HURRY_SAVE_TOKENS_MODE` is `false`, analyze the user prompt for urgency signals:
 
-**Urgent markers → normal mode (no `--no-hurry`):**
+**Urgent markers → normal mode (no `--no-hurry-please-save-tokens-mode`):**
 - "URGENT", "ASAP", "immediately", "right now", "as fast as possible"
 - "critical", "emergency", "production down", "outage", "hotfix"
 - Time pressure: "by today", "before the release", "next hour"
 
-**Relaxed markers → no-hurry mode (`--no-hurry`):**
+**Relaxed markers → no-hurry mode (`--no-hurry-please-save-tokens-mode`):**
 - "when you get a chance", "no rush", "whenever", "at your convenience"
 - "low priority", "nice to have", "someday", "not urgent"
 
-**Default:** If no urgency marker and no relaxed marker, launch in **normal mode** (no `--no-hurry`). Users expect responsiveness by default.
+**Default:** If no urgency marker and no relaxed marker, launch in **normal mode** (no `--no-hurry-please-save-tokens-mode`). Users expect responsiveness by default.
+
+## Context Variables
+
+Before launching, check the following context variables available to you:
+
+- `task` — the user's original task description
+- `no_hurry_save_tokens_mode` — `true` or `false`, set by the parent run
+- `target_working_directory_for_harness` — the target repository path to pass to the child workflow. If empty/not set, use the current directory as the default target.
 
 ## Launching Runs
 
-You have two options for launching the dispatched workflow:
+Use `tamandua workflow run` with positional task text. The correct CLI syntax uses the task as a positional argument after the workflow ID, never as a `--task` flag.
 
-### Option 1: CLI (preferred)
+### Selecting the Right Launch Arguments
+
+**Target workspace:** Use `{{target_working_directory_for_harness}}` as the target path. If this context variable is empty or not set, omit the workspace flag and let the child default to the current directory.
+
+**Direct child workflows** (no `-worktree` suffix):
 
 ```bash
-tamandua workflow run <selected-workflow-id> --task "<the user's original task>"
+tamandua workflow run <selected-workflow-id> "<the user's original task>" --working-directory-for-harness "{{target_working_directory_for_harness}}"
 ```
 
-If no-hurry was decided, add `--no-hurry`:
+**Worktree child workflows** (`-worktree` suffix):
 
 ```bash
-tamandua workflow run <selected-workflow-id> --task "<the user's original task>" --no-hurry
+tamandua workflow run <selected-workflow-id> "<the user's original task>" --worktree-origin-repository "{{target_working_directory_for_harness}}"
+```
+
+**No-hurry propagation:** If no-hurry was decided, add `--no-hurry-please-save-tokens-mode`:
+
+```bash
+tamandua workflow run <selected-workflow-id> "<the user's original task>" --working-directory-for-harness "{{target_working_directory_for_harness}}" --no-hurry-please-save-tokens-mode
 ```
 
 The command outputs the run ID. Capture it — you MUST report it in LAUNCHED_RUN_ID.
 
-### Option 2: MCP tool (fallback)
+### MCP Tool Fallback
 
 If the CLI approach fails, use the `tamandua.run.start` MCP tool with these parameters:
 - `workflowId`: the selected workflow ID
 - `task`: the user's original task
 - `noHurry`: `true` or `false`
+
+## Failure Behavior
+
+**Variant fallback is only for static workflow ID availability.** The fallback rule (trying the next variant when the composed workflow ID is absent from `tamandua workflow list --json`) applies only to workflow discovery — when the ID does not appear in the list at all.
+
+**Runtime launch errors are FATAL.** If a workflow ID exists in `workflow list --json` but `tamandua workflow run` fails for any reason (daemon registration failure, scheduling conflict, invalid parameters, etc.), you must NOT try the next fallback workflow. Instead, report the failure immediately:
+
+```bash
+tamandua step fail <stepId> "<clear reason for the launch failure>"
+```
+
+**Always report results.** You MUST always call either `tamandua step complete` or `tamandua step fail` before exiting. Never exit without reporting.
 
 ## Output Format
 
@@ -185,6 +215,10 @@ LAUNCHED_RUN_ID: abc1234-5678-90ab-cdef-1234567890ab
 
 - Don't implement features yourself — dispatch to a workflow
 - Don't overthink — make a decision and go with it
-- Don't launch without verifying the workflow exists
+- Don't use `--task` flag — task text is positional after the workflow ID
+- Don't use `--no-hurry` — the correct flag is `--no-hurry-please-save-tokens-mode`
+- Don't launch without verifying the workflow exists in `workflow list --json`
 - Don't forget to capture the LAUNCHED_RUN_ID
 - Don't override the parent's no-hurry decision
+- Don't try fallback workflows on runtime launch errors — report failure with `step fail`
+- Don't exit without calling `step complete` or `step fail`
