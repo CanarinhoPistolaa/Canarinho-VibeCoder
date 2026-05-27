@@ -271,7 +271,8 @@ describe("CLI entrypoint regression: no ExperimentalWarning", () => {
 
       assert.doesNotMatch(stderr, /ExperimentalWarning/);
       assert.doesNotMatch(stdout, /ExperimentalWarning/);
-      assert.match(stdout, /^tamandua v/);
+      const versionRegex = /^\d{8}T\d{6}Z_[0-9a-f]{40}$/;
+      assert.match(stdout.trim(), versionRegex);
     } finally {
       fs.rmSync(result.testEnv.tmpDir, { recursive: true, force: true });
     }
@@ -297,7 +298,8 @@ describe("CLI entrypoint", () => {
           TAMANDUA_STATE_DIR: stateDir, }),
       });
 
-      assert.match(output, /^tamandua v/);
+      const versionRegex = /^\d{8}T\d{6}Z_[0-9a-f]{40}$/;
+      assert.match(output.trim(), versionRegex);
     } finally {
       fs.rmSync(tmpDir, { recursive: true, force: true });
     }
@@ -387,7 +389,8 @@ describe("--help infrastructure", () => {
     const result = cli(["version", "--help"]);
     try {
       assert.equal(result.status, 0);
-      assert.match(result.stdout ?? "", /Display installed version/);
+      assert.match(result.stdout ?? "", /Display build version/);
+      assert.match(result.stdout ?? "", /ISO8601_refhash/);
       assert.match(result.stdout ?? "", /tamandua version/);
       assert.match(result.stdout ?? "", /tamandua --version/);
       assert.match(result.stdout ?? "", /tamandua -v/);
@@ -401,7 +404,7 @@ describe("--help infrastructure", () => {
     const result = cli(["--version", "--help"]);
     try {
       assert.equal(result.status, 0);
-      assert.match(result.stdout ?? "", /Display installed version/);
+      assert.match(result.stdout ?? "", /Display build version/);
     } finally {
       fs.rmSync(result.testEnv.tmpDir, { recursive: true, force: true });
     }
@@ -411,7 +414,7 @@ describe("--help infrastructure", () => {
     const result = cli(["-v", "--help"]);
     try {
       assert.equal(result.status, 0);
-      assert.match(result.stdout ?? "", /Display installed version/);
+      assert.match(result.stdout ?? "", /Display build version/);
     } finally {
       fs.rmSync(result.testEnv.tmpDir, { recursive: true, force: true });
     }
@@ -450,7 +453,8 @@ describe("--help infrastructure", () => {
     const result = cli(["version"]);
     try {
       assert.equal(result.status, 0);
-      assert.match(result.stdout ?? "", /^tamandua v/);
+      const versionRegex = /^\d{8}T\d{6}Z_[0-9a-f]{40}$/;
+      assert.match((result.stdout ?? "").trim(), versionRegex);
     } finally {
       fs.rmSync(result.testEnv.tmpDir, { recursive: true, force: true });
     }
@@ -1280,7 +1284,7 @@ describe("formatTamanduaInfo", () => {
     const { formatTamanduaInfo } = await import("../../dist/cli/status-format.js");
 
     const result = formatTamanduaInfo({
-      getVersion: () => "1.2.3",
+      getVersion: () => "20260526T140530Z_4ad4844ff86d37cd04eaf736e8cc43ad467b0338",
       resolveSourcePath: () => "/opt/tamandua",
       resolveSkillPath: () => "/opt/tamandua/skills/tamandua-agents/SKILL.md",
       getReadVersionStatus: () => ({
@@ -1295,7 +1299,7 @@ describe("formatTamanduaInfo", () => {
     assert.match(result, /Tamandua Info/);
     assert.match(result, /Source-path: +\/opt\/tamandua/);
     assert.match(result, /Skill-path: +\/opt\/tamandua\/skills\/tamandua-agents\/SKILL.md/);
-    assert.match(result, /Version: +1\.2\.3/);
+    assert.match(result, /Version: +20260526T140530Z_4ad4844ff86d37cd04eaf736e8cc43ad467b0338/);
     assert.match(result, /Source tree: +a1b2c3d4e5f6789012345678abcdef1234567890/);
     // No update available — update line should NOT appear
     assert.doesNotMatch(result, /Update:/);
@@ -1305,7 +1309,7 @@ describe("formatTamanduaInfo", () => {
     const { formatTamanduaInfo } = await import("../../dist/cli/status-format.js");
 
     const result = formatTamanduaInfo({
-      getVersion: () => "1.0.0",
+      getVersion: () => "20260526T140530Z_4ad4844ff86d37cd04eaf736e8cc43ad467b0338",
       resolveSourcePath: () => "/some/path",
       resolveSkillPath: () => "/some/path/skills.md",
       getReadVersionStatus: () => ({
@@ -1325,7 +1329,7 @@ describe("formatTamanduaInfo", () => {
     const { formatTamanduaInfo } = await import("../../dist/cli/status-format.js");
 
     const result = formatTamanduaInfo({
-      getVersion: () => "1.0.0",
+      getVersion: () => "20260526T140530Z_4ad4844ff86d37cd04eaf736e8cc43ad467b0338",
       resolveSourcePath: () => "/some/path",
       resolveSkillPath: () => "/some/path/skills.md",
       getReadVersionStatus: () => ({
@@ -1344,7 +1348,7 @@ describe("formatTamanduaInfo", () => {
     const { formatTamanduaInfo } = await import("../../dist/cli/status-format.js");
 
     const result = formatTamanduaInfo({
-      getVersion: () => "1.0.0",
+      getVersion: () => "20260526T140530Z_4ad4844ff86d37cd04eaf736e8cc43ad467b0338",
       resolveSourcePath: () => "/some/path",
       resolveSkillPath: () => "/some/path/skills.md",
       getReadVersionStatus: () => ({
@@ -1363,11 +1367,11 @@ describe("formatTamanduaInfo", () => {
     const { formatTamanduaInfo } = await import("../../dist/cli/status-format.js");
 
     // Without overrides, uses real resolveSourcePath, resolveSkillPath, etc. — should not throw
-    const result = formatTamanduaInfo({ getVersion: () => "1.0.0" });
+    const result = formatTamanduaInfo({ getVersion: () => "20260526T140530Z_4ad4844ff86d37cd04eaf736e8cc43ad467b0338" });
     assert.match(result, /Tamandua Info/);
     assert.match(result, /Source-path:/);
     assert.match(result, /Skill-path:/);
-    assert.match(result, /Version: +1\.0\.0/);
+    assert.match(result, /Version: +20260526T140530Z_4ad4844ff86d37cd04eaf736e8cc43ad467b0338/);
     assert.match(result, /Source tree:/);
   });
 });

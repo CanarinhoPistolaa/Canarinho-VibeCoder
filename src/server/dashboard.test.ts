@@ -1318,6 +1318,27 @@ describe("dashboard run relaunch API", () => {
   });
 });
 
+describe("dashboard build version API", () => {
+  it("GET /api/version returns { version } with build version string from dist/version", async () => {
+    const { server, baseUrl } = await startDashboard();
+
+    try {
+      const response = await fetch(`${baseUrl}/api/version`);
+      assert.equal(response.status, 200);
+
+      const body = await response.json() as { version: string };
+      // dist/version is written by inject-version.js at build time
+      assert.ok(typeof body.version === "string", "version must be a string");
+      assert.ok(body.version.length > 0, "version must not be empty");
+      assert.notEqual(body.version, "unknown", "version should be the real build version, not 'unknown'");
+      // ISO8601_refhash format: YYYYMMDDTHHMMSSZ_40-char-hex
+      assert.match(body.version, /^\d{8}T\d{6}Z_[0-9a-f]{40}$/);
+    } finally {
+      await stopDashboard(server);
+    }
+  });
+});
+
 describe("dashboard version status API", () => {
   it("GET /api/version-status returns { updateAvailable, currentHead, remoteHead, checkedAt } when no file exists", async () => {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), "tamandua-dashboard-version-"));
@@ -1463,6 +1484,31 @@ describe("dashboard version status API", () => {
       assert.ok(containerIndex >= 0, "container not found");
       assert.ok(bannerIndex > headerCloseIndex, "banner must be after </header>");
       assert.ok(bannerIndex < containerIndex, "banner must be before container");
+    } finally {
+      await stopDashboard(server);
+    }
+  });
+
+  it("dashboard HTML includes build-version element and fetchBuildVersion call", async () => {
+    const { server, baseUrl } = await startDashboard();
+
+    try {
+      const response = await fetch(`${baseUrl}/`);
+      assert.equal(response.status, 200);
+
+      const html = await response.text();
+
+      // Build version span exists
+      assert.match(html, /id="build-version"/);
+      // CSS for build-version: small font and muted color
+      assert.match(html, /header \.build-version \{[\s\S]*font-size:\s*10px/);
+      assert.match(html, /header \.build-version \{[\s\S]*color:\s*#484f58/);
+      // fetchBuildVersion function exists
+      assert.match(html, /async function fetchBuildVersion/);
+      // Fetches /api/version
+      assert.match(html, /fetch\(["']\/api\/version["']\)/);
+      // Called in refreshAll
+      assert.match(html, /fetchBuildVersion\(\)/);
     } finally {
       await stopDashboard(server);
     }

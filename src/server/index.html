@@ -38,6 +38,16 @@
       gap: 10px;
     }
     header .token-sep { color: #30363d; }
+    header .build-version {
+      font-size: 10px;
+      color: #484f58;
+      margin: 0 auto 0 8px;
+      font-family: "SF Mono", "Fira Code", monospace;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      max-width: 320px;
+    }
     header .status-dot {
       width: 8px; height: 8px;
       border-radius: 50%;
@@ -400,6 +410,7 @@
       <span class="token-sep">|</span>
       <span>Total: <span class="mono" id="total-tokens">0</span></span>
     </div>
+    <span class="build-version" id="build-version" title="Build version">--</span>
     <span class="status-dot" id="status-dot" title="Connected"></span>
   </header>
 
@@ -859,6 +870,17 @@
       if (banner) banner.style.display = "none";
     }
 
+    async function fetchBuildVersion() {
+      try {
+        const res = await fetch("/api/version");
+        const data = await res.json();
+        const el = document.getElementById("build-version");
+        if (el) el.textContent = data.version || "unknown";
+      } catch (err) {
+        console.error("Failed to fetch build version:", err);
+      }
+    }
+
     async function fetchVersionStatus() {
       try {
         const res = await fetch("/api/version-status");
@@ -886,6 +908,7 @@
       fetchEvents();
       fetchLogsTail();
       fetchStats();
+      fetchBuildVersion();
       fetchVersionStatus();
       document.getElementById("last-update").textContent = new Date().toLocaleTimeString();
     }

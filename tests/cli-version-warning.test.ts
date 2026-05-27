@@ -252,7 +252,8 @@ describe("CLI version warning", () => {
         `Expected no warning for version, got: "${cleaned}"`,
       );
       // Should still output the version
-      assert.ok(stdout.includes("tamandua v"), `Expected version output, got: "${stdout}"`);
+      const versionRegex = /\d{8}T\d{6}Z_[0-9a-f]{40}/;
+      assert.ok(versionRegex.test(stdout.trim()), `Expected version output, got: "${stdout}"`);
     } finally {
       fs.rmSync(tempHome, { recursive: true, force: true });
     }
@@ -284,7 +285,8 @@ describe("CLI version warning", () => {
         false,
         `Expected no warning for --version, got: "${cleaned}"`,
       );
-      assert.ok(stdout.includes("tamandua v"), `Expected version output, got: "${stdout}"`);
+      const versionRegex = /\d{8}T\d{6}Z_[0-9a-f]{40}/;
+      assert.ok(versionRegex.test(stdout.trim()), `Expected version output, got: "${stdout}"`);
     } finally {
       fs.rmSync(tempHome, { recursive: true, force: true });
     }
@@ -316,7 +318,8 @@ describe("CLI version warning", () => {
         false,
         `Expected no warning for -v, got: "${cleaned}"`,
       );
-      assert.ok(stdout.includes("tamandua v"), `Expected version output, got: "${stdout}"`);
+      const versionRegex = /\d{8}T\d{6}Z_[0-9a-f]{40}/;
+      assert.ok(versionRegex.test(stdout.trim()), `Expected version output, got: "${stdout}"`);
     } finally {
       fs.rmSync(tempHome, { recursive: true, force: true });
     }

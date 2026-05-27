@@ -26,6 +26,7 @@ import { pauseRunWithDaemon, resumeRunWithDaemon } from "./control-client.js";
 import { runWorkflow } from "../installer/run.js";
 import { stopWorkflow } from "../installer/status.js";
 import { readVersionStatus } from "../lib/version-check.js";
+import { getBuildVersion } from "../lib/version.js";
 import {
   findAutoresearchSessionCwd,
   readAutoresearchLog,
@@ -649,6 +650,15 @@ async function handleRelaunchRun(
   }
 }
 
+function handleVersion(_req: http.IncomingMessage, res: http.ServerResponse): void {
+  try {
+    const version = getBuildVersion();
+    jsonResponse(res, { version });
+  } catch (err) {
+    errorResponse(res, `Failed to read build version: ${(err as Error).message}`);
+  }
+}
+
 function handleVersionStatus(_req: http.IncomingMessage, res: http.ServerResponse): void {
   try {
     const status = readVersionStatus();
@@ -777,6 +787,12 @@ function route(req: http.IncomingMessage, res: http.ServerResponse): void {
   // GET /api/logs-tail
   if (method === "GET" && pathname === "/api/logs-tail") {
     handleLogsTail(req, res);
+    return;
+  }
+
+  // GET /api/version (registered before /api/version-status to avoid prefix conflict)
+  if (method === "GET" && pathname === "/api/version") {
+    handleVersion(req, res);
     return;
   }
 

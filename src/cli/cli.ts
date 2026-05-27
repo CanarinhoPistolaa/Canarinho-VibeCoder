@@ -39,6 +39,7 @@ import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 import { readVersionStatus } from "../lib/version-check.js";
+import { getBuildVersion } from "../lib/version.js";
 import { parseWorkflowRunArgs } from "./workflow-run-args.js";
 import type { HarnessType } from "../installer/types.js";
 import {
@@ -61,6 +62,8 @@ const pkgPath = join(__dirname, "..", "..", "package.json");
 const BUILT_VERSION = "__VERSION__";
 
 function getVersion(): string {
+  const buildVersion = getBuildVersion();
+  if (buildVersion !== "unknown") return buildVersion;
   if (BUILT_VERSION !== "__VERSION__") return BUILT_VERSION;
   try { const pkg = JSON.parse(readFileSync(pkgPath, "utf-8")); return pkg.version ?? "unknown"; }
   catch { return "unknown"; }
@@ -296,17 +299,20 @@ Examples:
 }
 
 function getVersionHelp(): string {
-  return `tamandua version — Display installed version
+  return `tamandua version — Display build version
 
 Usage: tamandua version
    or: tamandua --version
    or: tamandua -v
 
-Prints the currently installed version of Tamandua. The version is read from
-the built package.json bundled in the dist directory.
+Prints the build version of Tamandua in ISO8601_refhash format.
+The version is composed of the UTC timestamp of the HEAD commit
+and its full 40-character SHA1 hash, separated by an underscore.
+This string is computed at build time and embedded in the dist
+output.
 
 Examples:
-  tamandua version           # Prints e.g. "tamandua v1.2.3"
+  tamandua version           # Prints e.g. "20260526T140530Z_4ad4844ff86d37cd04eaf736e8cc43ad467b0338"
   tamandua --version         # Same output
   tamandua -v                # Same output`;
 }
@@ -1516,7 +1522,7 @@ async function main() {
   }
 
   if (group === "version" || group === "--version" || group === "-v") {
-    console.log(`tamandua v${getVersion()}`); return;
+    console.log(getVersion()); return;
   }
   if (group === "tamandua") {
     const { printTamandua } = await import("./ant.js"); printTamandua(); return;
