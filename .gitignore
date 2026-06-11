@@ -18,9 +18,12 @@ dist/
 coverage/
 .nyc_output/
 
-# IDE
+# IDE / editor
 .vscode/
 .idea/
+*.swp
+*.swo
+*~
 
 # OS
 .DS_Store
@@ -28,3 +31,6 @@ Thumbs.db
 
 # Logs
 *.log
+
+# Local scratch files
+PROMPT.md
