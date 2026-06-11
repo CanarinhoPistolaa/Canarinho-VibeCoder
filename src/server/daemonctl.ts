@@ -354,10 +354,14 @@ export async function startDaemon(port = 3334, opts?: StartOptions): Promise<{ p
       child.unref();
     }
 
-    // Wait briefly for the daemon to start and write its PID file
-    await new Promise<void>((resolve) => setTimeout(resolve, 1500));
-
-    const check = checkPidFile(pidFile);
+    // Wait for the daemon to start and write its PID file. Poll instead of a
+    // single fixed sleep: under heavy load node startup can exceed a second.
+    const daemonDeadline = Date.now() + 10_000;
+    let check = checkPidFile(pidFile);
+    while (!check.running && Date.now() < daemonDeadline) {
+      await new Promise<void>((resolve) => setTimeout(resolve, 250));
+      check = checkPidFile(pidFile);
+    }
     if (!check.running) {
       const logTail = readLogTail(logFile);
       if (logTail) {
@@ -537,10 +541,15 @@ export async function startMcp(port?: number, opts?: StartOptions): Promise<{ pi
     child.unref();
   }
 
-  // Wait briefly for the MCP server to start and write its PID file
-  await new Promise<void>((resolve) => setTimeout(resolve, 1500));
-
-  const check = checkPidFile(mcpPidFile);
+  // Wait for the MCP server to start and write its PID file. Poll instead
+  // of a single fixed sleep: under heavy load (e.g. the parallel test suite)
+  // node startup can take well over a second.
+  const deadline = Date.now() + 10_000;
+  let check = checkPidFile(mcpPidFile);
+  while (!check.running && Date.now() < deadline) {
+    await new Promise<void>((resolve) => setTimeout(resolve, 250));
+    check = checkPidFile(mcpPidFile);
+  }
   if (!check.running) {
     const logTail = readLogTail(mcpLogFile);
     if (logTail) {
@@ -818,10 +827,14 @@ export async function startControlPlane(port?: number, opts?: StartOptions): Pro
     child.unref();
   }
 
-  // Wait briefly for the control plane to start and write its PID file
-  await new Promise<void>((resolve) => setTimeout(resolve, 1500));
-
-  const check = checkPidFile(cpPidFile);
+  // Wait for the control plane to start and write its PID file. Poll instead
+  // of a single fixed sleep: under heavy load node startup can exceed a second.
+  const cpDeadline = Date.now() + 10_000;
+  let check = checkPidFile(cpPidFile);
+  while (!check.running && Date.now() < cpDeadline) {
+    await new Promise<void>((resolve) => setTimeout(resolve, 250));
+    check = checkPidFile(cpPidFile);
+  }
   if (!check.running) {
     const existingAfterSpawn = await detectExistingControlPlane(cpPort, cpPidFile, cpPortFile, opts);
     if (existingAfterSpawn) return existingAfterSpawn;

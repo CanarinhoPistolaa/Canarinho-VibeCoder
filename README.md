@@ -41,7 +41,7 @@ That's it. Run `tamandua workflow list` to see available workflows.
 
 ## What You Get: Bundled Workflows
 
-Tamandua ships with 21 bundled workflows organized into five families. Use `tamandua workflow list` to see available workflows, and `tamandua workflow install <id>` to install one.
+Tamandua ships with 23 bundled workflows organized into six families. Use `tamandua workflow list` to see available workflows, and `tamandua workflow install <id>` to install one.
 
 ### Worktree Variants
 
@@ -126,6 +126,15 @@ Single-agent workflows for quick one-off tasks and workflow auto-selection.
 | `do-now` | 1 | execute | Submit any task. Get back a success/failure report. No planning, no stories. |
 | `just-do-it` | 1 | dispatch | Describe what you want. Dispatches to the most appropriate workflow automatically. For coding tasks (feature-dev*, bug-fix*, security-audit*) it defaults to merge-worktree variants unless the prompt gives a specific reason otherwise. |
 | `do-review-do-verify` | 3 | do → review → do-again → verify | Two-pass execution: do the work, review it, revise, then verify the result. |
+
+### Maintenance & Audits
+
+Workflows for auditing and validating the project itself.
+
+| Workflow ID | Agents | Pipeline | Description |
+|------------|--------|----------|-------------|
+| `frontend-test` | 1 | test | Builds the project and validates the dashboard frontend: HTML structure, route definitions, and test coverage. Does not start a second dashboard daemon. |
+| `skills-normalize-audit` | 3 | scan → audit → report | Scans a skills directory, analyzes the skills for overlaps and redundancies, and produces consolidation recommendations in a structured report. |
 
 Install all bundled workflows at once with:
 
