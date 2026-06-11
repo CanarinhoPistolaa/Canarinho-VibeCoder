@@ -47,7 +47,14 @@
   /* Border radii */
   --radius-sm: 4px;
   --radius-md: 6px;
-  --radius-lg: 8px;
+  --radius-lg: 10px;
+  --radius-xl: 14px;
+
+  /* Elevation & accent helpers */
+  --color-accent-soft: rgba(240, 136, 62, 0.12);
+  --gradient-accent: linear-gradient(135deg, #f0883e 0%, #ff9d5c 60%, #ffb37c 100%);
+  --shadow-card: 0 1px 2px rgba(0, 0, 0, 0.35), 0 10px 28px -16px rgba(0, 0, 0, 0.55);
+  --shadow-card-hover: 0 2px 6px rgba(0, 0, 0, 0.35), 0 18px 44px -18px rgba(240, 136, 62, 0.28);
 
   /* Typography */
   --font-body: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen,
@@ -61,8 +68,8 @@
   --fs-lg:   1.125rem;
   --fs-xl:   1.25rem;
   --fs-2xl:  1.5rem;
-  --fs-3xl:  2rem;
-  --fs-4xl:  2.5rem;
+  --fs-3xl:  clamp(1.75rem, 1.35rem + 1.6vw, 2.25rem);
+  --fs-4xl:  clamp(2.25rem, 1.5rem + 3vw, 3.25rem);
 
   --lh-body:  1.6;
   --lh-heading: 1.3;
@@ -106,9 +113,36 @@ body {
 
   /* Subtle CSS-only gradient background */
   background-image:
-    radial-gradient(ellipse 80% 50% at 50% -20%, rgba(240, 136, 62, 0.08), transparent),
-    radial-gradient(ellipse 50% 30% at 80% 80%, rgba(58, 166, 255, 0.04), transparent);
+    radial-gradient(ellipse 80% 50% at 50% -20%, rgba(240, 136, 62, 0.10), transparent),
+    radial-gradient(ellipse 50% 35% at 85% 20%, rgba(88, 166, 255, 0.05), transparent),
+    radial-gradient(ellipse 50% 30% at 10% 90%, rgba(63, 185, 80, 0.04), transparent);
   background-attachment: fixed;
+}
+
+/* Text selection */
+::selection {
+  background: rgba(240, 136, 62, 0.3);
+  color: var(--color-text-em);
+}
+
+/* Custom scrollbar (WebKit) */
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+::-webkit-scrollbar-track {
+  background: var(--color-bg);
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--color-border);
+  border-radius: 999px;
+  border: 2px solid var(--color-bg);
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--color-text-muted);
 }
 
 /* ── Links ─────────────────────────────────────────────────────────── */
@@ -143,6 +177,7 @@ h1, h2, h3, h4, h5, h6 {
   font-family: var(--font-body);
   font-weight: var(--fw-semibold);
   line-height: var(--lh-heading);
+  letter-spacing: -0.015em;
   color: var(--color-text-em);
 }
 
@@ -182,9 +217,12 @@ pre {
   font-family: var(--font-mono);
   font-size: var(--fs-sm);
   line-height: var(--lh-code);
-  background: var(--color-surface);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.02), transparent 40%),
+    var(--color-surface);
   border: 1px solid var(--color-border);
-  border-radius: var(--radius-md);
+  border-radius: var(--radius-lg);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04), var(--shadow-card);
   padding: var(--space-5);
   overflow-x: auto;
   margin: var(--space-5) 0;
@@ -395,8 +433,10 @@ main {
 /* ── Sections ──────────────────────────────────────────────────────── */
 
 section {
+  position: relative;
   padding: var(--section-pad) 0;
-  border-top: 1px solid var(--color-border);
+  border-top: 1px solid transparent;
+  border-image: linear-gradient(90deg, transparent, var(--color-border) 18%, var(--color-border) 82%, transparent) 1;
 }
 
 section:first-of-type {
@@ -404,7 +444,21 @@ section:first-of-type {
 }
 
 section h2 {
+  position: relative;
   margin-bottom: var(--space-6);
+  padding-bottom: var(--space-3);
+}
+
+/* Accent underline beneath section headings */
+section h2::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  bottom: 0;
+  width: 56px;
+  height: 3px;
+  border-radius: 999px;
+  background: linear-gradient(90deg, var(--color-accent), rgba(240, 136, 62, 0));
 }
 
 section h3 {
@@ -450,13 +504,16 @@ section h3 + p {
   padding: 0 var(--space-6);
 }
 
-/* Ant emoji accent above heading */
+/* Tamandua watermark accent */
 #hero::after {
-  content: "🦔";
+  content: "";
   position: absolute;
-  top: var(--space-10);
-  right: 10%;
-  font-size: 6rem;
+  top: 50%;
+  right: 4%;
+  width: min(300px, 30vw);
+  height: min(300px, 30vw);
+  transform: translateY(-50%) rotate(-6deg);
+  background: url("assets/tamandua.png") center / contain no-repeat;
   opacity: 0.06;
   pointer-events: none;
   z-index: 0;
@@ -466,8 +523,13 @@ section h3 + p {
   font-size: var(--fs-4xl);
   font-weight: var(--fw-bold);
   margin-bottom: var(--space-5);
-  line-height: 1.2;
-  letter-spacing: -0.02em;
+  line-height: 1.15;
+  letter-spacing: -0.025em;
+  color: var(--color-text-em); /* fallback */
+  background: linear-gradient(180deg, #ffffff 0%, var(--color-text-em) 55%, #9aa4b2 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
 }
 
 .hero-tagline {
@@ -490,10 +552,14 @@ section h3 + p {
   text-align: left;
   margin: 0;
   background: rgba(22, 27, 34, 0.8);
-  border: 1px solid var(--color-accent);
-  border-radius: var(--radius-md);
+  border: 1px solid rgba(240, 136, 62, 0.55);
+  border-radius: var(--radius-lg);
   padding: var(--space-4) var(--space-6);
   position: relative;
+  box-shadow:
+    0 0 0 1px rgba(240, 136, 62, 0.1),
+    0 0 32px rgba(240, 136, 62, 0.12),
+    inset 0 1px 0 rgba(255, 255, 255, 0.04);
 }
 
 .hero-install code {
@@ -530,10 +596,11 @@ section h3 + p {
   font-size: var(--fs-lg);
   font-weight: var(--fw-semibold);
   font-family: var(--font-body);
-  color: #fff;
-  background: var(--color-accent);
+  color: #1a1107;
+  background: var(--gradient-accent);
   border: none;
-  border-radius: var(--radius-md);
+  border-radius: 999px;
+  box-shadow: 0 4px 18px rgba(240, 136, 62, 0.25);
   text-decoration: none;
   cursor: pointer;
   letter-spacing: 0.02em;
@@ -544,11 +611,12 @@ section h3 + p {
 }
 
 .cta-button:hover {
-  background: var(--color-accent-hover);
-  transform: translateY(-1px);
-  box-shadow: 0 4px 16px rgba(240, 136, 62, 0.3);
+  background: var(--gradient-accent);
+  filter: brightness(1.08);
+  transform: translateY(-2px);
+  box-shadow: 0 8px 28px rgba(240, 136, 62, 0.4);
   text-decoration: none;
-  color: #fff;
+  color: #1a1107;
 }
 
 .cta-button:active {
@@ -576,28 +644,55 @@ section h3 + p {
 
 /* Feature card icons */
 .feature-icon {
-  display: block;
-  font-size: 2rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 56px;
+  height: 56px;
+  font-size: 1.75rem;
   line-height: 1;
   margin-bottom: var(--space-4);
-  opacity: 0.85;
+  background: var(--color-accent-soft);
+  border: 1px solid rgba(240, 136, 62, 0.25);
+  border-radius: var(--radius-lg);
+  opacity: 0.95;
 }
 
 #features article {
-  background: var(--color-surface);
+  position: relative;
+  overflow: hidden;
+  background:
+    linear-gradient(180deg, rgba(240, 136, 62, 0.05), transparent 45%),
+    var(--color-surface);
   border: 1px solid var(--color-border);
-  border-radius: var(--radius-md);
+  border-radius: var(--radius-xl);
   padding: var(--space-6);
+  box-shadow: var(--shadow-card);
   transition:
     border-color var(--transition),
     transform var(--transition),
     box-shadow var(--transition);
 }
 
+/* Accent top edge revealed on hover */
+#features article::before {
+  content: "";
+  position: absolute;
+  inset: 0 0 auto 0;
+  height: 2px;
+  background: var(--gradient-accent);
+  opacity: 0;
+  transition: opacity var(--transition);
+}
+
 #features article:hover {
-  border-color: var(--color-accent);
-  transform: translateY(-2px);
-  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
+  border-color: rgba(240, 136, 62, 0.5);
+  transform: translateY(-3px);
+  box-shadow: var(--shadow-card-hover);
+}
+
+#features article:hover::before {
+  opacity: 1;
 }
 
 #features article:hover .feature-icon {
@@ -625,12 +720,13 @@ caption {
   text-align: left;
   font-weight: var(--fw-semibold);
   color: var(--color-text-em);
-  padding: var(--space-3) 0;
+  padding: var(--space-4) var(--space-4) var(--space-2);
   font-size: var(--fs-base);
 }
 
 thead {
-  border-bottom: 2px solid var(--color-border);
+  background: rgba(13, 17, 23, 0.6);
+  border-bottom: 1px solid var(--color-border);
 }
 
 th {
@@ -652,16 +748,17 @@ td {
 
 /* Striped rows for readability */
 tbody tr:nth-child(even) {
-  background: rgba(22, 27, 34, 0.4);
+  background: rgba(13, 17, 23, 0.35);
 }
 
 /* Hover highlight for entire row */
-tbody tr:hover {
-  background: var(--color-surface);
+tbody tr:hover,
+tbody tr:nth-child(even):hover {
+  background: rgba(240, 136, 62, 0.06);
 }
 
-tbody tr:nth-child(even):hover {
-  background: var(--color-surface);
+tbody tr:last-child td {
+  border-bottom: none;
 }
 
 /* ── Table Wrapper — horizontal scroll on small screens ────────────── */
@@ -670,16 +767,19 @@ tbody tr:nth-child(even):hover {
   overflow-x: auto;
   -webkit-overflow-scrolling: touch;
   margin: var(--space-5) 0;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-card);
   /* Scroll hint shadow: inset shadow on right edge when content overflows */
   background:
-    linear-gradient(to right, var(--color-bg) 30%, transparent),
-    linear-gradient(to right, transparent, var(--color-bg) 70%) 100% 0,
-    radial-gradient(farthest-side at 0% 50%, rgba(0, 0, 0, 0.4), transparent),
-    radial-gradient(farthest-side at 100% 50%, rgba(0, 0, 0, 0.4), transparent) 100% 0;
+    linear-gradient(to right, var(--color-surface) 30%, transparent),
+    linear-gradient(to right, transparent, var(--color-surface) 70%) 100% 0,
+    radial-gradient(farthest-side at 0% 50%, rgba(0, 0, 0, 0.45), transparent),
+    radial-gradient(farthest-side at 100% 50%, rgba(0, 0, 0, 0.45), transparent) 100% 0,
+    var(--color-surface);
   background-repeat: no-repeat;
-  background-size: 40px 100%, 40px 100%, 14px 100%, 14px 100%;
-  background-attachment: local, local, scroll, scroll;
-  border-radius: var(--radius-sm);
+  background-size: 40px 100%, 40px 100%, 14px 100%, 14px 100%, 100% 100%;
+  background-attachment: local, local, scroll, scroll, local;
 }
 
 .table-wrapper:focus-visible {
@@ -709,21 +809,26 @@ tbody tr:nth-child(even):hover {
 }
 
 .arch-step {
-  background: var(--color-surface);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.02), transparent 40%),
+    var(--color-surface);
   border: 1px solid var(--color-border);
-  border-radius: var(--radius-md);
+  border-radius: var(--radius-xl);
   padding: var(--space-5) var(--space-6);
   text-align: center;
   max-width: 480px;
   width: 100%;
+  box-shadow: var(--shadow-card);
   transition:
     border-color var(--transition),
+    transform var(--transition),
     box-shadow var(--transition);
 }
 
 .arch-step:hover {
-  border-color: var(--color-accent);
-  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.25);
+  border-color: rgba(240, 136, 62, 0.5);
+  transform: translateY(-2px);
+  box-shadow: var(--shadow-card-hover);
 }
 
 .arch-number {
@@ -733,11 +838,12 @@ tbody tr:nth-child(even):hover {
   width: 32px;
   height: 32px;
   border-radius: 50%;
-  background: var(--color-accent);
-  color: #fff;
+  background: var(--gradient-accent);
+  color: #1a1107;
   font-size: var(--fs-sm);
   font-weight: var(--fw-bold);
   margin-bottom: var(--space-3);
+  box-shadow: 0 2px 10px rgba(240, 136, 62, 0.3);
 }
 
 .arch-step strong {
@@ -790,18 +896,21 @@ tbody tr:nth-child(even):hover {
 }
 
 .install-column {
-  background: var(--color-surface);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.02), transparent 40%),
+    var(--color-surface);
   border: 1px solid var(--color-border);
-  border-radius: var(--radius-md);
+  border-radius: var(--radius-xl);
   padding: var(--space-6);
+  box-shadow: var(--shadow-card);
   transition:
     border-color var(--transition),
     box-shadow var(--transition);
 }
 
 .install-column:hover {
-  border-color: var(--color-accent);
-  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.25);
+  border-color: rgba(240, 136, 62, 0.5);
+  box-shadow: var(--shadow-card-hover);
 }
 
 .install-column h3 {
@@ -823,10 +932,12 @@ tbody tr:nth-child(even):hover {
 }
 
 .install-prereqs {
-  background: var(--color-surface);
+  background:
+    linear-gradient(90deg, rgba(88, 166, 255, 0.06), transparent 40%),
+    var(--color-surface);
   border: 1px solid var(--color-border-muted);
   border-left: 3px solid var(--color-info);
-  border-radius: var(--radius-sm);
+  border-radius: var(--radius-md);
   padding: var(--space-5) var(--space-6);
   margin-top: var(--space-6);
 }
@@ -867,10 +978,12 @@ tbody tr:nth-child(even):hover {
   padding: var(--space-5) var(--space-5) var(--space-5) var(--space-8);
   margin-bottom: var(--space-4);
   border-left: 3px solid var(--color-border-muted);
-  border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+  border-radius: 0 var(--radius-md) var(--radius-md) 0;
+  background: rgba(22, 27, 34, 0.45);
   transition:
     border-color var(--transition),
-    background var(--transition);
+    background var(--transition),
+    transform var(--transition);
 }
 
 /* Alternating left-border accents */
@@ -881,6 +994,7 @@ tbody tr:nth-child(even):hover {
 
 .why-list li:hover {
   background: var(--color-surface);
+  transform: translateX(4px);
 }
 
 /* Numbered badge via ::before pseudo-element */
@@ -1010,7 +1124,8 @@ li p {
 /* ── Footer ────────────────────────────────────────────────────────── */
 
 footer {
-  border-top: 1px solid var(--color-border);
+  border-top: 1px solid transparent;
+  border-image: linear-gradient(90deg, transparent, rgba(240, 136, 62, 0.45) 50%, transparent) 1;
   background: var(--color-bg);
   background-image:
     radial-gradient(ellipse 60% 40% at 50% 100%, rgba(240, 136, 62, 0.05), transparent);
@@ -1029,8 +1144,10 @@ footer {
 .footer-col h3 {
   margin-top: 0;
   margin-bottom: var(--space-3);
-  font-size: var(--fs-lg);
-  color: var(--color-text-em);
+  font-size: var(--fs-xs);
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  color: var(--color-accent);
 }
 
 .footer-col p,
@@ -1284,9 +1401,16 @@ body.nav-open {
   /* Hide CSS pseudo-element decorations */
   #hero::before,
   #hero::after,
+  section h2::after,
   pre.yaml-code::before,
   .hero-install::after {
     display: none !important;
+  }
+
+  /* Gradient-clipped hero heading must fall back to solid text */
+  #hero h1 {
+    background: none !important;
+    -webkit-text-fill-color: #000 !important;
   }
 
   /* Remove section reveal animations — show all content */
