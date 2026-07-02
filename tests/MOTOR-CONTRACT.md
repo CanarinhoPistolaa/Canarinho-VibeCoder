@@ -115,6 +115,18 @@ The scripted e2e prints the current-motor baseline per run, e.g.:
 (bug-fix-merge-worktree, 2026-07-02). N1/N2 flip those heartbeat/system
 numbers to zero without changing work rounds or outcomes.
 
+Real-model baselines (full campaign, 2026-07-03, all tiers green):
+
+| Run | Work tokens | System tokens (idle polls) | Wall time |
+|---|---|---|---|
+| do-now canary | ~3,300 | ~0 (nudge-driven, finished before idle polls) | ~14 s |
+| bug-fix-merge-worktree (real e2e) | 45,869 | 19,286 | 7.9 min |
+| feature-dev-merge-worktree (real e2e) | 51,207 | ~23,105 (counter cumulative: 42,391) | 7.7 min |
+
+Idle polling adds ~30% token overhead on top of real work even on fast
+runs; it scales with wall time, not with work. These are the numbers the
+deterministic motor must drive to zero (N1) without changing outcomes.
+
 ## Where the contract is enforced
 
 | Tier | Command | Motor coverage |
