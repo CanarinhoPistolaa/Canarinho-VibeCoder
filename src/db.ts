@@ -21,13 +21,21 @@ export function getDb(): DatabaseSync {
   const now = Date.now();
   const dbPath = resolveDbPath();
   if (_db && _dbPath === dbPath && (now - _dbOpenedAt) < DB_MAX_AGE_MS) return _db;
-  // Only close if the ref is non-null (avoid double-close warnings)
   if (_db) {
-    try {
-      _db.close();
-    } catch {
-      // Don't throw on double-close — we just want a fresh connection
-    }
+    // Defer the close by one tick: synchronous callers that captured this
+    // handle from an earlier getDb() call may still be mid-operation (e.g.
+    // claimStep holds its db across a getWorkflowId() that re-enters
+    // getDb()). Timers cannot interrupt synchronous code, so the stale
+    // handle stays valid until they return; WAL mode tolerates the brief
+    // second connection.
+    const staleDb = _db;
+    setTimeout(() => {
+      try {
+        staleDb.close();
+      } catch {
+        // Don't throw on double-close — we just want a fresh connection
+      }
+    }, 0).unref();
     _db = null;
   }
 
@@ -37,6 +45,11 @@ export function getDb(): DatabaseSync {
   _dbOpenedAt = now;
   _db.exec("PRAGMA journal_mode=WAL");
   _db.exec("PRAGMA foreign_keys=ON");
+  // Concurrent writers (daemon dispatch rounds, CLI step complete/fail,
+  // migrations at process start) briefly contend for the WAL write lock;
+  // without a busy timeout that surfaces as an immediate
+  // "database is locked" error instead of a short wait.
+  _db.exec("PRAGMA busy_timeout = 5000");
   migrate(_db);
   return _db;
 }

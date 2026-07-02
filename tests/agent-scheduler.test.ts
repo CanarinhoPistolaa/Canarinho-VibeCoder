@@ -35,18 +35,17 @@ after(() => {
 });
 
 // ── Probe for real pi availability (synchronous, module-load time) ─
+//
+// The real-pi integration test SPENDS REAL MODEL TOKENS, so it is opt-in:
+// it only runs when TAMANDUA_REAL_PI_TESTS=1 is set explicitly. npm test
+// pins TAMANDUA_PI_BINARY=/bin/false precisely so no unit test can reach a
+// real model; the real e2e tier (./run-real-e2e-canary and friends) covers
+// live pi integration.
 let piAvailable = false;
-try {
-  const result = spawnSync("pi", ["--version"], { encoding: "utf-8", timeout: 5000 });
-  piAvailable = result.status === 0 && (result.stdout.length > 0 || result.stderr.length > 0);
-} catch {
-  // TAMANDUA_PI_BINARY may point elsewhere
+if (process.env.TAMANDUA_REAL_PI_TESTS === "1") {
   try {
-    const piPath = process.env.TAMANDUA_PI_BINARY;
-    if (piPath) {
-      fs.accessSync(piPath, fs.constants.X_OK);
-      piAvailable = true;
-    }
+    const result = spawnSync("pi", ["--version"], { encoding: "utf-8", timeout: 5000 });
+    piAvailable = result.status === 0 && (result.stdout.length > 0 || result.stderr.length > 0);
   } catch {
     // pi not available
   }
@@ -287,7 +286,7 @@ sleep 30
 
 describe("runPi with real pi binary", () => {
   // AC 1: Real pi test — runPi with pi --print --mode json --no-session with bounded prompt that ends immediately
-  it("runs pi --print --mode json --no-session with bounded prompt and returns greeting", { skip: !piAvailable ? "pi binary not available" : false }, async () => {
+  it("runs pi --print --mode json --no-session with bounded prompt and returns greeting", { skip: !piAvailable ? "real-pi test is opt-in (set TAMANDUA_REAL_PI_TESTS=1 with pi on PATH)" : false }, async () => {
     const startTime = Date.now();
     const result = await runPi(
       ["--print", "--mode", "json", "--no-session", "Say hi and end immediately. Just the word hi, nothing else."],

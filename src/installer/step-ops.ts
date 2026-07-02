@@ -151,6 +151,26 @@ export function scheduleRunCronTeardown(runId: string): void {
 }
 
 /**
+ * Fire-and-forget dispatch nudge to the daemon.
+ *
+ * Called whenever a step transitions to 'pending' (pipeline advance after a
+ * completion, retry re-pend) so the deterministic dispatch motor picks it up
+ * immediately instead of waiting for the next fallback sweep
+ * (DISPATCH_INTERVAL_MS). Best-effort by design: completions often happen in
+ * short-lived CLI processes, and if the daemon is unreachable the fallback
+ * interval dispatches the step anyway.
+ */
+function nudgeDispatch(): void {
+  try {
+    import("../server/control-client.js")
+      .then((m) => m.nudgeWithDaemon())
+      .catch(() => {});
+  } catch {
+    // best-effort
+  }
+}
+
+/**
  * Look up the workflow_id for a given run.
  */
 export function getWorkflowId(runId: string): string | undefined {
@@ -1225,6 +1245,17 @@ export function finalizeDrainingPause(runId: string): void {
  * Complete a step: validate expects, save output, merge context, advance pipeline.
  */
 export function completeStep(stepId: string, output: string): { status: string; detail?: string } {
+  const result = completeStepInternal(stepId, output);
+  // The pipeline just moved: a downstream step may have been promoted to
+  // 'pending' (advanced) or this step was re-pended for retry. Nudge the
+  // daemon so the dispatch motor picks it up immediately.
+  if (result.status === "advanced" || result.status === "retrying") {
+    nudgeDispatch();
+  }
+  return result;
+}
+
+function completeStepInternal(stepId: string, output: string): { status: string; detail?: string } {
   const db = getDb();
 
   const step = db.prepare(
@@ -1692,6 +1723,16 @@ async function getOnFailPolicy(runId: string, stepId: string): Promise<WorkflowS
  * Handles escalate_on_failure by logging the escalation target.
  */
 export async function failStep(stepId: string, error: string): Promise<{ status: string }> {
+  const result = await failStepInternal(stepId, error);
+  // A retry re-pends the step (or its story) — nudge the daemon so the
+  // dispatch motor retries immediately instead of on the fallback sweep.
+  if (result.status === "retrying") {
+    nudgeDispatch();
+  }
+  return result;
+}
+
+async function failStepInternal(stepId: string, error: string): Promise<{ status: string }> {
   const db = getDb();
 
   const step = db.prepare(

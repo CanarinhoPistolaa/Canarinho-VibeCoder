@@ -8,6 +8,7 @@ import { resolveWorkflowDir, resolvePiStateDir } from "./paths.js";
 import {
   ensureDaemonControlAvailable,
   registerRunWithDaemon,
+  nudgeWithDaemon,
 } from "../server/control-client.js";
 import { emitEvent } from "./events.js";
 import { advancePipeline, scheduleRunCronTeardown } from "./step-ops.js";
@@ -314,6 +315,11 @@ export async function runWorkflow(
     throw new Error(`Failed to register run with daemon: ${message}`);
   }
 
+  // Kick the first dispatch immediately — the first step is already
+  // 'pending', so without a nudge the run would idle until the fallback
+  // dispatch sweep. Fire-and-forget: the sweep is the safety net.
+  nudgeWithDaemon().catch(() => {});
+
   return {
     runId,
     runNumber,
@@ -383,6 +389,9 @@ export async function resumeWorkflow(runId: string): Promise<ResumeResult> {
     scheduleRunCronTeardown(run.id);
     throw new Error(`Failed to register resumed run with daemon: ${message}`);
   }
+
+  // Same as runWorkflow: dispatch the re-pended step now, not on the sweep.
+  nudgeWithDaemon().catch(() => {});
 
   return { status: "resumed", runId: run.id, workflowId: run.workflow_id, stepId: failedStep?.step_id };
 }
