@@ -18,7 +18,7 @@ import { resolveBundledWorkflowDir } from "../installer/paths.js";
 import { getRecentEvents, getRunEvents, readEventsFromCursor, type EventCursorSource, type TamanduaEvent } from "../installer/events.js";
 import { formatLogsTailLines } from "../installer/logs-tail-format.js";
 import { parseLogsSelector, lookupRunIdByNumber } from "./logs-selector.js";
-import { startDaemon, stopDaemon, getDaemonStatus, isRunning, startMcp, stopMcp, getMcpStatus, isMcpRunning, startControlPlane, stopControlPlane, getControlPlaneStatus, isControlPlaneRunning } from "../server/daemonctl.js";
+import { startDaemon, stopDaemon, restartDaemon, getDaemonStatus, isRunning, startMcp, stopMcp, restartMcp, getMcpStatus, isMcpRunning, startControlPlane, stopControlPlane, restartControlPlane, getControlPlaneStatus, isControlPlaneRunning } from "../server/daemonctl.js";
 import { DEFAULT_MCP_PORT, MCP_ENDPOINT_PATH } from "../server/mcp-server.js";
 import { DEFAULT_CONTROL_PORT } from "../server/control-server.js";
 import { pauseRunWithDaemon, resumeRunWithDaemon, nudgeWithDaemon } from "../server/control-client.js";
@@ -579,10 +579,28 @@ Examples:
   tamandua step stories abc12345`;
 }
 
+function getMcpRestartHelp(): string {
+  return `tamandua mcp restart — Restart the MCP HTTP server
+
+Usage: tamandua mcp restart [--port N]
+
+Restarts the MCP server. If the server is currently running, it is
+stopped first, then a new server is started on the given port (or the
+previously configured port if no --port is specified). If the server is
+not running, this command behaves like start.
+
+Options:
+  --port N    Port to restart on (default: currently configured port or 3338)
+
+Examples:
+  tamandua mcp restart            # Restart on current/default port
+  tamandua mcp restart --port 5555 # Restart on port 5555`;
+}
+
 function getMcpHelp(): string {
   return `tamandua mcp — Manage the standalone MCP HTTP server
 
-Usage: tamandua mcp <start|stop|status>
+Usage: tamandua mcp <start|stop|restart|status>
 
 The MCP (Model Context Protocol) server provides a remote MCP endpoint for
 agent tool access. It runs as a standalone HTTP server, independent of the
@@ -592,9 +610,10 @@ Default port: 3338
 Default endpoint: http://localhost:3338/mcp
 
 Subcommands:
-  start  [--port N]   Start the MCP server on the given port
-  stop                Stop the MCP server
-  status              Show whether the MCP server is running (PID, port, endpoint)
+  start   [--port N]   Start the MCP server on the given port
+  stop                 Stop the MCP server
+  restart [--port N]   Restart the MCP server
+  status               Show whether the MCP server is running (PID, port, endpoint)
 
 Start will refuse if the MCP server is already running, printing its current
 status instead.
@@ -603,6 +622,8 @@ Examples:
   tamandua mcp start                   # Start on default port 3338
   tamandua mcp start --port 5555       # Start on a custom port
   tamandua mcp stop                    # Stop the MCP server
+  tamandua mcp restart                 # Restart on current/default port
+  tamandua mcp restart --port 5555     # Restart on port 5555
   tamandua mcp status                  # Check if the MCP server is running`;
 }
 
@@ -663,9 +684,10 @@ status of the standalone MCP server.
 Default port: 3334
 
 Subcommands:
-  start  [--port N]   Start the dashboard daemon on the given port
-  stop                Stop the dashboard daemon
-  status              Show dashboard status and MCP server status
+  start   [--port N]   Start the dashboard daemon on the given port
+  stop                 Stop the dashboard daemon
+  restart [--port N]   Restart the dashboard daemon
+  status               Show dashboard status and MCP server status
 
 Dashboard status output includes both dashboard and MCP server information
 (PID, port, endpoint for each).
@@ -676,6 +698,7 @@ Examples:
   tamandua dashboard start             # Start on default port 3334
   tamandua dashboard start --port 8080 # Start on port 8080
   tamandua dashboard stop              # Stop the dashboard
+  tamandua dashboard restart           # Restart on current/default port
   tamandua dashboard status            # Check dashboard and MCP status`;
 }
 
@@ -714,6 +737,24 @@ Examples:
   tamandua dashboard stop`;
 }
 
+function getDashboardRestartHelp(): string {
+  return `tamandua dashboard restart — Restart the web dashboard daemon
+
+Usage: tamandua dashboard restart [--port N]
+
+Restarts the dashboard daemon. If the daemon is currently running, it is
+stopped first, then a new daemon is started on the given port (or the
+previously configured port if no --port is specified). If the daemon is
+not running, this command behaves like start.
+
+Options:
+  --port N    Port to restart on (default: currently configured port or 3334)
+
+Examples:
+  tamandua dashboard restart            # Restart on current/default port
+  tamandua dashboard restart --port 8080 # Restart on port 8080`;
+}
+
 function getDashboardStatusHelp(): string {
   return `tamandua dashboard status — Show dashboard and MCP server status
 
@@ -742,6 +783,7 @@ Default port: 3339
 Subcommands:
   start  [--port N]   Start the control plane server on the given port
   stop                Stop the control plane server
+  restart [--port N]  Restart the control plane server
   status              Show whether the control plane is running (PID, port, endpoint)
 
 Start will refuse if the control plane is already running, printing its
@@ -751,6 +793,7 @@ Examples:
   tamandua control-plane start               # Start on default port 3339
   tamandua control-plane start --port 4444   # Start on port 4444
   tamandua control-plane stop                # Stop the control plane
+  tamandua control-plane restart             # Restart on current/default port
   tamandua control-plane status              # Check control plane status`;
 }
 
@@ -784,6 +827,24 @@ running, the command prints a message and exits successfully.
 
 Examples:
   tamandua control-plane stop`;
+}
+
+function getControlPlaneRestartHelp(): string {
+  return `tamandua control-plane restart — Restart the control plane server
+
+Usage: tamandua control-plane restart [--port N]
+
+Restarts the control plane server. If the server is currently running, it is
+stopped first, then a new server is started on the given port (or the
+previously configured port if no --port is specified). If the server is
+not running, this command behaves like start.
+
+Options:
+  --port N    Port to restart on (default: currently configured port or 3339)
+
+Examples:
+  tamandua control-plane restart            # Restart on current/default port
+  tamandua control-plane restart --port 4444 # Restart on port 4444`;
 }
 
 function getLogsHelp(): string {
@@ -1562,12 +1623,15 @@ function getUsageText(): string {
     "tamandua workflow delete <run-id>     Permanently delete a run [--force]",
     "tamandua mcp start [--port N]         Start MCP server (default: 3338)",
     "tamandua mcp stop                     Stop MCP server",
+    "tamandua mcp restart [--port N]       Restart MCP server",
     "tamandua mcp status                   Check MCP server status",
     "tamandua control-plane start [--port N]Start control plane (default: 3339)",
     "tamandua control-plane stop            Stop control plane",
+    "tamandua control-plane restart [--port N]Restart control plane",
     "tamandua control-plane status          Check control plane status",
     "", "tamandua dashboard [start] [--port N] Start dashboard (default: 3334)",
     "tamandua dashboard stop               Stop dashboard",
+    "tamandua dashboard restart [--port N] Restart dashboard",
     "tamandua dashboard status             Check dashboard status",
     "", "tamandua step peek <agent-id> --run-id <run-id>     Check for pending work (HAS_WORK or NO_WORK)",
     "tamandua step claim <agent-id> --run-id <run-id>    Claim pending step (JSON output)",
@@ -1630,18 +1694,21 @@ async function main() {
     if (group === "mcp") {
       if (action === "start") { printHelp(getMcpStartHelp()); }
       if (action === "stop") { printHelp(getMcpStopHelp()); }
+      if (action === "restart") { printHelp(getMcpRestartHelp()); }
       if (action === "status") { printHelp(getMcpStatusHelp()); }
       printHelp(getMcpHelp());
     }
     if (group === "dashboard") {
       if (action === "start") { printHelp(getDashboardStartHelp()); }
       if (action === "stop") { printHelp(getDashboardStopHelp()); }
+      if (action === "restart") { printHelp(getDashboardRestartHelp()); }
       if (action === "status") { printHelp(getDashboardStatusHelp()); }
       printHelp(getDashboardHelp());
     }
     if (group === "control-plane") {
       if (action === "start") { printHelp(getControlPlaneStartHelp()); }
       if (action === "stop") { printHelp(getControlPlaneStopHelp()); }
+      if (action === "restart") { printHelp(getControlPlaneRestartHelp()); }
       if (action === "status") { printHelp(getControlPlaneStatusHelp()); }
       printHelp(getControlPlaneHelp());
     }
@@ -1775,6 +1842,29 @@ async function main() {
       console.log(stopMcp() ? "MCP server stopped." : "MCP server is not running.");
       return;
     }
+    if (sub === "restart") {
+      let restartPort: number | undefined;
+      const restartPortIdx = args.indexOf("--port");
+      if (restartPortIdx !== -1 && args[restartPortIdx + 1]) {
+        restartPort = parseInt(args[restartPortIdx + 1], 10) || undefined;
+      }
+      // Support positional port: tamandua mcp restart 5555
+      const restartPosIdx = args.indexOf("restart") + 1;
+      const restartPosArg = args[restartPosIdx];
+      if (restartPosArg && !restartPosArg.startsWith("-")) {
+        const p = parseInt(restartPosArg, 10);
+        if (!Number.isNaN(p)) restartPort = p;
+      }
+      try {
+        const restartResult = await restartMcp(restartPort);
+        console.log(`MCP server restarted (PID ${restartResult.pid})`);
+        console.log(`Endpoint: http://localhost:${restartResult.port}${MCP_ENDPOINT_PATH}`);
+      } catch (err) {
+        process.stderr.write(`Failed to restart MCP: ${err instanceof Error ? err.message : String(err)}\n`);
+        process.exit(1);
+      }
+      return;
+    }
     if (sub === "status") {
       const st = getMcpStatus();
       if (!st.running) {
@@ -1818,6 +1908,28 @@ async function main() {
   if (group === "dashboard") {
     const sub = args[1];
     if (sub === "stop") { console.log(stopDaemon() ? "Dashboard stopped." : "Dashboard is not running."); return; }
+    if (sub === "restart") {
+      let port: number | undefined;
+      const portIdx = args.indexOf("--port");
+      if (portIdx !== -1 && args[portIdx + 1]) {
+        port = parseInt(args[portIdx + 1], 10) || undefined;
+      }
+      // Support positional port: tamandua dashboard restart 5555
+      const posIdx = args.indexOf("restart") + 1;
+      const posArg = args[posIdx];
+      if (posArg && !posArg.startsWith("-")) {
+        const p = parseInt(posArg, 10);
+        if (!Number.isNaN(p)) port = p;
+      }
+      try {
+        const result = await restartDaemon(port);
+        console.log(`Dashboard restarted (PID ${result.pid})\n  http://localhost:${result.port}`);
+      } catch (err) {
+        process.stderr.write(`Failed to restart dashboard: ${err instanceof Error ? err.message : String(err)}\n`);
+        process.exit(1);
+      }
+      return;
+    }
     if (sub === "status") {
       const st = getDaemonStatus();
       const mcp = getMcpStatus();
@@ -1876,6 +1988,30 @@ async function main() {
     const sub = args[1];
     if (sub === "stop") {
       console.log(stopControlPlane() ? "Control plane stopped." : "Control plane is not running.");
+      return;
+    }
+    if (sub === "restart") {
+      let restartPort: number | undefined;
+      const restartPortIdx = args.indexOf("--port");
+      if (restartPortIdx !== -1 && args[restartPortIdx + 1]) {
+        restartPort = parseInt(args[restartPortIdx + 1], 10) || undefined;
+      }
+      // Support positional port: tamandua control-plane restart 4444
+      const restartPosIdx = args.indexOf("restart") + 1;
+      const restartPosArg = args[restartPosIdx];
+      if (restartPosArg && !restartPosArg.startsWith("-")) {
+        const p = parseInt(restartPosArg, 10);
+        if (!Number.isNaN(p)) restartPort = p;
+      }
+      try {
+        const restartResult = await restartControlPlane(restartPort);
+        const label = restartResult.alreadyRunning ? "already running" : "restarted";
+        console.log(`Control plane ${label}${restartResult.pid > 0 ? ` (PID ${restartResult.pid})` : ""}`);
+        console.log(`Endpoint: http://localhost:${restartResult.port}${getControlPlaneStatus().endpoint}`);
+      } catch (err) {
+        process.stderr.write(`Failed to restart control plane: ${err instanceof Error ? err.message : String(err)}\n`);
+        process.exit(1);
+      }
       return;
     }
     if (sub === "status") {

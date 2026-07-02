@@ -287,6 +287,7 @@ export type StartControlPlaneResult = {
  * @param opts  When keepHandle is true, returns the ChildProcess handle.
  */
 export async function startDaemon(port?: number): Promise<{ pid: number; port: number }>;
+export async function startDaemon(port: number, opts: StartOptions): Promise<{ pid: number; port: number }>;
 export async function startDaemon(port: number, opts: StartOptions & { keepHandle: true }): Promise<{ pid: number; port: number; child: ChildProcess }>;
 export async function startDaemon(port = 3334, opts?: StartOptions): Promise<{ pid: number; port: number } | { pid: number; port: number; child: ChildProcess }> {
   // When homeDir is set, compute isolated paths for all filesystem operations.
@@ -409,6 +410,30 @@ export function stopDaemon(opts?: DaemonctlPathOptions): boolean {
   return true;
 }
 
+/**
+ * Restart the dashboard daemon.
+ *
+ * If the daemon is currently running, stops it first, then starts a new
+ * daemon on the previously configured port (or the port argument).
+ * If no daemon is running, starts one on the given port (default 3334).
+ *
+ * Returns { pid, port } like startDaemon.
+ */
+export async function restartDaemon(port?: number, opts?: StartOptions): Promise<{ pid: number; port: number }> {
+  const currentPort = port ?? readPort(opts);
+
+  if (isRunning(opts).running) {
+    stopDaemon(opts);
+    // Brief pause to let the port be released and process fully exit
+    await new Promise((resolve) => setTimeout(resolve, 500));
+  }
+
+  if (opts) {
+    return startDaemon(currentPort, opts);
+  }
+  return startDaemon(currentPort);
+}
+
 // ═══════════════════════════════════════════════════════════════════
 // MCP standalone lifecycle management
 // ═══════════════════════════════════════════════════════════════════
@@ -494,6 +519,7 @@ export function getMcpStatus(opts?: DaemonctlPathOptions): {
  * If the MCP server is already running, returns its info without restarting.
  */
 export async function startMcp(port?: number): Promise<{ pid: number; port: number }>;
+export async function startMcp(port: number, opts: StartOptions): Promise<{ pid: number; port: number }>;
 export async function startMcp(port: number, opts: StartOptions & { keepHandle: true }): Promise<{ pid: number; port: number; child: ChildProcess }>;
 export async function startMcp(port?: number, opts?: StartOptions): Promise<{ pid: number; port: number } | { pid: number; port: number; child: ChildProcess }> {
   // When homeDir is set, compute isolated paths for all filesystem operations.
@@ -563,6 +589,30 @@ export async function startMcp(port?: number, opts?: StartOptions): Promise<{ pi
   }
 
   return { pid: check.pid, port: mcpPort };
+}
+
+/**
+ * Restart the standalone MCP server.
+ *
+ * If the MCP server is currently running, stops it first, then starts a new
+ * server on the previously configured port (or the port argument).
+ * If no MCP server is running, starts one on the given port (default DEFAULT_MCP_PORT=3338).
+ *
+ * Returns { pid, port } like startMcp.
+ */
+export async function restartMcp(port?: number, opts?: StartOptions): Promise<{ pid: number; port: number }> {
+  const currentPort = port ?? readMcpPort(opts);
+
+  if (isMcpRunning(opts).running) {
+    stopMcp(opts);
+    // Brief pause to let the port be released and process fully exit
+    await new Promise((resolve) => setTimeout(resolve, 500));
+  }
+
+  if (opts) {
+    return startMcp(currentPort, opts);
+  }
+  return startMcp(currentPort);
 }
 
 /**
@@ -777,6 +827,7 @@ export function getControlPlaneStatus(opts?: DaemonctlPathOptions): {
  * If the control plane server is already running, returns its info without restarting.
  */
 export async function startControlPlane(port?: number): Promise<StartControlPlaneResult>;
+export async function startControlPlane(port: number, opts: StartOptions): Promise<StartControlPlaneResult>;
 export async function startControlPlane(port: number, opts: StartOptions & { keepHandle: true }): Promise<StartControlPlaneResult & { child: ChildProcess }>;
 export async function startControlPlane(port?: number, opts?: StartOptions): Promise<StartControlPlaneResult | (StartControlPlaneResult & { child: ChildProcess })> {
   // When homeDir is set, compute isolated paths for all filesystem operations.
@@ -888,4 +939,28 @@ export function stopControlPlane(opts?: DaemonctlPathOptions): boolean {
   }
 
   return true;
+}
+
+/**
+ * Restart the standalone control plane server.
+ *
+ * If the control plane is currently running, stops it first, then starts a new
+ * server on the previously configured port (or the port argument).
+ * If no control plane is running, starts one on the given port (default DEFAULT_CONTROL_PORT=3339).
+ *
+ * Returns { pid, port, alreadyRunning? } like startControlPlane.
+ */
+export async function restartControlPlane(port?: number, opts?: StartOptions): Promise<StartControlPlaneResult> {
+  const currentPort = port ?? readControlPlanePort(opts);
+
+  if (isControlPlaneRunning(opts).running) {
+    stopControlPlane(opts);
+    // Brief pause to let the port be released and process fully exit
+    await new Promise((resolve) => setTimeout(resolve, 500));
+  }
+
+  if (opts) {
+    return startControlPlane(currentPort, opts);
+  }
+  return startControlPlane(currentPort);
 }
