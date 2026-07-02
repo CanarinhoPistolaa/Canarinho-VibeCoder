@@ -1,11 +1,9 @@
 /**
- * MOTOR-MECHANISM: pins the CURRENT model-driven polling motor.
+ * Scheduler job lifecycle: dispatch-job setup, in-flight guard, nudge.
  *
- * This test asserts implementation details of the polling motor (model-run
- * peek/claim rounds, polling prompts, heartbeat system-token attribution).
- * It is EXPECTED to churn or be replaced when the deterministic motor lands.
- * During the motor rewrite: a failure here is expected noise; a failure in a
- * contract test is a real regression. See tests/MOTOR-CONTRACT.md.
+ * The dispatch motor is deterministic (in-process peek, constant fallback
+ * interval), so there is no per-workflow interval math to pin — these tests
+ * assert job identity/lifecycle and the nudge/in-flight semantics (C5, C7).
  */
 import assert from "node:assert/strict";
 import { describe, it, afterEach, beforeEach } from "node:test";
@@ -15,11 +13,12 @@ import os from "node:os";
 import {
   setupAgentCrons,
   createAgentCronJob,
-  _getJobIntervalsForRun,
+  _scheduledJobCountForRun,
   removeRunCrons,
   shutdownAllCrons,
   tryMarkJobInFlight,
   nudgeScheduledRuns,
+  DISPATCH_INTERVAL_MS,
 } from "../../dist/installer/agent-scheduler.js";
 import type { SetupAgentCronsOptions, NudgeResult } from "../../dist/installer/agent-scheduler.js";
 import type { WorkflowSpec } from "../../dist/installer/types.js";
@@ -50,46 +49,35 @@ function makeWorkflow(overrides: {
   };
 }
 
-describe("setupAgentCrons interval calculation", () => {
+describe("setupAgentCrons dispatch-job scheduling", () => {
   afterEach(() => {
     shutdownAllCrons();
   });
 
-  it("uses default interval 5 when no polling.timeoutSeconds is set", async () => {
+  it("uses a constant seconds-scale fallback interval — dispatch is free", () => {
+    assert.ok(
+      DISPATCH_INTERVAL_MS >= 1_000 && DISPATCH_INTERVAL_MS <= 60_000,
+      `DISPATCH_INTERVAL_MS should be seconds-scale, got ${DISPATCH_INTERVAL_MS}`,
+    );
+  });
+
+  it("schedules one job per agent", async () => {
     const workflow = makeWorkflow();
     const runId = "run-default-test";
 
     await setupAgentCrons(workflow, runId);
-
-    const intervals = _getJobIntervalsForRun(runId);
-    assert.equal(intervals.length, 1);
-    assert.equal(intervals[0].intervalMinutes, 5);
+    assert.equal(_scheduledJobCountForRun(runId), 1);
 
     await removeRunCrons(runId);
+    assert.equal(_scheduledJobCountForRun(runId), 0);
   });
 
-  it("uses Math.max(1, ...) floor when polling.timeoutSeconds is set (33s → ceil(33/60)=1)", async () => {
-    const workflow = makeWorkflow({ pollingTimeoutSeconds: 33 });
-    const runId = "run-floor-test";
-
-    await setupAgentCrons(workflow, runId);
-
-    const intervals = _getJobIntervalsForRun(runId);
-    assert.equal(intervals.length, 1);
-    assert.equal(intervals[0].intervalMinutes, 1);
-
-    await removeRunCrons(runId);
-  });
-
-  it("ceil works for fractional minutes (120s → ceil(2)=2)", async () => {
+  it("legacy polling.timeoutSeconds in the workflow YAML is accepted and ignored", async () => {
     const workflow = makeWorkflow({ pollingTimeoutSeconds: 120 });
-    const runId = "run-ceil-test";
+    const runId = "run-legacy-polling-config";
 
     await setupAgentCrons(workflow, runId);
-
-    const intervals = _getJobIntervalsForRun(runId);
-    assert.equal(intervals.length, 1);
-    assert.equal(intervals[0].intervalMinutes, 2);
+    assert.equal(_scheduledJobCountForRun(runId), 1);
 
     await removeRunCrons(runId);
   });
@@ -105,122 +93,44 @@ describe("setupAgentCrons interval calculation", () => {
     const runId = "run-multi";
 
     await setupAgentCrons(workflow, runId);
+    assert.equal(_scheduledJobCountForRun(runId), 2);
 
-    const intervals = _getJobIntervalsForRun(runId);
-    assert.equal(intervals.length, 2);
-    // 90s / 60 = 1.5, ceil → 2
-    for (const job of intervals) {
-      assert.equal(job.intervalMinutes, 2);
-    }
+    await removeRunCrons(runId);
+  });
+
+  it("is idempotent — re-running setup does not duplicate jobs", async () => {
+    const workflow = makeWorkflow();
+    const runId = "run-idempotent";
+
+    await setupAgentCrons(workflow, runId);
+    await setupAgentCrons(workflow, runId);
+    assert.equal(_scheduledJobCountForRun(runId), 1);
 
     await removeRunCrons(runId);
   });
 });
 
-describe("setupAgentCrons noHurrySaveTokensMode", () => {
+describe("setupAgentCrons noHurrySaveTokensMode (accepted no-op)", () => {
   afterEach(() => {
     shutdownAllCrons();
   });
 
-  it("save-tokens mode uses default 15 when no polling.timeoutSeconds set", async () => {
-    const workflow = makeWorkflow();
-    const runId = "run-save-default";
+  // The flag existed to stretch the model-driven polling interval and save
+  // idle-poll tokens. Dispatch rounds are free, so it no longer changes
+  // scheduling — but the CLI flag must stay accepted for back-compat.
+  for (const mode of [true, false, undefined] as const) {
+    it(`schedules identically with noHurrySaveTokensMode=${String(mode)}`, async () => {
+      const workflow = makeWorkflow({ pollingTimeoutSeconds: 33 });
+      const runId = `run-save-tokens-${String(mode)}`;
 
-    await setupAgentCrons(workflow, runId, { noHurrySaveTokensMode: true });
+      const options: SetupAgentCronsOptions =
+        mode === undefined ? {} : { noHurrySaveTokensMode: mode };
+      await setupAgentCrons(workflow, runId, options);
+      assert.equal(_scheduledJobCountForRun(runId), 1);
 
-    const intervals = _getJobIntervalsForRun(runId);
-    assert.equal(intervals.length, 1);
-    assert.equal(intervals[0].intervalMinutes, 15);
-
-    await removeRunCrons(runId);
-  });
-
-  it("save-tokens mode uses Math.max(15, ...) floor (33s → ceil=1 → max(15,1)=15)", async () => {
-    const workflow = makeWorkflow({ pollingTimeoutSeconds: 33 });
-    const runId = "run-save-floor";
-
-    await setupAgentCrons(workflow, runId, { noHurrySaveTokensMode: true });
-
-    const intervals = _getJobIntervalsForRun(runId);
-    assert.equal(intervals.length, 1);
-    assert.equal(intervals[0].intervalMinutes, 15);
-
-    await removeRunCrons(runId);
-  });
-
-  it("save-tokens mode with 1200s timeout → ceil=20 → stays 20 (above floor)", async () => {
-    const workflow = makeWorkflow({ pollingTimeoutSeconds: 1200 });
-    const runId = "run-save-above-floor";
-
-    await setupAgentCrons(workflow, runId, { noHurrySaveTokensMode: true });
-
-    const intervals = _getJobIntervalsForRun(runId);
-    assert.equal(intervals.length, 1);
-    assert.equal(intervals[0].intervalMinutes, 20);
-
-    await removeRunCrons(runId);
-  });
-
-  it("noHurrySaveTokensMode=false uses default 5", async () => {
-    const workflow = makeWorkflow();
-    const runId = "run-normal-default";
-
-    await setupAgentCrons(workflow, runId, { noHurrySaveTokensMode: false });
-
-    const intervals = _getJobIntervalsForRun(runId);
-    assert.equal(intervals.length, 1);
-    assert.equal(intervals[0].intervalMinutes, 5);
-
-    await removeRunCrons(runId);
-  });
-
-  it("noHurrySaveTokensMode=false uses Math.max(1, ...) floor (33s → ceil=1)", async () => {
-    const workflow = makeWorkflow({ pollingTimeoutSeconds: 33 });
-    const runId = "run-normal-floor";
-
-    await setupAgentCrons(workflow, runId, { noHurrySaveTokensMode: false });
-
-    const intervals = _getJobIntervalsForRun(runId);
-    assert.equal(intervals.length, 1);
-    assert.equal(intervals[0].intervalMinutes, 1);
-
-    await removeRunCrons(runId);
-  });
-
-  it("noHurrySaveTokensMode omitted (undefined) uses default 5", async () => {
-    const workflow = makeWorkflow();
-    const runId = "run-absent-default";
-
-    await setupAgentCrons(workflow, runId);
-
-    const intervals = _getJobIntervalsForRun(runId);
-    assert.equal(intervals.length, 1);
-    assert.equal(intervals[0].intervalMinutes, 5);
-
-    await removeRunCrons(runId);
-  });
-
-  it("save-tokens mode with multiple agents", async () => {
-    const workflow = {
-      ...makeWorkflow({ pollingTimeoutSeconds: 90 }),
-      agents: [
-        { id: "agent-a", model: "fake", workspace: { baseDir: "." } },
-        { id: "agent-b", model: "fake", workspace: { baseDir: "." } },
-      ],
-    };
-    const runId = "run-save-multi";
-
-    await setupAgentCrons(workflow, runId, { noHurrySaveTokensMode: true });
-
-    const intervals = _getJobIntervalsForRun(runId);
-    assert.equal(intervals.length, 2);
-    // 90s / 60 = 1.5, ceil → 2, Math.max(15, 2) → 15
-    for (const job of intervals) {
-      assert.equal(job.intervalMinutes, 15);
-    }
-
-    await removeRunCrons(runId);
-  });
+      await removeRunCrons(runId);
+    });
+  }
 });
 
 describe("tryMarkJobInFlight race guard", () => {
@@ -422,17 +332,15 @@ describe("nudgeScheduledRuns", () => {
       runId: "run-pending",
       agent: { id: "dev", model: "fake", workspace: { baseDir: "." } },
       workflow,
-      intervalMinutes: 5,
       staggerOffsetMs: 60_000,
       workingDirectoryForHarness: tempHome,
     });
 
-    await nudgeScheduledRuns(["run-pending"]);
+    const result = await nudgeScheduledRuns(["run-pending"]);
+    assert.equal(result.launched, 1);
 
-    // After nudge, the job should have an active interval (was pending)
-    const intervals = _getJobIntervalsForRun("run-pending");
-    assert.equal(intervals.length, 1);
-    assert.equal(intervals[0].intervalMinutes, 5);
+    // The job is still scheduled after the nudge (pending → active timer)
+    assert.equal(_scheduledJobCountForRun("run-pending"), 1);
   });
 
   it("preserves job metadata (harness type) through nudge", async () => {

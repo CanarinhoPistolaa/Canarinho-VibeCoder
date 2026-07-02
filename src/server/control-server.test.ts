@@ -1044,7 +1044,8 @@ describe("control-server unit exports", () => {
 });
 
 // ══════════════════════════════════════════════════════════════════════
-// US-004: context no_hurry_save_tokens_mode → setupAgentCrons wiring
+// US-004: context no_hurry_save_tokens_mode stays accepted at admission
+// (dispatch rounds are free, so the flag no longer changes scheduling)
 // ══════════════════════════════════════════════════════════════════════
 
 import {
@@ -1052,7 +1053,7 @@ import {
   type RunRow,
 } from "../../dist/server/control-server.js";
 import {
-  _getJobIntervalsForRun,
+  _scheduledJobCountForRun,
   shutdownAllCrons,
 } from "../../dist/installer/agent-scheduler.js";
 
@@ -1138,89 +1139,48 @@ describe("control-server save-tokens context wiring", () => {
     ).run(stepId, runId, `${workflowId}_developer`, now, now);
   }
 
-  it("passes noHurrySaveTokensMode: true when context has no_hurry_save_tokens_mode='true'", async () => {
-    const workflowId = "wf-save-tokens-context";
-    const runId = crypto.randomUUID();
+  // The flag once stretched the model-driven polling interval to save
+  // idle-poll tokens. The deterministic dispatch motor peeks for free, so
+  // admission schedules identically for every flag value — the context key
+  // just has to keep being accepted (runs created by older CLIs carry it).
+  const flagCases: Array<{ label: string; context: Record<string, string> }> = [
+    {
+      label: "no_hurry_save_tokens_mode='true'",
+      context: { no_hurry_save_tokens_mode: "true" },
+    },
+    {
+      label: "no_hurry_save_tokens_mode='false'",
+      context: { no_hurry_save_tokens_mode: "false" },
+    },
+    { label: "flag missing from context", context: {} },
+  ];
 
-    createMinimalWorkflow(workflowId);
-    await insertRunWithContext(runId, workflowId, {
-      working_directory_for_harness: tempHome,
-      no_hurry_save_tokens_mode: "true",
+  for (const { label, context } of flagCases) {
+    it(`admits and schedules dispatch jobs with ${label}`, async () => {
+      const workflowId = `wf-save-tokens-${crypto.randomUUID().slice(0, 8)}`;
+      const runId = crypto.randomUUID();
+
+      createMinimalWorkflow(workflowId);
+      await insertRunWithContext(runId, workflowId, {
+        working_directory_for_harness: tempHome,
+        ...context,
+      });
+
+      const { getDb } = await import("../../dist/db.js");
+      const db = getDb();
+      const run = db.prepare(
+        "SELECT id, workflow_id, status, scheduling_status, context, created_at FROM runs WHERE id = ?",
+      ).get(runId) as RunRow | undefined;
+      assert.ok(run, "run should exist in DB");
+
+      const result = await _admitOrQueueRun(run!);
+      assert.ok(result.status === 200 || result.status === 202,
+        `expected 200 or 202, got ${result.status}: ${JSON.stringify(result.body)}`);
+
+      assert.ok(
+        _scheduledJobCountForRun(runId) > 0,
+        "should have at least one scheduled dispatch job",
+      );
     });
-
-    const { getDb } = await import("../../dist/db.js");
-    const db = getDb();
-    const run = db.prepare(
-      "SELECT id, workflow_id, status, scheduling_status, context, created_at FROM runs WHERE id = ?",
-    ).get(runId) as RunRow | undefined;
-    assert.ok(run, "run should exist in DB");
-
-    const result = await _admitOrQueueRun(run!);
-    assert.ok(result.status === 200 || result.status === 202,
-      `expected 200 or 202, got ${result.status}: ${JSON.stringify(result.body)}`);
-
-    const intervals = _getJobIntervalsForRun(runId);
-    assert.ok(intervals.length > 0, "should have at least one scheduled job");
-    for (const job of intervals) {
-      assert.equal(job.intervalMinutes, 15,
-        `save-tokens mode should use 15-min interval, got ${job.intervalMinutes}`);
-    }
-  });
-
-  it("passes noHurrySaveTokensMode: false when context has no_hurry_save_tokens_mode='false'", async () => {
-    const workflowId = "wf-no-save-tokens";
-    const runId = crypto.randomUUID();
-
-    createMinimalWorkflow(workflowId);
-    await insertRunWithContext(runId, workflowId, {
-      working_directory_for_harness: tempHome,
-      no_hurry_save_tokens_mode: "false",
-    });
-
-    const { getDb } = await import("../../dist/db.js");
-    const db = getDb();
-    const run = db.prepare(
-      "SELECT id, workflow_id, status, scheduling_status, context, created_at FROM runs WHERE id = ?",
-    ).get(runId) as RunRow | undefined;
-    assert.ok(run, "run should exist in DB");
-
-    const result = await _admitOrQueueRun(run!);
-    assert.ok(result.status === 200 || result.status === 202,
-      `expected 200 or 202, got ${result.status}: ${JSON.stringify(result.body)}`);
-
-    const intervals = _getJobIntervalsForRun(runId);
-    assert.ok(intervals.length > 0, "should have at least one scheduled job");
-    for (const job of intervals) {
-      assert.equal(job.intervalMinutes, 5,
-        `non-save-tokens mode should use 5-min interval, got ${job.intervalMinutes}`);
-    }
-  });
-
-  it("defaults to false when no_hurry_save_tokens_mode is missing from context", async () => {
-    const workflowId = "wf-missing-flag";
-    const runId = crypto.randomUUID();
-
-    createMinimalWorkflow(workflowId);
-    await insertRunWithContext(runId, workflowId, {
-      working_directory_for_harness: tempHome,
-    });
-
-    const { getDb } = await import("../../dist/db.js");
-    const db = getDb();
-    const run = db.prepare(
-      "SELECT id, workflow_id, status, scheduling_status, context, created_at FROM runs WHERE id = ?",
-    ).get(runId) as RunRow | undefined;
-    assert.ok(run, "run should exist in DB");
-
-    const result = await _admitOrQueueRun(run!);
-    assert.ok(result.status === 200 || result.status === 202,
-      `expected 200 or 202, got ${result.status}: ${JSON.stringify(result.body)}`);
-
-    const intervals = _getJobIntervalsForRun(runId);
-    assert.ok(intervals.length > 0, "should have at least one scheduled job");
-    for (const job of intervals) {
-      assert.equal(job.intervalMinutes, 5,
-        `missing flag should default to 5-min interval, got ${job.intervalMinutes}`);
-    }
-  });
+  }
 });

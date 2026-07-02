@@ -4,9 +4,9 @@
  * createScriptedAgent() materializes an executable that the agent scheduler
  * can spawn in place of the real pi binary (via TAMANDUA_PI_BINARY). Unlike
  * the canned fake-pi in unit tests, the scripted agent executes the real
- * polling protocol — step peek / claim / complete against the isolated
- * tamandua DB — and applies deterministic per-agent behaviors (file edits,
- * shell commands, canned STATUS outputs) in the harness workdir.
+ * work protocol — step claim / complete against the isolated tamandua DB
+ * (plus a defensive peek) — and applies deterministic per-agent behaviors
+ * (file edits, shell commands, canned STATUS outputs) in the harness workdir.
  *
  * This lets e2e tests drive the REAL daemon → scheduler → harness spawn →
  * stream parse → step-ops → pipeline advance path with zero model tokens.
@@ -80,7 +80,11 @@ export interface ScriptedAgentConfig {
    * scripts retry scenarios.
    */
   agents: Record<string, ScriptedBehavior | ScriptedBehavior[]>;
-  /** usage.totalTokens for HEARTBEAT_OK rounds (default 17). */
+  /**
+   * usage.totalTokens for rounds spawned without pending work (default 17).
+   * Under the deterministic dispatch motor these should never happen — the
+   * scripted e2e asserts heartbeats().length === 0.
+   */
   heartbeatTokens?: number;
   /** Default usage.totalTokens for work rounds (default 111). */
   defaultTokens?: number;

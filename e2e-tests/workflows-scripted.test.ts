@@ -9,15 +9,19 @@
  *   parsing → REAL step-ops/pipeline advance → REAL worktrees + git merges
  *
  * ...but TAMANDUA_PI_BINARY points at a scripted agent (see
- * helpers/scripted-agent.ts) that executes the polling protocol
+ * helpers/scripted-agent.ts) that executes the work protocol
  * deterministically. No models, no tokens, seconds per workflow.
  *
  * This is the primary regression net for changes to the "motor" — the
  * machinery that drives workflow progress (agent-scheduler, run-harness,
- * step-ops pipeline advance). See tests/MOTOR-CONTRACT.md.
+ * step-ops pipeline advance). See tests/MOTOR-CONTRACT.md. The motor is
+ * deterministic dispatch: the scheduler peeks for work in-process and only
+ * spawns a harness when a pending step exists, so these tests also assert
+ * the N1/N2 acceptance criteria (zero heartbeat invocations, zero system
+ * tokens).
  *
- * Runs advance at nudge speed: the in-process cron interval is 5 minutes,
- * so tests nudge the daemon control plane between status polls.
+ * Runs advance at nudge speed: tests nudge the daemon control plane between
+ * status polls rather than waiting out the 15s fallback dispatch interval.
  *
  * TEST ISOLATION: each test owns a temp HOME, random ports, its own daemon,
  * and its own scripted-agent state. Safe for parallel execution.
@@ -331,29 +335,39 @@ describe("scripted-agent full pipeline (real daemon/scheduler, zero tokens)", { 
         assert.ok(completed, `run.completed event missing; events: ${events.map((e) => e.event).join(", ")}`);
         assert.equal(typeof completed.tokensSpent, "number", "run.completed should carry tokensSpent");
 
-        // ── Motor-swap baseline: heartbeat rounds spend system tokens.
-        // CURRENT (polling) motor: every idle poll is a model invocation,
-        // attributed to tamandua_stats.system_tokens_spent. The deterministic
-        // motor must drive BOTH numbers to zero for idle polls — flip these
-        // assertions when the motor is swapped (see tests/MOTOR-CONTRACT.md).
+        // ── Deterministic-motor acceptance (MOTOR-CONTRACT.md N1/N2):
+        // checking for work never invokes a model. Every harness spawn IS a
+        // work round (zero heartbeat invocations) and the system-token
+        // ledger — kept as a tripwire — never grows. Under the old polling
+        // motor this run burned ~30 heartbeat rounds / ~500 system tokens.
         const heartbeats = ctx.scripted.heartbeats();
         const stats = dbRow<{ system_tokens_spent: number }>(
           ctx.env.tamanduaDir,
           "SELECT system_tokens_spent FROM tamandua_stats WHERE id = 1",
         );
-        assert.ok(
-          heartbeats.length > 0 && stats.system_tokens_spent > 0,
-          "current polling motor is expected to burn system tokens on idle polls " +
-            `(got ${heartbeats.length} heartbeats, ${stats.system_tokens_spent} system tokens) — ` +
-            "if this fails because both are 0, the deterministic motor has landed: " +
-            "invert this assertion and celebrate",
+        assert.equal(
+          heartbeats.length,
+          0,
+          `deterministic motor must never spawn a harness without pending work (N2) — ` +
+            `got ${heartbeats.length} heartbeat invocations\n${diagnostics(ctx)}`,
+        );
+        assert.equal(
+          stats.system_tokens_spent,
+          0,
+          `idle dispatch must spend zero system tokens (N1) — got ${stats.system_tokens_spent}. ` +
+            `Something reintroduced model-driven polling.\n${diagnostics(ctx)}`,
+        );
+        assert.equal(
+          ctx.scripted.readInvocations().filter((inv) => inv.phase === "work").length,
+          BUG_FIX_AGENTS.length,
+          `harness invocations should equal executed work rounds (N2)`,
         );
         console.log(
           `[scripted-e2e baseline] bug-fix-merge-worktree: ` +
             `${ctx.scripted.workInvocations().length} work rounds, ` +
             `${heartbeats.length} heartbeat rounds, ` +
             `${run.tokens_spent} work tokens attributed to the run, ` +
-            `${stats.system_tokens_spent} system tokens spent on idle polling`,
+            `${stats.system_tokens_spent} system tokens`,
         );
       } finally {
         await teardown(ctx);

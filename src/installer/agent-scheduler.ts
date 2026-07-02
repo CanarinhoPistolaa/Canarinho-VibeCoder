@@ -11,7 +11,7 @@ import { emitEvent } from "./events.js";
 import { parsePiOutputStream } from "./pi-stream-parser.js";
 
 // ──────────────────────────────────────────────────────────────────────
-// Run-Scoped Polling
+// Run-Scoped Deterministic Dispatch
 //
 // Job identity:  tamandua-${workflowId}-${runId}-${agentId}
 // Scope:         every job is tied to ONE (runId, agentId) tuple
@@ -21,7 +21,23 @@ import { parsePiOutputStream } from "./pi-stream-parser.js";
 // State:        no on-disk persistence (cron-jobs.json removed). The DB
 //               is the source of truth; the daemon's reconciler restores
 //               in-memory job maps from runs.scheduling_status.
+//
+// Dispatch model: the scheduler decides "is there work?" itself with a
+// direct DB peek (peekStep) and spawns a harness (pi/hermes) ONLY when a
+// pending step exists. Checking for work never invokes a model, so idle
+// dispatch rounds cost zero tokens. The interval tick is a fallback sweep
+// (it also drives stale-claim recovery); step completions nudge the daemon
+// for immediate dispatch of downstream steps.
 // ──────────────────────────────────────────────────────────────────────
+
+/**
+ * Fallback dispatch sweep interval. Dispatch rounds are deterministic DB
+ * peeks — no process spawn, no model, no tokens — so this can be seconds
+ * where the model-driven poller needed minutes. Completion-triggered nudges
+ * make step-to-step latency near zero; this tick is only the safety net
+ * (missed nudge, daemon restart, stale-claim recovery).
+ */
+export const DISPATCH_INTERVAL_MS = 15_000;
 
 /** Maps job id → active setInterval handle. */
 const activeTimers = new Map<string, ReturnType<typeof setInterval>>();
@@ -33,10 +49,10 @@ const pendingStartTimers = new Map<string, ReturnType<typeof setTimeout>>();
 const jobMetadata = new Map<string, CronJobInfo>();
 
 /**
- * Set of job ids whose pi process is currently running. Used to skip a
- * polling tick when the previous one for the same (run, agent) hasn't
- * finished — without this guard, setInterval would keep spawning new pi
- * every interval even though pi rounds can take 10–30 minutes.
+ * Set of job ids whose dispatch round is currently running. Used to skip a
+ * tick when the previous round for the same (run, agent) hasn't finished —
+ * without this guard, setInterval would keep spawning new harness processes
+ * every interval even though work rounds can take 10–30 minutes.
  */
 const inFlightJobs = new Set<string>();
 
@@ -90,7 +106,6 @@ export interface CronJobInfo {
   workflowId: string;
   runId: string;
   agentId: string;
-  intervalMinutes: number;
   model?: string;
   workModel?: string;
   sessionLabel?: string;
@@ -107,14 +122,16 @@ export interface CreateCronJobParams {
   runId: string;
   agent: WorkflowAgent;
   workflow?: WorkflowSpec;
-  intervalMinutes?: number;
   staggerOffsetMs?: number;
   workingDirectoryForHarness?: string;
 }
 
 export interface SetupAgentCronsOptions {
   workingDirectoryForHarness?: string;
-  /** When true, elevates polling floor to 15 min and default to 15 min to save tokens. */
+  /**
+   * Accepted for CLI back-compat (`--no-hurry-please-save-tokens-mode`).
+   * Dispatch rounds are free, so this no longer affects scheduling or cost.
+   */
   noHurrySaveTokensMode?: boolean;
 }
 
@@ -659,29 +676,69 @@ TESTS: <tests you ran>' | "${cli}" step complete "<stepId>"`,
 }
 
 /**
- * Build the work prompt for when work was already claimed.
- * Does NOT include step claim — just work execution instructions.
+ * Build the work prompt — a claim-and-execute script run by `pi --print`.
+ *
+ * The scheduler already verified (via a deterministic `peekStep`) that a
+ * pending step exists before spawning this prompt, so there is no peek
+ * phase: the agent claims, executes, and reports. Claim + report are scoped
+ * to a specific runId so concurrent runs of the same workflow can't
+ * cross-claim each other's steps.
  */
-export function buildWorkPrompt(workflowId: string, agentId: string, runId: string): string {
+export function buildWorkPrompt(
+  workflowId: string,
+  agentId: string,
+  runId: string,
+  agentPersonaInstructions = "",
+): string {
   const cli = resolveTamanduaCli();
 
-  return [
-    `You are agent "${agentId}" in workflow "${workflowId}" (run ${runId}).`,
-    `You have already claimed this step. Now execute the work.`,
+  const persona = agentPersonaInstructions.trim();
+  const prompt = [
+    `You are the work agent for workflow "${workflowId}", agent "${agentId}", run "${runId}".`,
+    `You run in --print mode. A pending step is waiting for you: claim it, execute it, report.`,
+  ];
+
+  if (persona.length > 0) {
+    prompt.push(
+      ``,
+      `─── PROVISIONED AGENT PERSONA ───`,
+      persona,
+      `─── END PROVISIONED AGENT PERSONA ───`,
+    );
+  }
+
+  prompt.push(
     ``,
-    `The claimed step JSON contains a "stepId" field. You MUST save this and use it`,
-    `when reporting results.`,
+    `─── CLAIM ───`,
+    `1. Claim the step and capture the JSON response:`,
+    `   "${cli}" step claim "${agentId}" --run-id "${runId}"`,
+    `   The output is JSON: {"stepId":"<UUID>", "runId":"<UUID>", "input":"<task description>"}`,
+    `   SAVE the stepId — you MUST use it when reporting results.`,
     ``,
-    `Work instructions are in the "input" field. Execute them thoroughly.`,
+    `   If the claim output contains NO_WORK, another worker already took the step.`,
+    `   Reply exactly: NO_WORK_AVAILABLE`,
+    `   Then STOP. Do nothing else.`,
     ``,
-    `When done, report your results using the SAVED stepId (NOT the agent ID):`,
-    `On success: echo 'STATUS: done
-CHANGES: <what you changed>
+    `─── EXECUTE ───`,
+    `2. Read the "input" field carefully. It describes the actual work you must do.`,
+    ``,
+    `3. Execute the work using all available tools and capabilities.`,
+    ``,
+    `─── REPORT ───`,
+    `4. When finished, report using the SAVED stepId (NOT the agent ID):`,
+    `   - Success: echo 'STATUS: done
+CHANGES: <what you did>
 TESTS: <tests you ran>' | "${cli}" step complete "<stepId>"`,
-    `On failure: "${cli}" step fail "<stepId>" "<reason>"`,
+    `   - Failure: "${cli}" step fail "<stepId>" "<clear reason for failure>"`,
     ``,
-    `CRITICAL: You MUST report results. Do not exit without calling step complete or step fail.`,
-  ].join("\n");
+    `─── RULES ───`,
+    `- ALWAYS report results. Never exit without calling step complete or step fail.`,
+    `- If you cannot complete the work, use step fail — do not hang.`,
+    `- Keep responses concise; you are a background agent.`,
+    `- If something is unclear, use step fail with an explanation of what is missing.`,
+  );
+
+  return prompt.join("\n");
 }
 
 /**
@@ -805,6 +862,47 @@ function summarizePollingRoundOutput(output: string): PollingRoundOutputSummary 
   return {
     ...bounded,
     outcome: classifyPollingRoundOutcome(normalized),
+    lines: normalized ? normalized.split(/\r?\n/).length : 0,
+  };
+}
+
+// ── Work-round (dispatch) output classification ─────────────────────
+
+export type WorkRoundOutcome =
+  | "no_work"
+  | "work_done"
+  | "work_failed"
+  | "empty_output"
+  | "other_output";
+
+interface WorkRoundOutputSummary extends BoundedPreviewMetadata {
+  outcome: WorkRoundOutcome;
+  lines: number;
+}
+
+/**
+ * Classify the assistant output of a work round. The scheduler only spawns
+ * a harness when a pending step exists, so `no_work` (the claim raced
+ * another round) is rare; STATUS markers drive the completion/recovery
+ * paths exactly as before.
+ *
+ * @internal exported for regression tests
+ */
+export function classifyWorkRoundOutcome(output: string): WorkRoundOutcome {
+  if (output.length === 0) return "empty_output";
+  if (/\bNO_WORK_AVAILABLE\b/.test(output)) return "no_work";
+  if (/STATUS:\s*(fail|failed|error)/i.test(output)) return "work_failed";
+  if (/STATUS:\s*done/i.test(output)) return "work_done";
+  return "other_output";
+}
+
+function summarizeWorkRoundOutput(output: string): WorkRoundOutputSummary {
+  const normalized = output.trim();
+  const bounded = buildBoundedPreview(normalized, MAX_POLLING_OUTPUT_PREVIEW);
+
+  return {
+    ...bounded,
+    outcome: classifyWorkRoundOutcome(normalized),
     lines: normalized ? normalized.split(/\r?\n/).length : 0,
   };
 }
@@ -1544,6 +1642,393 @@ export async function executePollingRound(
   }
 }
 
+// ── Deterministic dispatch round ────────────────────────────────────
+
+export function buildDispatchRoundContext(
+  job: CronJobInfo,
+  agent: WorkflowAgent,
+  timeoutSeconds: number,
+  workingDirectoryForHarness: string | undefined,
+): Record<string, unknown> {
+  return {
+    jobId: job.id,
+    runId: job.runId,
+    workflowId: job.workflowId,
+    agentId: job.agentId,
+    role: agent.role ?? inferRole(agent.id),
+    timeoutSeconds,
+    workdir: workingDirectoryForHarness,
+    workingDirectoryForHarness,
+    model: agent.model ?? job.workModel ?? job.model,
+    harnessType: job.harnessType ?? "pi",
+  };
+}
+
+/**
+ * Attribute a work round's token usage to its run.
+ *
+ * The dispatch round always knows which run it spawned work for, so even
+ * when the pi stream carries no resolvable run/step ids the usage falls
+ * back to `job.runId` instead of being dumped on a system counter. Nothing
+ * in the dispatch path ever touches `system_tokens_spent` — that counter
+ * only measured model-driven polling overhead, which no longer exists.
+ */
+async function attributeWorkRoundTokenUsage(
+  context: Record<string, unknown>,
+  job: CronJobInfo,
+  outputSummary: WorkRoundOutputSummary,
+  metadata: PollingRoundMetadata,
+): Promise<void> {
+  if (metadata.tokenUsage === null) {
+    if (metadata.jsonMetadataDetected) {
+      logger.debug("Work round token usage unavailable — usage metadata missing", {
+        ...context,
+        outcome: outputSummary.outcome,
+        reason: "usage_metadata_missing",
+      });
+    } else {
+      logger.warn("Work round token usage unavailable — --mode json may be off", {
+        ...context,
+        outcome: outputSummary.outcome,
+        reason: "non_json_output",
+      });
+    }
+    return;
+  }
+
+  if (metadata.tokenUsage <= 0) {
+    logger.debug("Work round token usage not attributed", {
+      ...context,
+      outcome: outputSummary.outcome,
+      reason: "non_positive_usage",
+      tokenUsage: metadata.tokenUsage,
+    });
+    return;
+  }
+
+  const resolved = await resolveRunIdForAttribution(metadata);
+  const runId = resolved.runId ?? job.runId;
+  const runIdSource = resolved.runId ? resolved.source : "dispatch_job";
+
+  try {
+    const updated = await incrementRunTokenSpend(runId, metadata.tokenUsage);
+
+    if (!updated) {
+      logger.warn("Work round token usage not attributed — run missing", {
+        ...context,
+        outcome: outputSummary.outcome,
+        tokenUsage: metadata.tokenUsage,
+        runId,
+        runIdSource,
+      });
+      return;
+    }
+
+    emitEvent({
+      ts: new Date().toISOString(),
+      event: "run.tokens.updated",
+      runId,
+      workflowId: updated.workflowId,
+      tokenDelta: metadata.tokenUsage,
+      tokensSpent: updated.tokensSpent,
+    });
+
+    logger.debug("Work round token usage attributed", {
+      ...context,
+      outcome: outputSummary.outcome,
+      tokenUsage: metadata.tokenUsage,
+      runId,
+      runIdSource,
+      tokensSpent: updated.tokensSpent,
+    });
+  } catch (err) {
+    logger.warn("Work round token attribution failed", {
+      ...context,
+      outcome: outputSummary.outcome,
+      tokenUsage: metadata.tokenUsage,
+      error: String(err),
+    });
+  }
+}
+
+/**
+ * One dispatch round for a (runId, agentId) job:
+ *
+ *   1. in-flight guard (one round per job at a time)
+ *   2. run-status check (terminal → graceful teardown; paused/draining → skip)
+ *   3. stale-claim sweep (recover steps whose worker silently died)
+ *   4. deterministic peek — `peekStep` IN-PROCESS. No spawn, no model, no
+ *      tokens when idle. This is the entire point of the dispatch motor.
+ *   5. work spawn — only on HAS_WORK: pi/hermes runs the work prompt
+ *      (claim → execute → report)
+ *   6. post-round processing — token attribution to the run, STATUS
+ *      classification, auto-complete fallback, orphaned-step recovery
+ */
+export async function executeDispatchRound(
+  job: CronJobInfo,
+  agent: WorkflowAgent,
+  _workflow?: WorkflowSpec,
+): Promise<void> {
+  const role = agent.role ?? inferRole(agent.id);
+  const timeout = agent.timeoutSeconds ?? job.timeoutSeconds ?? getRoleTimeoutSeconds(role);
+  const legacyJobWorkdir = (job as CronJobInfo & { workdir?: string }).workdir;
+  const workingDirectoryForHarness = job.workingDirectoryForHarness ?? legacyJobWorkdir;
+  const context = buildDispatchRoundContext(job, agent, timeout, workingDirectoryForHarness);
+
+  if (!workingDirectoryForHarness) {
+    logger.error("Dispatch round refused — missing harness workdir", {
+      ...context,
+      reason: "missing_working_directory_for_harness",
+    });
+    await removeRunCrons(job.runId);
+    return;
+  }
+
+  // ── Race-safe in-flight guard ───────────────────────────────────
+  // Must happen synchronously *before* any awaited async work so
+  // concurrent nudge + timer tick invocations cannot launch duplicate
+  // harness processes.
+  if (!tryMarkJobInFlight(job.id)) {
+    logger.debug("Dispatch round skipped — previous round still in flight", {
+      ...context,
+      reason: "previous_round_in_flight",
+    });
+    return;
+  }
+
+  try {
+    // ── Run-scoped status check ────────────────────────────────────
+    // If this run is no longer 'running' (terminal/paused) tear down the
+    // job and skip. Without this check, timers leaked from previous CLI
+    // processes would keep dispatching for completed runs.
+    try {
+      const { getDb } = await import("../db.js");
+      const db = getDb();
+      const row = db
+        .prepare("SELECT status, scheduling_status FROM runs WHERE id = ?")
+        .get(job.runId) as { status: string; scheduling_status: string | null } | undefined;
+      if (!row || (row.status !== "running" && row.status !== "paused")) {
+        logger.info("Dispatch round skipped — run no longer running; tearing down job", {
+          ...context,
+          runStatus: row?.status ?? "missing",
+          reason: "run_not_running",
+        });
+        // The run is already terminal; a sibling agent's round may still be
+        // flushing its final output — tear down with the completion grace.
+        await removeRunCrons(job.runId, { graceMs: HARNESS_TEARDOWN_GRACE_MS });
+        return;
+      }
+      if (row.status === "paused") {
+        logger.debug("Dispatch round skipped — run paused", { ...context });
+        return;
+      }
+      if (row.scheduling_status === "draining_pause") {
+        logger.debug("Dispatch round skipped — run draining before pause (in-flight work can complete)", { ...context });
+        return;
+      }
+    } catch (err) {
+      logger.warn("Run status check failed; continuing dispatch round", {
+        ...context,
+        error: String(err),
+      });
+    }
+
+    // ── Stale-claim sweeper (run-scoped) ───────────────────────────
+    try {
+      const staleThresholdMs = timeout * 1.5 * 1000;
+      const { recoverOrphanedStepsForAgent } = await import("./step-ops.js");
+      const staleResult = recoverOrphanedStepsForAgent(
+        job.agentId,
+        job.runId,
+        staleThresholdMs,
+      );
+      if (staleResult.recovered > 0 || staleResult.failed > 0) {
+        logger.info("Stale-claim sweeper ran", {
+          ...context,
+          recovered: staleResult.recovered,
+          failed: staleResult.failed,
+          skipped: staleResult.skipped,
+          staleThresholdMs,
+        });
+      }
+    } catch (sweepErr) {
+      logger.warn("Stale-claim sweeper failed", {
+        ...context,
+        error: sweepErr instanceof Error ? sweepErr.message : String(sweepErr),
+      });
+    }
+
+    // ── Deterministic peek ─────────────────────────────────────────
+    // A cheap in-process SQL COUNT decides whether to spawn a harness.
+    // Idle rounds end here: no process spawn, no model, no tokens.
+    try {
+      const { peekStep } = await import("./step-ops.js");
+      if (peekStep(job.agentId, job.runId) === "NO_WORK") {
+        logger.debug("Dispatch round idle — no pending step", {
+          ...context,
+          reason: "no_pending_step",
+        });
+        return;
+      }
+    } catch (err) {
+      logger.warn("Dispatch peek failed; skipping round", {
+        ...context,
+        error: String(err),
+      });
+      return;
+    }
+
+    // ── Work spawn ─────────────────────────────────────────────────
+    let agentPersonaInstructions = "";
+    try {
+      agentPersonaInstructions = await buildAgentPersonaInstructions(job.agentId);
+    } catch (err) {
+      logger.warn("Agent persona instructions unavailable", {
+        ...context,
+        workspaceDir: resolveWorkflowWorkspaceDir(job.agentId),
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
+
+    const workPrompt = buildWorkPrompt(
+      job.workflowId,
+      job.agentId,
+      job.runId,
+      agentPersonaInstructions,
+    );
+
+    const harnessType = job.harnessType ?? "pi";
+
+    logger.info("Work round start", context);
+
+    const onSpawn = ({ pid, pgid }: { pid: number; pgid: number }) => {
+      inFlightChildren.set(job.id, { pid, pgid, killed: false });
+    };
+
+    let output: string;
+    if (harnessType === "hermes") {
+      const hermesPath = findHermesBinary();
+      output = await runHermes(workPrompt, {
+        timeout,
+        workdir: workingDirectoryForHarness,
+        env: {
+          TAMANDUA_WORKER_JOB_ID: job.id,
+          TAMANDUA_WORKER_PID: String(process.pid),
+          TAMANDUA_HERMES_BINARY: hermesPath,
+        },
+        onSpawn,
+      });
+    } else {
+      output = await runPi(
+        ["--print", "--mode", "json", "--no-session", workPrompt],
+        {
+          timeout,
+          workdir: workingDirectoryForHarness,
+          env: {
+            TAMANDUA_WORKER_JOB_ID: job.id,
+            TAMANDUA_WORKER_PID: String(process.pid),
+          },
+          onSpawn,
+        },
+      );
+    }
+
+    // ── Post-round processing ──────────────────────────────────────
+    const metadata = parsePollingRoundMetadata(output);
+    const outputSummary = summarizeWorkRoundOutput(metadata.assistantOutput || output);
+
+    logger.info("Work round complete", {
+      ...context,
+      outcome: outputSummary.outcome,
+      outputBytes: outputSummary.bytes,
+      outputLines: outputSummary.lines,
+      outputPreview: outputSummary.preview,
+      outputTruncated: outputSummary.truncated,
+      tokenUsage: metadata.tokenUsage,
+      metadataFormat: metadata.jsonMetadataDetected ? "json" : "text",
+    });
+
+    await attributeWorkRoundTokenUsage(context, job, outputSummary, metadata);
+
+    if (outputSummary.outcome === "work_done") {
+      await autoCompleteStepIfRunning(context, metadata);
+    } else if (outputSummary.outcome === "other_output" || outputSummary.outcome === "empty_output") {
+      // The harness exited cleanly but never emitted a STATUS marker: the
+      // agent may have claimed a step and died silently. Recovery is
+      // jobId-scoped, so it only touches steps claimed by THIS round's
+      // worker — a `no_work` claim race recovers nothing.
+      try {
+        const { recoverOrphanedStepsForAgent } = await import("./step-ops.js");
+        const recoveryResult = recoverOrphanedStepsForAgent(
+          job.agentId,
+          job.runId,
+          undefined,
+          undefined,
+          undefined,
+          job.id,
+        );
+        if (recoveryResult.recovered > 0 || recoveryResult.failed > 0) {
+          logger.info("Orphaned step recovery after clean harness exit without STATUS", {
+            ...context,
+            outcome: outputSummary.outcome,
+            recovered: recoveryResult.recovered,
+            failed: recoveryResult.failed,
+            skipped: recoveryResult.skipped,
+          });
+        }
+      } catch (recoveryErr) {
+        logger.error("Orphaned step recovery after clean harness exit failed", {
+          ...context,
+          error: recoveryErr instanceof Error ? recoveryErr.message : String(recoveryErr),
+        });
+      }
+    }
+  } catch (err) {
+    const errorMessage = err instanceof Error ? err.message : String(err);
+    const errorSummary = buildBoundedPreview(errorMessage, MAX_POLLING_ERROR_PREVIEW);
+
+    logger.error("Work round failed", {
+      ...context,
+      errorBytes: errorSummary.bytes,
+      errorPreview: errorSummary.preview,
+      errorTruncated: errorSummary.truncated,
+    });
+
+    try {
+      const isTimeout = errorMessage.includes("timed out");
+      const timeoutRetryReason = isTimeout ? errorMessage : undefined;
+
+      const { recoverOrphanedStepsForAgent } = await import("./step-ops.js");
+      const recoveryResult = recoverOrphanedStepsForAgent(
+        job.agentId,
+        job.runId,
+        undefined,
+        timeoutRetryReason,
+        undefined,
+        job.id,
+      );
+      if (recoveryResult.recovered > 0 || recoveryResult.failed > 0) {
+        logger.info("Orphaned step recovery after harness failure", {
+          ...context,
+          recovered: recoveryResult.recovered,
+          failed: recoveryResult.failed,
+          skipped: recoveryResult.skipped,
+          harnessExitError: errorMessage,
+          isTimeout,
+        });
+      }
+    } catch (recoveryErr) {
+      logger.error("Orphaned step recovery failed", {
+        ...context,
+        error: recoveryErr instanceof Error ? recoveryErr.message : String(recoveryErr),
+      });
+    }
+  } finally {
+    inFlightJobs.delete(job.id);
+    inFlightChildren.delete(job.id);
+  }
+}
+
 // ── Public API: run-scoped scheduling ──────────────────────────────
 
 function buildJobId(workflowId: string, runId: string, agentId: string): string {
@@ -1557,7 +2042,7 @@ function buildJobId(workflowId: string, runId: string, agentId: string): string 
 }
 
 /**
- * Create a single run-scoped polling job (one per (runId, agentId)).
+ * Create a single run-scoped dispatch job (one per (runId, agentId)).
  */
 export async function createAgentCronJob(
   params: CreateCronJobParams,
@@ -1569,7 +2054,6 @@ export async function createAgentCronJob(
     workflow,
     workingDirectoryForHarness,
   } = params;
-  const intervalMinutes = params.intervalMinutes ?? 5;
   const staggerMs = params.staggerOffsetMs ?? 0;
 
   const id = buildJobId(workflowId, runId, agent.id);
@@ -1604,7 +2088,6 @@ export async function createAgentCronJob(
     workflowId,
     runId,
     agentId: fullAgentId,
-    intervalMinutes,
     sessionLabel: `${agent.id}-cron`,
     timeoutSeconds,
     workingDirectoryForHarness,
@@ -1614,43 +2097,47 @@ export async function createAgentCronJob(
 
   jobMetadata.set(id, jobInfo);
 
-  const startPolling = () => {
+  const startDispatch = () => {
     pendingStartTimers.delete(id);
     if (!jobMetadata.has(id)) return;
     if (activeTimers.has(id)) return;
 
-    const intervalMs = intervalMinutes * 60 * 1000;
     const timer = setInterval(() => {
-      executePollingRound(jobInfo, agent, workflow).catch((err) => {
-        logger.error("Unhandled polling error", { jobId: id, runId, error: String(err) });
+      executeDispatchRound(jobInfo, agent, workflow).catch((err) => {
+        logger.error("Unhandled dispatch error", { jobId: id, runId, error: String(err) });
       });
-    }, intervalMs);
+    }, DISPATCH_INTERVAL_MS);
 
     activeTimers.set(id, timer);
 
-    logger.info("Cron job created", {
+    logger.info("Dispatch job created", {
       id,
       runId,
       agentId: agent.id,
-      intervalMinutes,
+      dispatchIntervalMs: DISPATCH_INTERVAL_MS,
       staggerMs,
       workingDirectoryForHarness,
     });
   };
 
   if (staggerMs > 0) {
-    const pending = setTimeout(startPolling, staggerMs);
+    const pending = setTimeout(startDispatch, staggerMs);
     pendingStartTimers.set(id, pending);
-    logger.info("Cron job scheduled with stagger", { id, runId, staggerMs });
+    logger.info("Dispatch job scheduled with stagger", { id, runId, staggerMs });
   } else {
-    startPolling();
+    startDispatch();
   }
 
   return { ok: true, id };
 }
 
 /**
- * Set up polling jobs for every agent in a workflow, scoped to a single run.
+ * Set up dispatch jobs for every agent in a workflow, scoped to a single run.
+ *
+ * Dispatch rounds are free (in-process DB peeks), so all jobs start
+ * immediately with the same constant interval — no stagger, no per-workflow
+ * interval math, and `noHurrySaveTokensMode` no longer changes anything
+ * (it existed to stretch the model-driven polling interval).
  *
  * @param workflow – the workflow spec
  * @param runId    – the run owning these jobs
@@ -1661,15 +2148,10 @@ export async function setupAgentCrons(
   runId: string,
   options: SetupAgentCronsOptions = {},
 ): Promise<void> {
-  const staggerBaseMs = 60_000; // 1 minute per agent
-
-  for (let i = 0; i < workflow.agents.length; i++) {
-    const agent = workflow.agents[i];
-    const staggerMs = i * staggerBaseMs;
-
+  for (const agent of workflow.agents) {
     const jobId = buildJobId(workflow.id, runId, agent.id);
     if (jobMetadata.has(jobId)) {
-      logger.info("Run-scoped cron job already exists; skipping", {
+      logger.info("Run-scoped dispatch job already exists; skipping", {
         jobId,
         runId,
         agentId: agent.id,
@@ -1677,26 +2159,16 @@ export async function setupAgentCrons(
       continue;
     }
 
-    const intervalMinutes = options.noHurrySaveTokensMode
-      ? (workflow.polling?.timeoutSeconds
-        ? Math.max(15, Math.ceil(workflow.polling.timeoutSeconds / 60))
-        : 15)
-      : (workflow.polling?.timeoutSeconds
-        ? Math.max(1, Math.ceil(workflow.polling.timeoutSeconds / 60))
-        : 5);
-
     const result = await createAgentCronJob({
       workflowId: workflow.id,
       runId,
       agent,
       workflow,
-      intervalMinutes,
-      staggerOffsetMs: staggerMs,
       workingDirectoryForHarness: options.workingDirectoryForHarness,
     });
 
     if (!result.ok) {
-      logger.warn("Failed to set up cron for agent", {
+      logger.warn("Failed to set up dispatch job for agent", {
         agentId: agent.id,
         runId,
         error: result.error,
@@ -1967,11 +2439,11 @@ export async function nudgeScheduledRuns(
         continue;
       }
 
-      // ── Launch polling round (fire-and-forget) ────────────────
-      // tryMarkJobInFlight inside executePollingRound prevents
+      // ── Launch dispatch round (fire-and-forget) ────────────────
+      // tryMarkJobInFlight inside executeDispatchRound prevents
       // duplicate launches with near-simultaneous timer ticks.
-      executePollingRound(info, agent, workflow).catch((err) => {
-        logger.error("Nudge-launched polling round failed", {
+      executeDispatchRound(info, agent, workflow).catch((err) => {
+        logger.error("Nudge-launched dispatch round failed", {
           jobId,
           runId: info.runId,
           agentId: info.agentId,
@@ -1982,38 +2454,37 @@ export async function nudgeScheduledRuns(
       // ── Timer reset ───────────────────────────────────────────
       const activeTimer = activeTimers.get(jobId);
       const pendingTimer = pendingStartTimers.get(jobId);
-      const intervalMs = info.intervalMinutes * 60 * 1000;
 
       if (activeTimer) {
         // Clear existing interval, recreate from now.
         clearInterval(activeTimer);
         activeTimers.delete(jobId);
         const newTimer = setInterval(() => {
-          executePollingRound(info, agent, workflow).catch((err) => {
-            logger.error("Unhandled polling error", {
+          executeDispatchRound(info, agent, workflow).catch((err) => {
+            logger.error("Unhandled dispatch error", {
               jobId,
               runId: info.runId,
               error: String(err),
             });
           });
-        }, intervalMs);
+        }, DISPATCH_INTERVAL_MS);
         activeTimers.set(jobId, newTimer);
       } else if (pendingTimer) {
         // Convert pending-start to active interval.
         clearTimeout(pendingTimer);
         pendingStartTimers.delete(jobId);
         const newTimer = setInterval(() => {
-          executePollingRound(info, agent, workflow).catch((err) => {
-            logger.error("Unhandled polling error", {
+          executeDispatchRound(info, agent, workflow).catch((err) => {
+            logger.error("Unhandled dispatch error", {
               jobId,
               runId: info.runId,
               error: String(err),
             });
           });
-        }, intervalMs);
+        }, DISPATCH_INTERVAL_MS);
         activeTimers.set(jobId, newTimer);
       }
-      // If neither timer exists, the job's own startPolling() already
+      // If neither timer exists, the job's own startDispatch() already
       // created a timer — we leave it alone.
 
       result.launched++;
@@ -2070,17 +2541,6 @@ export function _scheduledJobCountForRun(runId: string): number {
     if (info.runId === runId) count++;
   }
   return count;
-}
-
-/** @internal — exposed for test assertions on interval values. */
-export function _getJobIntervalsForRun(runId: string): Array<{ agentId: string; intervalMinutes: number }> {
-  const results: Array<{ agentId: string; intervalMinutes: number }> = [];
-  for (const info of jobMetadata.values()) {
-    if (info.runId === runId) {
-      results.push({ agentId: info.agentId, intervalMinutes: info.intervalMinutes });
-    }
-  }
-  return results;
 }
 
 /** @internal — exposed for daemon admission safety checks. */

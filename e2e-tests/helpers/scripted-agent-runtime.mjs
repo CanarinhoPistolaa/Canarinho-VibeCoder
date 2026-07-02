@@ -2,16 +2,19 @@
  * Scripted-agent runtime — a deterministic stand-in for the `pi` binary.
  *
  * The agent scheduler invokes this exactly like pi:
- *   fake-pi --print --mode json --no-session "<polling prompt>"
+ *   fake-pi --print --mode json --no-session "<work prompt>"
  *
  * Unlike the static canned fake-pi used by unit tests, this runtime actually
- * executes the polling protocol that the prompt describes:
+ * executes the work protocol that the prompt describes:
  *
  *   1. Parse workflow/agent/run IDs and the tamandua CLI path from the prompt
- *   2. Run `step peek` — on NO_WORK, emit a HEARTBEAT_OK message_end and exit
- *   3. On HAS_WORK, run `step claim`, look up this agent's scripted behavior,
- *      apply file edits / shell commands in the harness workdir, then report
- *      via `step complete` / `step fail`
+ *   2. Defensive `step peek` — the dispatch motor only spawns a harness when
+ *      a pending step exists, so NO_WORK here is a motor bug or a rare race;
+ *      it is journaled as phase "heartbeat" (the N2 tripwire) and answered
+ *      with NO_WORK_AVAILABLE
+ *   3. Run `step claim`, look up this agent's scripted behavior, apply file
+ *      edits / shell commands in the harness workdir, then report via
+ *      `step complete` / `step fail`
  *   4. Emit pi-shaped JSON events (tool_execution_end with {stepId, runId}
  *      for token attribution, message_end with usage.totalTokens)
  *
@@ -98,15 +101,19 @@ function emitMessageEnd(text, totalTokens) {
   });
 }
 
-// ── Parse the polling prompt (this pins the prompt protocol) ────────
+// ── Parse the work prompt (this pins the prompt protocol) ───────────
+//
+// The header line is `... workflow "X", agent "Y", run "Z"` and the CLI
+// path comes from the `step claim` command line. The work prompt has no
+// peek phase — the dispatch motor peeks in-process before spawning us.
 
 const header = prompt.match(
-  /polling agent for workflow "([^"]+)", agent "([^"]+)", run "([^"]+)"/,
+  /workflow "([^"]+)", agent "([^"]+)", run "([^"]+)"/,
 );
 if (!header) fatal(`could not parse workflow/agent/run from prompt: ${prompt.slice(0, 200)}`);
 const [, workflowId, agentId, runId] = header;
 
-const cliMatch = prompt.match(/(?:node )?"([^"]+)" step peek/);
+const cliMatch = prompt.match(/(?:node )?"([^"]+)" step (?:claim|peek)/);
 if (!cliMatch) fatal("could not parse tamandua CLI path from prompt");
 const cliPath = cliMatch[1];
 
@@ -200,7 +207,10 @@ function substitute(text, inputVars) {
 
 const base = { workflowId, agentId, shortAgent, runId, cwd: process.cwd(), jobId: process.env.TAMANDUA_WORKER_JOB_ID ?? null };
 
-// Phase 1: peek
+// Phase 1: defensive peek. The dispatch motor decides HAS_WORK in-process
+// before ever spawning this runtime, so NO_WORK here means a motor bug or a
+// (rare) race with another round. Journal it as "heartbeat" — the scripted
+// e2e asserts this count is ZERO under the deterministic motor (N2).
 const peek = cli(["step", "peek", agentId, "--run-id", runId]);
 const peekOut = `${peek.stdout}\n${peek.stderr}`;
 if (peek.status !== 0) {
@@ -209,8 +219,8 @@ if (peek.status !== 0) {
 }
 
 if (peekOut.includes("NO_WORK")) {
-  logInvocation({ ...base, phase: "heartbeat" });
-  emitMessageEnd("HEARTBEAT_OK", config.heartbeatTokens);
+  logInvocation({ ...base, phase: "heartbeat", note: "spawned without pending work" });
+  emitMessageEnd("NO_WORK_AVAILABLE", config.heartbeatTokens);
   process.exit(0);
 }
 if (!peekOut.includes("HAS_WORK")) {
@@ -260,9 +270,9 @@ function runWorkRound() {
   }
   const claimRaw = claim.stdout.trim();
   if (claimRaw.includes("NO_WORK")) {
-    // Raced with another round; treat as heartbeat.
+    // Raced with another round; reply exactly as the work prompt instructs.
     logInvocation({ ...base, phase: "heartbeat", note: "claim returned NO_WORK after HAS_WORK peek" });
-    emitMessageEnd("HEARTBEAT_OK", config.heartbeatTokens);
+    emitMessageEnd("NO_WORK_AVAILABLE", config.heartbeatTokens);
     process.exit(0);
   }
   const claimed = JSON.parse(claimRaw);
