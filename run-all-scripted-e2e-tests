@@ -1,0 +1,25 @@
+#!/usr/bin/env bash
+# Run the SCRIPTED-AGENT full-pipeline Tamandua e2e tests.
+#
+# This tier drives the REAL daemon → scheduler → harness spawn → step-ops →
+# pipeline-advance → worktree/merge path, but with TAMANDUA_PI_BINARY pointed
+# at a deterministic scripted agent (e2e-tests/helpers/scripted-agent.ts).
+# No models are invoked and NO tokens are spent. Expect ~30-60 seconds.
+#
+# This is the primary regression net for changes to the motor that drives
+# workflow progress (agent-scheduler, run-harness, step-ops). See
+# tests/MOTOR-CONTRACT.md.
+#
+# For the manual state-machine smoke test:      ./run-all-smoke-e2e-tests
+# For the SLOW REAL e2e (real tokens, 30+ min): ./run-all-real-e2e-tests
+#
+# Output is streamed to the terminal AND tee'd to a log file for inspection.
+# Exit code matches the underlying `node --test` exit code.
+set -euo pipefail
+cd "$(dirname "$0")"
+
+LOG="${TAMANDUA_SCRIPTED_E2E_LOG:-e2e-scripted-test-output.log}"
+
+npm run build
+node --test e2e-tests/workflows-scripted.test.ts 2>&1 | tee "$LOG"
+exit "${PIPESTATUS[1]}"

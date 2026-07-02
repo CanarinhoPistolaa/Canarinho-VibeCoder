@@ -208,16 +208,17 @@ Tests are safe for parallel execution with `node --test tests/*.test.ts src/**/*
 
 ### End-to-End Tests
 
-End-to-end tests live under `e2e-tests/`. There are **two kinds**, and the
+End-to-end tests live under `e2e-tests/`. There are **three kinds**, and the
 distinction is critical:
 
 | Test | Script | What it does | Duration |
 |------|--------|--------------|----------|
 | **Smoke (state-machine)** | `./run-all-smoke-e2e-tests` | Exercises workflow state machine, pipeline wiring, and step lifecycle using manual `step claim` / `step complete` with canned outputs. No real agents, models, or schedulers. | ~10–15 seconds |
+| **Scripted (full pipeline, fake pi)** | `./run-all-scripted-e2e-tests` | Runs the REAL daemon → scheduler → harness spawn → step-ops → worktree/merge pipeline, with `TAMANDUA_PI_BINARY` pointed at a deterministic scripted agent (`e2e-tests/helpers/scripted-agent.ts`) that executes the peek/claim/complete protocol, including chaos scenarios (lost steps, crashed agents). No models, ZERO tokens. Primary regression net for motor changes — see `tests/MOTOR-CONTRACT.md`. | ~30–60 seconds |
 | **Real (full pipeline)** | `./run-all-real-e2e-tests` | Launches actual Tamandua workflows that run through the full daemon → scheduler → pi agent pipeline. Uses real model invocations, real worktree creation, real git merges. | 30+ minutes per workflow |
 
-`./run-all-e2e-tests` is the convenience alias — it runs the **smoke test only**
-(fast, no tokens). It does NOT run the real e2e test.
+`./run-all-e2e-tests` is the convenience alias — it runs the **smoke and
+scripted tests** (fast, no tokens). It does NOT run the real e2e test.
 
 #### Real End-to-End Test — Cost and Duration
 
@@ -234,7 +235,7 @@ tests, and performs git merges.
 
 - **AGENTS MUST NOT RUN REAL E2E TESTS BY DEFAULT.** Only run `./run-all-tests`
 or `npm test` when fulfilling routine development duties.
-- If running e2e tests is required, run `./run-all-e2e-tests` (smoke only, fast).
+- If running e2e tests is required, run `./run-all-e2e-tests` (smoke + scripted, fast, no tokens).
 - **Only run `./run-all-real-e2e-tests` when explicitly asked** — it spends
 real tokens and takes 30+ minutes. Never infer or assume it should be run.
 
@@ -242,11 +243,17 @@ real tokens and takes 30+ minutes. Never infer or assume it should be run.
 
 - **Smoke e2e:** Use during development to validate state machine changes,
 step lifecycle logic, pipeline wiring fixes. Fast enough for every commit.
+- **Scripted e2e:** Use for any change to the motor — agent scheduler, run
+harness, step-ops pipeline advance, daemon scheduling lifecycle, worktree
+plumbing. Zero tokens, fast enough for every commit. The motor-agnostic
+behavioral contract it enforces is documented in `tests/MOTOR-CONTRACT.md`;
+unit tests pinning the current polling implementation carry a
+`MOTOR-MECHANISM` header comment.
 - **Real e2e:** Use when validating the full daemon/scheduler/agent pipeline
 end-to-end, after major infrastructure changes, or when explicitly told to.
-- **Neither is included in `npm test`** — both live under `e2e-tests/` and are
-separate from the regular suite.
-- **Neither is compiled by `tsconfig.json`** — they live outside `src/`.
+- **None of these are included in `npm test`** — they live under `e2e-tests/`
+and are separate from the regular suite.
+- **None are compiled by `tsconfig.json`** — they live outside `src/`.
 
 ### Parallel Test Safety
 

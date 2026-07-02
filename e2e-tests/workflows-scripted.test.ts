@@ -1,0 +1,437 @@
+/**
+ * Scripted-Agent Full-Pipeline E2E Test (fast, ZERO model tokens)
+ *
+ * This tier closes the gap between the smoke test (manual step claim/complete,
+ * scheduler bypassed) and the real e2e test (real model invocations, 30-60min,
+ * real tokens):
+ *
+ *   REAL daemon → REAL scheduler/cron → REAL harness spawn → REAL stream
+ *   parsing → REAL step-ops/pipeline advance → REAL worktrees + git merges
+ *
+ * ...but TAMANDUA_PI_BINARY points at a scripted agent (see
+ * helpers/scripted-agent.ts) that executes the polling protocol
+ * deterministically. No models, no tokens, seconds per workflow.
+ *
+ * This is the primary regression net for changes to the "motor" — the
+ * machinery that drives workflow progress (agent-scheduler, run-harness,
+ * step-ops pipeline advance). See tests/MOTOR-CONTRACT.md.
+ *
+ * Runs advance at nudge speed: the in-process cron interval is 5 minutes,
+ * so tests nudge the daemon control plane between status polls.
+ *
+ * TEST ISOLATION: each test owns a temp HOME, random ports, its own daemon,
+ * and its own scripted-agent state. Safe for parallel execution.
+ *
+ * Run via: ./run-all-scripted-e2e-tests (or ./run-all-e2e-tests)
+ */
+
+import { describe, it } from "node:test";
+import assert from "node:assert/strict";
+import { execSync } from "node:child_process";
+import fs from "node:fs";
+import path from "node:path";
+import { DatabaseSync } from "node:sqlite";
+import type { ChildProcess } from "node:child_process";
+import {
+  createTempHome,
+  baseEnv,
+  cliMustSucceed,
+  spawnWorkflowRun,
+  prepareGitRepo,
+  resolveFullRunId,
+  cleanupTempHome,
+} from "./helpers/smoke-helpers.ts";
+import {
+  startIsolatedDaemon,
+  stopIsolatedDaemon,
+  pollForRunCompletionWithNudge,
+} from "./helpers/e2e-helpers.ts";
+import {
+  createScriptedAgent,
+  type ScriptedAgent,
+  type ScriptedAgentConfig,
+} from "./helpers/scripted-agent.ts";
+
+const fixtureDir = path.join(process.cwd(), "e2e-tests", "fixtures", "sample-project");
+
+// ── Shared plumbing ─────────────────────────────────────────────────
+
+interface ScriptedRunContext {
+  env: Awaited<ReturnType<typeof createTempHome>>;
+  scripted: ScriptedAgent;
+  daemon: ChildProcess;
+}
+
+async function startScriptedEnvironment(
+  workflowId: string,
+  behaviors: ScriptedAgentConfig,
+): Promise<ScriptedRunContext> {
+  const env = await createTempHome();
+  const scripted = createScriptedAgent(env.root, behaviors);
+  cliMustSucceed(
+    ["workflow", "install", workflowId],
+    baseEnv(env.homeDir, env.controlPort),
+    `install ${workflowId}`,
+  );
+  const daemon = await startIsolatedDaemon(
+    env.dashboardPort,
+    env.homeDir,
+    env.controlPort,
+    scripted.env,
+  );
+  return { env, scripted, daemon };
+}
+
+async function teardown(ctx: ScriptedRunContext | undefined): Promise<void> {
+  if (!ctx) return;
+  try {
+    await stopIsolatedDaemon(ctx.daemon);
+  } catch {
+    // best-effort
+  }
+  cleanupTempHome(ctx.env);
+}
+
+/** Append scripted-agent + daemon log diagnostics to a failure. */
+function diagnostics(ctx: ScriptedRunContext): string {
+  let daemonLogTail = "(no daemon log)";
+  try {
+    const logPath = path.join(ctx.env.tamanduaDir, "tamandua.log");
+    const lines = fs.readFileSync(logPath, "utf-8").trimEnd().split("\n");
+    daemonLogTail = lines.slice(-40).join("\n");
+  } catch {
+    // keep default
+  }
+  return [
+    "── scripted-agent invocations ──",
+    ctx.scripted.describe(),
+    "── daemon log (last 40 lines) ──",
+    daemonLogTail,
+  ].join("\n");
+}
+
+async function waitForRun(
+  ctx: ScriptedRunContext,
+  runId: string,
+  timeoutMs: number,
+): Promise<string> {
+  try {
+    return await pollForRunCompletionWithNudge(
+      runId,
+      baseEnv(ctx.env.homeDir, ctx.env.controlPort),
+      timeoutMs,
+    );
+  } catch (err) {
+    throw new Error(`${err instanceof Error ? err.message : String(err)}\n${diagnostics(ctx)}`);
+  }
+}
+
+function dbRow<T>(tamanduaDir: string, sql: string, ...params: string[]): T {
+  const db = new DatabaseSync(path.join(tamanduaDir, "tamandua.db"));
+  try {
+    return db.prepare(sql).get(...params) as T;
+  } finally {
+    db.close();
+  }
+}
+
+function dbRows<T>(tamanduaDir: string, sql: string, ...params: string[]): T[] {
+  const db = new DatabaseSync(path.join(tamanduaDir, "tamandua.db"));
+  try {
+    return db.prepare(sql).all(...params) as T[];
+  } finally {
+    db.close();
+  }
+}
+
+function readRunEvents(tamanduaDir: string, runId: string): Array<Record<string, unknown>> {
+  const eventsPath = path.join(tamanduaDir, "events", `${runId}.jsonl`);
+  if (!fs.existsSync(eventsPath)) return [];
+  return fs
+    .readFileSync(eventsPath, "utf-8")
+    .split(/\r?\n/)
+    .filter(Boolean)
+    .map((line) => JSON.parse(line) as Record<string, unknown>);
+}
+
+// ── Scripted behaviors: bug-fix-merge-worktree happy path ───────────
+
+const BRANCH = "bugfix-scripted-add";
+const WORK_TOKENS = 111; // defaultTokens; six work rounds → ≥666 attributed
+
+const bugFixBehaviors: ScriptedAgentConfig = {
+  agents: {
+    triager: {
+      output: [
+        "STATUS: done",
+        "REPO: {{cwd}}",
+        `BRANCH: ${BRANCH}`,
+        "SEVERITY: high",
+        "AFFECTED_AREA: src/math.ts",
+        "REPRODUCTION: add(5, 3) returns 2 instead of 8",
+        "PROBLEM_STATEMENT: add() subtracts instead of adding",
+      ].join("\n"),
+    },
+    investigator: {
+      output: [
+        "STATUS: done",
+        "ROOT_CAUSE: add() uses the subtraction operator",
+        "FIX_APPROACH: replace a - b with a + b in src/math.ts",
+      ].join("\n"),
+    },
+    setup: {
+      commands: [`git checkout -b ${BRANCH}`],
+      output: [
+        "STATUS: done",
+        "ORIGINAL_BRANCH: {{input.ORIGINAL_BRANCH}}",
+        "BUILD_CMD: true",
+        "TEST_CMD: true",
+        "BASELINE: add() is broken as reported",
+      ].join("\n"),
+    },
+    fixer: {
+      edits: [{ file: "src/math.ts", find: "a - b", replace: "a + b" }],
+      commands: [
+        "git add -A",
+        'git commit -m "fix: correct add implementation"',
+      ],
+      output: [
+        "STATUS: done",
+        "CHANGES: corrected add() to use addition",
+        "REGRESSION_TEST: covered by existing math test",
+      ].join("\n"),
+    },
+    verifier: {
+      output: ["STATUS: done", "VERIFIED: add() now uses a + b"].join("\n"),
+    },
+    merger: {
+      commands: [
+        'git -C "{{input.WORKTREE_ORIGIN_REPOSITORY}}" checkout "{{input.ORIGINAL_BRANCH}}"',
+        `git -C "{{input.WORKTREE_ORIGIN_REPOSITORY}}" merge --squash ${BRANCH}`,
+        `git -C "{{input.WORKTREE_ORIGIN_REPOSITORY}}" commit -m "fix: correct add implementation (squash of ${BRANCH})"`,
+      ],
+      output: [
+        "STATUS: done",
+        "REBASED: false",
+        "MERGE_COMMIT: scripted",
+        "MERGED_INTO: {{input.ORIGINAL_BRANCH}}",
+      ].join("\n"),
+    },
+  },
+};
+
+const BUG_FIX_AGENTS = ["triager", "investigator", "setup", "fixer", "verifier", "merger"];
+
+// ── Tests ───────────────────────────────────────────────────────────
+
+describe("scripted-agent full pipeline (real daemon/scheduler, zero tokens)", { concurrency: 3 }, () => {
+  it(
+    "bug-fix-merge-worktree: full pipeline through scripted agents merges the fix",
+    { timeout: 240_000 },
+    async () => {
+      let ctx: ScriptedRunContext | undefined;
+      try {
+        ctx = await startScriptedEnvironment("bug-fix-merge-worktree", bugFixBehaviors);
+        const repoDir = prepareGitRepo(fixtureDir, path.join(ctx.env.root, "origin-repo"));
+
+        const runIdPrefix = await spawnWorkflowRun(
+          [
+            "workflow",
+            "run",
+            "bug-fix-merge-worktree",
+            "The add function in src/math.ts returns a - b instead of a + b",
+            "--worktree-origin-repository",
+            repoDir,
+          ],
+          baseEnv(ctx.env.homeDir, ctx.env.controlPort),
+        );
+        const runId = resolveFullRunId(runIdPrefix, ctx.env.tamanduaDir);
+
+        const status = await waitForRun(ctx, runId, 180_000);
+        assert.ok(
+          status === "completed" || status === "done",
+          `run should complete, got "${status}"\n${diagnostics(ctx)}`,
+        );
+
+        // ── Pipeline state: every step done, none failed ──────────
+        const steps = dbRows<{ step_id: string; status: string }>(
+          ctx.env.tamanduaDir,
+          "SELECT step_id, status FROM steps WHERE run_id = ? ORDER BY step_index",
+          runId,
+        );
+        assert.equal(steps.length, 6, `expected 6 steps, got ${JSON.stringify(steps)}`);
+        for (const step of steps) {
+          assert.equal(step.status, "done", `step ${step.step_id} should be done, got ${step.status}`);
+        }
+
+        // ── Repository outcome: real git merge landed the fix ─────
+        const mathTs = fs.readFileSync(path.join(repoDir, "src", "math.ts"), "utf-8");
+        assert.ok(mathTs.includes("a + b"), `origin math.ts should be fixed:\n${mathTs}`);
+        assert.ok(!mathTs.includes("a - b"), `origin math.ts should not keep the bug:\n${mathTs}`);
+
+        const gitLog = execSync("git log --oneline -5", { cwd: repoDir, encoding: "utf-8" });
+        assert.ok(
+          gitLog.trim().split("\n").length >= 2,
+          `expected initial + squash-merge commits, got:\n${gitLog}`,
+        );
+        const porcelain = execSync("git status --porcelain", { cwd: repoDir, encoding: "utf-8" });
+        assert.equal(porcelain.trim(), "", `origin repo left dirty:\n${porcelain}`);
+
+        // ── Motor contract: each agent did exactly one work round ─
+        for (const agent of BUG_FIX_AGENTS) {
+          const workRounds = ctx.scripted.workInvocations(agent);
+          assert.equal(
+            workRounds.length,
+            1,
+            `agent ${agent} should do exactly 1 work round, got ${workRounds.length}\n${diagnostics(ctx)}`,
+          );
+        }
+
+        // ── Token accounting: work usage attributed to the run ────
+        const run = dbRow<{ tokens_spent: number }>(
+          ctx.env.tamanduaDir,
+          "SELECT tokens_spent FROM runs WHERE id = ?",
+          runId,
+        );
+        assert.ok(
+          run.tokens_spent >= BUG_FIX_AGENTS.length * WORK_TOKENS,
+          `tokens_spent should include ${BUG_FIX_AGENTS.length} work rounds ` +
+            `(≥${BUG_FIX_AGENTS.length * WORK_TOKENS}), got ${run.tokens_spent}`,
+        );
+
+        // ── Terminal event carries token spend ────────────────────
+        const events = readRunEvents(ctx.env.tamanduaDir, runId);
+        const completed = events.find((e) => e.event === "run.completed");
+        assert.ok(completed, `run.completed event missing; events: ${events.map((e) => e.event).join(", ")}`);
+        assert.equal(typeof completed.tokensSpent, "number", "run.completed should carry tokensSpent");
+
+        // ── Motor-swap baseline: heartbeat rounds spend system tokens.
+        // CURRENT (polling) motor: every idle poll is a model invocation,
+        // attributed to tamandua_stats.system_tokens_spent. The deterministic
+        // motor must drive BOTH numbers to zero for idle polls — flip these
+        // assertions when the motor is swapped (see tests/MOTOR-CONTRACT.md).
+        const heartbeats = ctx.scripted.heartbeats();
+        const stats = dbRow<{ system_tokens_spent: number }>(
+          ctx.env.tamanduaDir,
+          "SELECT system_tokens_spent FROM tamandua_stats WHERE id = 1",
+        );
+        assert.ok(
+          heartbeats.length > 0 && stats.system_tokens_spent > 0,
+          "current polling motor is expected to burn system tokens on idle polls " +
+            `(got ${heartbeats.length} heartbeats, ${stats.system_tokens_spent} system tokens) — ` +
+            "if this fails because both are 0, the deterministic motor has landed: " +
+            "invert this assertion and celebrate",
+        );
+        console.log(
+          `[scripted-e2e baseline] bug-fix-merge-worktree: ` +
+            `${ctx.scripted.workInvocations().length} work rounds, ` +
+            `${heartbeats.length} heartbeat rounds, ` +
+            `${run.tokens_spent} work tokens attributed to the run, ` +
+            `${stats.system_tokens_spent} system tokens spent on idle polling`,
+        );
+      } finally {
+        await teardown(ctx);
+      }
+    },
+  );
+
+  it(
+    "do-now: lost step (agent finishes without STATUS report) is recovered and retried",
+    { timeout: 120_000 },
+    async () => {
+      let ctx: ScriptedRunContext | undefined;
+      try {
+        ctx = await startScriptedEnvironment("do-now", {
+          agents: {
+            doer: [
+              { mode: "no-status", output: "I did some things but never reported them." },
+              { output: "STATUS: done\nREPORT: completed on the retry round" },
+            ],
+          },
+        });
+        const workdir = path.join(ctx.env.root, "do-now-workdir");
+        fs.mkdirSync(workdir, { recursive: true });
+
+        const runIdPrefix = await spawnWorkflowRun(
+          [
+            "workflow",
+            "run",
+            "do-now",
+            "Report the current date",
+            "--working-directory-for-harness",
+            workdir,
+          ],
+          baseEnv(ctx.env.homeDir, ctx.env.controlPort),
+        );
+        const runId = resolveFullRunId(runIdPrefix, ctx.env.tamanduaDir);
+
+        const status = await waitForRun(ctx, runId, 90_000);
+        assert.ok(
+          status === "completed" || status === "done",
+          `run should complete after lost-step recovery, got "${status}"\n${diagnostics(ctx)}`,
+        );
+
+        const workRounds = ctx.scripted.workInvocations("doer");
+        assert.equal(
+          workRounds.length,
+          2,
+          `doer should be invoked twice (lost round + recovery round), got ${workRounds.length}\n${diagnostics(ctx)}`,
+        );
+        assert.equal(workRounds[0].mode, "no-status");
+        assert.equal(workRounds[1].mode, "work", `second round should be the normal retry: ${workRounds[1].note}`);
+      } finally {
+        await teardown(ctx);
+      }
+    },
+  );
+
+  it(
+    "do-now: agent process dying after claim is recovered and retried",
+    { timeout: 120_000 },
+    async () => {
+      let ctx: ScriptedRunContext | undefined;
+      try {
+        ctx = await startScriptedEnvironment("do-now", {
+          agents: {
+            doer: [
+              { mode: "die-after-claim", exitCode: 7 },
+              { output: "STATUS: done\nREPORT: completed after the crash" },
+            ],
+          },
+        });
+        const workdir = path.join(ctx.env.root, "do-now-workdir");
+        fs.mkdirSync(workdir, { recursive: true });
+
+        const runIdPrefix = await spawnWorkflowRun(
+          [
+            "workflow",
+            "run",
+            "do-now",
+            "Report the current date",
+            "--working-directory-for-harness",
+            workdir,
+          ],
+          baseEnv(ctx.env.homeDir, ctx.env.controlPort),
+        );
+        const runId = resolveFullRunId(runIdPrefix, ctx.env.tamanduaDir);
+
+        const status = await waitForRun(ctx, runId, 90_000);
+        assert.ok(
+          status === "completed" || status === "done",
+          `run should complete after crash recovery, got "${status}"\n${diagnostics(ctx)}`,
+        );
+
+        const workRounds = ctx.scripted.workInvocations("doer");
+        assert.equal(
+          workRounds.length,
+          2,
+          `doer should be invoked twice (crashed round + recovery round), got ${workRounds.length}\n${diagnostics(ctx)}`,
+        );
+        assert.equal(workRounds[0].mode, "die-after-claim");
+        assert.equal(workRounds[1].mode, "work", `second round should be the normal retry: ${workRounds[1].note}`);
+      } finally {
+        await teardown(ctx);
+      }
+    },
+  );
+});

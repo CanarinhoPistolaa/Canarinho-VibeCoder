@@ -1,26 +1,31 @@
 #!/usr/bin/env bash
-# Build and run the FAST Tamandua end-to-end SMOKE test suite.
+# Build and run the FAST Tamandua end-to-end test suites (no model tokens).
 #
-# This script runs the smoke / state-machine integration test by default.
-# This is the FAST test that manually advances workflow steps using step
-# claim/step complete with canned outputs. No real agents, models, or
-# schedulers are invoked. Expects to complete in ~10-15 seconds.
+# This is the default e2e entry point. It runs BOTH fast tiers:
+#
+#   1. Smoke / state-machine test — manually advances workflow steps using
+#      step claim/step complete with canned outputs. No agents, models, or
+#      schedulers. (~10-15 seconds)
+#   2. Scripted-agent full-pipeline test — REAL daemon + scheduler + worktree
+#      + merge pipeline driven by a deterministic scripted agent standing in
+#      for pi (TAMANDUA_PI_BINARY). No models, ZERO tokens. (~30-60 seconds)
 #
 # For the SLOW REAL end-to-end test that runs actual agent invocations:
 #   ./run-all-real-e2e-tests
 # That test spends real model tokens, takes 30+ minutes, and should only
 # be run deliberately.
 #
-# To run the smoke test only explicitly:
+# To run a single tier explicitly:
 #   ./run-all-smoke-e2e-tests
+#   ./run-all-scripted-e2e-tests
 #
 # Output is streamed to the terminal AND tee'd to a log file for inspection.
-# Exit code matches the underlying `node --test` exit code.
+# Exit code is non-zero if either suite fails.
 set -euo pipefail
 cd "$(dirname "$0")"
 
 LOG="${TAMANDUA_E2E_TEST_LOG:-e2e-test-output.log}"
 
 npm run build
-node --test e2e-tests/workflows-smoke.test.ts 2>&1 | tee "$LOG"
+node --test e2e-tests/workflows-smoke.test.ts e2e-tests/workflows-scripted.test.ts 2>&1 | tee "$LOG"
 exit "${PIPESTATUS[1]}"

@@ -1,4 +1,13 @@
 /**
+ * MOTOR-MECHANISM: pins the CURRENT model-driven polling motor.
+ *
+ * This test asserts implementation details of the polling motor (model-run
+ * peek/claim rounds, polling prompts, heartbeat system-token attribution).
+ * It is EXPECTED to churn or be replaced when the deterministic motor lands.
+ * During the motor rewrite: a failure here is expected noise; a failure in a
+ * contract test is a real regression. See tests/MOTOR-CONTRACT.md.
+ */
+/**
  * Test: polling config in workflow YAML schema
  *
  * Verifies that WorkflowSpec supports top-level 'polling' config

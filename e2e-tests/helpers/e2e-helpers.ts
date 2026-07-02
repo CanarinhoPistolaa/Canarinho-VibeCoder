@@ -104,13 +104,14 @@ export function startIsolatedDaemon(
   port: number,
   homeDir: string,
   controlPort: number,
+  extraEnv: Record<string, string> = {},
 ): Promise<ChildProcess> {
   return new Promise((resolve, reject) => {
     const child = spawn(
       "node",
       ["--disable-warning=ExperimentalWarning", daemonScript, String(port)],
       {
-        env: cleanChildEnv(baseEnv(homeDir, controlPort)),
+        env: cleanChildEnv({ ...baseEnv(homeDir, controlPort), ...extraEnv }),
         stdio: ["ignore", "pipe", "pipe"],
       },
     );
@@ -199,6 +200,57 @@ export async function stopIsolatedDaemon(child: ChildProcess): Promise<void> {
       resolve();
     });
   });
+}
+
+/**
+ * Poll for run completion while nudging the scheduler every cycle.
+ *
+ * The in-process cron timers fire only once per intervalMinutes (default
+ * 5 minutes), so without nudging even an instant agent advances one step
+ * per 5 minutes. `tamandua nudge` asks the daemon to launch a polling
+ * round for every scheduled agent immediately, which lets scripted-agent
+ * e2e tests advance the pipeline at second scale.
+ *
+ * Returns the terminal status. Throws with diagnostics on timeout.
+ */
+export async function pollForRunCompletionWithNudge(
+  runId: string,
+  env: Record<string, string>,
+  timeoutMs: number,
+  nudgeIntervalMs = 1_500,
+): Promise<string> {
+  const startedAt = Date.now();
+  let lastOutput = "";
+  let lastStatus = "";
+
+  while (Date.now() - startedAt < timeoutMs) {
+    const result = spawnSync(process.execPath, [cliPath, "workflow", "status", runId], {
+      env: cleanChildEnv(env),
+      encoding: "utf-8",
+    });
+    lastOutput = result.stdout || result.stderr || "";
+    const statusMatch = lastOutput.match(/^Status:\s+(\S+)/m);
+    if (statusMatch) {
+      lastStatus = statusMatch[1];
+      if (TERMINAL_STATUSES.has(lastStatus)) {
+        return lastStatus;
+      }
+    }
+
+    // Wake every scheduled agent for the next round (best-effort).
+    spawnSync(process.execPath, [cliPath, "nudge"], {
+      env: cleanChildEnv(env),
+      encoding: "utf-8",
+    });
+
+    await sleep(nudgeIntervalMs);
+  }
+
+  throw new Error(
+    `Timeout after ${timeoutMs}ms waiting for run ${runId.slice(0, 8)} to complete (with nudging).\n` +
+      `Last status: ${lastStatus || "(unknown)"}\n` +
+      `Last output:\n${lastOutput || "(no output)"}`,
+  );
 }
 
 /**
