@@ -144,6 +144,32 @@ function dbRows<T>(tamanduaDir: string, sql: string, ...params: string[]): T[] {
   }
 }
 
+/**
+ * Poll until the run's tokens_spent reaches `expected`. Token attribution
+ * for the FINAL round lands shortly after the run turns terminal (the
+ * harness flushes usage after reporting, under the teardown grace window),
+ * so reading tokens_spent immediately after completion would race it.
+ */
+async function waitForRunTokens(
+  tamanduaDir: string,
+  runId: string,
+  expected: number,
+  timeoutMs = 20_000,
+): Promise<number> {
+  const startedAt = Date.now();
+  let last = -1;
+  while (Date.now() - startedAt < timeoutMs) {
+    last = dbRow<{ tokens_spent: number }>(
+      tamanduaDir,
+      "SELECT tokens_spent FROM runs WHERE id = ?",
+      runId,
+    ).tokens_spent;
+    if (last >= expected) return last;
+    await new Promise((resolve) => setTimeout(resolve, 250));
+  }
+  return last;
+}
+
 function readRunEvents(tamanduaDir: string, runId: string): Array<Record<string, unknown>> {
   const eventsPath = path.join(tamanduaDir, "events", `${runId}.jsonl`);
   if (!fs.existsSync(eventsPath)) return [];
@@ -379,6 +405,62 @@ describe("scripted-agent full pipeline (real daemon/scheduler, zero tokens)", { 
         );
         assert.equal(workRounds[0].mode, "no-status");
         assert.equal(workRounds[1].mode, "work", `second round should be the normal retry: ${workRounds[1].note}`);
+      } finally {
+        await teardown(ctx);
+      }
+    },
+  );
+
+  it(
+    "do-now: final-round token usage survives completion teardown (real-pi event ordering)",
+    { timeout: 120_000 },
+    async () => {
+      let ctx: ScriptedRunContext | undefined;
+      try {
+        // Real pi reports `step complete` via a tool call BEFORE emitting the
+        // final message_end that carries token usage. Completing the run's
+        // final step triggers scheduling teardown — without the
+        // HARNESS_TEARDOWN_GRACE_MS grace window, the harness is killed
+        // before the usage event is flushed and the round's tokens are lost.
+        ctx = await startScriptedEnvironment("do-now", {
+          agents: {
+            doer: {
+              reportBeforeEmit: true,
+              tokens: 555,
+              output: "STATUS: done\nREPORT: reported completion before usage flush",
+            },
+          },
+        });
+        const workdir = path.join(ctx.env.root, "do-now-workdir");
+        fs.mkdirSync(workdir, { recursive: true });
+
+        const runIdPrefix = await spawnWorkflowRun(
+          [
+            "workflow",
+            "run",
+            "do-now",
+            "Report the current date",
+            "--working-directory-for-harness",
+            workdir,
+          ],
+          baseEnv(ctx.env.homeDir, ctx.env.controlPort),
+        );
+        const runId = resolveFullRunId(runIdPrefix, ctx.env.tamanduaDir);
+
+        const status = await waitForRun(ctx, runId, 90_000);
+        assert.ok(
+          status === "completed" || status === "done",
+          `run should complete, got "${status}"\n${diagnostics(ctx)}`,
+        );
+
+        const tokens = await waitForRunTokens(ctx.env.tamanduaDir, runId, 555);
+        assert.equal(
+          tokens,
+          555,
+          `final round's usage (555 tokens, emitted AFTER step complete) should be ` +
+            `attributed to the run — got ${tokens}. If this is 0, completion teardown ` +
+            `killed the harness before it flushed usage.\n${diagnostics(ctx)}`,
+        );
       } finally {
         await teardown(ctx);
       }

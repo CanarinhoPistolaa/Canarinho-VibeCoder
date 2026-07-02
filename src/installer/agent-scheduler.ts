@@ -632,14 +632,14 @@ export function buildAgentPrompt(workflowId: string, agentId: string, runId: str
     `Your job is to poll for work and execute it.`,
     ``,
     `STEP 1 — Check for pending work:`,
-    `Run: node "${cli}" step peek "${agentId}" --run-id "${runId}"`,
+    `Run: "${cli}" step peek "${agentId}" --run-id "${runId}"`,
     ``,
     `STEP 2 — If NO_WORK:`,
     `Reply HEARTBEAT_OK and stop. Do NOT do anything else.`,
     ``,
     `STEP 3 — If HAS_WORK:`,
     `Claim the step and capture the JSON response:`,
-    `Run: node "${cli}" step claim "${agentId}" --run-id "${runId}"`,
+    `Run: "${cli}" step claim "${agentId}" --run-id "${runId}"`,
     `The output will be JSON: {"stepId":"<UUID>", "runId":"<UUID>", "input":"<task description>"}`,
     `SAVE the stepId — you MUST use it in step 4.`,
     ``,
@@ -649,8 +649,8 @@ export function buildAgentPrompt(workflowId: string, agentId: string, runId: str
     `STEP 4 — Report results using the SAVED stepId (NOT the agent ID):`,
     `On success: echo 'STATUS: done
 CHANGES: <what you changed>
-TESTS: <tests you ran>' | node "${cli}" step complete "<stepId>"`,
-    `On failure: node "${cli}" step fail "<stepId>" "<clear reason>"`,
+TESTS: <tests you ran>' | "${cli}" step complete "<stepId>"`,
+    `On failure: "${cli}" step fail "<stepId>" "<clear reason>"`,
     ``,
     `CRITICAL: You MUST report results using the step complete or step fail commands.`,
     `Failing to report will leave the workflow stuck forever. Always report, even if you`,
@@ -677,8 +677,8 @@ export function buildWorkPrompt(workflowId: string, agentId: string, runId: stri
     `When done, report your results using the SAVED stepId (NOT the agent ID):`,
     `On success: echo 'STATUS: done
 CHANGES: <what you changed>
-TESTS: <tests you ran>' | node "${cli}" step complete "<stepId>"`,
-    `On failure: node "${cli}" step fail "<stepId>" "<reason>"`,
+TESTS: <tests you ran>' | "${cli}" step complete "<stepId>"`,
+    `On failure: "${cli}" step fail "<stepId>" "<reason>"`,
     ``,
     `CRITICAL: You MUST report results. Do not exit without calling step complete or step fail.`,
   ].join("\n");
@@ -720,7 +720,7 @@ export function buildPollingPrompt(
     ``,
     `─── PHASE 1: PEEK ───`,
     `Run this exact command and capture its output:`,
-    `node "${cli}" step peek "${agentId}" --run-id "${runId}"`,
+    `"${cli}" step peek "${agentId}" --run-id "${runId}"`,
     ``,
     `If the output contains NO_WORK:`,
     `  Reply exactly: HEARTBEAT_OK`,
@@ -731,7 +731,7 @@ export function buildPollingPrompt(
     ``,
     `─── PHASE 2: CLAIM AND EXECUTE ───`,
     `1. Claim the step and capture the JSON response:`,
-    `   node "${cli}" step claim "${agentId}" --run-id "${runId}"`,
+    `   "${cli}" step claim "${agentId}" --run-id "${runId}"`,
     `   The output is JSON: {"stepId":"<UUID>", "runId":"<UUID>", "input":"<task description>"}`,
     `   SAVE the stepId — you MUST use it when reporting results.`,
     ``,
@@ -742,8 +742,8 @@ export function buildPollingPrompt(
     `4. When finished, report using the SAVED stepId (NOT the agent ID):`,
     `   - Success: echo 'STATUS: done
 CHANGES: <what you did>
-TESTS: <tests you ran>' | node "${cli}" step complete "<stepId>"`,
-    `   - Failure: node "${cli}" step fail "<stepId>" "<clear reason for failure>"`,
+TESTS: <tests you ran>' | "${cli}" step complete "<stepId>"`,
+    `   - Failure: "${cli}" step fail "<stepId>" "<clear reason for failure>"`,
     ``,
     `─── RULES ───`,
     `- ALWAYS report results. Never exit without calling step complete or step fail.`,
@@ -1354,7 +1354,9 @@ export async function executePollingRound(
         runStatus: row?.status ?? "missing",
         reason: "run_not_running",
       });
-      await removeRunCrons(job.runId);
+      // The run is already terminal; a sibling agent's round may still be
+      // flushing its final output — tear down with the completion grace.
+      await removeRunCrons(job.runId, { graceMs: HARNESS_TEARDOWN_GRACE_MS });
       return;
     }
     if (row.status === "paused") {
@@ -1704,10 +1706,35 @@ export async function setupAgentCrons(
 }
 
 /**
- * Remove all polling jobs for a given runId. Terminates any in-flight
- * pi process group for the run as well.
+ * Grace window before an in-flight harness process group is killed when a
+ * run is torn down after reaching a terminal state ON ITS OWN. The harness
+ * that reported the final step is usually still alive at that moment, and
+ * pi emits its final assistant message (message_end with token usage) AFTER
+ * the tool call that runs `step complete` — killing the process immediately
+ * loses the final round's token usage and any post-report bookkeeping.
  */
-export async function removeRunCrons(runId: string): Promise<void> {
+export const HARNESS_TEARDOWN_GRACE_MS = 10_000;
+
+export interface RemoveRunCronsOptions {
+  /**
+   * Milliseconds to let in-flight harness processes exit on their own
+   * before the SIGTERM/SIGKILL leak guard fires. 0 (default) kills
+   * immediately — correct for user-initiated terminate/pause/cancel of an
+   * active run. Teardown triggered by natural run completion should pass
+   * HARNESS_TEARDOWN_GRACE_MS.
+   */
+  graceMs?: number;
+}
+
+/**
+ * Remove all polling jobs for a given runId. Terminates any in-flight
+ * pi process group for the run as well (after `options.graceMs`, if set).
+ */
+export async function removeRunCrons(
+  runId: string,
+  options: RemoveRunCronsOptions = {},
+): Promise<void> {
+  const graceMs = options.graceMs ?? 0;
   const removed: string[] = [];
 
   for (const [id, info] of jobMetadata) {
@@ -1728,10 +1755,21 @@ export async function removeRunCrons(runId: string): Promise<void> {
     const child = inFlightChildren.get(id);
     if (child && !child.killed) {
       child.killed = true;
-      // Terminate the entire process group: SIGTERM, then SIGKILL after 5s.
       if (child.pgid) {
-        safeKillPgid(child.pgid, "SIGTERM");
-        setTimeout(() => safeKillPgid(child.pgid, "SIGKILL"), 5000).unref();
+        const pgid = child.pgid;
+        // Terminate the entire process group: SIGTERM, then SIGKILL after 5s.
+        const terminate = () => {
+          safeKillPgid(pgid, "SIGTERM");
+          setTimeout(() => safeKillPgid(pgid, "SIGKILL"), 5000).unref();
+        };
+        if (graceMs > 0) {
+          // Graceful teardown: the run ended on its own, so let the harness
+          // finish flushing its output stream and exit naturally; the
+          // delayed kill is only a leak guard for hung processes.
+          setTimeout(terminate, graceMs).unref();
+        } else {
+          terminate();
+        }
       }
     }
     inFlightChildren.delete(id);
@@ -1741,7 +1779,7 @@ export async function removeRunCrons(runId: string): Promise<void> {
   }
 
   if (removed.length > 0) {
-    logger.info("Removed run-scoped crons", { runId, count: removed.length, jobIds: removed });
+    logger.info("Removed run-scoped crons", { runId, count: removed.length, jobIds: removed, graceMs });
   }
 }
 
@@ -1749,13 +1787,16 @@ export async function removeRunCrons(runId: string): Promise<void> {
  * Workflow-wide teardown: remove all jobs for any run of this workflow.
  * Used by tests / shutdown paths. Run-scoped removal is preferred.
  */
-export async function removeAgentCrons(workflowId: string): Promise<void> {
+export async function removeAgentCrons(
+  workflowId: string,
+  options: RemoveRunCronsOptions = {},
+): Promise<void> {
   const seenRunIds = new Set<string>();
   for (const info of jobMetadata.values()) {
     if (info.workflowId === workflowId) seenRunIds.add(info.runId);
   }
   for (const runId of seenRunIds) {
-    await removeRunCrons(runId);
+    await removeRunCrons(runId, options);
   }
 }
 
@@ -1774,7 +1815,9 @@ export async function teardownWorkflowCronsIfIdle(workflowId: string): Promise<v
     const count = activeRuns?.cnt ?? 0;
     if (count === 0) {
       logger.info("Workflow idle — tearing down crons", { workflowId });
-      await removeAgentCrons(workflowId);
+      // Only fires when every run of the workflow is terminal, so give
+      // in-flight harness processes the completion grace window.
+      await removeAgentCrons(workflowId, { graceMs: HARNESS_TEARDOWN_GRACE_MS });
     }
   } catch (err) {
     logger.warn("Failed to check idle status for teardown", {

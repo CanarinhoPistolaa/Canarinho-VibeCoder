@@ -70,9 +70,10 @@ interpretable.
   restarts it; terminate tears down scheduling and kills in-flight harness
   processes.
 - **C12** Run-scoped scheduling is torn down when the run reaches a terminal
-  state (no leaked timers polling completed runs). NOTE: today this
-  **rugpulls in-flight harness processes** the moment the final `step
-  complete` lands — anything the harness does after reporting may never run.
+  state (no leaked timers polling completed runs). Teardown triggered by
+  *natural completion* gives in-flight harness processes a grace window
+  (`HARNESS_TEARDOWN_GRACE_MS`) to flush output and exit on their own;
+  user-initiated terminate/pause/cancel of an active run kills immediately.
 - **C13** Scheduling state is reconstructable from the DB (daemon restart
   reconciles jobs from `runs.scheduling_status`).
 
@@ -154,15 +155,21 @@ Notes on near-misses that are **contract**, not mechanism:
 - Control-plane, daemon, dashboard, CLI, installer, www tests — untouched by
   the motor swap.
 
-## Known quirks the scripted tier exposed (2026-07-02)
+## Quirks the scripted tier exposed (2026-07-02) — both fixed same day
 
-- The polling prompt instructs `node "<cli>" ...` but `resolveTamanduaCli()`
-  returns the `bin/tamandua` **shell** script; `node bin/tamandua` throws a
-  SyntaxError. Live LLM agents notice the error and work around it — a
-  deterministic agent cannot (the scripted runtime detects the shebang and
-  execs directly). Fix the prompt or resolveTamanduaCli when touching the
-  motor.
-- Run completion rugpulls the in-flight harness process group immediately
-  (C12 note) — the final round's process dies right after its
-  `step complete` returns. Token events must be flushed to stdout before
-  reporting or the final round's usage is lost.
+- The polling prompt instructed `node "<cli>" ...` while
+  `resolveTamanduaCli()` returns the `bin/tamandua` **shell** script;
+  `node bin/tamandua` throws a SyntaxError. Live LLM agents had been
+  silently noticing the error and working around it every round — a
+  deterministic agent cannot. FIXED: prompts now invoke the CLI launcher
+  directly (no `node` prefix); the scripted runtime handles either form by
+  shebang detection.
+- Run completion rugpulled the in-flight harness process group the moment
+  the final `step complete` landed. Real pi emits its final assistant
+  message (with token usage) AFTER the completing tool call, so the final
+  round's usage was systematically lost. FIXED: completion-triggered
+  teardown now schedules the kill after `HARNESS_TEARDOWN_GRACE_MS` (leak
+  guard only); user-initiated terminate/pause of active runs still kills
+  immediately. Regression: "final-round token usage survives completion
+  teardown" in workflows-scripted.test.ts (reportBeforeEmit models the
+  real-pi ordering).

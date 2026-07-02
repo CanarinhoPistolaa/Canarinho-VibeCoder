@@ -60,6 +60,12 @@ export interface ScriptedBehavior {
   /** Report via `step fail` instead of `step complete`. */
   stepAction?: "complete" | "fail";
   failReason?: string;
+  /**
+   * Report `step complete` BEFORE emitting the message_end usage event
+   * (real pi's event ordering: the completing tool call precedes the final
+   * assistant message). Exercises the completion-teardown grace window.
+   */
+  reportBeforeEmit?: boolean;
   /** usage.totalTokens emitted in message_end (default: config.defaultTokens). */
   tokens?: number;
   /** Exit code for die-* modes. */

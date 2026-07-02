@@ -106,7 +106,7 @@ const header = prompt.match(
 if (!header) fatal(`could not parse workflow/agent/run from prompt: ${prompt.slice(0, 200)}`);
 const [, workflowId, agentId, runId] = header;
 
-const cliMatch = prompt.match(/node "([^"]+)" step peek/);
+const cliMatch = prompt.match(/(?:node )?"([^"]+)" step peek/);
 if (!cliMatch) fatal("could not parse tamandua CLI path from prompt");
 const cliPath = cliMatch[1];
 
@@ -144,10 +144,9 @@ function nextWorkIndex() {
 
 // ── tamandua CLI invocation (inherits daemon env: state dir, DB, ports) ──
 //
-// NOTE: the polling prompt says `node "<cli>" ...` but resolveTamanduaCli()
-// returns the bin/tamandua SHELL script — `node bin/tamandua` throws a
-// SyntaxError. Real LLM agents notice the error and work around it; a
-// deterministic agent cannot, so detect the shebang and exec directly.
+// The prompt's CLI path may be the bin/tamandua shell launcher (exec it
+// directly) or a .js entry point (run it through node). Detect by shebang
+// so this runtime works with either prompt/motor generation.
 const cliIsShellScript = (() => {
   try {
     const fd = fs.openSync(cliPath, "r");
@@ -328,10 +327,25 @@ function runWorkRound() {
     process.exit(0);
   }
 
-  // Flush all pi-shaped events BEFORE reporting: the report may complete the
-  // run, and run completion rugpulls this process. Events already written to
-  // stdout still reach the daemon's stream parser (token attribution works
-  // even for the final step's round).
+  if (behavior.reportBeforeEmit) {
+    // Real pi event ordering: the tool call that runs `step complete`
+    // happens BEFORE the final assistant message carrying token usage.
+    // Completing the run's final step triggers scheduling teardown, so this
+    // models the window where an immediate kill would lose the usage event
+    // (guarded by HARNESS_TEARDOWN_GRACE_MS in the scheduler).
+    emitToolAttribution(stepId, runId);
+    logInvocation({ ...work, phase: "result", stepId, ok: true, note: "reporting step complete before emitting usage" });
+    const complete = cli(["step", "complete", stepId], outputText);
+    if (complete.status !== 0) {
+      logInvocation({ ...work, phase: "result", stepId, ok: false, note: `step complete exited ${complete.status}: ${complete.stderr.slice(0, 300)}` });
+    }
+    spawnSync("sleep", ["0.3"]);
+    emitMessageEnd(outputText, tokens);
+    process.exit(0);
+  }
+
+  // Default ordering: flush all pi-shaped events BEFORE reporting, so even
+  // an immediate post-completion kill cannot lose them.
   emitToolAttribution(stepId, runId);
   emitMessageEnd(outputText, tokens);
 

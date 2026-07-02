@@ -136,8 +136,10 @@ export function scheduleRunCronTeardown(runId: string): void {
     // Run-scoped teardown is preferred (daemon-owned timers are
     // run-scoped). The workflow-wide idle check remains as a back-compat
     // safety net for legacy callers / tests that still rely on it.
+    // The run ended on its own here, so in-flight harness processes get
+    // the completion grace window to flush before the leak-guard kill.
     import("./agent-scheduler.js")
-      .then((m) => m.removeRunCrons(runId))
+      .then((m) => m.removeRunCrons(runId, { graceMs: m.HARNESS_TEARDOWN_GRACE_MS }))
       .catch(() => {});
     import("../server/control-client.js")
       .then((m) => m.terminateRunWithDaemon(runId))
@@ -1192,9 +1194,11 @@ export function finalizeDrainingPause(runId: string): void {
   });
   if (hasInFlightStep) return;
 
-  // Finalize the pause: clear timers and set status to paused.
+  // Finalize the pause: clear timers and set status to paused. The drain
+  // exists to protect in-flight work, so let the just-finished harness
+  // flush its output before the leak-guard kill.
   import("./agent-scheduler.js")
-    .then((m) => m.removeRunCrons(runId))
+    .then((m) => m.removeRunCrons(runId, { graceMs: m.HARNESS_TEARDOWN_GRACE_MS }))
     .catch((err) => {
       logger.warn("finalizeDrainingPause: removeRunCrons failed", { runId, error: String(err) });
     });

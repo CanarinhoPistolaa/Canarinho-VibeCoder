@@ -324,8 +324,16 @@ async function handleTerminateRun(runId: string): Promise<JsonResponse> {
   if (!run) return notFound(`Run not found: ${runId}`);
 
   try {
-    const { removeRunCrons } = await import("../installer/agent-scheduler.js");
-    await removeRunCrons(runId);
+    const { removeRunCrons, HARNESS_TEARDOWN_GRACE_MS } = await import(
+      "../installer/agent-scheduler.js"
+    );
+    // Terminate-run is called both for user-initiated termination of an
+    // ACTIVE run (kill in-flight work immediately) and as cleanup after a
+    // run reached a terminal state on its own (the harness that reported
+    // the final step is still flushing its output — give it the grace
+    // window so the final round's token usage is not lost).
+    const graceMs = isTerminal(run.status) ? HARNESS_TEARDOWN_GRACE_MS : 0;
+    await removeRunCrons(runId, { graceMs });
   } catch (err) {
     logger.warn("control-server: removeRunCrons threw", { runId, error: String(err) });
   }
