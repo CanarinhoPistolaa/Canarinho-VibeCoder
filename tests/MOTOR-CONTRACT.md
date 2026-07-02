@@ -137,9 +137,20 @@ campaign, 2026-07-03, all tiers green):
 | feature-dev-merge-worktree (real e2e) | 51,207 | ~23,105 (counter cumulative: 42,391) | 7.7 min |
 
 Idle polling added ~30% token overhead on top of real work and scaled with
-wall time, not with work. The deterministic motor eliminates it by
-construction (N1) — record post-rewrite real-model baselines below as
-campaigns run.
+wall time, not with work.
+
+Deterministic motor — real-model baselines (post-rewrite acceptance
+campaign, 2026-07-02, all tiers green):
+
+| Run | Work tokens | System tokens | Wall time |
+|---|---|---|---|
+| do-now canary | 3,052 | **0** | ~15 s |
+| bug-fix-merge-worktree (real e2e) | 42,251 | **0** (was 19,286) | 3.5 min (was 7.9) |
+| feature-dev-merge-worktree (real e2e) | 39,679 | **0** (was ~23,105) | 3.3 min (was 7.7) |
+
+The idle-poll overhead is zero by construction (N1), and wall time roughly
+halved: nudge-driven dispatch removed the poll-interval dead time between
+steps, so runs now spend their time on model work, not waiting.
 
 ## Quirks the motor test campaigns exposed — all fixed
 
