@@ -273,6 +273,7 @@ Tamandua is often used to develop and test itself. All tests use isolated tempor
 Dashboard UI regressions are covered in `src/server/dashboard.test.ts` by fetching `/` from `createDashboardServer(...)` and asserting required HTML/script hooks (including logs-tail cursor polling markup).
 
 `tests/workflow-validation.test.ts` validates bundled workflows: directory discovery, `workflow.yml` id matching, `workspace.files` path existence, skill wiring and frontmatter, README catalog entries (e.g., `feature-dev-merge-worktree`). Bundled workflow agents should declare `tamandua-agents` in `workspace.skills`, preserving any existing skills like `agent-browser`.
+`tests/workflow-graph-simulation.test.ts` simulates every bundled workflow to completion in-process through pure step-ops (happy path, mid-run retry, retry exhaustion) — when adding a workflow, it is covered automatically; a `regex:` expects clause may need a new entry in its `REGEX_EXPECTS_CANDIDATES`.
 Step output parsing (`parseOutputKeyValues` in `src/installer/step-ops.ts`) lowercases keys, so an agent output like `ORIGINAL_BRANCH: main` is consumed downstream as `{{original_branch}}`.
 Installer skill copy behavior (workflow-local + shared bundled skills) is covered in `tests/agent-skill-provisioning.test.ts`.
 

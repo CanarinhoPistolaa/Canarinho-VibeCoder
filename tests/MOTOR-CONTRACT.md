@@ -113,7 +113,8 @@ numbers to zero without changing work rounds or outcomes.
 |------|---------|----------------|
 | Scripted-agent e2e (**primary net for the rewrite**) | `./run-all-scripted-e2e-tests` | Real daemon → scheduler → harness spawn → stream parse → step-ops → pipeline advance → worktree/merge, driven by a deterministic fake pi. Zero tokens, ~1 min. Covers C1–C9, C12, C14–C17. |
 | Smoke e2e | `./run-all-smoke-e2e-tests` | State machine + pipeline wiring via manual `step claim`/`complete`. Bypasses the motor — stays green across the swap. C1–C4. |
-| Unit/integration | `npm test` | step-ops invariants, recovery, control plane, DB, CLI. Mixed contract + mechanism (see triage). |
+| Workflow graph simulation | part of `npm test` (`tests/workflow-graph-simulation.test.ts`) | Every bundled workflow simulated to completion in-process through pure step-ops (happy path, mid-run retry, retry exhaustion). Pins C1–C4, C8 independent of any motor. ~3 seconds for the whole catalog. |
+| Unit/integration | `npm test` | step-ops invariants, recovery, control plane, DB, CLI. Mixed contract + mechanism (see triage). `tests/deterministic-motor-acceptance.test.ts` carries N1–N3 as todo tests until the new motor lands. |
 | Real e2e | `./run-all-real-e2e-tests` | Full pipeline with live models. Final acceptance gate only: real tokens, 30–60 min/workflow. |
 
 ## Test triage: mechanism vs contract
