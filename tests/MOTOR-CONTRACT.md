@@ -86,7 +86,12 @@ interpretable.
   (via `message_end.usage` + run/step IDs from tool outputs), emitting
   `run.tokens.updated` events with `tokenDelta`/`tokensSpent`.
 - **C15** Terminal run events (`run.completed`/`run.failed`) carry
-  `tokensSpent`.
+  `tokensSpent`. Caveat (inherent to the current event ordering): the FINAL
+  round's usage is parsed only after the harness exits, i.e. after the
+  terminal event fired — so the event's `tokensSpent` can under-report by
+  the final round (a single-step run reports 0). `runs.tokens_spent` in the
+  DB is the eventually-correct total; tests must wait for it
+  (`waitForRunWorkTokens` in e2e-helpers) rather than race it.
 
 ### Workspace
 
@@ -118,7 +123,8 @@ numbers to zero without changing work rounds or outcomes.
 | Smoke e2e | `./run-all-smoke-e2e-tests` | State machine + pipeline wiring via manual `step claim`/`complete`. Bypasses the motor — stays green across the swap. C1–C4. |
 | Workflow graph simulation | part of `npm test` (`tests/workflow-graph-simulation.test.ts`) | Every bundled workflow simulated to completion in-process through pure step-ops (happy path, mid-run retry, retry exhaustion). Pins C1–C4, C8 independent of any motor. ~3 seconds for the whole catalog. |
 | Unit/integration | `npm test` | step-ops invariants, recovery, control plane, DB, CLI. Mixed contract + mechanism (see triage). `tests/deterministic-motor-acceptance.test.ts` carries N1–N3 as todo tests until the new motor lands. |
-| Real e2e | `./run-all-real-e2e-tests` | Full pipeline with live models. Final acceptance gate only: real tokens, 30–60 min/workflow. |
+| Real canary | `./run-real-e2e-canary` | ONE do-now run with a live model + token-accounting audit (C14/C15) and real-model baseline print. Small token spend, ~2–10 min. Run at motor milestones before the full real suite. |
+| Real e2e | `./run-all-real-e2e-tests` | Full pipeline with live models, now with token audits and on-timeout diagnostics. Final acceptance gate only: real tokens, 30–60 min/workflow. |
 
 ## Test triage: mechanism vs contract
 

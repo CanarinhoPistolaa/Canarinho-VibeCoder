@@ -63,6 +63,7 @@ import {
   startIsolatedDaemon,
   stopIsolatedDaemon,
   waitForRunTerminal,
+  auditRunTokens,
 } from "./helpers/e2e-helpers.ts";
 import { reserveDistinctRandomPorts } from "../tests/helpers/test-env.ts";
 import type { ChildProcess } from "node:child_process";
@@ -181,6 +182,7 @@ describe(
             baseEnv(env.homeDir, env.controlPort),
             45 * 60_000, // 45 min timeout
             10_000,       // poll every 10s
+            env.tamanduaDir, // attach log/event/step diagnostics on timeout
           );
 
           // ── Verify run status ────────────────────────────────────
@@ -190,6 +192,22 @@ describe(
             "workflow status after bug-fix completion",
           );
           assert.match(statusOut, /Status:\s+completed/i);
+
+          // ── Token accounting audit (MOTOR-CONTRACT.md C14/C15) ───
+          const bugFixAudit = auditRunTokens(env.tamanduaDir, runId);
+          assert.ok(
+            bugFixAudit.workTokens > 0,
+            `bug-fix run should have attributed work tokens, got ${bugFixAudit.workTokens}`,
+          );
+          assert.equal(
+            typeof bugFixAudit.terminalTokensSpent,
+            "number",
+            "run.completed should carry tokensSpent",
+          );
+          console.log(
+            `[real-e2e baseline] bug-fix-merge-worktree: workTokens=${bugFixAudit.workTokens} ` +
+              `systemTokens=${bugFixAudit.systemTokens} tokenUpdateEvents=${bugFixAudit.tokenUpdateEvents}`,
+          );
 
           // ── Verify repository state ──────────────────────────────
           // After the bug-fix workflow completes, the origin repo should
@@ -309,6 +327,7 @@ describe(
             baseEnv(env.homeDir, env.controlPort),
             45 * 60_000, // 45 min timeout
             10_000,       // poll every 10s
+            env.tamanduaDir, // attach log/event/step diagnostics on timeout
           );
 
           // ── Verify run status ────────────────────────────────────
@@ -318,6 +337,22 @@ describe(
             "workflow status after feature-dev completion",
           );
           assert.match(statusOut, /Status:\s+completed/i);
+
+          // ── Token accounting audit (MOTOR-CONTRACT.md C14/C15) ───
+          const featureAudit = auditRunTokens(env.tamanduaDir, runId);
+          assert.ok(
+            featureAudit.workTokens > 0,
+            `feature-dev run should have attributed work tokens, got ${featureAudit.workTokens}`,
+          );
+          assert.equal(
+            typeof featureAudit.terminalTokensSpent,
+            "number",
+            "run.completed should carry tokensSpent",
+          );
+          console.log(
+            `[real-e2e baseline] feature-dev-merge-worktree: workTokens=${featureAudit.workTokens} ` +
+              `systemTokens=${featureAudit.systemTokens} tokenUpdateEvents=${featureAudit.tokenUpdateEvents}`,
+          );
 
           // ── Verify repository state ──────────────────────────────
           // After the workflow completes, the origin repo should have

@@ -215,6 +215,7 @@ distinction is critical:
 |------|--------|--------------|----------|
 | **Smoke (state-machine)** | `./run-all-smoke-e2e-tests` | Exercises workflow state machine, pipeline wiring, and step lifecycle using manual `step claim` / `step complete` with canned outputs. No real agents, models, or schedulers. | ~10–15 seconds |
 | **Scripted (full pipeline, fake pi)** | `./run-all-scripted-e2e-tests` | Runs the REAL daemon → scheduler → harness spawn → step-ops → worktree/merge pipeline, with `TAMANDUA_PI_BINARY` pointed at a deterministic scripted agent (`e2e-tests/helpers/scripted-agent.ts`) that executes the peek/claim/complete protocol, including chaos scenarios (lost steps, crashed agents). No models, ZERO tokens. Primary regression net for motor changes — see `tests/MOTOR-CONTRACT.md`. | ~30–60 seconds |
+| **Real canary (single run)** | `./run-real-e2e-canary` | ONE do-now run with a trivial task through the real daemon → scheduler → pi pipeline, with token-accounting audits. **Spends a small amount of real tokens.** Use at motor-change milestones before the full real suite. | ~2–10 minutes |
 | **Real (full pipeline)** | `./run-all-real-e2e-tests` | Launches actual Tamandua workflows that run through the full daemon → scheduler → pi agent pipeline. Uses real model invocations, real worktree creation, real git merges. | 30+ minutes per workflow |
 
 `./run-all-e2e-tests` is the convenience alias — it runs the **smoke and
@@ -236,8 +237,9 @@ tests, and performs git merges.
 - **AGENTS MUST NOT RUN REAL E2E TESTS BY DEFAULT.** Only run `./run-all-tests`
 or `npm test` when fulfilling routine development duties.
 - If running e2e tests is required, run `./run-all-e2e-tests` (smoke + scripted, fast, no tokens).
-- **Only run `./run-all-real-e2e-tests` when explicitly asked** — it spends
-real tokens and takes 30+ minutes. Never infer or assume it should be run.
+- **Only run `./run-real-e2e-canary` or `./run-all-real-e2e-tests` when
+explicitly asked** — both spend real tokens (the canary a little, the full
+suite a lot). Never infer or assume they should be run.
 
 #### When Each Test Should Be Used
 

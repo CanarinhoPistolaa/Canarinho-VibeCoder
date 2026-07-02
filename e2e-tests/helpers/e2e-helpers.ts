@@ -13,8 +13,10 @@
 
 import { spawnSync, spawn, type ChildProcess } from "node:child_process";
 import { setTimeout as sleep } from "node:timers/promises";
+import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { DatabaseSync } from "node:sqlite";
 import { cleanChildEnv } from "../../tests/helpers/test-env.ts";
 import { baseEnv } from "./smoke-helpers.ts";
 
@@ -38,6 +40,132 @@ export function isSuccessfulRunTerminalStatus(status: string): boolean {
 }
 
 /**
+ * Collect run diagnostics for failure messages: the daemon/CLI log tail and
+ * the run's event tail. A 45-minute real-e2e timeout that reports only
+ * "last status: running" is the most expensive possible debugging loop —
+ * always attach these to timeout errors.
+ */
+export function collectRunDiagnostics(tamanduaDir: string, runId?: string): string {
+  const sections: string[] = [];
+
+  try {
+    const logPath = path.join(tamanduaDir, "tamandua.log");
+    const lines = fs.readFileSync(logPath, "utf-8").trimEnd().split("\n");
+    sections.push(`── tamandua.log (last 60 lines) ──\n${lines.slice(-60).join("\n")}`);
+  } catch {
+    sections.push("── tamandua.log ──\n(unreadable or missing)");
+  }
+
+  if (runId) {
+    try {
+      const eventsPath = path.join(tamanduaDir, "events", `${runId}.jsonl`);
+      const lines = fs.readFileSync(eventsPath, "utf-8").trimEnd().split("\n");
+      sections.push(`── run events (last 25) ──\n${lines.slice(-25).join("\n")}`);
+    } catch {
+      sections.push("── run events ──\n(unreadable or missing)");
+    }
+
+    try {
+      const db = new DatabaseSync(path.join(tamanduaDir, "tamandua.db"));
+      try {
+        const steps = db
+          .prepare("SELECT step_index, step_id, agent_id, status, retry_count FROM steps WHERE run_id = ? ORDER BY step_index")
+          .all(runId) as Array<{ step_index: number; step_id: string; agent_id: string; status: string; retry_count: number }>;
+        sections.push(
+          `── steps ──\n${steps.map((s) => `  #${s.step_index} ${s.step_id} (${s.agent_id}) status=${s.status} retries=${s.retry_count}`).join("\n")}`,
+        );
+      } finally {
+        db.close();
+      }
+    } catch {
+      sections.push("── steps ──\n(db unreadable)");
+    }
+  }
+
+  return sections.join("\n");
+}
+
+/**
+ * Wait for a run's work-token attribution to land in the DB.
+ *
+ * The final round's usage arrives AFTER the run turns terminal: pi emits
+ * message_end (with usage) after the tool call that ran `step complete`,
+ * and attribution happens when the harness process exits and its stream is
+ * parsed — protected by HARNESS_TEARDOWN_GRACE_MS. Reading tokens_spent
+ * immediately after terminal status races that window. For the same reason
+ * the terminal run event's tokensSpent may under-report the final round;
+ * the DB total is the eventually-correct number.
+ */
+export async function waitForRunWorkTokens(
+  tamanduaDir: string,
+  runId: string,
+  timeoutMs = 60_000,
+): Promise<RunTokenAudit> {
+  const startedAt = Date.now();
+  let audit = auditRunTokens(tamanduaDir, runId);
+  while (audit.workTokens <= 0 && Date.now() - startedAt < timeoutMs) {
+    await sleep(1_000);
+    audit = auditRunTokens(tamanduaDir, runId);
+  }
+  return audit;
+}
+
+export interface RunTokenAudit {
+  /** runs.tokens_spent — model usage attributed to this run's work. */
+  workTokens: number;
+  /** tamandua_stats.system_tokens_spent — idle-poll (heartbeat) usage, global. */
+  systemTokens: number;
+  /** Number of run.tokens.updated events recorded for this run. */
+  tokenUpdateEvents: number;
+  /** tokensSpent carried by the terminal run.completed/run.failed event, if any. */
+  terminalTokensSpent: number | null;
+}
+
+/**
+ * Audit a run's token accounting from the DB and event log. This is how
+ * e2e tests assert the COST of the motor, not just its outcome — the whole
+ * point of the deterministic-motor rewrite (see tests/MOTOR-CONTRACT.md
+ * N1–N3) is to change these numbers without changing run outcomes.
+ */
+export function auditRunTokens(tamanduaDir: string, runId: string): RunTokenAudit {
+  const db = new DatabaseSync(path.join(tamanduaDir, "tamandua.db"));
+  let workTokens = 0;
+  let systemTokens = 0;
+  try {
+    const run = db.prepare("SELECT tokens_spent FROM runs WHERE id = ?").get(runId) as
+      | { tokens_spent: number }
+      | undefined;
+    workTokens = run?.tokens_spent ?? 0;
+    const stats = db.prepare("SELECT system_tokens_spent FROM tamandua_stats WHERE id = 1").get() as
+      | { system_tokens_spent: number }
+      | undefined;
+    systemTokens = stats?.system_tokens_spent ?? 0;
+  } finally {
+    db.close();
+  }
+
+  let tokenUpdateEvents = 0;
+  let terminalTokensSpent: number | null = null;
+  try {
+    const eventsPath = path.join(tamanduaDir, "events", `${runId}.jsonl`);
+    const events = fs
+      .readFileSync(eventsPath, "utf-8")
+      .split(/\r?\n/)
+      .filter(Boolean)
+      .map((line) => JSON.parse(line) as Record<string, unknown>);
+    tokenUpdateEvents = events.filter((e) => e.event === "run.tokens.updated").length;
+    const terminal = events.find((e) => e.event === "run.completed" || e.event === "run.failed");
+    if (terminal && typeof terminal.tokensSpent === "number") {
+      terminalTokensSpent = terminal.tokensSpent;
+    }
+  } catch {
+    // events file missing — leave defaults
+  }
+
+  return { workTokens, systemTokens, tokenUpdateEvents, terminalTokensSpent };
+}
+
+/**
  * Poll for a workflow run to reach a terminal status.
  *
  * Calls `tamandua workflow status <runId>` at regular intervals and
@@ -53,6 +181,7 @@ export async function pollForRunCompletion(
   env: Record<string, string>,
   timeoutMs: number = DEFAULT_RUN_TIMEOUT_MS,
   pollIntervalMs: number = DEFAULT_POLL_INTERVAL_MS,
+  tamanduaDir?: string,
 ): Promise<string> {
   const startedAt = Date.now();
   let lastOutput = "";
@@ -81,7 +210,8 @@ export async function pollForRunCompletion(
   throw new Error(
     `Timeout after ${timeoutMs}ms waiting for run ${runId.slice(0, 8)} to complete.\n` +
       `Last status: ${lastStatus || "(unknown)"}\n` +
-      `Last output:\n${lastOutput || "(no output)"}`,
+      `Last output:\n${lastOutput || "(no output)"}` +
+      (tamanduaDir ? `\n${collectRunDiagnostics(tamanduaDir, runId)}` : ""),
   );
 }
 
@@ -218,6 +348,7 @@ export async function pollForRunCompletionWithNudge(
   env: Record<string, string>,
   timeoutMs: number,
   nudgeIntervalMs = 1_500,
+  tamanduaDir?: string,
 ): Promise<string> {
   const startedAt = Date.now();
   let lastOutput = "";
@@ -249,7 +380,8 @@ export async function pollForRunCompletionWithNudge(
   throw new Error(
     `Timeout after ${timeoutMs}ms waiting for run ${runId.slice(0, 8)} to complete (with nudging).\n` +
       `Last status: ${lastStatus || "(unknown)"}\n` +
-      `Last output:\n${lastOutput || "(no output)"}`,
+      `Last output:\n${lastOutput || "(no output)"}` +
+      (tamanduaDir ? `\n${collectRunDiagnostics(tamanduaDir, runId)}` : ""),
   );
 }
 
@@ -264,12 +396,14 @@ export async function waitForRunTerminal(
   env: Record<string, string>,
   timeoutMs: number = DEFAULT_RUN_TIMEOUT_MS,
   pollIntervalMs: number = DEFAULT_POLL_INTERVAL_MS,
+  tamanduaDir?: string,
 ): Promise<string> {
-  const status = await pollForRunCompletion(runId, env, timeoutMs, pollIntervalMs);
+  const status = await pollForRunCompletion(runId, env, timeoutMs, pollIntervalMs, tamanduaDir);
 
   if (!isSuccessfulRunTerminalStatus(status)) {
     throw new Error(
-      `Run ${runId.slice(0, 8)} reached terminal status "${status}" (expected "completed").`,
+      `Run ${runId.slice(0, 8)} reached terminal status "${status}" (expected "completed").` +
+        (tamanduaDir ? `\n${collectRunDiagnostics(tamanduaDir, runId)}` : ""),
     );
   }
 

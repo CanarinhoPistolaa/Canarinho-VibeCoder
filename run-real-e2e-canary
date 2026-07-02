@@ -1,0 +1,28 @@
+#!/usr/bin/env bash
+##############################################################################
+# REAL E2E CANARY — spends a SMALL amount of real model tokens
+##############################################################################
+# Runs ONE do-now workflow with a trivial task through the real
+# daemon → scheduler → pi pipeline and audits token accounting.
+#
+# COST/TIME:
+#   - Real API tokens for one trivial agent round (cents, not dollars)
+#   - Expected runtime: 2–10 minutes (nudge-driven)
+#
+# When to use:
+#   - At each motor-rewrite milestone, BEFORE committing to the full
+#     ./run-all-real-e2e-tests suite (30-60 min per workflow, much more
+#     expensive)
+#
+# Agents: DO NOT run this by default. Only run when explicitly asked.
+##############################################################################
+# Output is streamed to the terminal AND tee'd to a log file for inspection.
+# Exit code matches the underlying `node --test` exit code.
+set -euo pipefail
+cd "$(dirname "$0")"
+
+LOG="${TAMANDUA_CANARY_E2E_LOG:-e2e-canary-test-output.log}"
+
+npm run build
+node --test e2e-tests/workflows-canary-real.test.ts 2>&1 | tee "$LOG"
+exit "${PIPESTATUS[1]}"
