@@ -43,7 +43,7 @@ tamandua/
 │   │   ├── install.ts            # Workflow installer
 │   │   ├── uninstall.ts          # Workflow uninstaller
 │   │   ├── agent-provision.ts    # Agent workspace provisioning
-│   │   ├── agent-scheduler.ts    # Pi-based agent polling scheduler
+│   │   ├── agent-scheduler.ts    # Deterministic dispatch scheduler (in-process peek → work spawn)
 │   │   ├── workflow-fetch.ts     # Fetch bundled workflows
 │   │   ├── workflow-spec.ts      # Load/workflowspec from YAML
 │   │   ├── workspace-files.ts    # File copy utilities
@@ -56,7 +56,6 @@ tamandua/
 │   │   ├── run-harness.ts        # Harness (pi/hermes) invocation for runs
 │   │   ├── rugpull.ts            # Relaunch-upon-rugpull handling
 │   │   ├── pi-stream-parser.ts   # pi --mode json output stream parsing
-│   │   ├── agent-cron.ts         # Agent cron job records
 │   │   ├── paths.ts              # Path resolution
 │   │   ├── types.ts              # Shared types
 │   │   ├── pi-config.ts          # pi config reading
@@ -104,16 +103,29 @@ Tamandua is an agent team orchestrator built on top of pi (the coding agent CLI)
 - Agent config lives in `~/.tamandua/agents.json`
 - Permissions are expressed as role descriptions
 
-### Agent Scheduler
+### Agent Scheduler (deterministic dispatch motor)
 
-The agent scheduler uses in-memory `setInterval` timers (not OS cron) to poll agents:
+The scheduler decides "is there work?" itself and spawns a model ONLY when
+there is. Checking for work never invokes a model, so idle runs cost zero
+tokens (MOTOR-CONTRACT.md N1/N2). Per-(runId, agentId) in-memory
+`setInterval` jobs (not OS cron) drive dispatch rounds
+(`executeDispatchRound`):
 
-1. Polling phase: cheap model checks `step peek` → HAS_WORK or NO_WORK
-2. Work phase: if HAS_WORK, spawns `pi --print` with the agent's workspace and prompt
+1. Deterministic peek: an in-process `peekStep` SQL COUNT — no spawn, no
+   model, no tokens when idle. The 15s tick (`DISPATCH_INTERVAL_MS`) is a
+   fallback sweep that also drives stale-claim recovery; step completions
+   and run starts nudge the daemon (`/control/nudge`) for immediate
+   dispatch, so step-to-step latency is near zero.
+2. Work phase: on HAS_WORK, spawns `pi --print` (or hermes) with the work
+   prompt (`buildWorkPrompt`: persona block + run-scoped `step claim` →
+   execute → STATUS report). The CLI launcher is invoked directly — never
+   `node <cli>`; the launcher is a shell script.
 3. `runPi` emits lifecycle logs (`pi pre-launch`, `pi launched`, `pi completed`/`pi execution failed`) with PID, timing, and bounded stream preview metadata for observability without dumping full prompts or large stderr payloads
-4. `executePollingRound` emits stage logs (`Polling round skipped/start/complete/failed`) with shared round context (`jobId`, `agentId`, timeout/workdir/model when available) and bounded outcome/error previews
-5. Polling rounds run pi in JSON mode (`--mode json`) so scheduler logic can extract `message_end.message.usage` token metadata and attribute increments to `runs.tokens_spent` using run IDs parsed from tool outputs (with step-id fallback).
+4. `executeDispatchRound` emits stage logs (`Dispatch round skipped/idle`, `Work round start/complete/failed`) with shared round context (`jobId`, `agentId`, timeout/workdir/model when available) and bounded outcome/error previews
+5. Work rounds run pi in JSON mode (`--mode json`) so scheduler logic can extract `message_end.message.usage` token metadata and attribute increments to `runs.tokens_spent` using run IDs parsed from tool outputs (falling back to the dispatch job's own runId).
 6. Successful token attribution emits a `run.tokens.updated` event (`tokenDelta` + `tokensSpent` fields); terminal run lifecycle events (`run.completed`/`run.failed`) also carry `tokensSpent` for cost visibility.
+7. `tamandua_stats.system_tokens_spent` is a legacy ledger kept as a
+   tripwire: nothing writes to it anymore; tests assert it stays 0.
 
 ### Step Lifecycle
 
@@ -214,7 +226,7 @@ distinction is critical:
 | Test | Script | What it does | Duration |
 |------|--------|--------------|----------|
 | **Smoke (state-machine)** | `./run-all-smoke-e2e-tests` | Exercises workflow state machine, pipeline wiring, and step lifecycle using manual `step claim` / `step complete` with canned outputs. No real agents, models, or schedulers. | ~10–15 seconds |
-| **Scripted (full pipeline, fake pi)** | `./run-all-scripted-e2e-tests` | Runs the REAL daemon → scheduler → harness spawn → step-ops → worktree/merge pipeline, with `TAMANDUA_PI_BINARY` pointed at a deterministic scripted agent (`e2e-tests/helpers/scripted-agent.ts`) that executes the peek/claim/complete protocol, including chaos scenarios (lost steps, crashed agents). No models, ZERO tokens. Primary regression net for motor changes — see `tests/MOTOR-CONTRACT.md`. | ~30–60 seconds |
+| **Scripted (full pipeline, fake pi)** | `./run-all-scripted-e2e-tests` | Runs the REAL daemon → scheduler → harness spawn → step-ops → worktree/merge pipeline, with `TAMANDUA_PI_BINARY` pointed at a deterministic scripted agent (`e2e-tests/helpers/scripted-agent.ts`) that executes the claim/complete work protocol, including chaos scenarios (lost steps, crashed agents). No models, ZERO tokens. Primary regression net for motor changes — see `tests/MOTOR-CONTRACT.md`. | ~30–60 seconds |
 | **Real canary (single run)** | `./run-real-e2e-canary` | ONE do-now run with a trivial task through the real daemon → scheduler → pi pipeline, with token-accounting audits. **Spends a small amount of real tokens.** Use at motor-change milestones before the full real suite. | ~2–10 minutes |
 | **Real (full pipeline)** | `./run-all-real-e2e-tests` | Launches actual Tamandua workflows that run through the full daemon → scheduler → pi agent pipeline. Uses real model invocations, real worktree creation, real git merges. | 30+ minutes per workflow |
 
@@ -248,9 +260,10 @@ step lifecycle logic, pipeline wiring fixes. Fast enough for every commit.
 - **Scripted e2e:** Use for any change to the motor — agent scheduler, run
 harness, step-ops pipeline advance, daemon scheduling lifecycle, worktree
 plumbing. Zero tokens, fast enough for every commit. The motor-agnostic
-behavioral contract it enforces is documented in `tests/MOTOR-CONTRACT.md`;
-unit tests pinning the current polling implementation carry a
-`MOTOR-MECHANISM` header comment.
+behavioral contract it enforces is documented in `tests/MOTOR-CONTRACT.md`,
+along with the deterministic-motor acceptance criteria (N1–N3) that
+`tests/deterministic-motor-acceptance.test.ts` and the scripted tier keep
+pinned (idle dispatch spawns nothing and spends zero tokens).
 - **Real e2e:** Use when validating the full daemon/scheduler/agent pipeline
 end-to-end, after major infrastructure changes, or when explicitly told to.
 - **None of these are included in `npm test`** — they live under `e2e-tests/`

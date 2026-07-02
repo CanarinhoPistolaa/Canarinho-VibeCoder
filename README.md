@@ -236,14 +236,14 @@ $ tamandua workflow install --all
 ## How It Works
 
 1. **Define** — Agents and steps in YAML. Each agent gets a persona, workspace, and strict acceptance criteria. No ambiguity about who does what.
-2. **Install** — One command provisions everything: agent workspaces, polling, subagent permissions. No Docker, no queues, no external services.
-3. **Run** — Agents poll for work independently. Claim a step, do the work, pass context to the next agent. SQLite tracks state. The scheduler keeps it moving.
+2. **Install** — One command provisions everything: agent workspaces, scheduling, subagent permissions. No Docker, no queues, no external services.
+3. **Run** — The scheduler checks for work deterministically (a DB peek — no model, no tokens) and spawns an agent only when a step is ready. Claim a step, do the work, pass context to the next agent. SQLite tracks state.
 
 ```mermaid
 flowchart LR
     CLI["tamandua CLI<br/>workflow run"] -->|create run| DB[("SQLite<br/>~/.tamandua/tamandua.db")]
     CLI -->|register run| Daemon["Background daemon<br/>control plane"]
-    Daemon -->|schedules polling| Agents["Agent team<br/>planner · developer · verifier · tester"]
+    Daemon -->|dispatches work| Agents["Agent team<br/>planner · developer · verifier · tester"]
     Agents -->|"pi --print"| Harness["pi harness<br/>(or Hermes, alpha)"]
     Agents -->|claim step / write results| DB
     DB --> Dashboard["Dashboard :3334<br/>Kanban + AutoResearch panels"]
@@ -252,7 +252,7 @@ flowchart LR
 
 ### Minimal by design
 
-YAML + SQLite + polling. That's it. No Redis, no Kafka, no container orchestrator. Tamandua is a TypeScript CLI with zero external dependencies. It runs wherever pi runs.
+YAML + SQLite + deterministic dispatch. That's it. No Redis, no Kafka, no container orchestrator. Tamandua is a TypeScript CLI with zero external dependencies. It runs wherever pi runs. Checking for work never invokes a model — idle runs cost zero tokens.
 
 ---
 
@@ -599,7 +599,7 @@ The remote MCP endpoint exposes 14 tools:
 | `workingDirectoryForHarness` | For direct workflows | Harness working directory for remote MCP runs. Required for direct workflows, invalid for worktree workflows. |
 | `worktreeOriginRepository` | For worktree workflows | Repository path to create the worktree from. Required for worktree workflows, invalid for direct workflows. |
 | `worktreeOriginRef` | No | Git ref (branch, tag, SHA) for the worktree. Optional. Only valid for worktree workflows. |
-| `noHurrySaveTokensMode` | No | When `true`, reduces polling frequency to save tokens (15-min floor, 15-min default instead of 1-min floor, 5-min default). Optional, defaults to `false`. |
+| `noHurrySaveTokensMode` | No | Accepted for back-compat; no effect on cost anymore — idle dispatch is free under the deterministic motor. Optional, defaults to `false`. |
 
 `workingDirectoryForHarness` and `worktreeOriginRepository` are **mutually exclusive**: direct workflows require the former, worktree workflows require the latter. Supplying the wrong one or both results in an invalid-params error.
 

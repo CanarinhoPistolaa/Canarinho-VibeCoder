@@ -99,11 +99,10 @@ Worktree guidance:
 - Worktree runs never modify the origin repository — all changes stay in
   the isolated worktree.
 
-Use `--no-hurry-please-save-tokens-mode` to lower agent polling frequency
-for the run. When enabled, the scheduler floor becomes 15 minutes (default
-15 minutes) instead of the normal 1 minute (default 5 minutes), reducing
-token consumption. Use this for low-priority or long-running background
-runs where responsiveness is less important than cost savings.
+`--no-hurry-please-save-tokens-mode` is accepted for back-compat but no
+longer changes cost or scheduling: the deterministic dispatch motor checks
+for work without invoking a model, so idle runs spend zero tokens either
+way.
 
 Use `--no-relaunch-upon-rugpull` to disable automatic replacement-run
 creation after a rugpull (base branch move) is detected on a failed
@@ -159,7 +158,7 @@ duration (e.g. `7d`, `24h`, `30m`). Requires both `--completed` and
 ### 2.8) Control plane management
 
 The control plane provides run-scoped scheduling that the dashboard daemon
-uses to manage agent polling and work dispatch.
+uses to manage deterministic work dispatch.
 
 ```bash
 tamandua control-plane start [--port N]
@@ -575,10 +574,9 @@ Required MCP args:
 
 Optional MCP args:
 
-- `noHurrySaveTokensMode` (boolean) — lowers agent polling frequency to
-  save tokens, same as the CLI `--no-hurry-please-save-tokens-mode` flag.
-  When `true`, the scheduler uses a 15-minute floor and 15-minute default
-  instead of the normal 1-minute floor and 5-minute default.
+- `noHurrySaveTokensMode` (boolean) — accepted for back-compat, same as
+  the CLI `--no-hurry-please-save-tokens-mode` flag. No effect on cost
+  anymore: idle dispatch is free under the deterministic motor.
 
 Additional MCP tools:
 

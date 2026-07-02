@@ -19,11 +19,6 @@ version: 1                  # Optional. Schema version
 description: |              # Optional. Free text — informational only
   A workflow that does something useful.
 
-# Optional polling overrides applied to every agent's polling cron.
-polling:
-  model: default            # Optional. Override the polling model
-  timeoutSeconds: 120       # Optional. Polling-cron interval hint (NOT the per-step budget)
-
 # Optional initial context. Keys here are merged into every step's template
 # context (the `{{task}}` key is always seeded automatically from the CLI arg).
 context:
@@ -40,7 +35,6 @@ agents:
     role: analysis             # Optional. analysis|coding|verification|testing|pr|scanning
                                # If omitted, the role is inferred from the agent id.
     model: claude-sonnet       # Optional. Per-agent model override
-    pollingModel: claude-haiku # Optional. Model used for the polling cron only
     timeoutSeconds: 1800       # Optional. Per-step wall-clock budget (seconds).
                                # Defaults: analysis|verification|pr|scanning = 1200 (20m);
                                #           coding|testing = 1800 (30m).

@@ -2,32 +2,22 @@
 
 **The "motor"** is the machinery that drives workflow progress: the agent
 scheduler (`src/installer/agent-scheduler.ts`), harness invocation
-(`run-harness.ts`, `runPi`/`runHermes`), and the step-ops pipeline advance
-(`step-ops.ts`). Today's motor is **model-driven polling**: every
-`intervalMinutes` (default 5) each run-scoped agent job spawns a full
-`pi --print --mode json` model invocation whose prompt tells the model to run
-`step peek` and either reply `HEARTBEAT_OK` or claim-and-execute. Idle polls
-therefore burn model tokens ("system tokens", counted in
-`tamandua_stats.system_tokens_spent`).
+(`runPi`/`runHermes`), and the step-ops pipeline advance (`step-ops.ts`).
 
-A planned rewrite replaces this with a **deterministic motor**: peek/dispatch
-decided by direct DB queries, a model spawned only when there is actual work.
-This document defines what must stay true across that swap, and classifies
-the existing test suite so that red tests during the rewrite are
-interpretable.
+The motor is **deterministic dispatch**: per-(runId, agentId) in-memory
+jobs whose rounds (`executeDispatchRound`) decide "is there work?" with an
+in-process `peekStep` SQL COUNT and spawn a `pi --print --mode json` (or
+hermes) harness ONLY when a pending step exists. Checking for work never
+invokes a model, so idle runs spend **zero** tokens. The 15-second tick
+(`DISPATCH_INTERVAL_MS`) is a fallback sweep (it also drives stale-claim
+recovery); step completions, retries, and run starts nudge the daemon
+(`/control/nudge`) for immediate dispatch, so step-to-step latency is
+near zero.
 
-## How to use this during the motor rewrite
-
-1. Tests listed under **Mechanism tests** below (also header-tagged
-   `MOTOR-MECHANISM` in the file) pin the *current* implementation. They are
-   expected to churn, be rewritten, or be deleted alongside the motor.
-2. Everything else — especially the **scripted-agent e2e tier**
-   (`./run-all-scripted-e2e-tests`) and the smoke tier — asserts the
-   contract. A failure there during the rewrite is a real regression, not
-   noise.
-3. When the deterministic motor lands, flip the "current-motor baseline"
-   assertions marked in `e2e-tests/workflows-scripted.test.ts` (system tokens
-   > 0 becomes == 0) and satisfy the **New-motor acceptance criteria** below.
+This replaced the model-driven polling motor (removed 2026-07-02), where
+every poll tick spawned a full model invocation whose prompt told the model
+to run `step peek` and reply `HEARTBEAT_OK` when idle — measured at ~30%
+token overhead on real runs (see the historical baselines at the bottom).
 
 ## Contract invariants (any motor must satisfy these)
 
@@ -55,7 +45,23 @@ interpretable.
   `tests/step-ops-dispatch-races.test.ts`.
 - **C6** Idle agents (no pending step) cause no state changes.
 - **C7** `nudge` (control plane) triggers immediate dispatch consideration
-  for all scheduled agents of running runs.
+  for all scheduled agents of running runs. `completeStep`/`failStep`-retry
+  and run start/resume fire best-effort nudges; the fallback tick covers a
+  missed nudge.
+
+### Deterministic-motor guarantees
+
+- **N1** Idle dispatch invokes **no model**: an idle run accrues **zero**
+  `system_tokens_spent`. The ledger (`tamandua_stats.system_tokens_spent`)
+  is kept as a tripwire — nothing writes to it; a growing value means
+  model-driven dispatch was reintroduced.
+- **N2** Harness (model) invocations per run == executed work rounds — the
+  scripted-agent invocation journal records zero heartbeat invocations.
+- **N3** Work-token attribution (C14/C15) still holds — work still costs.
+
+Pinned by `tests/deterministic-motor-acceptance.test.ts` (in-process
+dispatch rounds with an instrumented fake pi) and by the scripted e2e
+baseline assertions.
 
 ### Failure & recovery
 
@@ -73,8 +79,8 @@ interpretable.
   restarts it; terminate tears down scheduling and kills in-flight harness
   processes.
 - **C12** Run-scoped scheduling is torn down when the run reaches a terminal
-  state (no leaked timers polling completed runs). Teardown triggered by
-  *natural completion* gives in-flight harness processes a grace window
+  state (no leaked timers dispatching for completed runs). Teardown triggered
+  by *natural completion* gives in-flight harness processes a grace window
   (`HARNESS_TEARDOWN_GRACE_MS`) to flush output and exit on their own;
   user-initiated terminate/pause/cancel of an active run kills immediately.
 - **C13** Scheduling state is reconstructable from the DB (daemon restart
@@ -83,15 +89,16 @@ interpretable.
 ### Token accounting
 
 - **C14** Model usage from *work* is attributed to `runs.tokens_spent`
-  (via `message_end.usage` + run/step IDs from tool outputs), emitting
-  `run.tokens.updated` events with `tokenDelta`/`tokensSpent`.
+  (via `message_end.usage` + run/step IDs from tool outputs, falling back to
+  the dispatch job's own runId), emitting `run.tokens.updated` events with
+  `tokenDelta`/`tokensSpent`.
 - **C15** Terminal run events (`run.completed`/`run.failed`) carry
-  `tokensSpent`. Caveat (inherent to the current event ordering): the FINAL
-  round's usage is parsed only after the harness exits, i.e. after the
-  terminal event fired — so the event's `tokensSpent` can under-report by
-  the final round (a single-step run reports 0). `runs.tokens_spent` in the
-  DB is the eventually-correct total; tests must wait for it
-  (`waitForRunWorkTokens` in e2e-helpers) rather than race it.
+  `tokensSpent`. Caveat (inherent to the event ordering): the FINAL round's
+  usage is parsed only after the harness exits, i.e. after the terminal
+  event fired — so the event's `tokensSpent` can under-report by the final
+  round (a single-step run reports 0). `runs.tokens_spent` in the DB is the
+  eventually-correct total; tests must wait for it (`waitForRunWorkTokens`
+  in e2e-helpers) rather than race it.
 
 ### Workspace
 
@@ -102,20 +109,26 @@ interpretable.
   `workingDirectoryForHarness` and inherits the daemon environment
   (state dir, DB path, control port).
 
-### New-motor acceptance criteria (goals of the rewrite)
+## Where the contract is enforced
 
-- **N1** Idle polling invokes **no model**: with the deterministic motor, an
-  idle run accrues **zero** `system_tokens_spent`.
-- **N2** Harness (model) invocations per run == number of executed work
-  rounds — no model-driven peeks.
-- **N3** Work-token attribution (C14/C15) still holds — work still costs.
+| Tier | Command | Motor coverage |
+|------|---------|----------------|
+| Scripted-agent e2e (**primary net**) | `./run-all-scripted-e2e-tests` | Real daemon → dispatch scheduler → harness spawn → stream parse → step-ops → pipeline advance → worktree/merge, driven by a deterministic fake pi. Zero tokens, ~1 min. Covers C1–C9, C12, C14–C17 and asserts N1/N2 (0 heartbeats, 0 system tokens). |
+| Deterministic-motor acceptance | part of `npm test` (`tests/deterministic-motor-acceptance.test.ts`) | N1–N3 via in-process `executeDispatchRound` with an instrumented fake pi. |
+| Smoke e2e | `./run-all-smoke-e2e-tests` | State machine + pipeline wiring via manual `step claim`/`complete`. Bypasses the motor. C1–C4. |
+| Workflow graph simulation | part of `npm test` (`tests/workflow-graph-simulation.test.ts`) | Every bundled workflow simulated to completion in-process through pure step-ops (happy path, mid-run retry, retry exhaustion). Pins C1–C4, C8 independent of any motor. ~3 seconds for the whole catalog. |
+| Unit/integration | `npm test` | step-ops invariants, recovery, control plane, DB, CLI, work-prompt shape, harness routing, work-round token attribution, persona injection. `npm test` pins `TAMANDUA_PI_BINARY=/bin/false` so no unit test can ever reach a real model. |
+| Real canary | `./run-real-e2e-canary` | ONE do-now run with a live model + token-accounting audit (C14/C15) and real-model baseline print (`systemTokens` must be 0). Small token spend. Run at motor milestones before the full real suite. |
+| Real e2e | `./run-all-real-e2e-tests` | Full pipeline with live models, with token audits and on-timeout diagnostics. Final acceptance gate only: real tokens, minutes-to-tens-of-minutes per workflow. |
 
-The scripted e2e prints the current-motor baseline per run, e.g.:
-`6 work rounds, ~30 heartbeat rounds, 666 work tokens, ~476 system tokens`
-(bug-fix-merge-worktree, 2026-07-02). N1/N2 flip those heartbeat/system
-numbers to zero without changing work rounds or outcomes.
+## Baselines
 
-Real-model baselines (full campaign, 2026-07-03, all tiers green):
+Deterministic motor (scripted e2e, zero-token, printed every run):
+`bug-fix-merge-worktree = 6 work rounds, 0 heartbeat rounds, 666 work
+tokens attributed to the run, 0 system tokens.`
+
+Historical — the model-driven polling motor this replaced (real-model
+campaign, 2026-07-03, all tiers green):
 
 | Run | Work tokens | System tokens (idle polls) | Wall time |
 |---|---|---|---|
@@ -123,83 +136,45 @@ Real-model baselines (full campaign, 2026-07-03, all tiers green):
 | bug-fix-merge-worktree (real e2e) | 45,869 | 19,286 | 7.9 min |
 | feature-dev-merge-worktree (real e2e) | 51,207 | ~23,105 (counter cumulative: 42,391) | 7.7 min |
 
-Idle polling adds ~30% token overhead on top of real work even on fast
-runs; it scales with wall time, not with work. These are the numbers the
-deterministic motor must drive to zero (N1) without changing outcomes.
+Idle polling added ~30% token overhead on top of real work and scaled with
+wall time, not with work. The deterministic motor eliminates it by
+construction (N1) — record post-rewrite real-model baselines below as
+campaigns run.
 
-## Where the contract is enforced
+## Quirks the motor test campaigns exposed — all fixed
 
-| Tier | Command | Motor coverage |
-|------|---------|----------------|
-| Scripted-agent e2e (**primary net for the rewrite**) | `./run-all-scripted-e2e-tests` | Real daemon → scheduler → harness spawn → stream parse → step-ops → pipeline advance → worktree/merge, driven by a deterministic fake pi. Zero tokens, ~1 min. Covers C1–C9, C12, C14–C17. |
-| Smoke e2e | `./run-all-smoke-e2e-tests` | State machine + pipeline wiring via manual `step claim`/`complete`. Bypasses the motor — stays green across the swap. C1–C4. |
-| Workflow graph simulation | part of `npm test` (`tests/workflow-graph-simulation.test.ts`) | Every bundled workflow simulated to completion in-process through pure step-ops (happy path, mid-run retry, retry exhaustion). Pins C1–C4, C8 independent of any motor. ~3 seconds for the whole catalog. |
-| Unit/integration | `npm test` | step-ops invariants, recovery, control plane, DB, CLI. Mixed contract + mechanism (see triage). `tests/deterministic-motor-acceptance.test.ts` carries N1–N3 as todo tests until the new motor lands. |
-| Real canary | `./run-real-e2e-canary` | ONE do-now run with a live model + token-accounting audit (C14/C15) and real-model baseline print. Small token spend, ~2–10 min. Run at motor milestones before the full real suite. |
-| Real e2e | `./run-all-real-e2e-tests` | Full pipeline with live models, now with token audits and on-timeout diagnostics. Final acceptance gate only: real tokens, 30–60 min/workflow. |
-
-## Test triage: mechanism vs contract
-
-**Mechanism tests** (header-tagged `MOTOR-MECHANISM`; expected churn during
-the rewrite — they pin model-driven polling internals like
-`buildPollingPrompt`, `executePollingRound`, `classifyPollingRoundOutcome`,
-`parsePollingRoundMetadata`, heartbeat system-token attribution):
-
-- `tests/agent-scheduler.test.ts`
-- `tests/parse-polling-metadata.test.ts`
-- `tests/polling-config.test.ts`
-- `tests/polling-round-observability.test.ts`
-- `tests/polling-round-persona-prompt.test.ts`
-- `tests/polling-round-token-attribution.test.ts`
-- `tests/pi-token-e2e.test.ts`
-- `tests/run-token-observability-e2e.test.ts`
-- `tests/system-token-attribution.test.ts`
-- `tests/system-token-spend-counter.test.ts`
-- `tests/work-prompt.test.ts`
-- `src/installer/agent-scheduler.test.ts`
-- `src/installer/agent-scheduler-harness-routing.test.ts`
-- `src/installer/agent-scheduler-hermes.test.ts`
-- `src/installer/agent-cron.test.ts`
-
-Notes on near-misses that are **contract**, not mechanism:
-
-- `tests/peek-step-polling.test.ts` — `peekStep()` semantics survive any
-  motor (the deterministic motor calls it directly); only its one
-  polling-prompt assertion is mechanism.
-- `tests/orphaned-step-recovery.test.ts`, `tests/terminal-state-guards.test.ts`,
-  `tests/step-ops.test.ts`, `src/installer/step-ops-*.test.ts` — C5/C8/C9/C10.
-- `tests/system-token-spend-migration.test.ts`, `tests/run-token-migration.test.ts`,
-  `src/db.test.ts` — schema/migrations survive.
-- `tests/pi-stream-parser.test.ts`, `src/installer/pi-stream-parser-extra.test.ts`,
-  `src/installer/agent-scheduler-binary-discovery.test.ts`,
-  `tests/pi-command-preview.test.ts` — the work phase still spawns pi and
-  parses its stream under the new motor.
-- Control-plane, daemon, dashboard, CLI, installer, www tests — untouched by
-  the motor swap.
-
-## Quirks this test campaign exposed (2026-07-02) — all fixed same day
+2026-07-02 (found by the scripted tier before the rewrite):
 
 - `completeStep` had no duplicate-completion guard: a completion arriving
   for a step already `done` (agent CLI retry, orphan-recovery reclaim race)
   re-merged context, re-inserted STORIES_JSON stories, and re-advanced the
-  pipeline. Rarely hit under the slow polling motor; a fast deterministic
+  pipeline. Rarely hit under the slow polling motor; the fast deterministic
   dispatcher would hit it. FIXED: terminal-status steps return
   `{ status: "blocked" }`; running/pending steps still complete normally.
   Regression: `tests/step-ops-dispatch-races.test.ts`.
-
-- The polling prompt instructed `node "<cli>" ...` while
-  `resolveTamanduaCli()` returns the `bin/tamandua` **shell** script;
-  `node bin/tamandua` throws a SyntaxError. Live LLM agents had been
-  silently noticing the error and working around it every round — a
-  deterministic agent cannot. FIXED: prompts now invoke the CLI launcher
-  directly (no `node` prefix); the scripted runtime handles either form by
-  shebang detection.
+- Prompts instructed `node "<cli>" ...` while `resolveTamanduaCli()` returns
+  the `bin/tamandua` **shell** script; `node bin/tamandua` throws a
+  SyntaxError. Live LLM agents had been silently working around the error
+  every round — a deterministic agent cannot. FIXED: prompts invoke the CLI
+  launcher directly.
 - Run completion rugpulled the in-flight harness process group the moment
   the final `step complete` landed. Real pi emits its final assistant
   message (with token usage) AFTER the completing tool call, so the final
   round's usage was systematically lost. FIXED: completion-triggered
-  teardown now schedules the kill after `HARNESS_TEARDOWN_GRACE_MS` (leak
-  guard only); user-initiated terminate/pause of active runs still kills
+  teardown schedules the kill after `HARNESS_TEARDOWN_GRACE_MS` (leak guard
+  only); user-initiated terminate/pause of active runs still kills
   immediately. Regression: "final-round token usage survives completion
-  teardown" in workflows-scripted.test.ts (reportBeforeEmit models the
-  real-pi ordering).
+  teardown" in workflows-scripted.test.ts.
+
+2026-07-02 (exposed by the faster dispatch during the rewrite):
+
+- `getDb()` rotated its cached handle every 5 s by closing it in place,
+  killing the handle out from under synchronous callers that captured it
+  earlier in the same call chain. FIXED: the close is deferred one tick.
+- Concurrent writers (daemon dispatch + CLI completions + migrations) hit
+  instant "database is locked" errors. FIXED: `PRAGMA busy_timeout = 5000`.
+- Unit tests that start daemons could reach a REAL model: the old motor's
+  minutes-long first poll had masked it; instant dispatch exposed it.
+  FIXED: `npm test` pins `TAMANDUA_PI_BINARY=/bin/false` (passes through
+  `cleanChildEnv`), and the one deliberately-real-pi unit test is opt-in
+  via `TAMANDUA_REAL_PI_TESTS=1`.
