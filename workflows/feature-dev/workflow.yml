@@ -14,9 +14,6 @@ description: |
   Use this workflow when the repo has no remote (or no `gh` CLI), or when you
   just want the work committed locally on a feature branch. For the full
   PR-creating pipeline, use `feature-dev-github-pr`.
-polling:
-  model: default
-  timeoutSeconds: 120
 
 agents:
   - id: planner

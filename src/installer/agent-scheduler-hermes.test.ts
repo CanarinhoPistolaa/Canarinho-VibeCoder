@@ -1,11 +1,7 @@
 /**
- * MOTOR-MECHANISM: pins the CURRENT model-driven polling motor.
- *
- * This test asserts implementation details of the polling motor (model-run
- * peek/claim rounds, polling prompts, heartbeat system-token attribution).
- * It is EXPECTED to churn or be replaced when the deterministic motor lands.
- * During the motor rewrite: a failure here is expected noise; a failure in a
- * contract test is a real regression. See tests/MOTOR-CONTRACT.md.
+ * runHermes() behavior — argument shape, session_id filtering, timeout and
+ * exit-code handling. Survives the motor swap: the dispatch motor routes
+ * hermes work rounds through runHermes exactly like the old motor did.
  */
 import assert from "node:assert/strict";
 import { describe, it, beforeEach, afterEach } from "node:test";

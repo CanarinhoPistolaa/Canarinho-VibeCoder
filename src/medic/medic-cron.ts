@@ -60,10 +60,10 @@ export function buildMedicPrompt(): string {
 
 Run the medic check:
 \`\`\`
-node ${cli} medic run --json
+"${cli}" medic run --json
 \`\`\`
 
-If the check output contains "issuesFound": 0, reply HEARTBEAT_OK and stop.
+If the check output contains "issuesFound": 0, reply MEDIC_OK and stop.
 If issues were found, summarize what was detected and what actions were taken.
 
 If there are critical unremediated issues, notify the user directly with a clear message.
@@ -136,13 +136,13 @@ export async function installMedicCron(): Promise<{ ok: boolean; error?: string 
     // best-effort — medic can still run even without agent provisioning
   }
 
-  // Polling jobs are now coupled to a runId. The medic isn't tied to any
-  // run — it's a global health watchdog —
-  // and the previous polling-round wiring was effectively a no-op anyway
-  // (the standard polling prompt would peek for steps that medic never
-  // claims). The medic config + agent provisioning above is preserved
-  // so `tamandua medic run` and dashboard checks keep working; a future
-  // commit can attach the medic to its own non-run-scoped scheduler.
+  // Dispatch jobs are coupled to a runId. The medic isn't tied to any
+  // run — it's a global health watchdog — and the previous scheduler
+  // wiring was effectively a no-op anyway (a run-scoped job would peek
+  // for steps that medic never claims). The medic config + agent
+  // provisioning above is preserved so `tamandua medic run` and dashboard
+  // checks keep working; a future commit can attach the medic to its own
+  // non-run-scoped scheduler.
   void createAgentCronJob;
   void MEDIC_INTERVAL_MINUTES;
 

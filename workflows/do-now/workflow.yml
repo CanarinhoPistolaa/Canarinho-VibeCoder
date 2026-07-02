@@ -7,9 +7,6 @@ description: |
   Simple single-agent workflow. Submit any task and get back a success/failure
   report with a clear explanation. No planning, no stories, no merge — just do it
   and report back.
-polling:
-  model: default
-  timeoutSeconds: 120
 
 agents:
   - id: doer

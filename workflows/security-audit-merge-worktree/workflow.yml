@@ -17,10 +17,6 @@ description: |
 run:
   workspace: worktree
 
-polling:
-  model: default
-  timeoutSeconds: 120
-
 agents:
   - id: scanner
     name: Scanner

@@ -9,9 +9,6 @@ description: |
   bugfix branch and captures the original branch. Fixer implements the fix
   with a regression test. Verifier confirms correctness. Merger squash-merges
   the fix back into the original branch (NO push, NO gh pr create).
-polling:
-  model: default
-  timeoutSeconds: 120
 
 agents:
   - id: triager

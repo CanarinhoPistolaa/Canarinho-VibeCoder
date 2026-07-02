@@ -6,9 +6,6 @@ description: |
   Builds the project and validates the dashboard frontend: HTML structure,
   required elements, API endpoint definitions, and dashboard test coverage.
   Does NOT start a second dashboard daemon (avoids killing the parent daemon).
-polling:
-  model: default
-  timeoutSeconds: 120
 
 agents:
   - id: tester

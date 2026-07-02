@@ -1923,7 +1923,7 @@ describe("dashboard hurry status icons UI", () => {
       // Should include the turtle emoji for no_hurry runs
       assert.match(html, /🐢/);
       // Should include the no-hurry tooltip text
-      assert.match(html, /No hurry toker-saving mode\./);
+      assert.match(html, /No-hurry mode \(legacy flag; idle dispatch is free either way\)\./);
     } finally {
       await stopDashboard(server);
     }
@@ -1939,10 +1939,10 @@ describe("dashboard hurry status icons UI", () => {
       const html = await response.text();
       // Should include the runner emoji for regular runs
       assert.match(html, /🏃/);
-      // Should include the full regular-run tooltip text
-      assert.match(html, /Regular run - as fast as possible! Expensive in system tokens/);
-      assert.match(html, /Use --no-hurry-please-save-tokens-mode next time/);
-      assert.match(html, /trade-offs are on speed only/);
+      // Should include the full regular-run tooltip text — under the
+      // deterministic motor, speed costs no extra tokens.
+      assert.match(html, /Regular run - as fast as possible! Idle dispatch is free/);
+      assert.match(html, /speed no longer costs extra tokens/);
     } finally {
       await stopDashboard(server);
     }
@@ -1974,8 +1974,8 @@ describe("dashboard hurry status icons UI", () => {
       // Should have a title attribute on the hurry-icon span for tooltip
       assert.match(html, /class="hurry-icon"\s+title=/);
       // Tooltip should switch based on no_hurry boolean
-      assert.match(html, /r\.no_hurry\s*\?\s*'No hurry toker-saving mode\.'/);
-      assert.match(html, /Regular run - as fast as possible! Expensive in system tokens/);
+      assert.match(html, /r\.no_hurry\s*\?\s*'No-hurry mode/);
+      assert.match(html, /Regular run - as fast as possible! Idle dispatch is free/);
     } finally {
       await stopDashboard(server);
     }

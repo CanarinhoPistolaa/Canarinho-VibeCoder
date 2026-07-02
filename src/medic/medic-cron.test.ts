@@ -40,7 +40,9 @@ describe("medic-cron", () => {
 
     it("contains instructions for the medic check", () => {
       const prompt = buildMedicPrompt();
-      assert.ok(prompt.includes("medic run") || prompt.includes("HEARTBEAT_OK"));
+      assert.ok(prompt.includes("medic run"));
+      assert.ok(prompt.includes("MEDIC_OK"));
+      assert.ok(!prompt.includes('node "'), "the CLI launcher is a shell script — never node-prefixed");
     });
   });
 

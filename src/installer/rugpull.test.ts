@@ -29,22 +29,33 @@ function readEventsForRun(
 async function waitForRugpullEvents(
   stateDir: string,
   runId: string,
-  maxWaitMs = 3000,
+  maxWaitMs = 5000,
 ): Promise<Array<Record<string, unknown>>> {
   const start = Date.now();
+  let rugpullEvents: Array<Record<string, unknown>> = [];
   while (Date.now() - start < maxWaitMs) {
     const events = readEventsForRun(stateDir, runId);
-    const rugpullEvents = events.filter(
+    rugpullEvents = events.filter(
       (e) =>
         e.event === "run.rugpull_detected" ||
         e.event === "run.rugpull_relaunched" ||
         e.event === "run.rugpull_relaunch_suppressed" ||
         e.event === "run.rugpull_relaunch_failed",
     );
-    if (rugpullEvents.length > 0) return rugpullEvents;
+    // Detection and its outcome are written by separate async steps —
+    // returning on the first (detected) event races the relaunch path.
+    // Wait for a terminal relaunch event; the timeout covers cases where
+    // detection legitimately never fires.
+    const hasTerminal = rugpullEvents.some(
+      (e) =>
+        e.event === "run.rugpull_relaunched" ||
+        e.event === "run.rugpull_relaunch_suppressed" ||
+        e.event === "run.rugpull_relaunch_failed",
+    );
+    if (hasTerminal) return rugpullEvents;
     await new Promise((r) => setTimeout(r, 50));
   }
-  return [];
+  return rugpullEvents;
 }
 
 // ── Helpers ──

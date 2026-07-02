@@ -85,7 +85,7 @@ export function checkStuckRuns(): StuckRun[] {
 
 /**
  * Find cron jobs for workflows that have no active (running/paused) runs.
- * These are crons polling for work that will never arrive — wasted cycles.
+ * These are dispatch jobs sweeping for work that will never arrive — wasted cycles.
  */
 export function checkOrphanedCrons(): OrphanedCron[] {
   const db = getDb();

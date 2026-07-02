@@ -64,11 +64,11 @@ describe("test isolation guard", () => {
 
     // Patterns that indicate the test file uses logger functions that write to disk.
     // 1. Direct import from logger.js => logger.info/warn/error/debug/log calls write to disk.
-    // 2. Import of runPi or executePollingRound from agent-scheduler => these call the logger internally.
+    // 2. Import of runPi or executeDispatchRound from agent-scheduler => these call the logger internally.
     const loggerSensitiveImports = [
       /from\s+["'].*\/lib\/logger\.js["']/,
       /from\s+["'].*\/installer\/agent-scheduler\.js["'].*\brunPi\b/,
-      /from\s+["'].*\/installer\/agent-scheduler\.js["'].*\bexecutePollingRound\b/,
+      /from\s+["'].*\/installer\/agent-scheduler\.js["'].*\bexecuteDispatchRound\b/,
     ];
 
     const logsViaTamanduaDir = /TAMANDUA_STATE_DIR/;

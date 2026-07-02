@@ -121,9 +121,9 @@ export function getMaxRoleTimeoutSeconds(): number {
 }
 
 /**
- * Return the per-role execution timeout (seconds) used for individual pi
- * polling rounds. This is the wall-clock budget pi has to peek/claim/execute/
- * complete a step — distinct from the polling interval.
+ * Return the per-role execution timeout (seconds) used for individual
+ * work rounds. This is the wall-clock budget the harness has to
+ * claim/execute/complete a step once the dispatch motor spawns it.
  */
 export function getRoleTimeoutSeconds(role: AgentRole): number {
   return ROLE_POLICIES[role].timeoutSeconds;

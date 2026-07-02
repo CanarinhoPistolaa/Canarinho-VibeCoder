@@ -18,9 +18,6 @@ description: |
   This is a local-only pipeline — no merge, no PR. Use
   quarantine-broken-tests-merge to squash-merge the quarantined results back
   into the original branch.
-polling:
-  model: default
-  timeoutSeconds: 120
 
 agents:
   - id: setup

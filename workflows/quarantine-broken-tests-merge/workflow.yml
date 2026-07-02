@@ -20,9 +20,6 @@ description: |
   For the quarantine-only variant (no merge), use quarantine-broken-tests.
   For the worktree variant (isolated worktree + merge), use
   quarantine-broken-tests-merge-worktree.
-polling:
-  model: default
-  timeoutSeconds: 120
 
 agents:
   - id: setup

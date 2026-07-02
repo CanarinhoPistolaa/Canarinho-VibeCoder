@@ -1,17 +1,14 @@
 /**
- * MOTOR-MECHANISM: pins the CURRENT model-driven polling motor.
- *
- * This test asserts implementation details of the polling motor (model-run
- * peek/claim rounds, polling prompts, heartbeat system-token attribution).
- * It is EXPECTED to churn or be replaced when the deterministic motor lands.
- * During the motor rewrite: a failure here is expected noise; a failure in a
- * contract test is a real regression. See tests/MOTOR-CONTRACT.md.
+ * Work-round metadata parsing (parseWorkRoundMetadata / extractTokenUsage):
+ * pulls token usage and run/step ids out of the pi --mode json event stream.
+ * Contract-adjacent — the dispatch motor's token attribution (C14) depends
+ * on this parsing. See tests/MOTOR-CONTRACT.md.
  */
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
 import {
-  parsePollingRoundMetadata,
+  parseWorkRoundMetadata,
   extractTokenUsage,
 } from "../dist/installer/agent-scheduler.js";
 
@@ -53,12 +50,12 @@ const CANNED_MESSAGE_END = JSON.stringify({
   },
 });
 
-describe("parsePollingRoundMetadata", () => {
+describe("parseWorkRoundMetadata", () => {
   // -----------------------------------------------------------------------
   // AC 3: Token extraction returns 4242 for the canned line
   // -----------------------------------------------------------------------
   it("extracts tokenUsage=4242 from a real-shaped message_end line", () => {
-    const meta = parsePollingRoundMetadata(CANNED_MESSAGE_END);
+    const meta = parseWorkRoundMetadata(CANNED_MESSAGE_END);
     assert.equal(meta.tokenUsage, 4242);
     assert.equal(meta.jsonMetadataDetected, true);
     assert.equal(meta.assistantOutput, "Hi!");
@@ -68,21 +65,21 @@ describe("parsePollingRoundMetadata", () => {
   // AC 4 variant: null for heartbeat output (HEARTBEAT_OK + NO_WORK)
   // -----------------------------------------------------------------------
   it("returns null tokenUsage for HEARTBEAT_OK output", () => {
-    const meta = parsePollingRoundMetadata("HEARTBEAT_OK\nNO_WORK");
+    const meta = parseWorkRoundMetadata("HEARTBEAT_OK\nNO_WORK");
     assert.equal(meta.tokenUsage, null);
     assert.equal(meta.jsonMetadataDetected, false);
     assert.notEqual(meta.assistantOutput.length, 0);
   });
 
   it("returns null tokenUsage for empty output", () => {
-    const meta = parsePollingRoundMetadata("");
+    const meta = parseWorkRoundMetadata("");
     assert.equal(meta.tokenUsage, null);
     assert.equal(meta.jsonMetadataDetected, false);
     assert.equal(meta.assistantOutput, "");
   });
 
   it("returns null tokenUsage for plain text without JSON events", () => {
-    const meta = parsePollingRoundMetadata("Some agent output\nSTATUS: done");
+    const meta = parseWorkRoundMetadata("Some agent output\nSTATUS: done");
     assert.equal(meta.tokenUsage, null);
     assert.equal(meta.jsonMetadataDetected, false);
   });
@@ -133,7 +130,7 @@ describe("parsePollingRoundMetadata", () => {
       "trailing plain text",
     ].join("\n");
 
-    const meta = parsePollingRoundMetadata(mixed);
+    const meta = parseWorkRoundMetadata(mixed);
     assert.equal(meta.tokenUsage, 4242);
     assert.equal(meta.jsonMetadataDetected, true);
     assert.equal(meta.assistantOutput, "Hi!");
@@ -149,7 +146,7 @@ describe("parsePollingRoundMetadata", () => {
 
     const mixed = [turnStart, CANNED_MESSAGE_END, toolEnd].join("\n");
 
-    const meta = parsePollingRoundMetadata(mixed);
+    const meta = parseWorkRoundMetadata(mixed);
     assert.equal(meta.tokenUsage, 4242);
     assert.equal(meta.jsonMetadataDetected, true);
   });
@@ -173,7 +170,7 @@ describe("parsePollingRoundMetadata", () => {
       },
     });
 
-    const meta = parsePollingRoundMetadata(`${first}\n${second}`);
+    const meta = parseWorkRoundMetadata(`${first}\n${second}`);
     assert.equal(meta.tokenUsage, 100);
     assert.equal(meta.assistantOutput, "second");
   });
@@ -188,7 +185,7 @@ describe("parsePollingRoundMetadata", () => {
       },
     });
 
-    const meta = parsePollingRoundMetadata(
+    const meta = parseWorkRoundMetadata(
       `${userEvent}\n${CANNED_MESSAGE_END}`,
     );
 
@@ -204,7 +201,7 @@ describe("parsePollingRoundMetadata", () => {
       },
     });
 
-    const meta = parsePollingRoundMetadata(noUsage);
+    const meta = parseWorkRoundMetadata(noUsage);
     assert.equal(meta.tokenUsage, null);
     assert.equal(meta.assistantOutput, "no usage here");
   });

@@ -10,9 +10,6 @@ description: |
   and produces consolidation recommendations. Reporter produces a structured markdown report.
 
   The pipeline runs in three phases: scan → audit → report.
-polling:
-  model: default
-  timeoutSeconds: 120
 
 agents:
   - id: scanner

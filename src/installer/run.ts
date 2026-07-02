@@ -31,7 +31,7 @@ export interface RunWorkflowParams {
   worktreeOriginRepository?: string;
   /** Origin ref for worktree-based workflows */
   worktreeOriginRef?: string;
-  /** When true, reduces polling frequency to save tokens (15-min floor, 15-min default) */
+  /** Accepted for back-compat; the dispatch motor spends nothing when idle, so this no longer affects cost. */
   noHurrySaveTokensMode?: boolean;
   /** Harness binary to use for agent invocations (default "pi") */
   harnessType?: HarnessType;
@@ -55,7 +55,7 @@ export interface RunWorkflowResult {
  * 1. Loads the workflow spec
  * 2. Creates a run record in the DB
  * 3. Creates step records for each step
- * 4. Starts agent cron jobs for polling
+ * 4. Registers the run with the daemon, which schedules dispatch jobs
  * 5. Emits a run.started event
  */
 export async function runWorkflow(
@@ -367,7 +367,7 @@ export async function resumeWorkflow(runId: string): Promise<ResumeResult> {
     ).run(run.id, failedStep.step_index);
   }
 
-  // Promote the next eligible waiting step to 'pending' so polling agents can claim it.
+  // Promote the next eligible waiting step to 'pending' so the dispatch motor can claim it.
   advancePipeline(run.id);
 
   const registration = await registerRunWithDaemon(run.id, 5000);

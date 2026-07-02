@@ -7,10 +7,6 @@ description: |
   Executes an arbitrary task, reviews the result with detailed feedback,
   refines based on that feedback, and verifies accomplishment.
 
-polling:
-  model: default
-  timeoutSeconds: 120
-
 agents:
   - id: doer
     name: Doer

@@ -218,7 +218,7 @@ const mcpTools: Array<Record<string, unknown>> = [
         },
         noHurrySaveTokensMode: {
           type: "boolean",
-          description: "When true, reduces polling frequency to save tokens (15-min floor, 15-min default instead of 1-min floor, 5-min default). Optional, defaults to false.",
+          description: "Accepted for back-compat; no effect on cost anymore — the dispatch motor checks for work without a model, so idle runs spend zero tokens. Optional, defaults to false.",
         },
       },
     },

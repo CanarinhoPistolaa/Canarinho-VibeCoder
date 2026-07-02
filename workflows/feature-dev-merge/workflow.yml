@@ -13,9 +13,6 @@ description: |
   After integration/E2E testing, the workflow performs a final squash merge:
   all workflow branch changes are squashed into one commit and merged back into
   the original branch captured during setup.
-polling:
-  model: default
-  timeoutSeconds: 120
 
 agents:
   - id: planner

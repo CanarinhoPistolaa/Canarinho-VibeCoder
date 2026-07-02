@@ -12,9 +12,6 @@ description: |
   Stops after testing — does NOT create a pull request or use gh pr create.
   Use this workflow for local-only or non-GitHub repos. For the PR-creating
   variant, use `security-audit-github-pr`.
-polling:
-  model: default
-  timeoutSeconds: 120
 
 agents:
   - id: scanner

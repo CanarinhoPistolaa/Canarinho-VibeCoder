@@ -1018,8 +1018,9 @@ The task is passed to the workflow's agents as their objective.
 
 Options:
   --no-hurry-please-save-tokens-mode
-      Run in a token-saving mode where agents poll less frequently.
-      Reduces token consumption at the cost of slower progress.
+      Accepted for back-compat; has no effect on cost anymore. The
+      dispatch motor checks for work without a model, so idle runs
+      spend zero tokens regardless of this flag.
   --working-directory-for-harness <dir>
       Set the working directory for the agent harness during this run.
       Agents will operate within this directory.

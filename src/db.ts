@@ -141,7 +141,7 @@ function migrate(db: DatabaseSync): void {
   }
 
   // ── Worker ownership columns for steps ──
-  // Tracks which polling worker process (job/PID/PGID) claimed each step.
+  // Tracks which worker process (job/PID/PGID) claimed each step.
   // Nullable — legacy rows stay NULL, ownership-agnostic callers are unaffected.
   const stepCols = db.prepare("PRAGMA table_info(steps)").all() as Array<{ name: string }>;
   const stepColNames = new Set(stepCols.map((c) => c.name));

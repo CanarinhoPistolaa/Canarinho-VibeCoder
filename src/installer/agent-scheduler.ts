@@ -79,7 +79,7 @@ export interface NudgeResult {
  * Returns `true` if the job was not already in flight (caller should
  * proceed) and `false` if it was (caller should skip).  The check-and-add
  * is synchronous to close the TOCTOU window between the guard and the
- * first `await` inside `executePollingRound`.
+ * first `await` inside `executeDispatchRound`.
  */
 export function tryMarkJobInFlight(jobId: string): boolean {
   if (inFlightJobs.has(jobId)) return false;
@@ -207,7 +207,7 @@ export interface RunPiOptions {
   env?: Record<string, string>;
   /**
    * Optional callback invoked once the child process is spawned. Used by
-   * `executePollingRound` to register the child + pgid in `inFlightChildren`
+   * `executeDispatchRound` to register the child + pgid in `inFlightChildren`
    * so termination paths can kill the process group.
    */
   onSpawn?: (handle: { pid: number; pgid: number }) => void;
@@ -633,49 +633,6 @@ async function buildAgentPersonaInstructions(agentId: string): Promise<string> {
 }
 
 /**
- * Build the prompt an agent gets to check for and execute work.
- *
- * @param workflowId – the workflow this agent serves
- * @param agentId    – the agent's ID
- * @param runId      – run-scoped polling: passed to `step peek` / `step claim`
- *                     via `--run-id` so the CLI only matches steps in this run
- */
-export function buildAgentPrompt(workflowId: string, agentId: string, runId: string): string {
-  const cli = resolveTamanduaCli();
-
-  return [
-    `You are agent "${agentId}" in workflow "${workflowId}" (run ${runId}).`,
-    ``,
-    `Your job is to poll for work and execute it.`,
-    ``,
-    `STEP 1 — Check for pending work:`,
-    `Run: "${cli}" step peek "${agentId}" --run-id "${runId}"`,
-    ``,
-    `STEP 2 — If NO_WORK:`,
-    `Reply HEARTBEAT_OK and stop. Do NOT do anything else.`,
-    ``,
-    `STEP 3 — If HAS_WORK:`,
-    `Claim the step and capture the JSON response:`,
-    `Run: "${cli}" step claim "${agentId}" --run-id "${runId}"`,
-    `The output will be JSON: {"stepId":"<UUID>", "runId":"<UUID>", "input":"<task description>"}`,
-    `SAVE the stepId — you MUST use it in step 4.`,
-    ``,
-    `Read the "input" field carefully. It describes the actual work you must do.`,
-    `Execute the work using all available tools and capabilities.`,
-    ``,
-    `STEP 4 — Report results using the SAVED stepId (NOT the agent ID):`,
-    `On success: echo 'STATUS: done
-CHANGES: <what you changed>
-TESTS: <tests you ran>' | "${cli}" step complete "<stepId>"`,
-    `On failure: "${cli}" step fail "<stepId>" "<clear reason>"`,
-    ``,
-    `CRITICAL: You MUST report results using the step complete or step fail commands.`,
-    `Failing to report will leave the workflow stuck forever. Always report, even if you`,
-    `could not complete the work — use step fail with a clear reason.`,
-  ].join("\n");
-}
-
-/**
  * Build the work prompt — a claim-and-execute script run by `pi --print`.
  *
  * The scheduler already verified (via a deterministic `peekStep`) that a
@@ -741,98 +698,15 @@ TESTS: <tests you ran>' | "${cli}" step complete "<stepId>"`,
   return prompt.join("\n");
 }
 
-/**
- * Build the polling prompt — a two-phase script executed by `pi --print`.
- *
- * Phase 1 (cheap): peek for work. If none → HEARTBEAT_OK.
- * Phase 2 (work):   if work exists, claim it and execute.
- *
- * Both peek + claim are scoped to a specific runId so concurrent runs of
- * the same workflow can't cross-claim each other's steps.
- */
-export function buildPollingPrompt(
-  workflowId: string,
-  agentId: string,
-  runId: string,
-  agentPersonaInstructions = "",
-): string {
-  const cli = resolveTamanduaCli();
+// ── Work-round output parsing ───────────────────────────────────────
 
-  const persona = agentPersonaInstructions.trim();
-  const prompt = [
-    `You are a polling agent for workflow "${workflowId}", agent "${agentId}", run "${runId}".`,
-    `You run in --print mode. Your goal: check for work and execute it if present.`,
-  ];
-
-  if (persona.length > 0) {
-    prompt.push(
-      ``,
-      `─── PROVISIONED AGENT PERSONA ───`,
-      persona,
-      `─── END PROVISIONED AGENT PERSONA ───`,
-    );
-  }
-
-  prompt.push(
-    ``,
-    `─── PHASE 1: PEEK ───`,
-    `Run this exact command and capture its output:`,
-    `"${cli}" step peek "${agentId}" --run-id "${runId}"`,
-    ``,
-    `If the output contains NO_WORK:`,
-    `  Reply exactly: HEARTBEAT_OK`,
-    `  Then STOP. Do not proceed to PHASE 2.`,
-    ``,
-    `If the output contains HAS_WORK:`,
-    `  Proceed to PHASE 2.`,
-    ``,
-    `─── PHASE 2: CLAIM AND EXECUTE ───`,
-    `1. Claim the step and capture the JSON response:`,
-    `   "${cli}" step claim "${agentId}" --run-id "${runId}"`,
-    `   The output is JSON: {"stepId":"<UUID>", "runId":"<UUID>", "input":"<task description>"}`,
-    `   SAVE the stepId — you MUST use it when reporting results.`,
-    ``,
-    `2. Read the "input" field carefully. It describes the actual work you must do.`,
-    ``,
-    `3. Execute the work using all available tools and capabilities.`,
-    ``,
-    `4. When finished, report using the SAVED stepId (NOT the agent ID):`,
-    `   - Success: echo 'STATUS: done
-CHANGES: <what you did>
-TESTS: <tests you ran>' | "${cli}" step complete "<stepId>"`,
-    `   - Failure: "${cli}" step fail "<stepId>" "<clear reason for failure>"`,
-    ``,
-    `─── RULES ───`,
-    `- ALWAYS report results. Never exit without calling step complete or step fail.`,
-    `- If you cannot complete the work, use step fail — do not hang.`,
-    `- Keep responses concise; you are a background agent.`,
-    `- If something is unclear, use step fail with an explanation of what is missing.`,
-  );
-
-  return prompt.join("\n");
-}
-
-// ── Polling loop internals ──────────────────────────────────────────
-
-const MAX_POLLING_OUTPUT_PREVIEW = 240;
-const MAX_POLLING_ERROR_PREVIEW = 240;
-
-type PollingRoundOutcome =
-  | "heartbeat"
-  | "work_done"
-  | "work_failed"
-  | "empty_output"
-  | "other_output";
+const MAX_WORK_OUTPUT_PREVIEW = 240;
+const MAX_WORK_ERROR_PREVIEW = 240;
 
 interface BoundedPreviewMetadata {
   preview: string;
   bytes: number;
   truncated: boolean;
-}
-
-interface PollingRoundOutputSummary extends BoundedPreviewMetadata {
-  outcome: PollingRoundOutcome;
-  lines: number;
 }
 
 function buildBoundedPreview(value: string, maxChars: number): BoundedPreviewMetadata {
@@ -843,26 +717,6 @@ function buildBoundedPreview(value: string, maxChars: number): BoundedPreviewMet
     preview,
     bytes: Buffer.byteLength(value, "utf-8"),
     truncated,
-  };
-}
-
-/** @internal exported for regression tests */
-export function classifyPollingRoundOutcome(output: string): PollingRoundOutcome {
-  if (output.length === 0) return "empty_output";
-  if (/\bHEARTBEAT_OK\b/.test(output)) return "heartbeat";
-  if (/STATUS:\s*(fail|failed|error)/i.test(output)) return "work_failed";
-  if (/STATUS:\s*done/i.test(output)) return "work_done";
-  return "other_output";
-}
-
-function summarizePollingRoundOutput(output: string): PollingRoundOutputSummary {
-  const normalized = output.trim();
-  const bounded = buildBoundedPreview(normalized, MAX_POLLING_OUTPUT_PREVIEW);
-
-  return {
-    ...bounded,
-    outcome: classifyPollingRoundOutcome(normalized),
-    lines: normalized ? normalized.split(/\r?\n/).length : 0,
   };
 }
 
@@ -898,7 +752,7 @@ export function classifyWorkRoundOutcome(output: string): WorkRoundOutcome {
 
 function summarizeWorkRoundOutput(output: string): WorkRoundOutputSummary {
   const normalized = output.trim();
-  const bounded = buildBoundedPreview(normalized, MAX_POLLING_OUTPUT_PREVIEW);
+  const bounded = buildBoundedPreview(normalized, MAX_WORK_OUTPUT_PREVIEW);
 
   return {
     ...bounded,
@@ -911,7 +765,7 @@ const UUID_CAPTURE = "[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-5][0-9a-fA-F]{3}-[89abAB]
 const RUN_ID_FIELD_REGEX = new RegExp(`["']?run(?:_|-)?id["']?\\s*[:=]\\s*["'](${UUID_CAPTURE})["']`, "i");
 const STEP_ID_FIELD_REGEX = new RegExp(`["']?step(?:_|-)?id["']?\\s*[:=]\\s*["'](${UUID_CAPTURE})["']`, "i");
 
-export interface PollingRoundMetadata {
+export interface WorkRoundMetadata {
   assistantOutput: string;
   tokenUsage: number | null;
   runId: string | null;
@@ -919,7 +773,7 @@ export interface PollingRoundMetadata {
   jsonMetadataDetected: boolean;
 }
 
-interface PollingIdentifierHints {
+interface WorkRoundIdentifierHints {
   runId: string | null;
   stepId: string | null;
 }
@@ -1019,7 +873,7 @@ function extractAssistantText(messageLike: unknown): string {
   return textSegments.join("\n");
 }
 
-function extractIdentifierHints(text: string): PollingIdentifierHints {
+function extractIdentifierHints(text: string): WorkRoundIdentifierHints {
   const runMatch = text.match(RUN_ID_FIELD_REGEX);
   const stepMatch = text.match(STEP_ID_FIELD_REGEX);
 
@@ -1029,7 +883,7 @@ function extractIdentifierHints(text: string): PollingIdentifierHints {
   };
 }
 
-export function parsePollingRoundMetadata(output: string): PollingRoundMetadata {
+export function parseWorkRoundMetadata(output: string): WorkRoundMetadata {
   const normalized = output.trim();
   if (normalized.length === 0) {
     return {
@@ -1105,7 +959,7 @@ export function parsePollingRoundMetadata(output: string): PollingRoundMetadata 
   };
 }
 
-async function resolveRunIdForAttribution(metadata: PollingRoundMetadata): Promise<ResolvedRunId> {
+async function resolveRunIdForAttribution(metadata: WorkRoundMetadata): Promise<ResolvedRunId> {
   if (metadata.runId) {
     return { runId: metadata.runId, source: "metadata_run_id" };
   }
@@ -1159,7 +1013,7 @@ async function incrementRunTokenSpend(runId: string, tokenUsage: number): Promis
  */
 export async function autoCompleteStepIfRunning(
   context: Record<string, unknown>,
-  metadata: PollingRoundMetadata,
+  metadata: WorkRoundMetadata,
 ): Promise<void> {
   if (!metadata.stepId) {
     logger.warn("Auto-complete fallback skipped — no stepId in output", { ...context });
@@ -1256,392 +1110,6 @@ export async function autoCompleteStepIfRunning(
   }
 }
 
-async function attributePollingRoundTokenUsage(
-  context: Record<string, unknown>,
-  outputSummary: PollingRoundOutputSummary,
-  metadata: PollingRoundMetadata,
-): Promise<void> {
-  if (metadata.tokenUsage === null) {
-    if (metadata.jsonMetadataDetected) {
-      logger.debug("Polling round token usage unavailable — usage metadata missing", {
-        ...context,
-        outcome: outputSummary.outcome,
-        reason: "usage_metadata_missing",
-      });
-    } else {
-      logger.warn("Polling round token usage unavailable — --mode json may be off", {
-        ...context,
-        outcome: outputSummary.outcome,
-        reason: "non_json_output",
-      });
-    }
-    return;
-  }
-
-  if (metadata.tokenUsage <= 0) {
-    logger.debug("Polling round token usage not attributed", {
-      ...context,
-      outcome: outputSummary.outcome,
-      reason: "non_positive_usage",
-      tokenUsage: metadata.tokenUsage,
-    });
-    return;
-  }
-
-  if (outputSummary.outcome === "heartbeat") {
-    try {
-      const { incrementSystemTokenSpend } = await import("../db.js");
-      const newSystemTotal = incrementSystemTokenSpend(metadata.tokenUsage);
-      emitEvent({ts: new Date().toISOString(), event: "system.tokens.updated", runId: "system", tokenDelta: metadata.tokenUsage, tokensSpent: newSystemTotal});
-      logger.info("Heartbeat polling round token usage attributed to system spend", {...context, outcome: outputSummary.outcome, reason: "heartbeat_system_overhead", tokenUsage: metadata.tokenUsage, systemTokensSpent: newSystemTotal});
-    } catch (err) {
-      logger.warn("Heartbeat polling round system token attribution failed", {...context, outcome: outputSummary.outcome, tokenUsage: metadata.tokenUsage, error: String(err)});
-    }
-    return;
-  }
-
-  const resolved = await resolveRunIdForAttribution(metadata);
-  if (!resolved.runId) {
-    logger.warn("Polling round token usage not attributed to run — run id unresolved", {
-      ...context,
-      outcome: outputSummary.outcome,
-      tokenUsage: metadata.tokenUsage,
-      outputPreview: outputSummary.preview,
-      outputTruncated: outputSummary.truncated,
-    });
-
-    // Attribute to system spend instead of silently discarding
-    try {
-      const { incrementSystemTokenSpend } = await import("../db.js");
-      const newSystemTotal = incrementSystemTokenSpend(metadata.tokenUsage);
-
-      emitEvent({
-        ts: new Date().toISOString(),
-        event: "system.tokens.updated",
-        runId: "system",
-        tokenDelta: metadata.tokenUsage,
-        tokensSpent: newSystemTotal,
-      });
-
-      logger.info("Polling round token usage attributed to system spend", {
-        ...context,
-        outcome: outputSummary.outcome,
-        tokenUsage: metadata.tokenUsage,
-        systemTokensSpent: newSystemTotal,
-      });
-    } catch (err) {
-      logger.warn("Polling round system token attribution failed", {
-        ...context,
-        outcome: outputSummary.outcome,
-        tokenUsage: metadata.tokenUsage,
-        error: String(err),
-      });
-    }
-    return;
-  }
-
-  try {
-    const updated = await incrementRunTokenSpend(resolved.runId, metadata.tokenUsage);
-
-    if (!updated) {
-      logger.warn("Polling round token usage not attributed — run missing", {
-        ...context,
-        outcome: outputSummary.outcome,
-        tokenUsage: metadata.tokenUsage,
-        runId: resolved.runId,
-        runIdSource: resolved.source,
-      });
-      return;
-    }
-
-    emitEvent({
-      ts: new Date().toISOString(),
-      event: "run.tokens.updated",
-      runId: resolved.runId,
-      workflowId: updated.workflowId,
-      tokenDelta: metadata.tokenUsage,
-      tokensSpent: updated.tokensSpent,
-    });
-
-    logger.debug("Polling round token usage attributed", {
-      ...context,
-      outcome: outputSummary.outcome,
-      tokenUsage: metadata.tokenUsage,
-      runId: resolved.runId,
-      runIdSource: resolved.source,
-      tokensSpent: updated.tokensSpent,
-    });
-  } catch (err) {
-    logger.warn("Polling round token attribution failed", {
-      ...context,
-      outcome: outputSummary.outcome,
-      tokenUsage: metadata.tokenUsage,
-      error: String(err),
-    });
-  }
-}
-
-export function buildPollingRoundContext(
-  job: CronJobInfo,
-  agent: WorkflowAgent,
-  timeoutSeconds: number,
-  workingDirectoryForHarness: string | undefined,
-  workflow?: WorkflowSpec,
-): Record<string, unknown> {
-  const model = agent.pollingModel ?? workflow?.polling?.model ?? agent.model ?? job.workModel ?? job.model;
-
-  return {
-    jobId: job.id,
-    runId: job.runId,
-    workflowId: job.workflowId,
-    agentId: job.agentId,
-    role: agent.role ?? inferRole(agent.id),
-    timeoutSeconds,
-    workdir: workingDirectoryForHarness,
-    workingDirectoryForHarness,
-    model,
-    harnessType: job.harnessType ?? "pi",
-  };
-}
-
-export async function executePollingRound(
-  job: CronJobInfo,
-  agent: WorkflowAgent,
-  workflow?: WorkflowSpec,
-): Promise<void> {
-  const role = agent.role ?? inferRole(agent.id);
-  const timeout = agent.timeoutSeconds ?? job.timeoutSeconds ?? getRoleTimeoutSeconds(role);
-  const legacyJobWorkdir = (job as CronJobInfo & { workdir?: string }).workdir;
-  const workingDirectoryForHarness = job.workingDirectoryForHarness ?? legacyJobWorkdir;
-  const context = buildPollingRoundContext(job, agent, timeout, workingDirectoryForHarness, workflow);
-
-  if (!workingDirectoryForHarness) {
-    logger.error("Polling round refused — missing harness workdir", {
-      ...context,
-      reason: "missing_working_directory_for_harness",
-    });
-    await removeRunCrons(job.runId);
-    return;
-  }
-
-  // ── Race-safe in-flight guard ───────────────────────────────────
-  // Must happen synchronously *before* any awaited async work so
-  // concurrent nudge + timer tick invocations cannot launch duplicate
-  // harness processes.
-  if (!tryMarkJobInFlight(job.id)) {
-    logger.info("Polling round skipped — previous harness still in flight", {
-      ...context,
-      reason: "previous_round_in_flight",
-    });
-    return;
-  }
-
-  // ── Run-scoped status check ──────────────────────────────────────
-  // If this run is no longer 'running' (terminal/paused) tear down the
-  // job and skip. Without this check, timers leaked from previous CLI
-  // processes would keep polling pi for completed runs.
-  try {
-    const { getDb } = await import("../db.js");
-    const db = getDb();
-    const row = db
-      .prepare("SELECT status, scheduling_status FROM runs WHERE id = ?")
-      .get(job.runId) as { status: string; scheduling_status: string | null } | undefined;
-    if (!row || (row.status !== "running" && row.status !== "paused")) {
-      logger.info("Polling round skipped — run no longer running; tearing down job", {
-        ...context,
-        runStatus: row?.status ?? "missing",
-        reason: "run_not_running",
-      });
-      // The run is already terminal; a sibling agent's round may still be
-      // flushing its final output — tear down with the completion grace.
-      await removeRunCrons(job.runId, { graceMs: HARNESS_TEARDOWN_GRACE_MS });
-      return;
-    }
-    if (row.status === "paused") {
-      logger.debug("Polling round skipped — run paused", { ...context });
-      return;
-    }
-    if (row.scheduling_status === "draining_pause") {
-      logger.debug("Polling round skipped — run draining before pause (in-flight work can complete)", { ...context });
-      return;
-    }
-  } catch (err) {
-    logger.warn("Run status check failed; continuing polling round", {
-      ...context,
-      error: String(err),
-    });
-  }
-
-  // ── Stale-claim sweeper (run-scoped) ─────────────────────────────
-  try {
-    const staleThresholdMs = timeout * 1.5 * 1000;
-    const { recoverOrphanedStepsForAgent } = await import("./step-ops.js");
-    const staleResult = recoverOrphanedStepsForAgent(
-      job.agentId,
-      job.runId,
-      staleThresholdMs,
-    );
-    if (staleResult.recovered > 0 || staleResult.failed > 0) {
-      logger.info("Stale-claim sweeper ran", {
-        ...context,
-        recovered: staleResult.recovered,
-        failed: staleResult.failed,
-        skipped: staleResult.skipped,
-        staleThresholdMs,
-      });
-    }
-  } catch (sweepErr) {
-    logger.warn("Stale-claim sweeper failed", {
-      ...context,
-      error: sweepErr instanceof Error ? sweepErr.message : String(sweepErr),
-    });
-  }
-
-  try {
-    let agentPersonaInstructions = "";
-    try {
-      agentPersonaInstructions = await buildAgentPersonaInstructions(job.agentId);
-    } catch (err) {
-      logger.warn("Agent persona instructions unavailable", {
-        ...context,
-        workspaceDir: resolveWorkflowWorkspaceDir(job.agentId),
-        error: err instanceof Error ? err.message : String(err),
-      });
-    }
-
-    const pollingPrompt = buildPollingPrompt(
-      job.workflowId,
-      job.agentId,
-      job.runId,
-      agentPersonaInstructions,
-    );
-
-    const harnessType = job.harnessType ?? "pi";
-
-    logger.info("Polling round start", context);
-
-    const onSpawn = ({ pid, pgid }: { pid: number; pgid: number }) => {
-      inFlightChildren.set(job.id, { pid, pgid, killed: false });
-    };
-
-    let output: string;
-    if (harnessType === "hermes") {
-      const hermesPath = findHermesBinary();
-      output = await runHermes(pollingPrompt, {
-        timeout,
-        workdir: workingDirectoryForHarness,
-        env: {
-          TAMANDUA_WORKER_JOB_ID: job.id,
-          TAMANDUA_WORKER_PID: String(process.pid),
-          TAMANDUA_HERMES_BINARY: hermesPath,
-        },
-        onSpawn,
-      });
-    } else {
-      output = await runPi(
-        ["--print", "--mode", "json", "--no-session", pollingPrompt],
-        {
-          timeout,
-          workdir: workingDirectoryForHarness,
-          env: {
-            TAMANDUA_WORKER_JOB_ID: job.id,
-            TAMANDUA_WORKER_PID: String(process.pid),
-          },
-          onSpawn,
-        },
-      );
-    }
-
-    const metadata = parsePollingRoundMetadata(output);
-    const outputSummary = summarizePollingRoundOutput(metadata.assistantOutput || output);
-
-    logger.info("Polling round complete", {
-      ...context,
-      outcome: outputSummary.outcome,
-      outputBytes: outputSummary.bytes,
-      outputLines: outputSummary.lines,
-      outputPreview: outputSummary.preview,
-      outputTruncated: outputSummary.truncated,
-      tokenUsage: metadata.tokenUsage,
-      metadataFormat: metadata.jsonMetadataDetected ? "json" : "text",
-    });
-
-    await attributePollingRoundTokenUsage(context, outputSummary, metadata);
-
-    if (outputSummary.outcome === "work_done") {
-      await autoCompleteStepIfRunning(context, metadata);
-    } else if (outputSummary.outcome === "other_output") {
-      try {
-        const { recoverOrphanedStepsForAgent } = await import("./step-ops.js");
-        const recoveryResult = recoverOrphanedStepsForAgent(
-          job.agentId,
-          job.runId,
-          undefined,
-          undefined,
-          undefined,
-          job.id,
-        );
-        if (recoveryResult.recovered > 0 || recoveryResult.failed > 0) {
-          logger.info("Orphaned step recovery after clean pi exit (other_output)", {
-            ...context,
-            recovered: recoveryResult.recovered,
-            failed: recoveryResult.failed,
-            skipped: recoveryResult.skipped,
-          });
-        }
-      } catch (recoveryErr) {
-        logger.error("Orphaned step recovery after clean pi exit failed", {
-          ...context,
-          error: recoveryErr instanceof Error ? recoveryErr.message : String(recoveryErr),
-        });
-      }
-    }
-  } catch (err) {
-    const errorMessage = err instanceof Error ? err.message : String(err);
-    const errorSummary = buildBoundedPreview(errorMessage, MAX_POLLING_ERROR_PREVIEW);
-
-    logger.error("Polling round failed", {
-      ...context,
-      errorBytes: errorSummary.bytes,
-      errorPreview: errorSummary.preview,
-      errorTruncated: errorSummary.truncated,
-    });
-
-    try {
-      const isTimeout = errorMessage.includes("timed out");
-      const timeoutRetryReason = isTimeout ? errorMessage : undefined;
-
-      const { recoverOrphanedStepsForAgent } = await import("./step-ops.js");
-      const recoveryResult = recoverOrphanedStepsForAgent(
-        job.agentId,
-        job.runId,
-        undefined,
-        timeoutRetryReason,
-        undefined,
-        job.id,
-      );
-      if (recoveryResult.recovered > 0 || recoveryResult.failed > 0) {
-        logger.info("Orphaned step recovery after pi failure", {
-          ...context,
-          recovered: recoveryResult.recovered,
-          failed: recoveryResult.failed,
-          skipped: recoveryResult.skipped,
-          piExitError: errorMessage,
-          isTimeout,
-        });
-      }
-    } catch (recoveryErr) {
-      logger.error("Orphaned step recovery failed", {
-        ...context,
-        error: recoveryErr instanceof Error ? recoveryErr.message : String(recoveryErr),
-      });
-    }
-  } finally {
-    inFlightJobs.delete(job.id);
-    inFlightChildren.delete(job.id);
-  }
-}
-
 // ── Deterministic dispatch round ────────────────────────────────────
 
 export function buildDispatchRoundContext(
@@ -1677,7 +1145,7 @@ async function attributeWorkRoundTokenUsage(
   context: Record<string, unknown>,
   job: CronJobInfo,
   outputSummary: WorkRoundOutputSummary,
-  metadata: PollingRoundMetadata,
+  metadata: WorkRoundMetadata,
 ): Promise<void> {
   if (metadata.tokenUsage === null) {
     if (metadata.jsonMetadataDetected) {
@@ -1934,7 +1402,7 @@ export async function executeDispatchRound(
     }
 
     // ── Post-round processing ──────────────────────────────────────
-    const metadata = parsePollingRoundMetadata(output);
+    const metadata = parseWorkRoundMetadata(output);
     const outputSummary = summarizeWorkRoundOutput(metadata.assistantOutput || output);
 
     logger.info("Work round complete", {
@@ -1985,7 +1453,7 @@ export async function executeDispatchRound(
     }
   } catch (err) {
     const errorMessage = err instanceof Error ? err.message : String(err);
-    const errorSummary = buildBoundedPreview(errorMessage, MAX_POLLING_ERROR_PREVIEW);
+    const errorSummary = buildBoundedPreview(errorMessage, MAX_WORK_ERROR_PREVIEW);
 
     logger.error("Work round failed", {
       ...context,
@@ -2199,7 +1667,7 @@ export interface RemoveRunCronsOptions {
 }
 
 /**
- * Remove all polling jobs for a given runId. Terminates any in-flight
+ * Remove all dispatch jobs for a given runId. Terminates any in-flight
  * pi process group for the run as well (after `options.graceMs`, if set).
  */
 export async function removeRunCrons(
@@ -2352,11 +1820,11 @@ export function shutdownAllCrons(): void {
 // ── Nudge ─────────────────────────────────────────────────────────────
 
 /**
- * Trigger immediate polling for all scheduled jobs in the given runs.
+ * Trigger an immediate dispatch round for all scheduled jobs in the given runs.
  *
  * Jobs currently in flight are skipped. Pending-start timers are
  * converted to active interval timers after launch. Active timers are
- * cleared and recreated from now after a launched polling round.
+ * cleared and recreated from now after a launched dispatch round.
  *
  * The function loads workflow specs from disk via
  * `loadWorkflowSpec(resolveWorkflowDir(…))` to find matching agents.

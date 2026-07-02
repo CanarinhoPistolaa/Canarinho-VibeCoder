@@ -8,9 +8,6 @@ description: |
   the report and reproduces the issue. Investigator traces root cause. Setup
   creates the bugfix branch. Fixer implements the fix with a regression test.
   Verifier confirms correctness. No merge step.
-polling:
-  model: default
-  timeoutSeconds: 120
 
 agents:
   - id: triager

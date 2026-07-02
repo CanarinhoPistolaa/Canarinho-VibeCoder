@@ -19,10 +19,6 @@ description: |
 run:
   workspace: worktree
 
-polling:
-  model: default
-  timeoutSeconds: 120
-
 agents:
   - id: planner
     name: Planner

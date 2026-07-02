@@ -1,39 +1,26 @@
 /**
- * MOTOR-MECHANISM: pins the CURRENT model-driven polling motor.
- *
- * This test asserts implementation details of the polling motor (model-run
- * peek/claim rounds, polling prompts, heartbeat system-token attribution).
- * It is EXPECTED to churn or be replaced when the deterministic motor lands.
- * During the motor rewrite: a failure here is expected noise; a failure in a
- * contract test is a real regression. See tests/MOTOR-CONTRACT.md.
+ * Harness routing in executeDispatchRound(): when a dispatch round finds a
+ * pending step (deterministic in-process peek), the work spawn must route to
+ * runPi for harnessType "pi"/missing and to runHermes for "hermes", with the
+ * hermes binary handed down via TAMANDUA_HERMES_BINARY. Also covers
+ * buildDispatchRoundContext's harnessType and createAgentCronJob reading
+ * harness_type from the run context.
  */
 import assert from "node:assert/strict";
 import { describe, it, beforeEach, afterEach } from "node:test";
 import fs from "node:fs";
 import path from "node:path";
 import os from "node:os";
-import { spawnSync } from "node:child_process";
 import {
-  buildPollingRoundContext,
+  buildDispatchRoundContext,
   createAgentCronJob,
-  executePollingRound,
+  executeDispatchRound,
   removeRunCrons,
   shutdownAllCrons,
 } from "../../dist/installer/agent-scheduler.js";
 import { getDb } from "../../dist/db.js";
 import type { CronJobInfo } from "../../dist/installer/agent-scheduler.js";
 import type { WorkflowAgent, WorkflowSpec } from "../../dist/installer/types.js";
-
-/**
- * Tests for US-005: harness routing in executePollingRound().
- *
- * Covers:
- *   - buildPollingRoundContext includes harnessType
- *   - executePollingRound dispatches to runPi when harnessType="pi" or missing
- *   - executePollingRound dispatches to runHermes when harnessType="hermes"
- *   - runHermes receives TAMANDUA_HERMES_BINARY in child env
- *   - Polling round context logs include harnessType
- */
 
 function makeMockBinary(binPath: string, behavior: string): void {
   fs.writeFileSync(binPath, `#!/bin/sh\n${behavior}\n`, { mode: 0o755 });
@@ -63,22 +50,18 @@ function makeWorkflow(overrides: Partial<WorkflowSpec> = {}): WorkflowSpec {
   };
 }
 
-describe("buildPollingRoundContext harnessType", () => {
+describe("buildDispatchRoundContext harnessType", () => {
   it("includes harnessType in returned context", () => {
     const job: CronJobInfo = {
       id: "test-job",
       workflowId: "wf-1",
       runId: "run-1",
       agentId: "wf-1_test-agent",
-      intervalMinutes: 5,
       harnessType: "hermes",
       createdAt: new Date().toISOString(),
     };
-    const agent = makeAgent();
 
-    const context = buildPollingRoundContext(
-      job, agent, 60, "/tmp/work", undefined,
-    );
+    const context = buildDispatchRoundContext(job, makeAgent(), 60, "/tmp/work");
 
     assert.equal(context.harnessType, "hermes");
   });
@@ -89,15 +72,11 @@ describe("buildPollingRoundContext harnessType", () => {
       workflowId: "wf-1",
       runId: "run-1",
       agentId: "wf-1_test-agent",
-      intervalMinutes: 5,
       // harnessType intentionally omitted
       createdAt: new Date().toISOString(),
     };
-    const agent = makeAgent();
 
-    const context = buildPollingRoundContext(
-      job, agent, 60, "/tmp/work", undefined,
-    );
+    const context = buildDispatchRoundContext(job, makeAgent(), 60, "/tmp/work");
 
     assert.equal(context.harnessType, "pi");
   });
@@ -108,21 +87,17 @@ describe("buildPollingRoundContext harnessType", () => {
       workflowId: "wf-1",
       runId: "run-1",
       agentId: "wf-1_test-agent",
-      intervalMinutes: 5,
       harnessType: "pi",
       createdAt: new Date().toISOString(),
     };
-    const agent = makeAgent();
 
-    const context = buildPollingRoundContext(
-      job, agent, 60, "/tmp/work", undefined,
-    );
+    const context = buildDispatchRoundContext(job, makeAgent(), 60, "/tmp/work");
 
     assert.equal(context.harnessType, "pi");
   });
 });
 
-describe("executePollingRound harness dispatch", () => {
+describe("executeDispatchRound harness dispatch", () => {
   let tempHome: string;
   let savedPiBinary: string | undefined;
   let savedHermesBinary: string | undefined;
@@ -138,12 +113,12 @@ describe("executePollingRound harness dispatch", () => {
     process.env.HOME = homeDir;
     process.env.TAMANDUA_STATE_DIR = stateDir;
 
-    // Initialize the DB so createAgentCronJob() can read harness_type from runs.context
-
-    // Create mock pi binary
+    // Create mock pi binary. The dispatch motor only spawns a harness when
+    // a pending step exists, so each test seeds one; the mock replies
+    // NO_WORK_AVAILABLE (a benign no_work outcome — it never claims).
     const piPath = path.join(tempHome, "pi-mock");
     const piLog = path.join(tempHome, "pi-args.log");
-    makeMockBinary(piPath, `echo "$@" >> "${piLog}"; echo "HEARTBEAT_OK"`);
+    makeMockBinary(piPath, `echo "$@" >> "${piLog}"; echo "NO_WORK_AVAILABLE"`);
     process.env.TAMANDUA_PI_BINARY = piPath;
   });
 
@@ -156,20 +131,28 @@ describe("executePollingRound harness dispatch", () => {
     fs.rmSync(tempHome, { recursive: true, force: true });
   });
 
+  /** Insert a running run + a pending step so the dispatch peek says HAS_WORK. */
+  function seedRunWithPendingStep(runId: string, workdir: string, harnessType?: string): void {
+    const db = getDb();
+    const now = new Date().toISOString();
+    const context: Record<string, string> = {
+      working_directory_for_harness: workdir,
+    };
+    if (harnessType) context.harness_type = harnessType;
+    db.prepare(
+      "INSERT INTO runs (id, workflow_id, task, status, context, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+    ).run(runId, "test-wf", "test task", "running", JSON.stringify(context), now, now);
+    db.prepare(
+      "INSERT INTO steps (id, run_id, step_id, agent_id, step_index, input_template, expects, status, created_at, updated_at) VALUES (?, ?, 'step-1', 'test-wf_test-agent', 0, 'do work', 'STATUS', 'pending', ?, ?)",
+    ).run(`${runId}-step`, runId, now, now);
+  }
+
   it("dispatches to runPi when harnessType is 'pi'", async () => {
     const workdir = path.join(tempHome, "work");
     fs.mkdirSync(workdir, { recursive: true });
 
     const runId = "run-pi-dispatch";
-    // Insert a run with harness_type="pi" in context
-    const db = getDb();
-    const nowPiDispatch = new Date().toISOString();
-    db.prepare(
-      "INSERT INTO runs (id, workflow_id, task, status, context, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
-    ).run(runId, "test-wf", "test task", "running", JSON.stringify({
-      harness_type: "pi",
-      working_directory_for_harness: workdir,
-    }), nowPiDispatch, nowPiDispatch);
+    seedRunWithPendingStep(runId, workdir, "pi");
 
     const workflow = makeWorkflow();
     const result = await createAgentCronJob({
@@ -182,15 +165,15 @@ describe("executePollingRound harness dispatch", () => {
 
     assert.ok(result.ok);
 
-    // executePollingRound should use pi binary (TAMANDUA_PI_BINARY mock)
     const piLog = path.join(tempHome, "pi-args.log");
-    const piDispatchJob = { id: result.id!, workflowId: "test-wf", runId, agentId: "test-wf_test-agent", intervalMinutes: 5, harnessType: "pi" as const, workingDirectoryForHarness: workdir, createdAt: "" };
-    await executePollingRound(piDispatchJob, makeAgent(), workflow);
+    const piDispatchJob = { id: result.id!, workflowId: "test-wf", runId, agentId: "test-wf_test-agent", harnessType: "pi" as const, workingDirectoryForHarness: workdir, createdAt: "" };
+    await executeDispatchRound(piDispatchJob, makeAgent(), workflow);
 
     // Verify pi was invoked (log file should contain --print args)
     const piArgs = fs.readFileSync(piLog, "utf-8");
     assert.ok(piArgs.includes("--print"), "pi should be invoked with --print");
     assert.ok(piArgs.includes("--mode"), "pi should be invoked with --mode");
+    assert.ok(piArgs.includes("step claim"), "work prompt should instruct step claim");
 
     await removeRunCrons(runId);
   });
@@ -202,18 +185,11 @@ describe("executePollingRound harness dispatch", () => {
     // Create mock hermes binary that logs its args
     const hermesPath = path.join(tempHome, "hermes-mock");
     const hermesLog = path.join(tempHome, "hermes-args.log");
-    makeMockBinary(hermesPath, `echo "$@" >> "${hermesLog}"; echo "HEARTBEAT_OK"`);
+    makeMockBinary(hermesPath, `echo "$@" >> "${hermesLog}"; echo "NO_WORK_AVAILABLE"`);
     process.env.TAMANDUA_HERMES_BINARY = hermesPath;
 
     const runId = "run-hermes-dispatch";
-    const db = getDb();
-    const nowHermes = new Date().toISOString();
-    db.prepare(
-      "INSERT INTO runs (id, workflow_id, task, status, context, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
-    ).run(runId, "test-wf", "test task", "running", JSON.stringify({
-      harness_type: "hermes",
-      working_directory_for_harness: workdir,
-    }), nowHermes, nowHermes);
+    seedRunWithPendingStep(runId, workdir, "hermes");
 
     const workflow = makeWorkflow();
     const result = await createAgentCronJob({
@@ -226,9 +202,8 @@ describe("executePollingRound harness dispatch", () => {
 
     assert.ok(result.ok);
 
-    // executePollingRound should use hermes binary
-    const hermesDispatchJob = { id: result.id!, workflowId: "test-wf", runId, agentId: "test-wf_test-agent", intervalMinutes: 5, harnessType: "hermes" as const, workingDirectoryForHarness: workdir, createdAt: "" };
-    await executePollingRound(hermesDispatchJob, makeAgent(), workflow);
+    const hermesDispatchJob = { id: result.id!, workflowId: "test-wf", runId, agentId: "test-wf_test-agent", harnessType: "hermes" as const, workingDirectoryForHarness: workdir, createdAt: "" };
+    await executeDispatchRound(hermesDispatchJob, makeAgent(), workflow);
 
     // Verify hermes was invoked (log file should contain chat subcommand)
     const hermesArgs = fs.readFileSync(hermesLog, "utf-8");
@@ -244,14 +219,7 @@ describe("executePollingRound harness dispatch", () => {
     fs.mkdirSync(workdir, { recursive: true });
 
     const runId = "run-default-dispatch";
-    const db = getDb();
-    const nowDefault = new Date().toISOString();
-    db.prepare(
-      "INSERT INTO runs (id, workflow_id, task, status, context, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
-    ).run(runId, "test-wf", "test task", "running", JSON.stringify({
-      working_directory_for_harness: workdir,
-      // no harness_type
-    }), nowDefault, nowDefault);
+    seedRunWithPendingStep(runId, workdir);
 
     const workflow = makeWorkflow();
     const result = await createAgentCronJob({
@@ -265,8 +233,8 @@ describe("executePollingRound harness dispatch", () => {
     assert.ok(result.ok);
 
     const piLog = path.join(tempHome, "pi-args.log");
-    await executePollingRound(
-      { id: result.id!, workflowId: "test-wf", runId, agentId: "test-wf_test-agent", intervalMinutes: 5, harnessType: undefined, workingDirectoryForHarness: workdir, createdAt: "" },
+    await executeDispatchRound(
+      { id: result.id!, workflowId: "test-wf", runId, agentId: "test-wf_test-agent", harnessType: undefined, workingDirectoryForHarness: workdir, createdAt: "" },
       makeAgent(),
       workflow,
     );
@@ -278,6 +246,32 @@ describe("executePollingRound harness dispatch", () => {
     await removeRunCrons(runId);
   });
 
+  it("does NOT spawn any harness when the agent has no pending step", async () => {
+    const workdir = path.join(tempHome, "work");
+    fs.mkdirSync(workdir, { recursive: true });
+
+    const runId = "run-idle-no-spawn";
+    // Run exists but its only step is already done — peek says NO_WORK.
+    const db = getDb();
+    const now = new Date().toISOString();
+    db.prepare(
+      "INSERT INTO runs (id, workflow_id, task, status, context, created_at, updated_at) VALUES (?, 'test-wf', 'task', 'running', ?, ?, ?)",
+    ).run(runId, JSON.stringify({ working_directory_for_harness: workdir }), now, now);
+    db.prepare(
+      "INSERT INTO steps (id, run_id, step_id, agent_id, step_index, input_template, expects, status, created_at, updated_at) VALUES (?, ?, 'step-1', 'test-wf_test-agent', 0, 'do work', 'STATUS', 'done', ?, ?)",
+    ).run(`${runId}-step`, runId, now, now);
+
+    const workflow = makeWorkflow();
+    await executeDispatchRound(
+      { id: "job-idle", workflowId: "test-wf", runId, agentId: "test-wf_test-agent", workingDirectoryForHarness: workdir, createdAt: "" },
+      makeAgent(),
+      workflow,
+    );
+
+    const piLog = path.join(tempHome, "pi-args.log");
+    assert.ok(!fs.existsSync(piLog), "idle dispatch round must not spawn the harness");
+  });
+
   it("passes TAMANDUA_HERMES_BINARY to child env when dispatching to runHermes", async () => {
     const workdir = path.join(tempHome, "work");
     fs.mkdirSync(workdir, { recursive: true });
@@ -285,18 +279,11 @@ describe("executePollingRound harness dispatch", () => {
     // Create a mock hermes that dumps its environment
     const hermesPath = path.join(tempHome, "hermes-mock");
     const envLog = path.join(tempHome, "hermes-env.log");
-    makeMockBinary(hermesPath, `env | grep TAMANDUA >> "${envLog}"; echo "HEARTBEAT_OK"`);
+    makeMockBinary(hermesPath, `env | grep TAMANDUA >> "${envLog}"; echo "NO_WORK_AVAILABLE"`);
     process.env.TAMANDUA_HERMES_BINARY = hermesPath;
 
     const runId = "run-hermes-env";
-    const db = getDb();
-    const nowHermesEnv = new Date().toISOString();
-    db.prepare(
-      "INSERT INTO runs (id, workflow_id, task, status, context, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
-    ).run(runId, "test-wf", "test task", "running", JSON.stringify({
-      harness_type: "hermes",
-      working_directory_for_harness: workdir,
-    }), nowHermesEnv, nowHermesEnv);
+    seedRunWithPendingStep(runId, workdir, "hermes");
 
     const workflow = makeWorkflow();
     const result = await createAgentCronJob({
@@ -309,8 +296,8 @@ describe("executePollingRound harness dispatch", () => {
 
     assert.ok(result.ok);
 
-    const hermesEnvDispatchJob = { id: result.id!, workflowId: "test-wf", runId, agentId: "test-wf_test-agent", intervalMinutes: 5, harnessType: "hermes" as const, workingDirectoryForHarness: workdir, createdAt: "" };
-    await executePollingRound(hermesEnvDispatchJob, makeAgent(), workflow);
+    const hermesEnvDispatchJob = { id: result.id!, workflowId: "test-wf", runId, agentId: "test-wf_test-agent", harnessType: "hermes" as const, workingDirectoryForHarness: workdir, createdAt: "" };
+    await executeDispatchRound(hermesEnvDispatchJob, makeAgent(), workflow);
 
     // Verify TAMANDUA_HERMES_BINARY was passed to child env
     const envOutput = fs.readFileSync(envLog, "utf-8");
@@ -339,7 +326,7 @@ describe("createAgentCronJob harnessType from run context", () => {
 
     // Create mock pi binary
     const piPath = path.join(tempHome, "pi-mock");
-    makeMockBinary(piPath, `echo "HEARTBEAT_OK"`);
+    makeMockBinary(piPath, `echo "NO_WORK_AVAILABLE"`);
     process.env.TAMANDUA_PI_BINARY = piPath;
   });
 

@@ -44,11 +44,13 @@ describe("workflow parsing", () => {
       assert.ok(spec.steps.length > 0);
     });
 
-    it(`${id} has valid polling config`, async () => {
+    it(`${id} carries no polling config — dispatch is deterministic`, async () => {
       const spec = await loadWorkflowSpec(wfDir(id));
-      if (spec.polling) {
-        assert.ok(typeof spec.polling === "object");
-      }
+      assert.equal(
+        (spec as Record<string, unknown>).polling,
+        undefined,
+        `${id}: bundled workflows must not ship a polling block; the dispatch motor ignores it`,
+      );
     });
 
     it(`${id} agents have valid roles if specified`, async () => {
@@ -85,13 +87,6 @@ describe("model field preservation", () => {
     for (const agent of withModel) {
       assert.ok(typeof agent.model === "string");
       assert.ok(agent.model.length > 0);
-    }
-  });
-
-  it("polling model is present when configured", async () => {
-    const spec = await loadWorkflowSpec(wfDir("feature-dev"));
-    if (spec.polling?.model) {
-      assert.ok(typeof spec.polling.model === "string");
     }
   });
 });

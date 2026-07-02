@@ -24,14 +24,9 @@ export type WorkflowAgent = {
   description?: string;
   role?: AgentRole;
   model?: string;
-  pollingModel?: string;
+  /** Work-round timeout (resolution: agent → job → role default). */
   timeoutSeconds?: number;
   workspace: WorkflowAgentFiles;
-};
-
-export type PollingConfig = {
-  model?: string;
-  timeoutSeconds?: number;
 };
 
 export type WorkflowStepFailure = {
@@ -78,12 +73,16 @@ export type Story = {
   maxRetries: number;
 };
 
+// NOTE: workflow YAML from older versions may still carry a top-level
+// `polling:` block (model/timeoutSeconds) and per-agent polling-model overrides.
+// The loader passes unknown keys through without error and the
+// deterministic dispatch motor ignores them — checking for work no longer
+// involves a model or a tunable interval.
 export type WorkflowSpec = {
   id: string;
   name?: string;
   description?: string;
   version?: number;
-  polling?: PollingConfig;
   agents: WorkflowAgent[];
   steps: WorkflowStep[];
   context?: Record<string, string>;

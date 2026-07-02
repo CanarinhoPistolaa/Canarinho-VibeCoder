@@ -12,9 +12,6 @@ description: |
 
   Requires a GitHub remote and an authenticated `gh` CLI for the pr/review steps.
   For local-only repos without a remote, use the `feature-dev` workflow instead.
-polling:
-  model: default
-  timeoutSeconds: 120
 
 agents:
   - id: planner

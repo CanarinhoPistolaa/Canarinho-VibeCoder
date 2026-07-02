@@ -92,7 +92,6 @@ export type {
   StepResult,
   Story,
   AgentRole,
-  PollingConfig,
   LoopConfig,
 } from "./installer/types.js";
 

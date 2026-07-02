@@ -1,11 +1,7 @@
 /**
- * MOTOR-MECHANISM: pins the CURRENT model-driven polling motor.
- *
- * This test asserts implementation details of the polling motor (model-run
- * peek/claim rounds, polling prompts, heartbeat system-token attribution).
- * It is EXPECTED to churn or be replaced when the deterministic motor lands.
- * During the motor rewrite: a failure here is expected noise; a failure in a
- * contract test is a real regression. See tests/MOTOR-CONTRACT.md.
+ * runPi / stream-handling behavior: spawn, timeout-kill, stderr caps,
+ * maxBuffer, and work-round metadata parsing. These survive the motor —
+ * the dispatch motor still spawns pi for work rounds and parses its stream.
  */
 import assert from "node:assert/strict";
 import { after, describe, it } from "node:test";
@@ -16,7 +12,7 @@ import os from "node:os";
 
 import {
   runPi,
-  parsePollingRoundMetadata,
+  parseWorkRoundMetadata,
   extractTokenUsage,
 } from "../dist/installer/agent-scheduler.js";
 
@@ -133,9 +129,9 @@ echo '${cannedMessageEndLine("Hello after big stream", 150)}'
         `Expected assistant text in result, got: "${result.slice(0, 200)}"`,
       );
 
-      // Verify parsePollingRoundMetadata finds the token usage
+      // Verify parseWorkRoundMetadata finds the token usage
       // runPi returns the filtered stdout including JSON events + text fallback
-      const meta = parsePollingRoundMetadata(result);
+      const meta = parseWorkRoundMetadata(result);
       assert.equal(meta.tokenUsage, 150, "tokenUsage should be extracted from message_end");
       assert.ok(meta.assistantOutput.includes("Hello after big stream"));
     } finally {
@@ -146,13 +142,13 @@ echo '${cannedMessageEndLine("Hello after big stream", 150)}'
   // ── AC 2: text-mode output flows through unchanged ──────────────
   it("handles text-mode pi output (no JSON lines)", async () => {
     const fakeScript = createFakePiScript(`
-echo "HEARTBEAT_OK"
+echo "MOCK_PI_OK"
 `);
     process.env.TAMANDUA_PI_BINARY = fakeScript;
 
     try {
       const result = await runPi([], { timeout: 10 });
-      assert.equal(result, "HEARTBEAT_OK");
+      assert.equal(result, "MOCK_PI_OK");
     } finally {
       restoreEnv();
     }
@@ -190,9 +186,9 @@ echo "trailing garbage"
     try {
       const result = await runPi([], { timeout: 10 });
       assert.ok(result.includes("Still works fine"));
-      // parsePollingRoundMetadata should extract the token usage from the
+      // parseWorkRoundMetadata should extract the token usage from the
       // kept JSON events embedded in the filtered stdout
-      const meta = parsePollingRoundMetadata(result);
+      const meta = parseWorkRoundMetadata(result);
       assert.equal(meta.tokenUsage, 200);
     } finally {
       restoreEnv();
@@ -200,7 +196,7 @@ echo "trailing garbage"
   });
 
   // ── Parser integration: token usage extractable ──────────────────
-  it("parsePollingRoundMetadata extracts tokenUsage from filtered output", async () => {
+  it("parseWorkRoundMetadata extracts tokenUsage from filtered output", async () => {
     const fakeScript = createFakePiScript(`
 echo '${cannedMessageUpdateLine("thinking...")}'
 echo '${cannedMessageEndLine("Done", 999)}'
@@ -209,7 +205,7 @@ echo '${cannedMessageEndLine("Done", 999)}'
 
     try {
       const result = await runPi([], { timeout: 10 });
-      const meta = parsePollingRoundMetadata(result);
+      const meta = parseWorkRoundMetadata(result);
       assert.equal(meta.tokenUsage, 999);
       assert.equal(meta.jsonMetadataDetected, true);
       assert.equal(meta.assistantOutput, "Done");
@@ -299,7 +295,7 @@ describe("runPi with real pi binary", () => {
     assert.ok(duration < 120_000, `pi round took ${duration}ms, expected < 120s`);
 
     // Parse metadata
-    const meta = parsePollingRoundMetadata(result);
+    const meta = parseWorkRoundMetadata(result);
 
     // AC 2: tokenUsage > 0
     assert.ok(

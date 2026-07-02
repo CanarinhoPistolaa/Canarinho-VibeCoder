@@ -333,7 +333,7 @@ describe("recoverOrphanedStepsForAgent", () => {
 // Regression: other_output (clean pi exit without STATUS line)
 // ══════════════════════════════════════════════════════════════════════
 
-import { classifyPollingRoundOutcome } from "../dist/installer/agent-scheduler.js";
+import { classifyWorkRoundOutcome } from "../dist/installer/agent-scheduler.js";
 
 describe("other_output recovery (clean pi exit without STATUS)", () => {
   // ── AC 1: other_output triggers recovery of running step ───────
@@ -378,54 +378,54 @@ describe("other_output recovery (clean pi exit without STATUS)", () => {
     }
   });
 
-  // ── AC 2: heartbeat output is NOT classified as other_output ───
-  it("classifyPollingRoundOutcome: heartbeat output is NOT other_output", () => {
-    // The fix must NOT modify heartbeat handling — HEARTBEAT_OK must
-    // remain a no-op. Verify that the classification function returns
-    // "heartbeat", not "other_output".
+  // ── AC 2: claim-race output is NOT classified as other_output ──
+  it("classifyWorkRoundOutcome: NO_WORK_AVAILABLE is NOT other_output", () => {
+    // A work round whose claim raced another worker replies
+    // NO_WORK_AVAILABLE. That must stay a benign no-op ("no_work"), not
+    // "other_output" — other_output triggers orphaned-step recovery.
     assert.equal(
-      classifyPollingRoundOutcome("HEARTBEAT_OK"),
-      "heartbeat",
-      "HEARTBEAT_OK must be classified as heartbeat, not other_output",
+      classifyWorkRoundOutcome("NO_WORK_AVAILABLE"),
+      "no_work",
+      "NO_WORK_AVAILABLE must be classified as no_work, not other_output",
     );
 
     // Also verify with whitespace
     assert.equal(
-      classifyPollingRoundOutcome("  HEARTBEAT_OK  "),
-      "heartbeat",
-      "whitespace-padded HEARTBEAT_OK must still be heartbeat",
+      classifyWorkRoundOutcome("  NO_WORK_AVAILABLE  "),
+      "no_work",
+      "whitespace-padded NO_WORK_AVAILABLE must still be no_work",
     );
 
     // STATUS: done is NOT other_output
     assert.equal(
-      classifyPollingRoundOutcome("STATUS: done\nCHANGES: foo"),
+      classifyWorkRoundOutcome("STATUS: done\nCHANGES: foo"),
       "work_done",
       "STATUS: done must be classified as work_done, not other_output",
     );
 
     // STATUS: fail is NOT other_output
     assert.equal(
-      classifyPollingRoundOutcome("STATUS: fail\nREASON: timeout"),
+      classifyWorkRoundOutcome("STATUS: fail\nREASON: timeout"),
       "work_failed",
       "STATUS: fail must be classified as work_failed, not other_output",
     );
   });
 
   // ── AC 3: Clean exit output without STATUS is other_output ─────
-  it("classifyPollingRoundOutcome: clean exit output without STATUS is other_output", () => {
+  it("classifyWorkRoundOutcome: clean exit output without STATUS is other_output", () => {
     // This is the exact scenario from the bug report: pi produced a lot
     // of text but never emitted STATUS: done/fail/retry.
     const verifierOutput = "Code checks are comprehensive. Now for visual verification since this has frontend changes. Let me spin up the dev server and inspect.";
 
     assert.equal(
-      classifyPollingRoundOutcome(verifierOutput),
+      classifyWorkRoundOutcome(verifierOutput),
       "other_output",
       "output without STATUS line or HEARTBEAT_OK must be classified as other_output",
     );
 
     // Empty output is NOT other_output
     assert.equal(
-      classifyPollingRoundOutcome(""),
+      classifyWorkRoundOutcome(""),
       "empty_output",
       "empty output must be classified as empty_output, not other_output",
     );

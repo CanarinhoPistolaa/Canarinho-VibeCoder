@@ -13,9 +13,6 @@ description: |
 
   If just-do-it is itself launched as no-hurry, the dispatched workflow
   will always be no-hurry regardless of the user prompt content.
-polling:
-  model: default
-  timeoutSeconds: 120
 
 agents:
   - id: dispatcher
