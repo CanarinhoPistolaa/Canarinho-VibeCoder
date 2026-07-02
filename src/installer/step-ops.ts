@@ -1228,11 +1228,11 @@ export function completeStep(stepId: string, output: string): { status: string; 
   const db = getDb();
 
   const step = db.prepare(
-    "SELECT id, run_id, step_id, step_index, type, loop_config, current_story_id, expects, input_template FROM steps WHERE id = ?"
+    "SELECT id, run_id, step_id, step_index, type, loop_config, current_story_id, expects, input_template, status FROM steps WHERE id = ?"
   ).get(stepId) as {
     id: string; run_id: string; step_id: string; step_index: number; type: string;
     loop_config: string | null; current_story_id: string | null; expects: string;
-    input_template: string | null;
+    input_template: string | null; status: string;
   } | undefined;
 
   if (!step) throw new Error(`Step not found: ${stepId}`);
@@ -1242,6 +1242,17 @@ export function completeStep(stepId: string, output: string): { status: string; 
   const runCheck = db.prepare("SELECT status FROM runs WHERE id = ?").get(runId) as { status: string } | undefined;
   if (runCheck?.status === "failed" || runCheck?.status === "canceled") {
     return { status: "blocked" };
+  }
+
+  // Guard: duplicate completion. Delivery is at-least-once (agent CLI
+  // retries, orphan-recovery reclaim races, duplicate polling rounds), so a
+  // completion can arrive for a step that already reached a terminal
+  // status. Re-processing would re-merge context, re-insert STORIES_JSON
+  // stories, and re-advance the pipeline. Steps still 'running' — or reset
+  // to 'pending' by the stale-claim sweeper — ARE processed: late work is
+  // valid work.
+  if (step.status === "done" || step.status === "failed" || step.status === "skipped") {
+    return { status: "blocked", detail: `step already ${step.status}` };
   }
 
   // Validate output against the expects column before accepting the step

@@ -49,7 +49,10 @@ interpretable.
 
 - **C5** Each pending step is executed exactly once at a time: concurrent
   dispatch attempts (timer tick + nudge, two claimants) must not double-run a
-  step (in-flight guards, claim atomicity).
+  step (in-flight guards, claim atomicity), and duplicate completions
+  (at-least-once delivery) must be no-ops. Late completions after a
+  stale-claim sweep ARE accepted — the work was done. Pinned by
+  `tests/step-ops-dispatch-races.test.ts`.
 - **C6** Idle agents (no pending step) cause no state changes.
 - **C7** `nudge` (control plane) triggers immediate dispatch consideration
   for all scheduled agents of running runs.
@@ -156,7 +159,15 @@ Notes on near-misses that are **contract**, not mechanism:
 - Control-plane, daemon, dashboard, CLI, installer, www tests — untouched by
   the motor swap.
 
-## Quirks the scripted tier exposed (2026-07-02) — both fixed same day
+## Quirks this test campaign exposed (2026-07-02) — all fixed same day
+
+- `completeStep` had no duplicate-completion guard: a completion arriving
+  for a step already `done` (agent CLI retry, orphan-recovery reclaim race)
+  re-merged context, re-inserted STORIES_JSON stories, and re-advanced the
+  pipeline. Rarely hit under the slow polling motor; a fast deterministic
+  dispatcher would hit it. FIXED: terminal-status steps return
+  `{ status: "blocked" }`; running/pending steps still complete normally.
+  Regression: `tests/step-ops-dispatch-races.test.ts`.
 
 - The polling prompt instructed `node "<cli>" ...` while
   `resolveTamanduaCli()` returns the `bin/tamandua` **shell** script;
