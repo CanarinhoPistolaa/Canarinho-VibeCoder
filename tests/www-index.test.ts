@@ -407,10 +407,10 @@ describe("www/index.html structure", () => {
 
   // ── US-005: Feature Cards with Icons ─────────────────────────────────
 
-  it("feature cards have emoji icons", () => {
+  it("feature cards have emoji icons (5 cards)", () => {
     const featureIcons = (html.match(/class="feature-icon"/g) || []).length;
-    assert.ok(featureIcons === 4,
-      `should have 4 .feature-icon elements, got ${featureIcons}`);
+    assert.ok(featureIcons === 5,
+      `should have 5 .feature-icon elements, got ${featureIcons}`);
     // Each icon should have aria-hidden="true"
     assert.ok(
       /<span[^>]*class="feature-icon"[^>]*aria-hidden="true"/.test(html),
@@ -488,11 +488,11 @@ describe("www/index.html structure", () => {
     );
   });
 
-  it("why-list has exactly 4 list items", () => {
+  it("why-list has exactly 5 list items", () => {
     const whyList = html.match(/<ol\s+class="why-list"[^>]*>[\s\S]*?<\/ol>/)?.[0] || "";
     const liCount = (whyList.match(/<li\b/g) || []).length;
-    assert.ok(liCount === 4,
-      `why-list should have exactly 4 li items, got ${liCount}`);
+    assert.ok(liCount === 5,
+      `why-list should have exactly 5 li items, got ${liCount}`);
   });
 
   // ── US-006: Footer Enhancements ─────────────────────────────────────

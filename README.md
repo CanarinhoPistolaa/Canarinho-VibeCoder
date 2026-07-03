@@ -230,6 +230,7 @@ $ tamandua workflow install --all
 - **Agents verify each other** — The developer doesn't mark their own homework. A separate verifier checks every story against acceptance criteria.
 - **Fresh context, every step** — Each agent gets a clean session. No context window bloat. No hallucinated state from 50 messages ago.
 - **Retry and escalate** — Failed steps retry automatically. If retries exhaust, it escalates to you. Nothing fails silently.
+- **Zero tokens when idle** — Checking for work is a database peek, not a model call; agents spawn only when a step is ready, and completion nudges make step-to-step latency near zero. The old polling motor measured roughly 30% token overhead; the new motor: zero.
 
 ---
 
@@ -249,6 +250,8 @@ flowchart LR
     DB --> Dashboard["Dashboard :3334<br/>Kanban + AutoResearch panels"]
     DB --> MCP["Remote MCP :3338<br/>14 tools"]
 ```
+
+The motor's invariants are pinned by an engineering contract with acceptance tests and real-model baselines: [tests/MOTOR-CONTRACT.md](tests/MOTOR-CONTRACT.md).
 
 ### Minimal by design
 
