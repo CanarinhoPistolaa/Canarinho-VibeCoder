@@ -482,6 +482,94 @@ describe("scripted-agent full pipeline (real daemon/scheduler, zero tokens)", { 
   );
 
   it(
+    "do-now: daemon SIGKILL'd mid-work — restarted daemon recovers the step and completes the run (C18)",
+    { timeout: 120_000 },
+    async () => {
+      let ctx: ScriptedRunContext | undefined;
+      let daemon2: ChildProcess | undefined;
+      try {
+        // Round 1 claims then hangs so we can kill the daemon with the step
+        // running and a worker in flight; round 2 completes after recovery.
+        ctx = await startScriptedEnvironment("do-now", {
+          agents: {
+            doer: [
+              { mode: "hang-after-claim" },
+              { output: "STATUS: done\nREPORT: completed after the daemon was killed" },
+            ],
+          },
+        });
+        const workdir = path.join(ctx.env.root, "do-now-workdir");
+        fs.mkdirSync(workdir, { recursive: true });
+
+        const runIdPrefix = await spawnWorkflowRun(
+          ["workflow", "run", "do-now", "Report the current date", "--working-directory-for-harness", workdir],
+          baseEnv(ctx.env.homeDir, ctx.env.controlPort),
+        );
+        const runId = resolveFullRunId(runIdPrefix, ctx.env.tamanduaDir);
+
+        // Wait until the step is claimed (running) by the hanging worker.
+        const claimDeadline = Date.now() + 30_000;
+        for (;;) {
+          const step = dbRow<{ status: string } | undefined>(
+            ctx.env.tamanduaDir,
+            "SELECT status FROM steps WHERE run_id = ?",
+            runId,
+          );
+          if (step?.status === "running") break;
+          if (Date.now() > claimDeadline) {
+            throw new Error(`step never reached running before daemon kill\n${diagnostics(ctx)}`);
+          }
+          await new Promise((resolve) => setTimeout(resolve, 250));
+        }
+
+        // Hard-kill the daemon: no shutdown handler runs, no children are
+        // cleaned up — exactly a crash/reboot. Then kill the orphaned
+        // hanging worker ourselves so the test doesn't leak it (its
+        // claim_pid — the dead daemon — is what recovery keys on).
+        ctx.daemon.kill("SIGKILL");
+        await new Promise((resolve) => setTimeout(resolve, 500));
+        for (const inv of ctx.scripted.readInvocations()) {
+          if (typeof inv.pid === "number") {
+            try { process.kill(inv.pid, "SIGKILL"); } catch { /* already gone */ }
+          }
+        }
+
+        // Fresh daemon, same state: its reconciler's dead-worker sweep
+        // must requeue the step within seconds — NOT the 45-minute
+        // age-based threshold — and the run must complete.
+        daemon2 = await startIsolatedDaemon(
+          ctx.env.dashboardPort,
+          ctx.env.homeDir,
+          ctx.env.controlPort,
+          ctx.scripted.env,
+        );
+
+        const status = await waitForRun(ctx, runId, 60_000);
+        assert.ok(
+          status === "completed" || status === "done",
+          `run should complete after daemon crash recovery, got "${status}"\n${diagnostics(ctx)}`,
+        );
+
+        const workRounds = ctx.scripted.workInvocations("doer");
+        assert.equal(
+          workRounds.length,
+          2,
+          `doer should run twice (killed round + recovery round), got ${workRounds.length}\n${diagnostics(ctx)}`,
+        );
+      } finally {
+        if (daemon2) {
+          try {
+            await stopIsolatedDaemon(daemon2);
+          } catch {
+            // best-effort
+          }
+        }
+        await teardown(ctx);
+      }
+    },
+  );
+
+  it(
     "do-now: agent process dying after claim is recovered and retried",
     { timeout: 120_000 },
     async () => {

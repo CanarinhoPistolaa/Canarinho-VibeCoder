@@ -1,9 +1,12 @@
 /**
  * Tests for restartDaemon — stop + start lifecycle.
  *
- * Isolated via temporary HOME directories; never touches live state.
+ * Fully isolated: temporary HOME per test, a random dashboard port per
+ * test, and a random control-plane port per test (the spawned daemon binds
+ * one too). No default ports, no escape hatches — a port collision here is
+ * a bug, not an environmental condition.
  */
-import { describe, it } from "node:test";
+import { describe, it, beforeEach, afterEach } from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import http from "node:http";
@@ -22,7 +25,6 @@ import {
   readPort,
   writePort,
   getPidFile,
-  getPortFile,
 } from "../../dist/server/daemonctl.js";
 
 // ── Helpers ────────────────────────────────────────────────────────
@@ -59,6 +61,18 @@ async function waitForHttpUp(url: string, timeoutMs = 10_000): Promise<void> {
 // ── Tests ──────────────────────────────────────────────────────────
 
 describe("daemonctl restartDaemon", { concurrency: 1 }, () => {
+  // Each spawned daemon binds a control plane too — isolate it per test so
+  // the suite never touches the production control port (3339).
+  let savedControlPort: string | undefined;
+  beforeEach(async () => {
+    savedControlPort = process.env.TAMANDUA_CONTROL_PORT;
+    process.env.TAMANDUA_CONTROL_PORT = String(await getAvailablePort());
+  });
+  afterEach(() => {
+    if (savedControlPort === undefined) delete process.env.TAMANDUA_CONTROL_PORT;
+    else process.env.TAMANDUA_CONTROL_PORT = savedControlPort;
+  });
+
   it("restartDaemon is exported and callable — returns { pid, port }", async (t) => {
     if (!fs.existsSync(DAEMON_SCRIPT)) {
       t.skip("daemon.js not found — run npm run build first");
@@ -68,32 +82,14 @@ describe("daemonctl restartDaemon", { concurrency: 1 }, () => {
     const port = await getAvailablePort();
     const tempHome = createTempHome();
     try {
-      stopDaemon({ homeDir: tempHome });
-
-      let result: { pid: number; port: number };
-      try {
-        result = await restartDaemon(port, { homeDir: tempHome });
-      } catch (err) {
-        const msg = err instanceof Error ? err.message : String(err);
-        if (msg.includes("Failed to start control plane") || msg.includes("EADDRINUSE")) {
-          // Environmental: control plane port conflict with running instance.
-          return;
-        }
-        throw err;
-      }
+      const result = await restartDaemon(port, { homeDir: tempHome });
 
       assert.equal(typeof result.pid, "number");
       assert.ok(result.pid > 0, "pid should be a positive number");
       assert.equal(typeof result.port, "number");
       assert.equal(result.port, port, "port should match the requested port");
 
-      // Verify daemon is reachable (may fail if daemon exited due to
-      // control plane port conflict after PID file was written)
-      try {
-        await waitForHttpUp(`http://127.0.0.1:${port}/`);
-      } catch {
-        // Daemon may have exited — restartDaemon itself returned ok.
-      }
+      await waitForHttpUp(`http://127.0.0.1:${port}/`);
     } finally {
       try { stopDaemon({ homeDir: tempHome }); } catch {}
       fs.rmSync(tempHome, { recursive: true, force: true });
@@ -109,30 +105,15 @@ describe("daemonctl restartDaemon", { concurrency: 1 }, () => {
     const port = await getAvailablePort();
     const tempHome = createTempHome();
     try {
-      stopDaemon({ homeDir: tempHome });
-
-      // Start a daemon first
-      let firstPid: number;
-      try {
-        const first = await startDaemon(port, { homeDir: tempHome });
-        firstPid = first.pid;
-        assert.ok(firstPid > 0);
-      } catch (err) {
-        const msg = err instanceof Error ? err.message : String(err);
-        if (msg.includes("Failed to start control plane") || msg.includes("EADDRINUSE")) {
-          // Environmental skip — control plane port is in use
-          return;
-        }
-        throw err;
-      }
+      const first = await startDaemon(port, { homeDir: tempHome });
+      assert.ok(first.pid > 0);
 
       await waitForHttpUp(`http://127.0.0.1:${port}/`);
 
-      // Restart
       const result = await restartDaemon(port, { homeDir: tempHome });
       assert.ok(result.pid > 0, "restartDaemon should return a valid PID");
       assert.equal(result.port, port);
-      assert.notEqual(result.pid, firstPid, "restartDaemon should spawn a new process with a different PID");
+      assert.notEqual(result.pid, first.pid, "restartDaemon should spawn a new process with a different PID");
 
       // Dashboard should be reachable on the same port
       await waitForHttpUp(`http://127.0.0.1:${port}/`);
@@ -140,14 +121,7 @@ describe("daemonctl restartDaemon", { concurrency: 1 }, () => {
       // Verify the pid file has the new PID
       const after = isRunning({ homeDir: tempHome });
       assert.equal(after.running, true);
-      assert.equal(after.pid, result.pid);
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      if (msg.includes("Failed to start control plane") || msg.includes("EADDRINUSE")) {
-        try { stopDaemon({ homeDir: tempHome }); } catch {}
-      } else {
-        throw err;
-      }
+      assert.equal((after as { running: true; pid: number }).pid, result.pid);
     } finally {
       try { stopDaemon({ homeDir: tempHome }); } catch {}
       fs.rmSync(tempHome, { recursive: true, force: true });
@@ -163,23 +137,12 @@ describe("daemonctl restartDaemon", { concurrency: 1 }, () => {
     const port = await getAvailablePort();
     const tempHome = createTempHome();
     try {
-      stopDaemon({ homeDir: tempHome });
-
-      // Write a port to the port file
       writePort(port, { homeDir: tempHome });
       assert.equal(readPort({ homeDir: tempHome }), port);
 
-      // Restart without specifying port — should use stored port
       const result = await restartDaemon(undefined, { homeDir: tempHome });
       assert.equal(result.port, port, "should use the stored port when no port arg given");
       assert.ok(result.pid > 0);
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      if (msg.includes("Failed to start control plane") || msg.includes("EADDRINUSE")) {
-        try { stopDaemon({ homeDir: tempHome }); } catch {}
-      } else {
-        throw err;
-      }
     } finally {
       try { stopDaemon({ homeDir: tempHome }); } catch {}
       fs.rmSync(tempHome, { recursive: true, force: true });
@@ -194,30 +157,13 @@ describe("daemonctl restartDaemon", { concurrency: 1 }, () => {
 
     const storedPort = await getAvailablePort();
     const explicitPort = await getAvailablePort();
-    // Ensure ports are different
-    if (explicitPort === storedPort) {
-      t.skip("Could not get two distinct ports");
-      return;
-    }
-
     const tempHome = createTempHome();
     try {
-      stopDaemon({ homeDir: tempHome });
-
-      // Write a different port to the port file
       writePort(storedPort, { homeDir: tempHome });
 
-      // Restart with explicit port — should use explicit port, not stored
       const result = await restartDaemon(explicitPort, { homeDir: tempHome });
-      assert.equal(result.port, explicitPort, "explicit --port should override stored port file");
+      assert.equal(result.port, explicitPort, "explicit port should override stored port file");
       assert.ok(result.pid > 0);
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      if (msg.includes("Failed to start control plane") || msg.includes("EADDRINUSE")) {
-        try { stopDaemon({ homeDir: tempHome }); } catch {}
-      } else {
-        throw err;
-      }
     } finally {
       try { stopDaemon({ homeDir: tempHome }); } catch {}
       fs.rmSync(tempHome, { recursive: true, force: true });
@@ -233,39 +179,18 @@ describe("daemonctl restartDaemon", { concurrency: 1 }, () => {
     const port = await getAvailablePort();
     const tempHome = createTempHome();
     try {
-      stopDaemon({ homeDir: tempHome });
+      const first = await startDaemon(port, { homeDir: tempHome });
+      await waitForHttpUp(`http://127.0.0.1:${port}/`);
 
-      let firstPid: number;
-      try {
-        const first = await startDaemon(port, { homeDir: tempHome });
-        firstPid = first.pid;
-      } catch (err) {
-        const msg = err instanceof Error ? err.message : String(err);
-        if (msg.includes("Failed to start control plane") || msg.includes("EADDRINUSE")) {
-          return;
-        }
-        throw err;
-      }
-
-      // Verify PID file has first PID
-      const pidFile = getPidFile({ homeDir: tempHome });
-      assert.ok(fs.existsSync(pidFile));
-      assert.equal(parseInt(fs.readFileSync(pidFile, "utf-8").trim(), 10), firstPid);
-
-      // Restart
       const result = await restartDaemon(port, { homeDir: tempHome });
 
-      // PID file should have new PID
-      assert.ok(fs.existsSync(pidFile));
-      assert.equal(parseInt(fs.readFileSync(pidFile, "utf-8").trim(), 10), result.pid);
-      assert.notEqual(result.pid, firstPid);
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      if (msg.includes("Failed to start control plane") || msg.includes("EADDRINUSE")) {
-        try { stopDaemon({ homeDir: tempHome }); } catch {}
-      } else {
-        throw err;
-      }
+      const pidFileContents = fs.readFileSync(getPidFile({ homeDir: tempHome }), "utf-8").trim();
+      assert.equal(
+        Number(pidFileContents),
+        result.pid,
+        "pid file should contain the NEW daemon's pid, not the stopped one",
+      );
+      assert.notEqual(Number(pidFileContents), first.pid);
     } finally {
       try { stopDaemon({ homeDir: tempHome }); } catch {}
       fs.rmSync(tempHome, { recursive: true, force: true });
@@ -273,9 +198,6 @@ describe("daemonctl restartDaemon", { concurrency: 1 }, () => {
   });
 
   it("restartDaemon return type is Promise<{ pid: number; port: number }>", () => {
-    // Type-level check: if restartDaemon were not exported or had a different
-    // return type, this import would fail at the module level. This test just
-    // confirms the function is callable.
     assert.equal(typeof restartDaemon, "function");
   });
 });

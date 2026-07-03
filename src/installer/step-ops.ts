@@ -787,6 +787,75 @@ export function recoverOrphanedStepsForAgent(
   return { recovered, failed, skipped };
 }
 
+/**
+ * Recover running steps whose claiming worker process is dead.
+ *
+ * A daemon crash/kill (machine reboot, OOM, SIGKILL, an agent stopping the
+ * daemon) orphans in-flight steps: they sit at status='running' with a
+ * claim_pid that no longer exists, invisible to peek-based dispatch, and
+ * the age-based stale sweep only reclaims them after 1.5× the step timeout
+ * (up to 45 minutes). This sweep detects the dead worker directly and
+ * requeues immediately. Called from the daemon reconciler (first tick ~1s
+ * after startup, then every cycle), so a restarted daemon un-wedges
+ * interrupted runs right away (MOTOR-CONTRACT.md C18).
+ *
+ * Steps without claim_pid (legacy/manual claims) are left to the age-based
+ * sweep — liveness can't be determined for them. Pid reuse can make a dead
+ * worker look alive; that also falls back to the age-based sweep.
+ */
+export function recoverStepsWithDeadWorkers(): {
+  recovered: number;
+  failed: number;
+  skipped: number;
+  runIds: string[];
+} {
+  const db = getDb();
+  const steps = db.prepare(
+    `SELECT s.id, s.agent_id, s.run_id, s.claim_pid, s.claim_job_id
+     FROM steps s
+     JOIN runs r ON r.id = s.run_id
+     WHERE s.status = 'running'
+       AND s.claim_pid IS NOT NULL
+       AND r.status = 'running'`,
+  ).all() as {
+    id: string;
+    agent_id: string;
+    run_id: string;
+    claim_pid: number;
+    claim_job_id: string | null;
+  }[];
+
+  const totals = { recovered: 0, failed: 0, skipped: 0, runIds: [] as string[] };
+
+  for (const step of steps) {
+    let workerAlive = true;
+    try {
+      process.kill(step.claim_pid, 0);
+    } catch (err) {
+      // ESRCH → dead. EPERM → alive but not ours (leave it alone).
+      workerAlive = (err as NodeJS.ErrnoException).code !== "ESRCH";
+    }
+    if (workerAlive) continue;
+
+    const result = recoverOrphanedStepsForAgent(
+      step.agent_id,
+      step.run_id,
+      undefined,
+      undefined,
+      `Worker process ${step.claim_pid} died without reporting (daemon restart or crash); step requeued.`,
+      step.claim_job_id ?? undefined,
+    );
+    totals.recovered += result.recovered;
+    totals.failed += result.failed;
+    totals.skipped += result.skipped;
+    if ((result.recovered > 0 || result.failed > 0) && !totals.runIds.includes(step.run_id)) {
+      totals.runIds.push(step.run_id);
+    }
+  }
+
+  return totals;
+}
+
 // ══════════════════════════════════════════════════════════════════════
 // Frontend Change Detection
 // ══════════════════════════════════════════════════════════════════════

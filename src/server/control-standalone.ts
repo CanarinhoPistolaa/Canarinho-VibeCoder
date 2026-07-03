@@ -16,6 +16,7 @@
  * - Cleans up PID and port files on exit (only if PID matches own process)
  */
 import fs from "node:fs";
+import { assertPortIsolation } from "../lib/test-guard.js";
 import path from "node:path";
 import os from "node:os";
 import http from "node:http";
@@ -157,6 +158,7 @@ async function bootstrap(): Promise<void> {
 
       server.once("error", onError);
       server.once("listening", onListening);
+      assertPortIsolation(port, "standalone control plane");
       server.listen(port, "127.0.0.1");
 
       controlServer = server;

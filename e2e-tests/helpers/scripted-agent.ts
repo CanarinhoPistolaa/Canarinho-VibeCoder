@@ -38,13 +38,15 @@ export interface ScriptedBehavior {
   /**
    * "work" (default): claim, apply edits/writes/commands, step complete.
    * "hang": never respond (exercises the scheduler timeout-kill path).
+   * "hang-after-claim": claim, then hang — the step sits 'running' with
+   *   recorded WorkerOwnership (exercises daemon-crash recovery, C18).
    * "die-before-claim": exit non-zero before claiming.
    * "die-after-claim": claim (and apply edits) then exit without reporting.
    * "no-status": claim, apply behavior, emit output WITHOUT step complete
    *   and without a STATUS marker (the lost/abandoned step case).
    * "garbage": emit non-JSON garbage and exit 0.
    */
-  mode?: "work" | "hang" | "die-before-claim" | "die-after-claim" | "no-status" | "garbage";
+  mode?: "work" | "hang" | "hang-after-claim" | "die-before-claim" | "die-after-claim" | "no-status" | "garbage";
   /** Find/replace edits applied in the harness workdir before reporting. */
   edits?: ScriptedEdit[];
   /** Files written (created/overwritten) in the harness workdir. */

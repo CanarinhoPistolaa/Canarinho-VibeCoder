@@ -26,6 +26,10 @@ const BASE_ENV_KEYS = [
   // value (explicit overrides win over the passthrough).
   "TAMANDUA_PI_BINARY",
   "TAMANDUA_HERMES_BINARY",
+  // Isolation guard: npm test sets TAMANDUA_TEST_GUARD=1 so any spawned
+  // daemon/script that reaches the real ~/.tamandua or a production port
+  // fails loudly instead of silently interfering with the live instance.
+  "TAMANDUA_TEST_GUARD",
 ];
 
 export function cleanChildEnv(

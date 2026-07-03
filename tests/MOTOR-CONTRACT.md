@@ -37,6 +37,11 @@ token overhead on real runs (see the historical baselines at the bottom).
 
 ### Dispatch
 
+- **C0-binary** Work spawns resolve the harness binary PER INVOCATION:
+  `TAMANDUA_PI_BINARY` env override (config/test seam) → `pi-token-saver`
+  from PATH when the run is no-hurry (`--no-hurry-please-save-tokens-mode`)
+  → `pi` from PATH. Installing pi-token-saver mid-run takes effect on the
+  next round. Pinned by `tests/pi-token-saver.test.ts`.
 - **C5** Each pending step is executed exactly once at a time: concurrent
   dispatch attempts (timer tick + nudge, two claimants) must not double-run a
   step (in-flight guards, claim atomicity), and duplicate completions
@@ -85,6 +90,17 @@ baseline assertions.
   user-initiated terminate/pause/cancel of an active run kills immediately.
 - **C13** Scheduling state is reconstructable from the DB (daemon restart
   reconciles jobs from `runs.scheduling_status`).
+- **C18** Steps claimed by DEAD workers are requeued promptly: the daemon
+  reconciler sweeps `running` steps whose `claim_pid` no longer exists
+  (first tick ~1 s after startup, then every cycle) and nudges the affected
+  runs. A daemon crash/reboot/kill therefore un-wedges interrupted runs in
+  seconds — not the 1.5×timeout age threshold (up to 45 min), and never
+  "forever" when no dispatch was running. Pinned by
+  `tests/dead-worker-recovery.test.ts` and the scripted e2e
+  daemon-SIGKILL test. Relatedly, `stopDaemon`/`stopMcp`/`stopControlPlane`
+  refuse to signal the daemon named by TAMANDUA_WORKER_PID — an agent can
+  no longer stop the very daemon scheduling it
+  (`src/server/daemonctl-self-stop-guard.test.ts`).
 
 ### Token accounting
 

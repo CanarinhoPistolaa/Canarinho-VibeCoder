@@ -170,6 +170,31 @@ function canSignalPid(pid: number, opts?: DaemonctlPathOptions): boolean {
   return !opts?.homeDir || processHomeMatches(pid, opts.homeDir);
 }
 
+/**
+ * Guard: refuse to signal the daemon that is scheduling the CURRENT agent.
+ *
+ * Tamandua agents inherit the daemon's environment, including
+ * TAMANDUA_WORKER_PID (the scheduling daemon's own pid). An agent working
+ * on daemon-lifecycle features that runs `tamandua dashboard stop` (or
+ * restart) with the real HOME would therefore SIGTERM the very daemon
+ * dispatching it — the dying daemon then kills the agent mid-restart and
+ * strands the run. Lifecycle testing from inside a run must target an
+ * isolated instance instead.
+ */
+function assertNotSchedulingDaemon(targetPid: number, what: string): void {
+  const workerPid = Number(process.env.TAMANDUA_WORKER_PID ?? "");
+  if (Number.isInteger(workerPid) && workerPid > 0 && workerPid === targetPid) {
+    throw new Error(
+      `Refusing to stop the ${what} (pid ${targetPid}): it is the daemon scheduling ` +
+        `the current tamandua agent run (TAMANDUA_WORKER_PID matches). Stopping it ` +
+        `would kill this agent and strand the run. To exercise daemon lifecycle from ` +
+        `inside a run, start an ISOLATED instance: point HOME/TAMANDUA_STATE_DIR at a ` +
+        `temp directory and use non-default ports (TAMANDUA_CONTROL_PORT plus a custom ` +
+        `dashboard/MCP port), then stop/restart that instance.`,
+    );
+  }
+}
+
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
@@ -392,6 +417,7 @@ export function stopDaemon(opts?: DaemonctlPathOptions): boolean {
   const status = isRunning(opts);
   if (!status.running) return false;
   if (!canSignalPid(status.pid, opts)) return false;
+  assertNotSchedulingDaemon(status.pid, "dashboard daemon");
 
   try {
     process.kill(status.pid, "SIGTERM");
@@ -625,6 +651,7 @@ export function stopMcp(opts?: DaemonctlPathOptions): boolean {
   const status = isMcpRunning(opts);
   if (!status.running) return false;
   if (!canSignalPid(status.pid, opts)) return false;
+  assertNotSchedulingDaemon(status.pid, "MCP server");
 
   try {
     process.kill(status.pid, "SIGTERM");
@@ -916,6 +943,7 @@ export function stopControlPlane(opts?: DaemonctlPathOptions): boolean {
   const status = isControlPlaneRunning(opts);
   if (!status.running) return false;
   if (!canSignalPid(status.pid, opts)) return false;
+  assertNotSchedulingDaemon(status.pid, "control plane");
 
   try {
     process.kill(status.pid, "SIGTERM");

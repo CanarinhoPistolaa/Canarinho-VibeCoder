@@ -12,7 +12,7 @@
   "scripts": {
     "build": "tsc -p tsconfig.json && cp src/server/index.html dist/server/index.html && cp src/server/kanban.html dist/server/kanban.html && chmod +x dist/cli/cli.js && chmod +x dist/server/mcp-standalone.js && node scripts/inject-version.js && rm -rf dist/www && cp -r www dist/www",
     "start": "node dist/cli/cli.js",
-    "test": "TAMANDUA_PI_BINARY=/bin/false node --test tests/*.test.ts src/**/*.test.ts",
+    "test": "TAMANDUA_TEST_GUARD=1 TAMANDUA_PI_BINARY=/bin/false node --test tests/*.test.ts src/**/*.test.ts",
     "//": "Tests are intentionally parallel-safe: they use isolated HOME/TAMANDUA_STATE_DIR temp dirs per test, reserveRandomPort() for port allocation, and avoid shared fixed ports (3334/3338/3339) except where explicitly testing production defaults. Real CLI defaults remain 3334 (dashboard), 3338 (MCP), 3339 (control plane). TAMANDUA_PI_BINARY=/bin/false guarantees no unit test can ever spawn a real model, even when a test-started daemon dispatches work — the deterministic motor dispatches within seconds, so an unpinned harness binary would otherwise find real pi on PATH. Tests that need a harness set their own fake TAMANDUA_PI_BINARY (the key passes through cleanChildEnv)."
   },
   "dependencies": {

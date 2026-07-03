@@ -27,8 +27,8 @@
  * so tests can assert exactly how many rounds ran, which agents did work, and
  * what each round observed.
  *
- * Chaos modes (behavior.mode): "work" (default), "hang", "die-before-claim",
- * "die-after-claim", "no-status", "garbage".
+ * Chaos modes (behavior.mode): "work" (default), "hang", "hang-after-claim",
+ * "die-before-claim", "die-after-claim", "no-status", "garbage".
  */
 
 import { spawnSync } from "node:child_process";
@@ -283,6 +283,14 @@ function runWorkRound() {
   // the daemon tears down crons and SIGTERMs this process group, so any
   // bookkeeping after that call may never happen.
   logInvocation({ ...work, stepId, note: "claimed" });
+
+  if (mode === "hang-after-claim") {
+    // Step is now 'running' with this round's WorkerOwnership recorded —
+    // hold the event loop so tests can crash the daemon mid-work.
+    logInvocation({ ...work, phase: "result", stepId, ok: false, note: "hanging after claim until killed" });
+    setInterval(() => {}, 1 << 30);
+    return;
+  }
 
   const failStep = (reason) => {
     logInvocation({ ...work, phase: "result", stepId, ok: false, note: reason.slice(0, 500) });

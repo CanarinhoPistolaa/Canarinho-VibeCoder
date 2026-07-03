@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import os from "node:os";
+import { assertStatePathIsolation } from "./lib/test-guard.js";
 
 let _db: DatabaseSync | null = null;
 let _dbOpenedAt = 0;
@@ -39,6 +40,7 @@ export function getDb(): DatabaseSync {
     _db = null;
   }
 
+  assertStatePathIsolation(dbPath, "getDb()");
   fs.mkdirSync(path.dirname(dbPath), { recursive: true });
   _db = new DatabaseSync(dbPath);
   _dbPath = dbPath;

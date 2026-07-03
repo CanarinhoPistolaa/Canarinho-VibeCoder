@@ -24,6 +24,7 @@ import path from "node:path";
 import os from "node:os";
 import crypto from "node:crypto";
 import { logger } from "../lib/logger.js";
+import { assertPortIsolation } from "../lib/test-guard.js";
 import { getDb } from "../db.js";
 import { emitEvent } from "../installer/events.js";
 import { validateRunHarnessForScheduling } from "../installer/run-harness.js";
@@ -734,8 +735,10 @@ export function createControlServer(options: ControlServerOptions = {}): http.Se
   });
 
   if (options.listen !== false) {
-    server.listen(options.port ?? getControlPort(), "127.0.0.1", () => {
-      logger.info("control-server: listening", { port: options.port ?? getControlPort() });
+    const listenPort = options.port ?? getControlPort();
+    assertPortIsolation(listenPort, "control plane");
+    server.listen(listenPort, "127.0.0.1", () => {
+      logger.info("control-server: listening", { port: listenPort });
     });
   }
 
@@ -745,6 +748,7 @@ export function createControlServer(options: ControlServerOptions = {}): http.Se
 export async function startControlServer(options: ControlServerOptions = {}): Promise<http.Server> {
   const server = createControlServer({ ...options, listen: false });
   const port = options.port ?? getControlPort();
+  assertPortIsolation(port, "control plane");
 
   await new Promise<void>((resolve, reject) => {
     const onError = (err: NodeJS.ErrnoException) => {
@@ -789,6 +793,29 @@ export function startReconciler(): { stop: () => void } {
     if (stopped) return;
     try {
       const db = getDb();
+
+      // ── Dead-worker sweep (MOTOR-CONTRACT.md C18) ────────────────
+      // A previous daemon may have died (crash, reboot, kill) with work
+      // rounds in flight, leaving steps 'running' under dead workers.
+      // Requeue them now instead of waiting out the age-based stale
+      // threshold (up to 45 minutes). First tick runs ~1s after startup.
+      let deadWorkerRunIds: string[] = [];
+      try {
+        const { recoverStepsWithDeadWorkers } = await import("../installer/step-ops.js");
+        const sweep = recoverStepsWithDeadWorkers();
+        if (sweep.recovered > 0 || sweep.failed > 0) {
+          deadWorkerRunIds = sweep.runIds;
+          logger.info("control-server: recovered steps claimed by dead workers", {
+            recovered: sweep.recovered,
+            failed: sweep.failed,
+            skipped: sweep.skipped,
+            runIds: sweep.runIds,
+          });
+        }
+      } catch (err) {
+        logger.warn("control-server: dead-worker sweep failed", { error: String(err) });
+      }
+
       const desired = db
         .prepare(
           `SELECT id, workflow_id, status, scheduling_status, context, created_at
@@ -807,6 +834,13 @@ export function startReconciler(): { stop: () => void } {
         if (run.scheduling_status === "active" && _hasRunScheduled(run.id)) continue;
         // Re-admit pending/error/missing runs.
         await handleRegisterRun(run.id).catch(() => {});
+      }
+
+      // Dispatch requeued steps immediately — their runs' jobs exist now
+      // that admission ran above.
+      if (deadWorkerRunIds.length > 0) {
+        const { nudgeScheduledRuns } = await import("../installer/agent-scheduler.js");
+        await nudgeScheduledRuns(deadWorkerRunIds).catch(() => {});
       }
 
       // Clean up jobs for runs that are no longer active.

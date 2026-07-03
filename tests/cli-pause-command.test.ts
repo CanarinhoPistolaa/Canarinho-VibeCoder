@@ -174,9 +174,16 @@ describe("tamandua workflow pause CLI", { concurrency: 1 }, () => {
       return;
     }
 
-    const { stdout, stderr, exitCode } = await runCli([
-      "workflow", "pause", "nonexistent-run-id",
-    ]);
+    // Isolated empty state: "not found" must come from a temp DB, never
+    // from querying the developer's real ~/.tamandua.
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "tamandua-pause-test-"));
+    const homeDir = path.join(root, "home");
+    fs.mkdirSync(path.join(homeDir, ".tamandua"), { recursive: true });
+
+    const { stdout, stderr, exitCode } = await runCli(
+      ["workflow", "pause", "nonexistent-run-id"],
+      { HOME: homeDir },
+    );
 
     assert.notEqual(exitCode, 0, "Should exit with non-zero code");
     assert.ok(

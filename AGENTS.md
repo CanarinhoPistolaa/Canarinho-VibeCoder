@@ -244,6 +244,26 @@ and merging).
 - **System resources:** Creates real worktrees, runs npm install, executes
 tests, and performs git merges.
 
+#### Test isolation (READ THIS TOO)
+
+Tamandua is the main tool used to develop tamandua itself. Tests — and
+anything they spawn — must NEVER touch the live instance:
+
+- `npm test` sets `TAMANDUA_TEST_GUARD=1`: opening the real `~/.tamandua`
+  state or binding a production port (3334/3338/3339) throws a
+  "TEST ISOLATION VIOLATION" error. The guard passes through
+  `cleanChildEnv` to spawned daemons and scripts. Do not work around it —
+  fix the test's isolation instead.
+- Every test gets its own temp HOME/`TAMANDUA_STATE_DIR`/`TAMANDUA_DB_PATH`
+  and RANDOM ports for every listener it starts — including
+  `TAMANDUA_CONTROL_PORT` for any daemon it spawns (the daemon binds a
+  control plane too, not just the dashboard port).
+- Agents working inside a tamandua run: the step CLI (`step claim` /
+  `complete` / `fail`) is the ONLY sanctioned interaction with the live
+  instance. To exercise daemon/MCP/control-plane lifecycle, start an
+  ISOLATED instance (temp state dir + random ports). `stopDaemon` refuses
+  to stop the daemon scheduling you (TAMANDUA_WORKER_PID guard).
+
 #### Agent Default Behavior (READ THIS)
 
 - **AGENTS MUST NOT RUN REAL E2E TESTS BY DEFAULT.** Only run `./run-all-tests`

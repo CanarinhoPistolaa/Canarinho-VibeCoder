@@ -16,6 +16,7 @@
  *   GET /api/logs-tail           -> logs-tail formatted event lines (cursor based)
  */
 import http from "node:http";
+import { assertPortIsolation } from "../lib/test-guard.js";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -1099,6 +1100,7 @@ export function createDashboardServer(port: number, options: DashboardServerOpti
     }
   });
 
+  assertPortIsolation(port, "dashboard");
   server.listen(port, () => {
     console.log(`Tamandua dashboard listening on http://localhost:${port}`);
     // Backfill AutoResearch sessions from recent workflow runs
