@@ -1,4 +1,4 @@
-import { describe, it } from "node:test";
+import { afterEach, beforeEach, describe, it } from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
@@ -514,6 +514,15 @@ describe("autoresearch state model", () => {
 });
 
 describe("autoresearch loop", () => {
+  let savedPiBinary: string | undefined;
+  beforeEach(() => {
+    savedPiBinary = process.env.TAMANDUA_PI_BINARY;
+    delete process.env.TAMANDUA_PI_BINARY;
+  });
+  afterEach(() => {
+    if (savedPiBinary !== undefined) process.env.TAMANDUA_PI_BINARY = savedPiBinary;
+  });
+
   function dirtyGitInit(cwd: string): void {
     git(cwd, ["init", "--initial-branch=main"]);
     git(cwd, ["config", "user.email", "test@tamandua.local"]);
@@ -1334,6 +1343,15 @@ describe("commitAutoresearchResult", () => {
 });
 
 describe("runLoopIteration", () => {
+  let savedPiBinary: string | undefined;
+  beforeEach(() => {
+    savedPiBinary = process.env.TAMANDUA_PI_BINARY;
+    delete process.env.TAMANDUA_PI_BINARY;
+  });
+  afterEach(() => {
+    if (savedPiBinary !== undefined) process.env.TAMANDUA_PI_BINARY = savedPiBinary;
+  });
+
   function dirtyGitInit(cwd: string) {
     git(cwd, ["init"]);
     git(cwd, ["config", "user.email", "test@test.test"]);

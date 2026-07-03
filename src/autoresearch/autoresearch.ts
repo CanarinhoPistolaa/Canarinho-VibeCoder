@@ -927,7 +927,7 @@ export function parseAgentFields(text: string): { status: string; changes: strin
 
 async function runPiAgent(cwd: string, prompt: string, timeoutMs = 300_000): Promise<{ success: boolean; stdout: string; stderr: string; hypothesis?: string; learned?: string; nextFocus?: string }> {
   return new Promise((resolve) => {
-    const piCmd = "pi";
+    const piCmd = process.env.TAMANDUA_PI_BINARY || "pi";
     const args = ["--print", "--no-session", "--mode", "json", prompt];
     const child = spawn(piCmd, args, {
       cwd,
