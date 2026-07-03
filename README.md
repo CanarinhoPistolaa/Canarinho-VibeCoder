@@ -121,6 +121,17 @@ runs after the final merge failure — if the base branch stayed put, no replace
 triggered. Pass `--no-relaunch-upon-rugpull` to `workflow run` to suppress the
 automatic replacement.
 
+### When runs fail
+
+Rugpull replacement runs are narrowly scoped: they only apply to
+`finalize_merge` step failures in merge workflows (`*-merge`,
+`*-merge-worktree`) where the base branch tip moved during the run.
+All other failures — mid-pipeline step retry exhaustion, expects
+validation exhaustion, worker death — permanently fail the run by
+design. No automatic replacement is triggered for these failures.
+Use `tamandua workflow resume <run-id>` to reattempt a permanently
+failed run; fix the underlying issue before resuming.
+
 ### Feature Development
 
 Story-based feature development. The planner decomposes your task into ordered user

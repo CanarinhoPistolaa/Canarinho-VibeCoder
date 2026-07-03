@@ -109,6 +109,13 @@ Use `--no-relaunch-upon-rugpull` to disable automatic replacement-run
 creation after a rugpull (base branch move) is detected on a failed
 merge or merge-worktree run. By default, Tamandua creates a replacement
 run when a rugpull is detected, so the merge can target the updated base.
+The rugpull mechanism is narrow in scope: it only applies to
+`finalize_merge` failures in merge workflows where the base branch
+tip moved during the run. Mid-pipeline step retry exhaustion, expects
+validation exhaustion, and worker death permanently fail runs by design —
+no automatic replacement is triggered. Use `tamandua workflow resume
+<run-id>` to reattempt a permanently failed run; fix the underlying issue
+before resuming.
 
 `tamandua workflow autoresearch <run-id>` shows AutoResearch progress
 for a workflow run. It resolves the run's harness working directory,

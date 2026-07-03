@@ -77,6 +77,12 @@ baseline assertions.
   forever.
 - **C10** `expects` mismatch (e.g. verifier replies `STATUS: retry`) triggers
   the step's `on_fail` wiring (`retry_step`, `max_retries`, `on_exhausted`).
+- **C8-rugpull** Rugpull relaunch applies **only** to `finalize_merge` step
+  failures in merge workflows (`*-merge`, `*-merge-worktree`) where the base
+  branch tip moved since the run started. Mid-pipeline step retry exhaustion,
+  expects validation exhaustion, and worker death permanently fail the run by
+  design — no automatic replacement is triggered. Permanently failed runs are
+  retryable via `tamandua workflow resume` with fix-then-restart semantics.
 
 ### Control plane & scheduling lifecycle
 

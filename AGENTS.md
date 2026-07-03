@@ -138,6 +138,14 @@ waiting → pending → running → done/failed
 - Agent claims → `running`
 - Agent completes → `done`, pipeline advances
 - Agent fails → retry or escalate
+- **Rugpull relaunch scope:** The automatic replacement-run mechanism
+  applies **only** to `finalize_merge` step failures in merge workflows
+  (`*-merge`, `*-merge-worktree`) where the base branch tip moved during
+  the run. Any other failure — mid-pipeline step retry exhaustion, expects
+  validation exhaustion, worker death — permanently fails the run by design.
+  No automatic replacement is triggered for these failures. Use `tamandua
+  workflow resume <run-id>` to reattempt a permanently failed run; fix the
+  underlying issue before resuming.
 
 ### CLI Help Convention
 
