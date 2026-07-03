@@ -90,7 +90,7 @@ export function getControlPlaneLogFile(opts?: DaemonctlPathOptions): string {
   return path.join(getTamanduaDir(opts), "control-plane.log");
 }
 
-function readLogTail(logPath: string = getLogFile(), lines = STARTUP_ERROR_TAIL_LINES): string {
+export function readLogTail(logPath: string = getLogFile(), lines = STARTUP_ERROR_TAIL_LINES): string {
   try {
     if (!fs.existsSync(logPath)) return "";
     const content = fs.readFileSync(logPath, "utf-8").trim();

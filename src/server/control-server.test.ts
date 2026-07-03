@@ -179,6 +179,8 @@ describe("daemon control plane", { concurrency: 1 }, () => {
     const r = await jsonRequest("GET", "/control/health");
     assert.equal(r.status, 200);
     assert.equal(r.body.status, "ok");
+    assert.ok(typeof r.body.buildVersion === "string" && r.body.buildVersion.length > 0,
+      `expected non-empty buildVersion string, got ${JSON.stringify(r.body.buildVersion)}`);
   });
 
   it("GET /control/limits requires auth", async (t) => {

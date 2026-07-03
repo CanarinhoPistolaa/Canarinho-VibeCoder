@@ -14,7 +14,7 @@ import crypto from "node:crypto";
 export interface MedicFinding {
   severity: "info" | "warning" | "critical";
   message: string;
-  action: "none" | "reset_step" | "fail_run" | "teardown_crons";
+  action: "none" | "fail_run" | "teardown_crons";
   runId?: string;
   stepId?: string;
   workflowId?: string;
@@ -39,7 +39,6 @@ export function ensureMedicTables(): void {
 
 // ── Sync Checks ─────────────────────────────────────────────────────
 
-const STUCK_THRESHOLD_MINUTES = 30;
 const ZOMBIE_THRESHOLD_MINUTES = 60;
 
 function getRunTokenSpend(runId: string): number | undefined {
@@ -55,30 +54,6 @@ function getRunTokenSpend(runId: string): number | undefined {
 function runSyncChecks(): MedicFinding[] {
   const findings: MedicFinding[] = [];
   const db = getDb();
-
-  // Find steps that have been "running" for too long
-  const stuckSteps = db.prepare(`
-    SELECT s.id, s.step_id, s.run_id, s.agent_id, r.workflow_id,
-           (julianday('now') - julianday(s.updated_at)) * 24 * 60 AS idle_minutes
-    FROM steps s
-    JOIN runs r ON r.id = s.run_id
-    WHERE s.status = 'running' AND r.status = 'running'
-      AND (julianday('now') - julianday(s.updated_at)) * 24 * 60 > ?
-  `).all(STUCK_THRESHOLD_MINUTES) as Array<{
-    id: string; step_id: string; run_id: string; agent_id: string;
-    workflow_id: string; idle_minutes: number;
-  }>;
-
-  for (const step of stuckSteps) {
-    findings.push({
-      severity: "warning",
-      message: `Step ${step.step_id} stuck running for ${Math.round(step.idle_minutes)}m (agent ${step.agent_id}, run ${step.run_id.slice(0, 8)})`,
-      action: "reset_step",
-      runId: step.run_id,
-      stepId: step.id,
-      workflowId: step.workflow_id,
-    });
-  }
 
   // Find zombie runs: all steps done/failed but run still "running"
   const zombieQuery = `
@@ -116,48 +91,6 @@ async function remediate(finding: MedicFinding): Promise<boolean> {
   const db = getDb();
 
   switch (finding.action) {
-    case "reset_step": {
-      if (!finding.stepId) return false;
-      const step = db.prepare(
-        "SELECT abandoned_count FROM steps WHERE id = ?"
-      ).get(finding.stepId) as { abandoned_count: number } | undefined;
-      if (!step) return false;
-
-      const newCount = (step.abandoned_count ?? 0) + 1;
-      if (newCount >= 5) {
-        db.prepare(
-          "UPDATE steps SET status = 'failed', output = 'Medic: abandoned too many times', abandoned_count = ?, updated_at = datetime('now') WHERE id = ?"
-        ).run(newCount, finding.stepId);
-        if (finding.runId) {
-          db.prepare(
-            "UPDATE runs SET status = 'failed', updated_at = datetime('now') WHERE id = ?"
-          ).run(finding.runId);
-          emitEvent({
-            ts: new Date().toISOString(),
-            event: "run.failed",
-            runId: finding.runId,
-            detail: "Medic: step abandoned too many times",
-            tokensSpent: getRunTokenSpend(finding.runId),
-          });
-        }
-        return true;
-      }
-
-      db.prepare(
-        "UPDATE steps SET status = 'pending', abandoned_count = ?, updated_at = datetime('now') WHERE id = ?"
-      ).run(newCount, finding.stepId);
-      if (finding.runId) {
-        emitEvent({
-          ts: new Date().toISOString(),
-          event: "step.timeout",
-          runId: finding.runId,
-          stepId: finding.stepId,
-          detail: `Medic: reset stuck step (abandon ${newCount}/5)`,
-        });
-      }
-      return true;
-    }
-
     case "fail_run": {
       if (!finding.runId) return false;
       const run = db.prepare("SELECT status, workflow_id FROM runs WHERE id = ?").get(finding.runId) as { status: string; workflow_id: string } | undefined;

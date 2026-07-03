@@ -40,6 +40,7 @@ import { dirname, join } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 import { readVersionStatus } from "../lib/version-check.js";
 import { getBuildVersion } from "../lib/version.js";
+import { runDoctorChecks, formatDoctorOutput } from "../doctor.js";
 import { parseWorkflowRunArgs } from "./workflow-run-args.js";
 import type { HarnessType } from "../installer/types.js";
 import {
@@ -454,6 +455,38 @@ Examples:
   tamandua uninstall --force  # Force uninstall despite active runs
   tamandua workflow uninstall <name>  # Uninstall a single workflow by name
   tamandua workflow uninstall --all   # Uninstall all workflows only (no service stops)`;
+}
+
+function getDoctorHelp(): string {
+  return `tamandua doctor — Run one-shot diagnostics with per-check pass/fail and remedy commands
+
+Usage: tamandua doctor
+
+Runs a comprehensive health check across four categories and prints a
+pass/fail icon for each check. On failure, the exact remedy command is
+shown alongside the failure.
+
+Check categories:
+  ENVIRONMENT  Node.js >= 22 (probes node:sqlite for runtime compatibility),
+               pi present on PATH, gh present on PATH,
+               pi-token-saver detection (informational — optional),
+               TAMANDUA_HERMES_BINARY / hermes detection (informational — alpha)
+  SERVICES     Dashboard daemon PID alive, control plane health reachable,
+               dashboard HTTP up, MCP server status (if configured).
+               On any failure, the daemon log tail is included for diagnostics.
+  STALENESS    Compares the running daemon's build version (from control plane
+               /control/health) against the locally installed dist/version.
+               On mismatch, tells you to restart the dashboard daemon.
+  STATE        Database opens, and medic-style run anomaly detection
+               (zombie runs, long-stuck steps).
+
+Exit codes:
+  0 — all checks passed (or only informational warnings)
+  1 — at least one check failed (remedies printed)
+
+Examples:
+  tamandua doctor             # Run all diagnostic checks
+  tamandua doctor --help      # This help text`;
 }
 
 function getStatusHelp(): string {
@@ -1650,6 +1683,7 @@ function getUsageText(): string {
     "tamandua skill-path                  Print path to the bundled tamandua-agents skill",
     "tamandua source-path                  Print source checkout path",
     "tamandua nudge                       Trigger an immediate dispatch round for running runs",
+    "tamandua doctor                       Run one-shot diagnostic with per-check pass/fail and remedies",
     "tamandua update [--force]             Pull latest, rebuild, reinstall",
   ].join("\n") + "\n";
 }
@@ -1768,6 +1802,9 @@ async function main() {
     }
     if (group === "nudge") {
       printHelp(getNudgeHelp());
+    }
+    if (group === "doctor") {
+      printHelp(getDoctorHelp());
     }
     printHelp(getUsageText());
   }
@@ -1961,6 +1998,17 @@ async function main() {
     else if (sub && sub !== "start" && !sub.startsWith("-")) { const p = parseInt(sub, 10); if (!Number.isNaN(p)) port = p; }
     if (isRunning().running) { const status = getDaemonStatus(); if (status.running) console.log(`Dashboard already running (PID ${status.pid})`); console.log(`  http://localhost:${port}`); return; }
     const result = await startDaemon(port); console.log(`Dashboard started (PID ${result.pid})\n  http://localhost:${result.port}`); return;
+  }
+
+  if (group === "doctor") {
+    if (args.length > 1) {
+      process.stderr.write(`Unknown doctor option: ${args.slice(1).join(" ")}\nUsage: tamandua doctor\n`);
+      process.exit(1);
+    }
+    const groups = await runDoctorChecks();
+    const { output, hasFailures } = formatDoctorOutput(groups);
+    console.log(output);
+    process.exit(hasFailures ? 1 : 0);
   }
 
   if (group === "nudge") {

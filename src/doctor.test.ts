@@ -1,0 +1,959 @@
+/**
+ * Unit tests for the doctor module (US-002).
+ */
+import { afterEach, beforeEach, describe, it } from "node:test";
+import assert from "node:assert/strict";
+
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
+
+import { DatabaseSync } from "node:sqlite";
+
+import { runDoctorChecks, formatDoctorOutput } from "../dist/doctor.js";
+import type { DoctorCheckResult, CheckGroup } from "../dist/doctor.js";
+import {
+  startDaemon,
+  stopDaemon,
+  isRunning,
+  getLogFile,
+  getPidFile,
+  getMcpPidFile,
+  getPortFile,
+  getMcpPortFile,
+  getControlPlanePortFile,
+  readPort,
+  writePort,
+  readMcpPort,
+  writeMcpPort,
+} from "../dist/server/daemonctl.js";
+
+// ── Test-isolation DB setup ────────────────────────────────────
+
+/** Isolated DB path set up before each test so STATE checks don't touch the real DB. */
+let originalDbPath: string | undefined;
+let guardHomeDir: string;
+
+beforeEach(() => {
+  originalDbPath = process.env.TAMANDUA_DB_PATH;
+  guardHomeDir = createTempHome();
+  const dbPath = path.join(guardHomeDir, ".tamandua", "tamandua.db");
+  fs.mkdirSync(path.dirname(dbPath), { recursive: true });
+  // Write an empty file; getDb() → migrate() creates all required tables.
+  fs.writeFileSync(dbPath, "");
+  process.env.TAMANDUA_DB_PATH = dbPath;
+});
+
+afterEach(() => {
+  if (originalDbPath !== undefined) {
+    process.env.TAMANDUA_DB_PATH = originalDbPath;
+  } else {
+    delete process.env.TAMANDUA_DB_PATH;
+  }
+  try { fs.rmSync(guardHomeDir, { recursive: true, force: true }); } catch { /* best-effort */ }
+});
+
+// ── Helpers ──────────────────────────────────────────────────────
+
+function createTempHome(): string {
+  return fs.mkdtempSync(path.join(os.tmpdir(), "tamandua-doctor-svc-"));
+}
+
+/** Set up an empty isolated DB at the given homeDir, returning the dbPath. */
+function setupEmptyDb(homeDir: string): string {
+  const dbPath = path.join(homeDir, ".tamandua", "tamandua.db");
+  fs.mkdirSync(path.dirname(dbPath), { recursive: true });
+  // createTables uses getDb() via our module — but we need a standalone
+  // connection to pre-create tables. We'll just create an empty file;
+  // getDb() will run migrate() which creates all required tables.
+  fs.writeFileSync(dbPath, "");
+  return dbPath;
+}
+
+/** Seed a DB with a zombie run (all steps terminal, run still 'running' for >60 min). */
+function seedZombieRun(dbPath: string): void {
+  const db = new DatabaseSync(dbPath);
+  db.exec("PRAGMA journal_mode=WAL");
+  db.exec("PRAGMA foreign_keys=ON");
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS runs (
+      id TEXT PRIMARY KEY, workflow_id TEXT NOT NULL, task TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'running', context TEXT NOT NULL DEFAULT '{}',
+      tokens_spent INTEGER NOT NULL DEFAULT 0, created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS steps (
+      id TEXT PRIMARY KEY, run_id TEXT NOT NULL, step_id TEXT NOT NULL,
+      agent_id TEXT NOT NULL, step_index INTEGER NOT NULL,
+      input_template TEXT NOT NULL, expects TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'waiting', output TEXT,
+      retry_count INTEGER DEFAULT 0, max_retries INTEGER DEFAULT 4,
+      type TEXT NOT NULL DEFAULT 'single', loop_config TEXT,
+      current_story_id TEXT, abandoned_count INTEGER DEFAULT 0,
+      created_at TEXT NOT NULL, updated_at TEXT NOT NULL
+    );
+  `);
+  const runId = "zombie-run-001";
+  const now = new Date();
+  const staleTime = new Date(now.getTime() - 75 * 60 * 1000); // 75 min ago
+  db.prepare("INSERT INTO runs (id, workflow_id, task, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)")
+    .run(runId, "test-workflow", "test", "running", staleTime.toISOString(), staleTime.toISOString());
+  // All steps are done (terminal) — no pending or running steps
+  db.prepare("INSERT INTO steps (id, run_id, step_id, agent_id, step_index, input_template, expects, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
+    .run("z-step-1", runId, "dev", "dev-agent", 0, "do work", "STATUS:", "done", staleTime.toISOString(), staleTime.toISOString());
+  db.prepare("INSERT INTO steps (id, run_id, step_id, agent_id, step_index, input_template, expects, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
+    .run("z-step-2", runId, "verify", "verify-agent", 1, "verify", "STATUS:", "done", staleTime.toISOString(), staleTime.toISOString());
+  db.close();
+}
+
+async function getAvailablePort(): Promise<number> {
+  const { createServer } = await import("node:net");
+  return new Promise<number>((resolve, reject) => {
+    const server = createServer();
+    server.once("error", reject);
+    server.listen(0, "127.0.0.1", () => {
+      const addr = server.address();
+      if (addr && typeof addr === "object") {
+        const port = addr.port;
+        server.close(() => resolve(port));
+      } else {
+        server.close(() => reject(new Error("No address")));
+      }
+    });
+  });
+}
+
+describe("DoctorCheckResult type", () => {
+  it("accepts a valid pass result", () => {
+    const r: DoctorCheckResult = {
+      name: "Node.js >= 22",
+      status: "pass",
+      message: "v22.0.0 detected",
+    };
+    assert.strictEqual(r.name, "Node.js >= 22");
+    assert.strictEqual(r.status, "pass");
+    assert.strictEqual(r.message, "v22.0.0 detected");
+  });
+
+  it("accepts a valid fail result with remedy", () => {
+    const r: DoctorCheckResult = {
+      name: "Node.js >= 22",
+      status: "fail",
+      message: "v18.0.0 is too old",
+      remedy: "Install Node.js >= 22 from https://nodejs.org",
+    };
+    assert.strictEqual(r.status, "fail");
+    assert.strictEqual(r.remedy, "Install Node.js >= 22 from https://nodejs.org");
+  });
+
+  it("accepts a valid warn result with remedy", () => {
+    const r: DoctorCheckResult = {
+      name: "Daemon build version",
+      status: "warn",
+      message: "Unable to determine staleness",
+      remedy: "Run: tamandua dashboard restart",
+    };
+    assert.strictEqual(r.status, "warn");
+    assert.strictEqual(typeof r.remedy, "string");
+  });
+
+  it("accepts a valid info result without remedy", () => {
+    const r: DoctorCheckResult = {
+      name: "pi-token-saver",
+      status: "info",
+      message: "pi-token-saver not found (optional)",
+    };
+    assert.strictEqual(r.status, "info");
+    assert.strictEqual(r.remedy, undefined);
+  });
+
+  it("DoctorCheckResult rejects invalid status at compile time (verified by typecheck)", () => {
+    // This test verifies type shape at runtime — TypeScript ensures
+    // invalid status values are caught at compile time.
+    const r: DoctorCheckResult = { name: "test", status: "pass", message: "ok" };
+    assert.ok(r);
+  });
+});
+
+describe("CheckGroup type", () => {
+  it("allows a group with label and checks", () => {
+    const checks: DoctorCheckResult[] = [
+      { name: "check1", status: "pass", message: "ok" },
+      { name: "check2", status: "fail", message: "broken", remedy: "fix it" },
+    ];
+    const group: CheckGroup = { label: "ENVIRONMENT", checks };
+    assert.strictEqual(group.label, "ENVIRONMENT");
+    assert.strictEqual(group.checks.length, 2);
+    assert.strictEqual(group.checks[0].status, "pass");
+    assert.strictEqual(group.checks[1].status, "fail");
+  });
+});
+
+describe("runDoctorChecks", () => {
+  it("returns four check groups", async () => {
+    const groups = await runDoctorChecks();
+    assert.strictEqual(groups.length, 4, `Expected 4 check groups, got ${groups.length}`);
+  });
+
+  it("each group has a label and checks array", async () => {
+    const groups = await runDoctorChecks();
+    const labels = groups.map((g) => g.label);
+    assert.deepStrictEqual(labels, ["ENVIRONMENT", "SERVICES", "STALENESS", "STATE"]);
+    for (const group of groups) {
+      assert.ok(group.checks.length > 0, `Group "${group.label}" should have checks`);
+      for (const check of group.checks) {
+        assert.strictEqual(typeof check.name, "string");
+        assert.ok(["pass", "fail", "warn", "info"].includes(check.status),
+          `check "${check.name}" has invalid status: ${check.status}`);
+        assert.strictEqual(typeof check.message, "string");
+      }
+    }
+  });
+
+  it("ENVIRONMENT group has 5 checks", async () => {
+    const groups = await runDoctorChecks();
+    const env = groups.find((g) => g.label === "ENVIRONMENT");
+    assert.ok(env);
+    assert.strictEqual(env!.checks.length, 5);
+  });
+
+  it("SERVICES group has 4 checks", async () => {
+    const groups = await runDoctorChecks();
+    const svc = groups.find((g) => g.label === "SERVICES");
+    assert.ok(svc);
+    assert.strictEqual(svc!.checks.length, 4);
+  });
+
+  it("STALENESS group has 1 check", async () => {
+    const groups = await runDoctorChecks();
+    const staleness = groups.find((g) => g.label === "STALENESS");
+    assert.ok(staleness);
+    assert.strictEqual(staleness!.checks.length, 1);
+  });
+
+  it("STATE group has at least 2 checks", async () => {
+    const groups = await runDoctorChecks();
+    const state = groups.find((g) => g.label === "STATE");
+    assert.ok(state);
+    assert.ok(state!.checks.length >= 2,
+      `Expected STATE group to have at least 2 checks, got ${state!.checks.length}`);
+  });
+
+  it("STATE group includes a Database opens check", async () => {
+    const groups = await runDoctorChecks();
+    const state = groups.find((g) => g.label === "STATE");
+    assert.ok(state);
+    const dbCheck = state!.checks.find((c) => c.name === "Database opens");
+    assert.ok(dbCheck, "Expected 'Database opens' check");
+    assert.ok(["pass", "fail"].includes(dbCheck!.status),
+      `Database opens check should be pass or fail, got: ${dbCheck!.status}`);
+  });
+});
+
+describe("ENVIRONMENT checks (US-003)", () => {
+  it("Node.js check passes with version string", async () => {
+    const groups = await runDoctorChecks();
+    const env = groups.find((g) => g.label === "ENVIRONMENT");
+    assert.ok(env);
+    const nodeCheck = env!.checks.find((c) => c.name === "Node.js >= 22");
+    assert.ok(nodeCheck, "Expected Node.js >= 22 check to exist");
+    assert.strictEqual(nodeCheck!.status, "pass",
+      `Node check should pass on Node 22+, got: ${nodeCheck!.status} (${nodeCheck!.message})`);
+    assert.ok(nodeCheck!.message.includes("Node.js"),
+      `Message should include Node.js version, got: ${nodeCheck!.message}`);
+  });
+
+  it("pi on PATH check passes when pi is available", async () => {
+    const groups = await runDoctorChecks();
+    const env = groups.find((g) => g.label === "ENVIRONMENT");
+    assert.ok(env);
+    const piCheck = env!.checks.find((c) => c.name === "pi present on PATH");
+    assert.ok(piCheck, "Expected pi check to exist");
+    // pi should be available in this test environment (it's how we were launched)
+    assert.strictEqual(piCheck!.status, "pass",
+      `pi check should pass on PATH, got: ${piCheck!.status} (${piCheck!.message})`);
+  });
+
+  it("gh check returns pass or fail (not info)", async () => {
+    const groups = await runDoctorChecks();
+    const env = groups.find((g) => g.label === "ENVIRONMENT");
+    assert.ok(env);
+    const ghCheck = env!.checks.find((c) => c.name === "gh present");
+    assert.ok(ghCheck, "Expected gh check to exist");
+    // gh may or may not be present — both pass and fail are valid outcomes
+    assert.ok(
+      ghCheck!.status === "pass" || ghCheck!.status === "fail",
+      `gh check should be pass or fail, got: ${ghCheck!.status}`,
+    );
+    if (ghCheck!.status === "fail") {
+      assert.ok(ghCheck!.remedy, "Fail should have a remedy command");
+    }
+  });
+
+  it("pi-token-saver check is always pass or info, never fail", async () => {
+    const groups = await runDoctorChecks();
+    const env = groups.find((g) => g.label === "ENVIRONMENT");
+    assert.ok(env);
+    const saverCheck = env!.checks.find((c) => c.name === "pi-token-saver detection");
+    assert.ok(saverCheck, "Expected pi-token-saver check to exist");
+    assert.notStrictEqual(saverCheck!.status, "fail",
+      "pi-token-saver should never fail — it is optional");
+    assert.ok(
+      saverCheck!.status === "pass" || saverCheck!.status === "info",
+      `pi-token-saver check should be pass or info, got: ${saverCheck!.status}`,
+    );
+    assert.ok(
+      saverCheck!.message.toLowerCase().includes("optional") ||
+        saverCheck!.message.toLowerCase().includes("token"),
+      `Message should mention it's optional, got: ${saverCheck!.message}`,
+    );
+  });
+
+  it("Hermes check is always info (never fail)", async () => {
+    const groups = await runDoctorChecks();
+    const env = groups.find((g) => g.label === "ENVIRONMENT");
+    assert.ok(env);
+    const hermesCheck = env!.checks.find((c) => c.name === "TAMANDUA_HERMES_BINARY / hermes");
+    assert.ok(hermesCheck, "Expected Hermes check to exist");
+    assert.strictEqual(hermesCheck!.status, "info",
+      `Hermes check should be info-only, got: ${hermesCheck!.status} (${hermesCheck!.message})`);
+    assert.ok(
+      hermesCheck!.message.length > 0,
+      "Hermes check message should not be empty",
+    );
+  });
+
+  it("failed pi check has a remedy", async () => {
+    // The pi check passes in this environment, but we verify the result
+    // shape includes a remedy when status is fail by checking the
+    // structure expectation — the check always includes message, and
+    // if fail it must include a remedy string.
+    const groups = await runDoctorChecks();
+    const env = groups.find((g) => g.label === "ENVIRONMENT");
+    assert.ok(env);
+    for (const check of env!.checks) {
+      assert.strictEqual(typeof check.name, "string");
+      assert.strictEqual(typeof check.status, "string");
+      assert.strictEqual(typeof check.message, "string");
+      assert.ok(check.message.length > 0, `Check "${check.name}" has empty message`);
+      if (check.status === "fail") {
+        assert.strictEqual(typeof check.remedy, "string",
+          `Check "${check.name}" failed but has no remedy`);
+        assert.ok(check.remedy!.length > 0,
+          `Check "${check.name}" has empty remedy`);
+      }
+    }
+  });
+
+  it("ENVIRONMENT checks are no longer placeholders", async () => {
+    const groups = await runDoctorChecks();
+    const env = groups.find((g) => g.label === "ENVIRONMENT");
+    assert.ok(env);
+    for (const check of env!.checks) {
+      assert.notStrictEqual(
+        check.message,
+        "Not yet implemented",
+        `Check "${check.name}" is still a placeholder`,
+      );
+    }
+  });
+
+  it("STATE group is no longer a placeholder", async () => {
+    const groups = await runDoctorChecks();
+    const state = groups.find((g) => g.label === "STATE");
+    assert.ok(state, "Expected STATE group");
+    for (const check of state!.checks) {
+      assert.notStrictEqual(
+        check.message,
+        "Not yet implemented",
+        `Check "${check.name}" should not be a placeholder`,
+      );
+    }
+  });
+});
+
+describe("SERVICES checks (US-004)", () => {
+  it("returns all fails when no daemon is running in temp HOME", async () => {
+    const homeDir = createTempHome();
+    try {
+      const groups = await runDoctorChecks({ homeDir });
+      const svc = groups.find((g) => g.label === "SERVICES");
+      assert.ok(svc, "Expected SERVICES group");
+      assert.strictEqual(svc!.checks.length, 4);
+
+      // 1. Dashboard daemon PID
+      const daemonCheck = svc!.checks.find((c) => c.name === "Dashboard daemon PID alive");
+      assert.ok(daemonCheck);
+      assert.strictEqual(daemonCheck!.status, "fail");
+      assert.ok(daemonCheck!.message.includes("Daemon is not running"));
+      assert.strictEqual(daemonCheck!.remedy, "tamandua dashboard start");
+
+      // 2. Control plane
+      const cpCheck = svc!.checks.find((c) => c.name === "Control plane reachable");
+      assert.ok(cpCheck);
+      assert.strictEqual(cpCheck!.status, "fail");
+      assert.ok(cpCheck!.message.includes("daemon is not running"));
+      assert.strictEqual(cpCheck!.remedy, "tamandua dashboard start");
+
+      // 3. Dashboard HTTP
+      const dashCheck = svc!.checks.find((c) => c.name === "Dashboard HTTP up");
+      assert.ok(dashCheck);
+      assert.strictEqual(dashCheck!.status, "fail");
+      assert.ok(dashCheck!.message.includes("daemon is not running"));
+      assert.strictEqual(dashCheck!.remedy, "tamandua dashboard start");
+
+      // 4. MCP — should be info since no pidfile
+      const mcpCheck = svc!.checks.find((c) => c.name === "MCP server status");
+      assert.ok(mcpCheck);
+      assert.strictEqual(mcpCheck!.status, "info",
+        `MCP check should be info when pidfile doesn't exist, got ${mcpCheck!.status}: ${mcpCheck!.message}`);
+      assert.ok(mcpCheck!.message.toLowerCase().includes("optional") || mcpCheck!.message.toLowerCase().includes("not running"));
+    } finally {
+      fs.rmSync(homeDir, { recursive: true, force: true });
+    }
+  });
+
+  it("reports all pass when daemon is running in isolated HOME", { timeout: 15000 }, async () => {
+    const homeDir = createTempHome();
+    const port = await getAvailablePort();
+    const controlPort = await getAvailablePort();
+    let child: import("node:child_process").ChildProcess | undefined;
+    // Isolate the control plane port for the spawned daemon
+    const savedControlPort = process.env.TAMANDUA_CONTROL_PORT;
+    process.env.TAMANDUA_CONTROL_PORT = String(controlPort);
+    try {
+      const result = await startDaemon(port, { homeDir, keepHandle: true });
+      child = (result as { child: import("node:child_process").ChildProcess }).child;
+
+      // Wait a bit for the daemon to be fully ready
+      await new Promise((resolve) => setTimeout(resolve, 500));
+
+      // The daemon doesn't write the control plane port file, so write it manually
+      const cpPortFile = getControlPlanePortFile({ homeDir });
+      fs.mkdirSync(path.dirname(cpPortFile), { recursive: true });
+      fs.writeFileSync(cpPortFile, String(controlPort), "utf-8");
+
+      const groups = await runDoctorChecks({ homeDir });
+      const svc = groups.find((g) => g.label === "SERVICES");
+      assert.ok(svc, "Expected SERVICES group");
+      assert.strictEqual(svc!.checks.length, 4);
+
+      // 1. Dashboard daemon PID
+      const daemonCheck = svc!.checks.find((c) => c.name === "Dashboard daemon PID alive");
+      assert.ok(daemonCheck);
+      assert.strictEqual(daemonCheck!.status, "pass",
+        `Daemon PID check should pass, got: ${daemonCheck!.status} (${daemonCheck!.message})`);
+      assert.ok(daemonCheck!.message.includes("Daemon running"));
+
+      // 2. Control plane
+      const cpCheck = svc!.checks.find((c) => c.name === "Control plane reachable");
+      assert.ok(cpCheck);
+      assert.strictEqual(cpCheck!.status, "pass",
+        `Control plane check should pass, got: ${cpCheck!.status} (${cpCheck!.message})`);
+      assert.ok(cpCheck!.message.includes("responding"));
+
+      // 3. Dashboard HTTP
+      const dashCheck = svc!.checks.find((c) => c.name === "Dashboard HTTP up");
+      assert.ok(dashCheck);
+      assert.strictEqual(dashCheck!.status, "pass",
+        `Dashboard HTTP check should pass, got: ${dashCheck!.status} (${dashCheck!.message})`);
+      assert.ok(dashCheck!.message.includes("responding"));
+
+      // 4. MCP — info since no MCP pidfile
+      const mcpCheck = svc!.checks.find((c) => c.name === "MCP server status");
+      assert.ok(mcpCheck);
+      assert.strictEqual(mcpCheck!.status, "info",
+        `MCP check should be info when no pidfile, got: ${mcpCheck!.status} (${mcpCheck!.message})`);
+    } finally {
+      if (child) {
+        try { child.kill("SIGTERM"); } catch { /* ignore */ }
+      }
+      // Give the process a moment to die
+      await new Promise((resolve) => setTimeout(resolve, 200));
+      try { stopDaemon({ homeDir }); } catch { /* ignore */ }
+      fs.rmSync(homeDir, { recursive: true, force: true });
+      // Restore control port env var
+      if (savedControlPort !== undefined) {
+        process.env.TAMANDUA_CONTROL_PORT = savedControlPort;
+      } else {
+        delete process.env.TAMANDUA_CONTROL_PORT;
+      }
+    }
+  });
+
+  it("MCP pidfile exists but process dead reports fail", async () => {
+    const homeDir = createTempHome();
+    try {
+      // Set up MCP pidfile with a fake PID
+      const mcpPidFile = path.join(homeDir, ".tamandua", "mcp.pid");
+      fs.mkdirSync(path.dirname(mcpPidFile), { recursive: true });
+      // Use a PID that definitely doesn't exist (but is a valid number)
+      fs.writeFileSync(mcpPidFile, "99999999", "utf-8");
+      // Also need a valid MCP port file
+      const mcpPortFile = path.join(homeDir, ".tamandua", "mcp-port");
+      fs.writeFileSync(mcpPortFile, "3338", "utf-8");
+
+      const groups = await runDoctorChecks({ homeDir });
+      const svc = groups.find((g) => g.label === "SERVICES");
+      assert.ok(svc);
+      const mcpCheck = svc!.checks.find((c) => c.name === "MCP server status");
+      assert.ok(mcpCheck);
+      assert.strictEqual(mcpCheck!.status, "fail",
+        `MCP check should fail when pidfile exists but process dead, got: ${mcpCheck!.status} (${mcpCheck!.message})`);
+      assert.ok(mcpCheck!.message.includes("pidfile exists"),
+        `Message should mention pidfile exists, got: ${mcpCheck!.message}`);
+      assert.ok(mcpCheck!.remedy, "Should have a remedy");
+      assert.ok(mcpCheck!.remedy!.includes("mcp restart"));
+    } finally {
+      fs.rmSync(homeDir, { recursive: true, force: true });
+    }
+  });
+
+  it("daemon log tail appears in failure messages when daemon left logs", async () => {
+    const homeDir = createTempHome();
+    try {
+      // Write a fake daemon log file so the log tail can be read
+      const tamanduaDir = path.join(homeDir, ".tamandua");
+      fs.mkdirSync(tamanduaDir, { recursive: true });
+      const logFile = path.join(tamanduaDir, "dashboard.log");
+      const logContent = "line1\nline2\nline3\nerror: something broke\ninfo: daemon started\n";
+      fs.writeFileSync(logFile, logContent, "utf-8");
+
+      const groups = await runDoctorChecks({ homeDir });
+      const svc = groups.find((g) => g.label === "SERVICES");
+      assert.ok(svc);
+      const daemonCheck = svc!.checks.find((c) => c.name === "Dashboard daemon PID alive");
+      assert.ok(daemonCheck);
+      assert.strictEqual(daemonCheck!.status, "fail");
+      assert.ok(daemonCheck!.message.includes("Daemon log tail:"),
+        `Message should include daemon log tail. Got: ${daemonCheck!.message}`);
+      assert.ok(daemonCheck!.message.includes("error: something broke"),
+        `Log tail should include log line. Got: ${daemonCheck!.message}`);
+    } finally {
+      fs.rmSync(homeDir, { recursive: true, force: true });
+    }
+  });
+
+  it("all SERVICE checks have valid structure on real HOME", async () => {
+    const groups = await runDoctorChecks();
+    const svc = groups.find((g) => g.label === "SERVICES");
+    assert.ok(svc);
+    assert.strictEqual(svc!.checks.length, 4);
+    for (const check of svc!.checks) {
+      assert.strictEqual(typeof check.name, "string");
+      assert.strictEqual(typeof check.status, "string");
+      assert.strictEqual(typeof check.message, "string");
+      assert.ok(check.message.length > 0, `Check "${check.name}" has empty message`);
+      assert.notStrictEqual(check.message, "Not yet implemented",
+        `Check "${check.name}" should not be a placeholder`);
+      if (check.status === "fail") {
+        assert.strictEqual(typeof check.remedy, "string",
+          `Check "${check.name}" failed but has no remedy`);
+        assert.ok(check.remedy!.length > 0, `Check "${check.name}" has empty remedy`);
+      }
+    }
+  });
+
+  it("daemon not running: control plane and dashboard report daemon-not-running remedies", async () => {
+    const homeDir = createTempHome();
+    try {
+      const groups = await runDoctorChecks({ homeDir });
+      const svc = groups.find((g) => g.label === "SERVICES");
+      assert.ok(svc);
+
+      for (const check of svc!.checks) {
+        if (check.name === "Dashboard daemon PID alive" ||
+            check.name === "Control plane reachable" ||
+            check.name === "Dashboard HTTP up") {
+          assert.strictEqual(check.status, "fail",
+            `Check "${check.name}" should fail when daemon is not running`);
+          assert.ok(check.remedy, `Check "${check.name}" should have a remedy`);
+          assert.ok(
+            check.remedy!.includes("tamandua dashboard"),
+            `Remedy for "${check.name}" should reference tamandua dashboard: ${check.remedy}`,
+          );
+        }
+      }
+    } finally {
+      fs.rmSync(homeDir, { recursive: true, force: true });
+    }
+  });
+  it("STALENESS group is no longer a placeholder", async () => {
+    const groups = await runDoctorChecks();
+    const staleness = groups.find((g) => g.label === "STALENESS");
+    assert.ok(staleness, "Expected STALENESS group");
+    assert.strictEqual(staleness!.checks.length, 1);
+    const check = staleness!.checks[0];
+    assert.notStrictEqual(check.message, "Not yet implemented",
+      "Staleness check should not be a placeholder");
+  });
+});
+
+describe("STALENESS check (US-005)", () => {
+  it("passes when daemon buildVersion matches local version", { timeout: 15000 }, async () => {
+    const homeDir = createTempHome();
+    const port = await getAvailablePort();
+    const controlPort = await getAvailablePort();
+    let child: import("node:child_process").ChildProcess | undefined;
+    const savedControlPort = process.env.TAMANDUA_CONTROL_PORT;
+    process.env.TAMANDUA_CONTROL_PORT = String(controlPort);
+    try {
+      const result = await startDaemon(port, { homeDir, keepHandle: true });
+      child = (result as { child: import("node:child_process").ChildProcess }).child;
+
+      await new Promise((resolve) => setTimeout(resolve, 500));
+
+      // Write control plane port file so staleness check can find it
+      const cpPortFile = getControlPlanePortFile({ homeDir });
+      fs.mkdirSync(path.dirname(cpPortFile), { recursive: true });
+      fs.writeFileSync(cpPortFile, String(controlPort), "utf-8");
+
+      const groups = await runDoctorChecks({ homeDir });
+      const staleness = groups.find((g) => g.label === "STALENESS");
+      assert.ok(staleness);
+      assert.strictEqual(staleness!.checks.length, 1);
+      const check = staleness!.checks[0];
+      assert.strictEqual(check.status, "pass",
+        `Staleness check should pass when versions match, got: ${check.status} (${check.message})`);
+      assert.ok(check.message.includes("matches"),
+        `Message should say versions match, got: ${check.message}`);
+    } finally {
+      if (child) {
+        try { child.kill("SIGTERM"); } catch { /* ignore */ }
+      }
+      await new Promise((resolve) => setTimeout(resolve, 200));
+      try { stopDaemon({ homeDir }); } catch { /* ignore */ }
+      fs.rmSync(homeDir, { recursive: true, force: true });
+      if (savedControlPort !== undefined) {
+        process.env.TAMANDUA_CONTROL_PORT = savedControlPort;
+      } else {
+        delete process.env.TAMANDUA_CONTROL_PORT;
+      }
+    }
+  });
+
+  it("fails with dashboard restart remedy when buildVersion differs", async () => {
+    const homeDir = createTempHome();
+    const { createServer } = await import("node:http");
+
+    try {
+      // Start a mock HTTP server that returns a different buildVersion
+      const mockPort = await getAvailablePort();
+      const mockServer = createServer((_req, res) => {
+        res.writeHead(200, { "content-type": "application/json" });
+        res.end(JSON.stringify({
+          status: "ok",
+          pid: 12345,
+          timestamp: new Date().toISOString(),
+          buildVersion: "99999999_old_build",
+        }));
+      });
+
+      await new Promise<void>((resolve) => mockServer.listen(mockPort, "127.0.0.1", resolve));
+
+      // Write control plane port file pointing to the mock server
+      const cpPortFile = getControlPlanePortFile({ homeDir });
+      fs.mkdirSync(path.dirname(cpPortFile), { recursive: true });
+      fs.writeFileSync(cpPortFile, String(mockPort), "utf-8");
+
+      try {
+        const groups = await runDoctorChecks({ homeDir });
+        const staleness = groups.find((g) => g.label === "STALENESS");
+        assert.ok(staleness);
+        const check = staleness!.checks[0];
+        assert.strictEqual(check.status, "fail",
+          `Staleness check should fail when versions differ, got: ${check.status} (${check.message})`);
+        assert.ok(check.message.includes("installed build is"),
+          `Message should mention installed build, got: ${check.message}`);
+        assert.ok(check.message.includes("99999999_old_build"),
+          `Message should include daemon build version, got: ${check.message}`);
+        assert.strictEqual(check.remedy, "Run: tamandua dashboard restart",
+          "Remedy should be tamandua dashboard restart (not control-plane restart)");
+      } finally {
+        await new Promise<void>((resolve) => mockServer.close(() => resolve()));
+      }
+    } finally {
+      fs.rmSync(homeDir, { recursive: true, force: true });
+    }
+  });
+
+  it("reports warn when buildVersion field is missing from health response", async () => {
+    const homeDir = createTempHome();
+    const { createServer } = await import("node:http");
+
+    try {
+      const mockPort = await getAvailablePort();
+      const mockServer = createServer((_req, res) => {
+        res.writeHead(200, { "content-type": "application/json" });
+        res.end(JSON.stringify({
+          status: "ok",
+          pid: 12345,
+          timestamp: new Date().toISOString(),
+          // buildVersion intentionally omitted — old daemon that predates US-001
+        }));
+      });
+
+      await new Promise<void>((resolve) => mockServer.listen(mockPort, "127.0.0.1", resolve));
+
+      const cpPortFile = getControlPlanePortFile({ homeDir });
+      fs.mkdirSync(path.dirname(cpPortFile), { recursive: true });
+      fs.writeFileSync(cpPortFile, String(mockPort), "utf-8");
+
+      try {
+        const groups = await runDoctorChecks({ homeDir });
+        const staleness = groups.find((g) => g.label === "STALENESS");
+        assert.ok(staleness);
+        const check = staleness!.checks[0];
+        assert.strictEqual(check.status, "warn",
+          `Staleness check should warn when buildVersion is missing, got: ${check.status} (${check.message})`);
+        assert.ok(check.message.includes("predates build version reporting"),
+          `Message should mention predates build version reporting, got: ${check.message}`);
+        assert.ok(check.remedy!.includes("tamandua dashboard restart"),
+          "Remedy should suggest tamandua dashboard restart");
+      } finally {
+        await new Promise<void>((resolve) => mockServer.close(() => resolve()));
+      }
+    } finally {
+      fs.rmSync(homeDir, { recursive: true, force: true });
+    }
+  });
+
+  it("reports info (skip) when control plane is unreachable", async () => {
+    const homeDir = createTempHome();
+    try {
+      // No daemon, no port file → control plane port defaults to 3339
+      // which likely has nothing listening, so fetch will fail
+      // Use an explicit random port that nothing listens on
+      const unusedPort = await getAvailablePort();
+      const cpPortFile = getControlPlanePortFile({ homeDir });
+      fs.mkdirSync(path.dirname(cpPortFile), { recursive: true });
+      fs.writeFileSync(cpPortFile, String(unusedPort), "utf-8");
+
+      const groups = await runDoctorChecks({ homeDir });
+      const staleness = groups.find((g) => g.label === "STALENESS");
+      assert.ok(staleness);
+      const check = staleness!.checks[0];
+      assert.strictEqual(check.status, "info",
+        `Staleness check should be info when control plane is unreachable, got: ${check.status} (${check.message})`);
+      assert.ok(
+        check.message.includes("unreachable") || check.message.includes("skipped"),
+        `Message should indicate unreachable/skipped, got: ${check.message}`,
+      );
+    } finally {
+      fs.rmSync(homeDir, { recursive: true, force: true });
+    }
+  });
+
+  it("non-200 health response is handled gracefully", async () => {
+    const homeDir = createTempHome();
+    const { createServer } = await import("node:http");
+
+    try {
+      const mockPort = await getAvailablePort();
+      const mockServer = createServer((_req, res) => {
+        res.writeHead(500, { "content-type": "application/json" });
+        res.end(JSON.stringify({ error: "internal error" }));
+      });
+
+      await new Promise<void>((resolve) => mockServer.listen(mockPort, "127.0.0.1", resolve));
+
+      const cpPortFile = getControlPlanePortFile({ homeDir });
+      fs.mkdirSync(path.dirname(cpPortFile), { recursive: true });
+      fs.writeFileSync(cpPortFile, String(mockPort), "utf-8");
+
+      try {
+        const groups = await runDoctorChecks({ homeDir });
+        const staleness = groups.find((g) => g.label === "STALENESS");
+        assert.ok(staleness);
+        const check = staleness!.checks[0];
+        assert.strictEqual(check.status, "info",
+          `Staleness check should be info on non-200 response, got: ${check.status} (${check.message})`);
+      } finally {
+        await new Promise<void>((resolve) => mockServer.close(() => resolve()));
+      }
+    } finally {
+      fs.rmSync(homeDir, { recursive: true, force: true });
+    }
+  });
+});
+
+describe("STATE checks (US-006)", () => {
+  it("database fails to open → fail check with remedy", async () => {
+    // Save current DB path and point to a nonexistent directory
+    const savedDbPath = process.env.TAMANDUA_DB_PATH;
+    const homeDir = createTempHome();
+    // Point to a path where the parent directory doesn't exist
+    process.env.TAMANDUA_DB_PATH = path.join(homeDir, "nonexistent", "subdir", "tamandua.db");
+    // Don't create the directory — so getDb() will fail trying to mkdir or open
+    // But getDb() calls fs.mkdirSync on the parent dir, so it might create it.
+    // Instead, make the parent dir a file so mkdir fails.
+    const parentDir = path.dirname(process.env.TAMANDUA_DB_PATH);
+    const grandparent = path.dirname(parentDir);
+    fs.mkdirSync(grandparent, { recursive: true });
+    fs.writeFileSync(parentDir, "blocked"); // parent dir is a file, not a directory
+
+    try {
+      const groups = await runDoctorChecks();
+      const state = groups.find((g) => g.label === "STATE");
+      assert.ok(state);
+      const dbCheck = state!.checks.find((c) => c.name === "Database opens");
+      assert.ok(dbCheck, "Expected 'Database opens' check");
+      assert.strictEqual(dbCheck!.status, "fail",
+        `Database opens should fail when DB path is blocked, got: ${dbCheck!.status} (${dbCheck!.message})`);
+      assert.ok(dbCheck!.remedy, "Failed DB check should have a remedy");
+      assert.ok(
+        dbCheck!.message.toLowerCase().includes("fail") || dbCheck!.message.includes("blocked") || dbCheck!.message.includes("EISDIR") || dbCheck!.message.includes("ENOTDIR") || dbCheck!.message.includes("error"),
+        `Message should indicate failure, got: ${dbCheck!.message}`,
+      );
+    } finally {
+      process.env.TAMANDUA_DB_PATH = savedDbPath;
+      try { fs.rmSync(homeDir, { recursive: true, force: true }); } catch {}
+    }
+  });
+
+  it("database opens → pass check", async () => {
+    const groups = await runDoctorChecks();
+    const state = groups.find((g) => g.label === "STATE");
+    assert.ok(state);
+    const dbCheck = state!.checks.find((c) => c.name === "Database opens");
+    assert.ok(dbCheck, "Expected 'Database opens' check");
+    assert.strictEqual(dbCheck!.status, "pass",
+      `Database opens should pass with isolated temp DB, got: ${dbCheck!.status} (${dbCheck!.message})`);
+    assert.ok(dbCheck!.message.includes("success") || dbCheck!.message.includes("opened"),
+      `Message should indicate success, got: ${dbCheck!.message}`);
+  });
+
+  it("no medic anomalies → pass with clear message", async () => {
+    const groups = await runDoctorChecks();
+    const state = groups.find((g) => g.label === "STATE");
+    assert.ok(state);
+    // On a clean temp DB, medic should find no anomalies
+    const medicCheck = state!.checks.find((c) => c.name === "Run-level anomalies");
+    assert.ok(medicCheck, "Expected 'Run-level anomalies' check when no findings exist");
+    assert.strictEqual(medicCheck!.status, "pass",
+      `Clean DB should have no anomalies, got: ${medicCheck!.status} (${medicCheck!.message})`);
+    assert.ok(
+      medicCheck!.message.includes("No run-level anomalies") || medicCheck!.message.includes("no issues"),
+      `Message should say no anomalies, got: ${medicCheck!.message}`,
+    );
+  });
+
+  it("zombie run findings are reported as critical", async () => {
+    // Seed the DB with a zombie run so medic finds it
+    const savedDbPath = process.env.TAMANDUA_DB_PATH;
+    const homeDir = createTempHome();
+    const dbPath = path.join(homeDir, ".tamandua", "tamandua.db");
+    fs.mkdirSync(path.dirname(dbPath), { recursive: true });
+    fs.writeFileSync(dbPath, "");
+    seedZombieRun(dbPath);
+    process.env.TAMANDUA_DB_PATH = dbPath;
+
+    try {
+      const groups = await runDoctorChecks();
+      const state = groups.find((g) => g.label === "STATE");
+      assert.ok(state);
+      const anomalyChecks = state!.checks.filter((c) => c.name === "Run-level anomaly");
+      // Should find the zombie run
+      const zombieCheck = anomalyChecks.find((c) => c.message.includes("zombie") || c.message.includes("ZOMBIE"));
+      assert.ok(zombieCheck,
+        `Expected a zombie run finding, got anomalies: ${JSON.stringify(anomalyChecks.map(c => c.message))}`);
+      assert.strictEqual(zombieCheck!.status, "fail",
+        `Zombie run should be critical/fail, got: ${zombieCheck!.status}`);
+      assert.ok(zombieCheck!.remedy, "Zombie check should have a remedy");
+      assert.ok(zombieCheck!.remedy!.includes("tamandua medic"),
+        `Remedy should mention medic, got: ${zombieCheck!.remedy}`);
+    } finally {
+      process.env.TAMANDUA_DB_PATH = savedDbPath;
+      try { fs.rmSync(homeDir, { recursive: true, force: true }); } catch {}
+    }
+  });
+});
+
+describe("formatDoctorOutput", () => {
+  it("returns a string with hasFailures=false for all-pass groups", () => {
+    const groups: CheckGroup[] = [
+      {
+        label: "ENVIRONMENT",
+        checks: [
+          { name: "Node.js >= 22", status: "pass", message: "v22.0.0 detected" },
+        ],
+      },
+    ];
+    const { output, hasFailures } = formatDoctorOutput(groups);
+    assert.strictEqual(typeof output, "string");
+    assert.strictEqual(hasFailures, false);
+    assert.ok(output.includes("All checks passed."), "Should report all passed");
+  });
+
+  it("returns hasFailures=true when a check fails", () => {
+    const groups: CheckGroup[] = [
+      {
+        label: "SERVICES",
+        checks: [
+          { name: "Dashboard daemon", status: "fail", message: "not running", remedy: "tamandua dashboard start" },
+        ],
+      },
+    ];
+    const { output, hasFailures } = formatDoctorOutput(groups);
+    assert.strictEqual(hasFailures, true);
+    assert.ok(output.includes("Some checks failed."), "Should report failures");
+    assert.ok(output.includes("✗"), "Should include fail icon");
+    assert.ok(output.includes("remedy:"), "Should include remedy line");
+  });
+
+  it("includes remedy text when provided", () => {
+    const groups: CheckGroup[] = [
+      {
+        label: "ENVIRONMENT",
+        checks: [
+          { name: "Node.js", status: "fail", message: "missing", remedy: "install node" },
+        ],
+      },
+    ];
+    const { output } = formatDoctorOutput(groups);
+    assert.ok(output.includes("→ remedy: install node"));
+  });
+
+  it("does not include remedy text when not provided", () => {
+    const groups: CheckGroup[] = [
+      {
+        label: "ENVIRONMENT",
+        checks: [
+          { name: "Node.js", status: "pass", message: "present" },
+        ],
+      },
+    ];
+    const { output } = formatDoctorOutput(groups);
+    assert.ok(!output.includes("remedy"));
+  });
+
+  it("renders correct icons for each status", () => {
+    const groups: CheckGroup[] = [
+      {
+        label: "TEST",
+        checks: [
+          { name: "pass", status: "pass", message: "all good" },
+          { name: "fail", status: "fail", message: "broken", remedy: "fix" },
+          { name: "warn", status: "warn", message: "caution" },
+          { name: "info", status: "info", message: "note" },
+        ],
+      },
+    ];
+    const { output, hasFailures } = formatDoctorOutput(groups);
+    assert.strictEqual(hasFailures, true);
+    assert.ok(output.includes("✓ pass"));
+    assert.ok(output.includes("✗ fail"));
+    assert.ok(output.includes("⚠ warn"));
+    assert.ok(output.includes("ℹ info"));
+  });
+
+  it("renders group labels", () => {
+    const groups: CheckGroup[] = [
+      { label: "FIRST", checks: [{ name: "a", status: "pass", message: "ok" }] },
+      { label: "SECOND", checks: [{ name: "b", status: "pass", message: "ok" }] },
+    ];
+    const { output } = formatDoctorOutput(groups);
+    assert.ok(output.includes("─── FIRST ───"));
+    assert.ok(output.includes("─── SECOND ───"));
+  });
+});

@@ -114,25 +114,6 @@ describe("medic", () => {
       assert.ok(result.summary.includes("All clear"));
     });
 
-    it("detects and remediates stuck running steps", async () => {
-      ensureMedicTables();
-
-      db.prepare(
-        "INSERT INTO runs (id, workflow_id, task, status, context, created_at, updated_at) VALUES (?, ?, ?, ?, ?, datetime('now', '-2 hours'), datetime('now', '-2 hours'))"
-      ).run("stuck-run", "bug-fix", "Fix stuff", "running", "{}");
-
-      db.prepare(
-        "INSERT INTO steps (id, run_id, step_id, agent_id, step_index, input_template, expects, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, datetime('now', '-2 hours'), datetime('now', '-2 hours'))"
-      ).run("stuck-step-1", "stuck-run", "implement", "dev-agent", 0, "Fix it", "tests pass", "running");
-
-      const result = await runMedicCheck();
-      assert.ok(result.issuesFound >= 1, "should find stuck steps");
-      assert.ok(
-        result.summary.includes("warning") || result.summary.includes("auto-fixed"),
-        "summary should mention warnings or fixes",
-      );
-    });
-
     it("detects and remediates zombie runs", async () => {
       ensureMedicTables();
 
@@ -150,29 +131,6 @@ describe("medic", () => {
         result.summary.includes("critical") || result.summary.includes("auto-fixed"),
         "summary should mention critical or fixes",
       );
-    });
-
-    it("marks step+run failed when abandoned_count reaches 5", async () => {
-      ensureMedicTables();
-
-      db.prepare(
-        "INSERT INTO runs (id, workflow_id, task, status, context, tokens_spent, created_at, updated_at) VALUES (?, ?, ?, ?, ?, 100, datetime('now', '-2 hours'), datetime('now', '-2 hours'))"
-      ).run("stuck-max", "bug-fix", "Over-abandoned", "running", "{}");
-
-      db.prepare(
-        "INSERT INTO steps (id, run_id, step_id, agent_id, step_index, input_template, expects, status, abandoned_count, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now', '-2 hours'), datetime('now', '-2 hours'))"
-      ).run("step-max", "stuck-max", "implement", "dev-agent", 0, "Fix it", "pass", "running", 4);
-
-      const result = await runMedicCheck();
-      assert.ok(result.issuesFound >= 1, "should find stuck step with abandoned_count 4");
-      assert.ok(result.actionsTaken >= 1, "should take action");
-
-      const step = db.prepare("SELECT status, abandoned_count FROM steps WHERE id = ?").get("step-max") as { status: string; abandoned_count: number };
-      assert.equal(step.status, "failed");
-      assert.equal(step.abandoned_count, 5);
-
-      const run = db.prepare("SELECT status FROM runs WHERE id = ?").get("stuck-max") as { status: string };
-      assert.equal(run.status, "failed");
     });
 
     it("populates medic_checks table after check", async () => {
@@ -218,13 +176,13 @@ describe("medic", () => {
       ensureMedicTables();
       await runMedicCheck();
 
-      // Add a stuck step so we get non-zero stats
+      // Add a zombie run so we get non-zero stats
       db.prepare(
-        "INSERT INTO runs (id, workflow_id, task, status, context, created_at, updated_at) VALUES (?, ?, ?, ?, ?, datetime('now', '-2 hours'), datetime('now', '-2 hours'))"
+        "INSERT INTO runs (id, workflow_id, task, status, context, created_at, updated_at) VALUES (?, ?, ?, ?, ?, datetime('now', '-3 hours'), datetime('now', '-3 hours'))"
       ).run("stats-run", "bug-fix", "Fix stats", "running", "{}");
       db.prepare(
-        "INSERT INTO steps (id, run_id, step_id, agent_id, step_index, input_template, expects, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, datetime('now', '-2 hours'), datetime('now', '-2 hours'))"
-      ).run("stats-step", "stats-run", "implement", "dev-agent", 0, "Do", "done", "running");
+        "INSERT INTO steps (id, run_id, step_id, agent_id, step_index, input_template, expects, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, datetime('now', '-3 hours'), datetime('now', '-3 hours'))"
+      ).run("stats-step", "stats-run", "implement", "dev-agent", 0, "Do", "done", "done");
 
       await runMedicCheck();
 

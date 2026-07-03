@@ -2924,3 +2924,72 @@ describe("autoresearch prune CLI", () => {
     }
   });
 });
+
+describe("tamandua doctor", () => {
+  it("tamandua doctor --help prints help with four check categories", () => {
+    const result = cli(["doctor", "--help"]);
+    try {
+      assert.equal(result.status, 0);
+      assert.match(result.stdout ?? "", /ENVIRONMENT/);
+      assert.match(result.stdout ?? "", /SERVICES/);
+      assert.match(result.stdout ?? "", /STALENESS/);
+      assert.match(result.stdout ?? "", /STATE/);
+      assert.match(result.stdout ?? "", /node:sqlite/);
+      assert.doesNotMatch(result.stdout ?? "", /tamandua get-ready/);
+    } finally {
+      fs.rmSync(result.testEnv.tmpDir, { recursive: true, force: true });
+    }
+  });
+
+  it("tamandua doctor --help shows exit code information", () => {
+    const result = cli(["doctor", "--help"]);
+    try {
+      assert.equal(result.status, 0);
+      assert.match(result.stdout ?? "", /Exit codes/);
+      assert.match(result.stdout ?? "", /0.*all checks passed/);
+      assert.match(result.stdout ?? "", /1.*at least one check failed/);
+    } finally {
+      fs.rmSync(result.testEnv.tmpDir, { recursive: true, force: true });
+    }
+  });
+
+  it("tamandua --help includes doctor in global usage", () => {
+    const result = cli(["--help"]);
+    try {
+      assert.equal(result.status, 0);
+      assert.match(result.stdout ?? "", /tamandua doctor.*Run one-shot diagnostic/);
+    } finally {
+      fs.rmSync(result.testEnv.tmpDir, { recursive: true, force: true });
+    }
+  });
+
+  it("tamandua doctor runs and produces output with check categories", () => {
+    const result = cli(["doctor"]);
+    try {
+      // Should produce output with check category headers (runs regardless of daemon state)
+      assert.match(result.stdout ?? "", /─── ENVIRONMENT ───/);
+      assert.match(result.stdout ?? "", /─── SERVICES ───/);
+      assert.match(result.stdout ?? "", /─── STALENESS ───/);
+      assert.match(result.stdout ?? "", /─── STATE ───/);
+      assert.match(result.stdout ?? "", /Node.js >= 22/);
+      // Either "All checks passed" or "Some checks failed" should appear
+      const hasAllPassed = (result.stdout ?? "").includes("All checks passed");
+      const hasSomeFailed = (result.stdout ?? "").includes("Some checks failed");
+      assert.ok(hasAllPassed || hasSomeFailed, "should have a final summary line");
+      // Exit code should be 0 or 1 (0 if all pass, 1 if failures)
+      assert.ok(result.status === 0 || result.status === 1, `unexpected exit code: ${result.status}`);
+    } finally {
+      fs.rmSync(result.testEnv.tmpDir, { recursive: true, force: true });
+    }
+  });
+
+  it("tamandua doctor with unknown args exits with error", () => {
+    const result = cli(["doctor", "--invalid"]);
+    try {
+      assert.notEqual(result.status, 0);
+      assert.match(result.stderr ?? "", /Unknown doctor option/);
+    } finally {
+      fs.rmSync(result.testEnv.tmpDir, { recursive: true, force: true });
+    }
+  });
+});

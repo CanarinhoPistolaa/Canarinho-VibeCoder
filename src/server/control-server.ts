@@ -24,6 +24,7 @@ import path from "node:path";
 import os from "node:os";
 import crypto from "node:crypto";
 import { logger } from "../lib/logger.js";
+import { getBuildVersion } from "../lib/version.js";
 import { assertPortIsolation } from "../lib/test-guard.js";
 import { getDb } from "../db.js";
 import { emitEvent } from "../installer/events.js";
@@ -31,6 +32,10 @@ import { validateRunHarnessForScheduling } from "../installer/run-harness.js";
 
 export const DEFAULT_CONTROL_PORT = 3339;
 const DEFAULT_MAX_ACTIVE_TIMERS = 50;
+
+// Read at module load so dist/version is sampled once at daemon startup,
+// not on every health request.
+const buildVersion = getBuildVersion();
 
 function defaultDaemonSecretFile(): string {
   return path.join(process.env.HOME?.trim() || os.homedir(), ".tamandua", "daemon-secret");
@@ -661,7 +666,7 @@ export function createControlServer(options: ControlServerOptions = {}): http.Se
     // Health is exempt from auth so daemonctl liveness probes don't need
     // the secret to succeed.
     if (pathname === "/control/health" && method === "GET") {
-      respond(200, { status: "ok", pid: process.pid, timestamp: new Date().toISOString() });
+      respond(200, { status: "ok", pid: process.pid, timestamp: new Date().toISOString(), buildVersion });
       return;
     }
 
