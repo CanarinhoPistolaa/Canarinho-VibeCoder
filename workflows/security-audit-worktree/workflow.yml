@@ -105,6 +105,9 @@ steps:
       TASK:
       {{task}}
 
+      RETRY FEEDBACK (only present if your previous attempt was rejected — read carefully and fix specifically what it complains about):
+      {{retry_feedback}}
+
       Instructions:
       1. Explore the codebase — understand the stack, framework, dependencies
       2. Run `npm audit` (or equivalent) if a package manager is present
@@ -131,7 +134,7 @@ steps:
       BRANCH: security-audit-YYYY-MM-DD
       VULNERABILITY_COUNT: <number>
       FINDINGS: <detailed list of each vulnerability>
-    expects: "STATUS: done"
+    expects: "STATUS: done\nregex:^BRANCH:\\s*\\S+"
     max_retries: 4
     on_fail:
       escalate_to: human

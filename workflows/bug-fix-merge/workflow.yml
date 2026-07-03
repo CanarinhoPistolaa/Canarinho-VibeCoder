@@ -98,6 +98,9 @@ steps:
       BUG REPORT:
       {{task}}
 
+      RETRY FEEDBACK (only present if your previous attempt was rejected — read carefully and fix specifically what it complains about):
+      {{retry_feedback}}
+
       Instructions:
       1. Read the bug report carefully
       2. Explore the codebase to find the affected area
@@ -113,7 +116,7 @@ steps:
       AFFECTED_AREA: what files/modules are affected
       REPRODUCTION: how to reproduce the bug
       PROBLEM_STATEMENT: clear description of what's wrong
-    expects: "STATUS: done"
+    expects: "STATUS: done\nregex:^BRANCH:\\s*\\S+"
     max_retries: 4
     on_fail:
       escalate_to: human

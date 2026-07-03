@@ -210,6 +210,7 @@ interface SimState {
 const REGEX_EXPECTS_CANDIDATES = [
   "PR: https://github.com/sim-org/sim-repo/pull/1",
   "MERGE_COMMIT: 0123abc",
+  "BRANCH: sim-branch",
   "STATUS: done",
 ];
 

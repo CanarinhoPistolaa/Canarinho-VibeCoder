@@ -106,6 +106,9 @@ steps:
       RETRY FEEDBACK (only present if your previous attempt was rejected — read carefully and fix specifically what it complains about):
       {{retry_feedback}}
 
+      RETRY FEEDBACK (only present if your previous attempt was rejected — read carefully and fix specifically what it complains about):
+      {{retry_feedback}}
+
       Instructions:
       1. Explore the codebase to understand the stack, conventions, and patterns
       2. Break the task into small user stories (max 20)
@@ -125,7 +128,7 @@ steps:
       The STORIES_JSON line is REQUIRED and MUST be a literal JSON array. Example (illustrative — produce real stories for the actual TASK, not these):
       STORIES_JSON: [{"id":"US-001","title":"Add foo column","description":"...","acceptanceCriteria":["foo exists","tests pass","Typecheck passes"]}]
       Without STORIES_JSON the run cannot proceed; do not summarize stories in prose under CHANGES — only the literal STORIES_JSON line is parsed.
-    expects: "STATUS: done"
+    expects: "STATUS: done\nregex:^BRANCH:\\s*\\S+"
     max_retries: 4
     on_fail:
       escalate_to: human
