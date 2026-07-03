@@ -788,6 +788,27 @@ export function recoverOrphanedStepsForAgent(
 }
 
 /**
+ * The calling process's own process-group id (Linux /proc/self/stat).
+ *
+ * Used by `step claim` to record WorkerOwnership.pgid: the CLI runs as a
+ * descendant of the harness process, which the scheduler spawns detached
+ * (its own group leader), so the CLI's pgid IS the harness process group.
+ * Returns null off-Linux or on parse failure — callers must tolerate it.
+ */
+export function getOwnProcessGroupId(): number | null {
+  try {
+    const stat = fs.readFileSync("/proc/self/stat", "utf-8");
+    // Fields after the parenthesized comm (which may contain spaces):
+    // state(0) ppid(1) pgrp(2) ...
+    const afterComm = stat.slice(stat.lastIndexOf(")") + 2);
+    const pgrp = Number(afterComm.split(" ")[2]);
+    return Number.isInteger(pgrp) && pgrp > 0 ? pgrp : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
  * Recover running steps whose claiming worker process is dead.
  *
  * A daemon crash/kill (machine reboot, OOM, SIGKILL, an agent stopping the
@@ -799,9 +820,17 @@ export function recoverOrphanedStepsForAgent(
  * after startup, then every cycle), so a restarted daemon un-wedges
  * interrupted runs right away (MOTOR-CONTRACT.md C18).
  *
+ * Survivor guard: an UNGRACEFUL daemon death (SIGKILL, power loss) does not
+ * kill the daemon's detached harness children — the agent may still be
+ * working. When the step's claim_pgid (the harness process group, recorded
+ * at claim time) is still alive, the step is left alone: requeuing it would
+ * put two agents in the same workdir. The survivor either reports normally
+ * (late completions are accepted, C5) or eventually dies/hangs and is
+ * reclaimed by this sweep or the age-based one.
+ *
  * Steps without claim_pid (legacy/manual claims) are left to the age-based
- * sweep — liveness can't be determined for them. Pid reuse can make a dead
- * worker look alive; that also falls back to the age-based sweep.
+ * sweep — liveness can't be determined for them. Pid/pgid reuse can make a
+ * dead worker look alive; that also falls back to the age-based sweep.
  */
 export function recoverStepsWithDeadWorkers(): {
   recovered: number;
@@ -811,7 +840,7 @@ export function recoverStepsWithDeadWorkers(): {
 } {
   const db = getDb();
   const steps = db.prepare(
-    `SELECT s.id, s.agent_id, s.run_id, s.claim_pid, s.claim_job_id
+    `SELECT s.id, s.agent_id, s.run_id, s.claim_pid, s.claim_pgid, s.claim_job_id
      FROM steps s
      JOIN runs r ON r.id = s.run_id
      WHERE s.status = 'running'
@@ -822,20 +851,38 @@ export function recoverStepsWithDeadWorkers(): {
     agent_id: string;
     run_id: string;
     claim_pid: number;
+    claim_pgid: number | null;
     claim_job_id: string | null;
   }[];
 
   const totals = { recovered: 0, failed: 0, skipped: 0, runIds: [] as string[] };
 
-  for (const step of steps) {
-    let workerAlive = true;
+  const processAlive = (pid: number): boolean => {
     try {
-      process.kill(step.claim_pid, 0);
+      process.kill(pid, 0);
+      return true;
     } catch (err) {
-      // ESRCH → dead. EPERM → alive but not ours (leave it alone).
-      workerAlive = (err as NodeJS.ErrnoException).code !== "ESRCH";
+      // ESRCH → dead. EPERM → alive but not ours (treat as alive).
+      return (err as NodeJS.ErrnoException).code !== "ESRCH";
     }
-    if (workerAlive) continue;
+  };
+
+  for (const step of steps) {
+    if (processAlive(step.claim_pid)) continue;
+
+    // Scheduler is dead — but its detached harness may have survived.
+    // kill(-pgid, 0) probes the whole process group.
+    if (step.claim_pgid && step.claim_pgid > 0 && processAlive(-step.claim_pgid)) {
+      totals.skipped += 1;
+      logger.info("Dead-worker sweep left step to a surviving harness group", {
+        runId: step.run_id,
+        stepId: step.id,
+        agentId: step.agent_id,
+        deadWorkerPid: step.claim_pid,
+        survivingPgid: step.claim_pgid,
+      });
+      continue;
+    }
 
     const result = recoverOrphanedStepsForAgent(
       step.agent_id,

@@ -95,8 +95,12 @@ baseline assertions.
   (first tick ~1 s after startup, then every cycle) and nudges the affected
   runs. A daemon crash/reboot/kill therefore un-wedges interrupted runs in
   seconds — not the 1.5×timeout age threshold (up to 45 min), and never
-  "forever" when no dispatch was running. Pinned by
-  `tests/dead-worker-recovery.test.ts` and the scripted e2e
+  "forever" when no dispatch was running. Survivor guard: if the step's
+  claim_pgid (the harness process group, self-detected by `step claim`) is
+  still ALIVE, the step is left alone — an ungracefully killed daemon does
+  not kill its detached harness children, and requeuing would put two
+  agents in one workdir; the survivor's late completion is accepted (C5).
+  Pinned by `tests/dead-worker-recovery.test.ts` and the scripted e2e
   daemon-SIGKILL test. Relatedly, `stopDaemon`/`stopMcp`/`stopControlPlane`
   refuse to signal the daemon named by TAMANDUA_WORKER_PID — an agent can
   no longer stop the very daemon scheduling it

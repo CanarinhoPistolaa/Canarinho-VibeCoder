@@ -22,7 +22,7 @@ import { startDaemon, stopDaemon, restartDaemon, getDaemonStatus, isRunning, sta
 import { DEFAULT_MCP_PORT, MCP_ENDPOINT_PATH } from "../server/mcp-server.js";
 import { DEFAULT_CONTROL_PORT } from "../server/control-server.js";
 import { pauseRunWithDaemon, resumeRunWithDaemon, nudgeWithDaemon } from "../server/control-client.js";
-import { claimStep, completeStep, failStep, getStories, peekStep } from "../installer/step-ops.js";
+import { claimStep, completeStep, failStep, getStories, getOwnProcessGroupId, peekStep } from "../installer/step-ops.js";
 import { ensureCliSymlink } from "../installer/symlink.js";
 import { resolveSourcePath, resolveSkillPath } from "../installer/paths.js";
 import { formatServiceStatus, formatTamanduaInfo, formatRunsSummary, formatProcessList } from "./status-format.js";
@@ -2086,9 +2086,14 @@ async function main() {
       }
       const jobId = process.env.TAMANDUA_WORKER_JOB_ID;
       const pidStr = process.env.TAMANDUA_WORKER_PID;
+      // Harness process group: env override, else self-detected — the CLI
+      // descends from the detached harness (its group leader), so our own
+      // pgid IS the harness group. Lets the dead-worker sweep (C18) tell a
+      // surviving harness apart from a fully dead one.
       const pgidStr = process.env.TAMANDUA_WORKER_PGID;
+      const pgid = pgidStr ? Number(pgidStr) : getOwnProcessGroupId();
       const workerOwnership = (jobId && pidStr)
-        ? { jobId, pid: Number(pidStr), ...(pgidStr ? { pgid: Number(pgidStr) } : {}) }
+        ? { jobId, pid: Number(pidStr), ...(pgid ? { pgid } : {}) }
         : undefined;
       const r = claimStep(target, runIdArg, workerOwnership);
       console.log(r.found ? JSON.stringify({ stepId: r.stepId, runId: r.runId, input: r.resolvedInput }) : "NO_WORK");

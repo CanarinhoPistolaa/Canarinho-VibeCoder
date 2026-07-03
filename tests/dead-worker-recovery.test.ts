@@ -53,6 +53,7 @@ function deadPid(): number {
 
 function seedRunWithRunningStep(opts: {
   claimPid: number | null;
+  claimPgid?: number | null;
   claimJobId?: string | null;
   runStatus?: string;
   maxRetries?: number;
@@ -67,12 +68,12 @@ function seedRunWithRunningStep(opts: {
   ).run(runId, opts.runStatus ?? "running", now, now);
   db.prepare(
     `INSERT INTO steps (id, run_id, step_id, agent_id, step_index, input_template, expects, status,
-       retry_count, max_retries, claim_pid, claim_job_id, created_at, updated_at)
-     VALUES (?, ?, 'work', 'wf-dead_dev', 0, 'work', '', 'running', ?, ?, ?, ?, ?, ?)`,
+       retry_count, max_retries, claim_pid, claim_pgid, claim_job_id, created_at, updated_at)
+     VALUES (?, ?, 'work', 'wf-dead_dev', 0, 'work', '', 'running', ?, ?, ?, ?, ?, ?, ?)`,
   ).run(
     stepId, runId,
     opts.retryCount ?? 0, opts.maxRetries ?? 3,
-    opts.claimPid, opts.claimJobId ?? "tamandua-wf-dead-job",
+    opts.claimPid, opts.claimPgid ?? null, opts.claimJobId ?? "tamandua-wf-dead-job",
     now, now,
   );
   return { runId, stepId };
@@ -152,5 +153,56 @@ describe("recoverStepsWithDeadWorkers (C18)", () => {
     assert.equal(stepStatus(a.stepId).status, "pending");
     assert.equal(stepStatus(b.stepId).status, "pending");
     assert.equal(stepStatus(alive.stepId).status, "running");
+  });
+
+  it("leaves the step alone when the harness process GROUP survived the daemon (survivor guard)", async () => {
+    // Ungraceful daemon death does not kill detached harness children: the
+    // agent may still be working. Spawn a detached process (its own group
+    // leader) to stand in for the surviving harness group.
+    const { spawn } = await import("node:child_process");
+    const survivor = spawn(process.execPath, ["-e", "setInterval(() => {}, 1 << 30)"], {
+      detached: true,
+      stdio: "ignore",
+    });
+    try {
+      const { stepId } = seedRunWithRunningStep({
+        claimPid: deadPid(),
+        claimPgid: survivor.pid!,
+      });
+
+      const result = recoverStepsWithDeadWorkers();
+
+      assert.equal(result.recovered, 0, "must not requeue while the harness group is alive");
+      assert.equal(result.skipped, 1, "the survivor case is reported as skipped");
+      assert.equal(stepStatus(stepId).status, "running", "two agents in one workdir is worse than waiting");
+    } finally {
+      try { process.kill(-survivor.pid!, "SIGKILL"); } catch { /* gone */ }
+    }
+  });
+
+  it("requeues when both the daemon and the harness group are dead", async () => {
+    const { spawnSync } = await import("node:child_process");
+    // A pgid guaranteed dead: a short-lived detached leader that already exited.
+    const r = spawnSync("true");
+    const deadGroup = r.pid ?? 999998;
+
+    const { stepId } = seedRunWithRunningStep({
+      claimPid: deadPid(),
+      claimPgid: deadGroup,
+    });
+
+    const result = recoverStepsWithDeadWorkers();
+
+    assert.equal(result.recovered, 1);
+    assert.equal(stepStatus(stepId).status, "pending");
+  });
+
+  it("getOwnProcessGroupId returns this process's group (matches ps)", async () => {
+    const { getOwnProcessGroupId } = await import("../dist/installer/step-ops.js");
+    const { spawnSync } = await import("node:child_process");
+    const own = getOwnProcessGroupId();
+    assert.ok(own && own > 0, "should self-detect a positive pgid on Linux");
+    const psOut = spawnSync("ps", ["-o", "pgid=", "-p", String(process.pid)], { encoding: "utf-8" });
+    assert.equal(own, Number(psOut.stdout.trim()), "must agree with ps");
   });
 });
