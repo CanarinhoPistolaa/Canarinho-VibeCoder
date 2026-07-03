@@ -16,6 +16,8 @@ export interface RunCleanupResult {
 export interface SweepOptions {
   /** PID that must never be killed (typically the daemon). */
   daemonPid?: number;
+  /** Process groups to spare (in-grace harness groups; leak guard owns them). */
+  excludePgids?: number[];
 }
 
 // ── Helpers ──────────────────────────────────────────────────────────
@@ -132,6 +134,19 @@ function getProcPids(): number[] {
  * Logs every kill via `logger.info` with pid and evidence, and emits a
  * `run.process_cleanup` event summarizing the sweep.
  */
+
+/** Process-group id of a pid via /proc/<pid>/stat (Linux). Null on failure. */
+function readPgid(pid: number): number | null {
+  try {
+    const stat = fs.readFileSync(`/proc/${pid}/stat`, "utf-8");
+    const afterComm = stat.slice(stat.lastIndexOf(")") + 2);
+    const pgrp = Number(afterComm.split(" ")[2]);
+    return Number.isInteger(pgrp) && pgrp > 0 ? pgrp : null;
+  } catch {
+    return null;
+  }
+}
+
 export function sweepRunProcesses(
   runId: string,
   worktreePath: string,
@@ -141,6 +156,7 @@ export function sweepRunProcesses(
   if (options?.daemonPid !== undefined) {
     skipPids.add(options.daemonPid);
   }
+  const excludePgids = new Set<number>(options?.excludePgids ?? []);
 
   const killedPids: number[] = [];
   const evidence: Record<number, string> = {};
@@ -153,6 +169,13 @@ export function sweepRunProcesses(
     scannedPids++;
 
     try {
+      // Spare in-grace harness groups: the run's final work round may still
+      // be flushing its token usage (HARNESS_TEARDOWN_GRACE_MS); the
+      // scheduler's leak guard kills those groups after the grace window.
+      if (excludePgids.size > 0) {
+        const pgid = readPgid(pid);
+        if (pgid !== null && excludePgids.has(pgid)) continue;
+      }
       const matchReason = processBelongsToRun(pid, runId, worktreePath);
       if (matchReason) {
         process.kill(pid, "SIGKILL");

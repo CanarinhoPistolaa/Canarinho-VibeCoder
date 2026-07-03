@@ -394,7 +394,15 @@ export function scheduleRunCronTeardown(runId: string): void {
     // run after the harness process group kill from removeRunCrons completes.
     import("./agent-scheduler.js")
       .then(async (m) => {
-        await new Promise((resolve) => setTimeout(resolve, m.HARNESS_TEARDOWN_GRACE_MS));
+        // unref'd: completeStep often runs in a short-lived CLI process
+        // spawned BY the harness — a referenced 10s timer here kept that
+        // CLI alive, blocked the harness's spawnSync for the whole grace
+        // window, and let the leak-guard SIGTERM race the final usage
+        // flush (real token-loss regression caught by the scripted e2e).
+        // The CLI exits immediately; the sweep then runs only in
+        // long-lived processes (daemon), with the worktree-removal sweep
+        // and leak guard covering the rest.
+        await new Promise((resolve) => setTimeout(resolve, m.HARNESS_TEARDOWN_GRACE_MS).unref());
         try {
           const { getRunWorktree } = await import("./worktree-manager.js");
           const wt = getRunWorktree(runId);

@@ -340,9 +340,18 @@ export function removeRunWorktree(params: {
   }
 
   if (pathExists) {
-    // Sweep for surviving processes tied to this worktree before removal
+    // Sweep for surviving processes tied to this worktree before removal.
+    // Exclude the run's own harness process groups (steps.claim_pgid): the
+    // final work round may still be flushing token usage inside the
+    // teardown grace window — the scheduler's leak guard owns those. This
+    // sweep targets everything ELSE an agent left behind (test daemons,
+    // orphaned tools).
     try {
-      sweepRunProcesses(params.runId, wt.worktreePath);
+      const excludePgids = getDb()
+        .prepare("SELECT DISTINCT claim_pgid FROM steps WHERE run_id = ? AND claim_pgid IS NOT NULL")
+        .all(params.runId)
+        .map((r) => (r as { claim_pgid: number }).claim_pgid);
+      sweepRunProcesses(params.runId, wt.worktreePath, { excludePgids });
     } catch (err) {
       logger.warn(
         `Process cleanup sweep failed for run ${params.runId}, proceeding with worktree removal`,
