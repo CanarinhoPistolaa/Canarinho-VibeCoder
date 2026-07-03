@@ -10,8 +10,11 @@
  * cleanChildEnv to spawned daemons/scripts), turning any such touch into a
  * loud, attributable failure instead of silent interference.
  *
- * Production is unaffected: the guard is inert unless TAMANDUA_TEST_GUARD
- * is set.
+ * The guard auto-activates whenever NODE_TEST_CONTEXT is set (node:test
+ * sets it in every test process), even without TAMANDUA_TEST_GUARD=1.
+ * This prevents bypasses when running individual test files directly with
+ * `node --test`. To explicitly disable the guard (e.g. a third-party test
+ * suite shelling out to the tamandua CLI), set TAMANDUA_TEST_GUARD=0.
  */
 import os from "node:os";
 import path from "node:path";
@@ -20,7 +23,18 @@ import path from "node:path";
 const PRODUCTION_PORTS = new Set([3334, 3338, 3339]);
 
 export function testGuardActive(): boolean {
-  return process.env.TAMANDUA_TEST_GUARD === "1";
+  // TAMANDUA_TEST_GUARD=0 is an explicit escape hatch that disables the
+  // guard even when NODE_TEST_CONTEXT is set (e.g. third-party test suites
+  // that shell out to the tamandua CLI).
+  if (process.env.TAMANDUA_TEST_GUARD === "0") return false;
+
+  // Belt-and-suspenders: explicit activation via env var, OR auto-activation
+  // when node:test is running (NODE_TEST_CONTEXT is set by the built-in
+  // test runner). This prevents bypasses when running `node --test` directly.
+  if (process.env.TAMANDUA_TEST_GUARD === "1") return true;
+  if (process.env.NODE_TEST_CONTEXT) return true;
+
+  return false;
 }
 
 /**

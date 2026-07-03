@@ -16,14 +16,18 @@ import {
 } from "../dist/lib/test-guard.js";
 
 let savedGuard: string | undefined;
+let savedNodeTestContext: string | undefined;
 
 beforeEach(() => {
   savedGuard = process.env.TAMANDUA_TEST_GUARD;
+  savedNodeTestContext = process.env.NODE_TEST_CONTEXT;
 });
 
 afterEach(() => {
   if (savedGuard === undefined) delete process.env.TAMANDUA_TEST_GUARD;
   else process.env.TAMANDUA_TEST_GUARD = savedGuard;
+  if (savedNodeTestContext === undefined) delete process.env.NODE_TEST_CONTEXT;
+  else process.env.NODE_TEST_CONTEXT = savedNodeTestContext;
 });
 
 describe("test-isolation guard", () => {
@@ -66,13 +70,32 @@ describe("test-isolation guard", () => {
     );
   });
 
-  it("is completely inert without TAMANDUA_TEST_GUARD (production)", () => {
-    delete process.env.TAMANDUA_TEST_GUARD;
+  it("is completely inert when TAMANDUA_TEST_GUARD=0 even with NODE_TEST_CONTEXT (explicit escape hatch)", () => {
+    process.env.TAMANDUA_TEST_GUARD = "0";
+    // NODE_TEST_CONTEXT is set by the test runner — keep it present to
+    // prove the escape hatch overrides auto-activation.
     assert.equal(testGuardActive(), false);
     assert.doesNotThrow(() => assertPortIsolation(3334, "prod"));
     const realHome = os.userInfo().homedir;
     assert.doesNotThrow(() =>
       assertStatePathIsolation(path.join(realHome, ".tamandua", "tamandua.db"), "prod"),
     );
+  });
+
+  it("auto-activates when only NODE_TEST_CONTEXT is set (no TAMANDUA_TEST_GUARD)", () => {
+    delete process.env.TAMANDUA_TEST_GUARD;
+    process.env.NODE_TEST_CONTEXT = "child-v8";
+    assert.equal(testGuardActive(), true);
+    assert.throws(
+      () => assertPortIsolation(3334, "auto-activated test"),
+      /TEST ISOLATION VIOLATION/,
+    );
+  });
+
+  it("TAMANDUA_TEST_GUARD=0 overrides NODE_TEST_CONTEXT (escape hatch disables the guard)", () => {
+    process.env.TAMANDUA_TEST_GUARD = "0";
+    process.env.NODE_TEST_CONTEXT = "child-v8";
+    assert.equal(testGuardActive(), false);
+    assert.doesNotThrow(() => assertPortIsolation(3334, "escape hatch"));
   });
 });

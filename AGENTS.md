@@ -254,6 +254,10 @@ anything they spawn — must NEVER touch the live instance:
   "TEST ISOLATION VIOLATION" error. The guard passes through
   `cleanChildEnv` to spawned daemons and scripts. Do not work around it —
   fix the test's isolation instead.
+- The guard auto-activates whenever `NODE_TEST_CONTEXT` is set (node:test
+  sets it in every test process), even without `TAMANDUA_TEST_GUARD=1`.
+  To explicitly disable the guard (e.g., a third-party test suite shelling
+  out to the tamandua CLI), set `TAMANDUA_TEST_GUARD=0`.
 - Every test gets its own temp HOME/`TAMANDUA_STATE_DIR`/`TAMANDUA_DB_PATH`
   and RANDOM ports for every listener it starts — including
   `TAMANDUA_CONTROL_PORT` for any daemon it spawns (the daemon binds a
