@@ -1079,9 +1079,11 @@ The task is passed to the workflow's agents as their objective.
 
 Options:
   --no-hurry-please-save-tokens-mode
-      Accepted for back-compat; has no effect on cost anymore. The
-      dispatch motor checks for work without a model, so idle runs
-      spend zero tokens regardless of this flag.
+      Prefer the pi-token-saver harness for this run's work: whenever a
+      step spawns pi, a pi-token-saver command is looked up on PATH first
+      (per invocation, so installing it mid-run takes effect) and used if
+      present; otherwise pi runs as usual. Idle checking is free either
+      way — the dispatch motor never spends tokens between steps.
   --working-directory-for-harness <dir>
       Set the working directory for the agent harness during this run.
       Agents will operate within this directory.

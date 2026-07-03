@@ -599,7 +599,7 @@ The remote MCP endpoint exposes 14 tools:
 | `workingDirectoryForHarness` | For direct workflows | Harness working directory for remote MCP runs. Required for direct workflows, invalid for worktree workflows. |
 | `worktreeOriginRepository` | For worktree workflows | Repository path to create the worktree from. Required for worktree workflows, invalid for direct workflows. |
 | `worktreeOriginRef` | No | Git ref (branch, tag, SHA) for the worktree. Optional. Only valid for worktree workflows. |
-| `noHurrySaveTokensMode` | No | Accepted for back-compat; no effect on cost anymore — idle dispatch is free under the deterministic motor. Optional, defaults to `false`. |
+| `noHurrySaveTokensMode` | No | When `true`, work spawns prefer a `pi-token-saver` command from PATH over `pi` (per invocation; falls back to `pi` when absent). Idle dispatch is free either way. Optional, defaults to `false`. |
 
 `workingDirectoryForHarness` and `worktreeOriginRepository` are **mutually exclusive**: direct workflows require the former, worktree workflows require the latter. Supplying the wrong one or both results in an invalid-params error.
 

@@ -129,15 +129,44 @@ export interface CreateCronJobParams {
 export interface SetupAgentCronsOptions {
   workingDirectoryForHarness?: string;
   /**
-   * Accepted for CLI back-compat (`--no-hurry-please-save-tokens-mode`).
-   * Dispatch rounds are free, so this no longer affects scheduling or cost.
+   * Accepted for signature back-compat (`--no-hurry-please-save-tokens-mode`).
+   * The flag does not affect scheduling — dispatch rounds are free either
+   * way. Its effect lives in the work spawn: no-hurry runs prefer the
+   * `pi-token-saver` harness when one is installed on PATH (the dispatch
+   * round reads the flag from run context, not from this option).
    */
   noHurrySaveTokensMode?: boolean;
 }
 
 // ── pi binary discovery ────────────────────────────────────────────
 
-export async function findPiBinary(): Promise<string> {
+export interface FindPiBinaryOptions {
+  /**
+   * When true (runs launched with --no-hurry-please-save-tokens-mode),
+   * prefer a `pi-token-saver` command from PATH over `pi`. Resolution
+   * happens per invocation, so installing pi-token-saver mid-run takes
+   * effect on the next work round; when it is absent, `pi` is used as
+   * usual. The TAMANDUA_PI_BINARY override still wins over both — it is
+   * the explicit config/test seam.
+   */
+  preferTokenSaver?: boolean;
+}
+
+function searchPathForExecutable(name: string): string | null {
+  const pathDirs = (process.env.PATH ?? "").split(path.delimiter);
+  for (const dir of pathDirs) {
+    const candidate = path.join(dir, name);
+    try {
+      fs.accessSync(candidate, fs.constants.X_OK);
+      return candidate;
+    } catch {
+      // not found in this dir, keep looking
+    }
+  }
+  return null;
+}
+
+export async function findPiBinary(options: FindPiBinaryOptions = {}): Promise<string> {
   // Prefer explicit env override
   const envPi = process.env.TAMANDUA_PI_BINARY?.trim();
   if (envPi) {
@@ -149,17 +178,14 @@ export async function findPiBinary(): Promise<string> {
     }
   }
 
-  // Search PATH
-  const pathDirs = (process.env.PATH ?? "").split(path.delimiter);
-  for (const dir of pathDirs) {
-    const candidate = path.join(dir, "pi");
-    try {
-      fs.accessSync(candidate, fs.constants.X_OK);
-      return candidate;
-    } catch {
-      // not found in this dir, keep looking
-    }
+  if (options.preferTokenSaver) {
+    const tokenSaver = searchPathForExecutable("pi-token-saver");
+    if (tokenSaver) return tokenSaver;
+    // Not installed (yet) — fall through to normal pi resolution.
   }
+
+  const pi = searchPathForExecutable("pi");
+  if (pi) return pi;
 
   throw new Error(
     "pi binary not found in PATH. Install pi (https://github.com/anthropics/pi) or set TAMANDUA_PI_BINARY."
@@ -211,6 +237,8 @@ export interface RunPiOptions {
    * so termination paths can kill the process group.
    */
   onSpawn?: (handle: { pid: number; pgid: number }) => void;
+  /** See FindPiBinaryOptions.preferTokenSaver (no-hurry runs). */
+  preferTokenSaver?: boolean;
 }
 
 const MAX_LOG_STREAM_PREVIEW = 200;
@@ -247,7 +275,7 @@ export async function runPi(
   options: RunPiOptions = {},
 ): Promise<string> {
   const timeoutMs = (options.timeout ?? 60) * 1000;
-  const piPath = await findPiBinary();
+  const piPath = await findPiBinary({ preferTokenSaver: options.preferTokenSaver });
 
   const childEnv: Record<string, string | undefined> = {
     ...process.env as Record<string, string | undefined>,
@@ -1264,6 +1292,10 @@ export async function executeDispatchRound(
     return;
   }
 
+  // No-hurry runs prefer the pi-token-saver harness when installed;
+  // resolved from run context alongside the status check below.
+  let preferTokenSaver = false;
+
   try {
     // ── Run-scoped status check ────────────────────────────────────
     // If this run is no longer 'running' (terminal/paused) tear down the
@@ -1273,8 +1305,16 @@ export async function executeDispatchRound(
       const { getDb } = await import("../db.js");
       const db = getDb();
       const row = db
-        .prepare("SELECT status, scheduling_status FROM runs WHERE id = ?")
-        .get(job.runId) as { status: string; scheduling_status: string | null } | undefined;
+        .prepare("SELECT status, scheduling_status, context FROM runs WHERE id = ?")
+        .get(job.runId) as { status: string; scheduling_status: string | null; context: string } | undefined;
+      if (row?.context) {
+        try {
+          const runContext = JSON.parse(row.context) as Record<string, unknown>;
+          preferTokenSaver = runContext.no_hurry_save_tokens_mode === "true";
+        } catch {
+          // malformed context — treat as normal mode
+        }
+      }
       if (!row || (row.status !== "running" && row.status !== "paused")) {
         logger.info("Dispatch round skipped — run no longer running; tearing down job", {
           ...context,
@@ -1397,6 +1437,7 @@ export async function executeDispatchRound(
             TAMANDUA_WORKER_PID: String(process.pid),
           },
           onSpawn,
+          preferTokenSaver,
         },
       );
     }

@@ -103,8 +103,8 @@ describe("README MCP tools documentation", () => {
       "README must describe workingDirectoryForHarness as harness working directory"
     );
     assert.ok(
-      readmeContent.includes("idle dispatch is free"),
-      "README must document that noHurrySaveTokensMode no longer affects cost"
+      readmeContent.includes("pi-token-saver"),
+      "README must document the noHurrySaveTokensMode pi-token-saver preference"
     );
     assert.ok(
       readmeContent.includes("wait for in-flight work"),

@@ -31,7 +31,7 @@ export interface RunWorkflowParams {
   worktreeOriginRepository?: string;
   /** Origin ref for worktree-based workflows */
   worktreeOriginRef?: string;
-  /** Accepted for back-compat; the dispatch motor spends nothing when idle, so this no longer affects cost. */
+  /** When true, work spawns prefer a pi-token-saver command from PATH over pi (per invocation; falls back to pi). */
   noHurrySaveTokensMode?: boolean;
   /** Harness binary to use for agent invocations (default "pi") */
   harnessType?: HarnessType;

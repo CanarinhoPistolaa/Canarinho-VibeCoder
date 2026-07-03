@@ -99,10 +99,11 @@ Worktree guidance:
 - Worktree runs never modify the origin repository — all changes stay in
   the isolated worktree.
 
-`--no-hurry-please-save-tokens-mode` is accepted for back-compat but no
-longer changes cost or scheduling: the deterministic dispatch motor checks
-for work without invoking a model, so idle runs spend zero tokens either
-way.
+`--no-hurry-please-save-tokens-mode` makes the run prefer the
+`pi-token-saver` harness: every work spawn looks for a `pi-token-saver`
+command on PATH first (per invocation, so installing it mid-run takes
+effect) and falls back to `pi` when it is absent. It does not change
+scheduling — idle dispatch is free either way.
 
 Use `--no-relaunch-upon-rugpull` to disable automatic replacement-run
 creation after a rugpull (base branch move) is detected on a failed
@@ -574,9 +575,10 @@ Required MCP args:
 
 Optional MCP args:
 
-- `noHurrySaveTokensMode` (boolean) — accepted for back-compat, same as
-  the CLI `--no-hurry-please-save-tokens-mode` flag. No effect on cost
-  anymore: idle dispatch is free under the deterministic motor.
+- `noHurrySaveTokensMode` (boolean) — same as the CLI
+  `--no-hurry-please-save-tokens-mode` flag: work spawns prefer a
+  `pi-token-saver` command from PATH over `pi` (falling back to `pi`
+  when absent).
 
 Additional MCP tools:
 

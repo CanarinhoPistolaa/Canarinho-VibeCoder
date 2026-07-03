@@ -1322,6 +1322,15 @@ describe("dashboard run detail prompt field", () => {
 
 describe("dashboard run relaunch API", () => {
   it("POST /api/runs/:id/relaunch returns 404 for missing run", async () => {
+    // Isolated empty DB: never query the developer's real ~/.tamandua.
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "tamandua-dashboard-relaunch-404-"));
+    const homeDir = path.join(root, "home");
+    fs.mkdirSync(homeDir, { recursive: true });
+    const previousHome = process.env.HOME;
+    const previousDbPath = process.env.TAMANDUA_DB_PATH;
+    process.env.HOME = homeDir;
+    process.env.TAMANDUA_DB_PATH = path.join(homeDir, ".tamandua", "tamandua.db");
+
     const { server, baseUrl } = await startDashboard();
 
     try {
@@ -1335,6 +1344,11 @@ describe("dashboard run relaunch API", () => {
       assert.match(body.error, /Run not found/);
     } finally {
       await stopDashboard(server);
+      if (previousHome === undefined) delete process.env.HOME;
+      else process.env.HOME = previousHome;
+      if (previousDbPath === undefined) delete process.env.TAMANDUA_DB_PATH;
+      else process.env.TAMANDUA_DB_PATH = previousDbPath;
+      fs.rmSync(root, { recursive: true, force: true });
     }
   });
 
@@ -1923,7 +1937,7 @@ describe("dashboard hurry status icons UI", () => {
       // Should include the turtle emoji for no_hurry runs
       assert.match(html, /🐢/);
       // Should include the no-hurry tooltip text
-      assert.match(html, /No-hurry mode \(legacy flag; idle dispatch is free either way\)\./);
+      assert.match(html, /No-hurry mode: work rounds prefer the pi-token-saver harness/);
     } finally {
       await stopDashboard(server);
     }
@@ -1939,10 +1953,10 @@ describe("dashboard hurry status icons UI", () => {
       const html = await response.text();
       // Should include the runner emoji for regular runs
       assert.match(html, /🏃/);
-      // Should include the full regular-run tooltip text — under the
-      // deterministic motor, speed costs no extra tokens.
-      assert.match(html, /Regular run - as fast as possible! Idle dispatch is free/);
-      assert.match(html, /speed no longer costs extra tokens/);
+      // Regular runs use the standard pi harness; the tooltip points at
+      // the pi-token-saver alternative.
+      assert.match(html, /Regular run: always uses the standard pi harness/);
+      assert.match(html, /pi-token-saver/);
     } finally {
       await stopDashboard(server);
     }
@@ -1975,7 +1989,7 @@ describe("dashboard hurry status icons UI", () => {
       assert.match(html, /class="hurry-icon"\s+title=/);
       // Tooltip should switch based on no_hurry boolean
       assert.match(html, /r\.no_hurry\s*\?\s*'No-hurry mode/);
-      assert.match(html, /Regular run - as fast as possible! Idle dispatch is free/);
+      assert.match(html, /Regular run: always uses the standard pi harness/);
     } finally {
       await stopDashboard(server);
     }
@@ -2319,6 +2333,16 @@ describe("dashboard cancel API", () => {
   });
 
   it("POST /api/runs/:id/cancel returns 404 for a nonexistent run", async () => {
+    // Isolated empty DB: the 404 must come from a temp database, never
+    // from querying the developer's real ~/.tamandua state.
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "tamandua-dashboard-cancel-404-"));
+    const homeDir = path.join(root, "home");
+    fs.mkdirSync(homeDir, { recursive: true });
+    const previousHome = process.env.HOME;
+    const previousDbPath = process.env.TAMANDUA_DB_PATH;
+    process.env.HOME = homeDir;
+    process.env.TAMANDUA_DB_PATH = path.join(homeDir, ".tamandua", "tamandua.db");
+
     const { server, baseUrl } = await startDashboard();
 
     try {
@@ -2329,6 +2353,11 @@ describe("dashboard cancel API", () => {
       assert.match(body.error, /Run not found/);
     } finally {
       await stopDashboard(server);
+      if (previousHome === undefined) delete process.env.HOME;
+      else process.env.HOME = previousHome;
+      if (previousDbPath === undefined) delete process.env.TAMANDUA_DB_PATH;
+      else process.env.TAMANDUA_DB_PATH = previousDbPath;
+      fs.rmSync(root, { recursive: true, force: true });
     }
   });
 

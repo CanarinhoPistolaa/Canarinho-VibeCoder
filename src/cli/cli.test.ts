@@ -1409,7 +1409,7 @@ describe("--help infrastructure", () => {
       assert.equal(result.status, 0);
       assert.match(result.stdout ?? "", /Start a new workflow run/);
       assert.match(result.stdout ?? "", /--no-hurry-please-save-tokens-mode/);
-      assert.match(result.stdout ?? "", /Accepted for back-compat/);
+      assert.match(result.stdout ?? "", /pi-token-saver/);
       assert.match(result.stdout ?? "", /--working-directory-for-harness/);
       assert.match(result.stdout ?? "", /--worktree-origin-repository/);
       assert.match(result.stdout ?? "", /--worktree-origin-ref/);

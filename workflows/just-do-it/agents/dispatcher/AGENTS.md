@@ -107,7 +107,7 @@ Before launching, confirm the final workflow ID is present in the `--json` outpu
 
 ## No-Hurry Decision Rules
 
-The `--no-hurry-please-save-tokens-mode` flag controls whether the dispatched workflow uses cheaper models and relaxed timing to save tokens.
+The `--no-hurry-please-save-tokens-mode` flag makes the dispatched workflow prefer the `pi-token-saver` harness when one is installed on PATH (falling back to `pi` when absent) — trading speed/model choice for token savings.
 
 ### Rule 1: Respect the parent (ALWAYS)
 

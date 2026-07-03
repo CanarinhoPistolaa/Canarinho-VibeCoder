@@ -1,4 +1,5 @@
 import http from "node:http";
+import { assertPortIsolation } from "../lib/test-guard.js";
 import { randomUUID } from "node:crypto";
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
@@ -218,7 +219,7 @@ const mcpTools: Array<Record<string, unknown>> = [
         },
         noHurrySaveTokensMode: {
           type: "boolean",
-          description: "Accepted for back-compat; no effect on cost anymore — the dispatch motor checks for work without a model, so idle runs spend zero tokens. Optional, defaults to false.",
+          description: "When true, work spawns prefer a pi-token-saver command from PATH over pi (looked up per invocation; falls back to pi when absent). Idle dispatch is free either way. Optional, defaults to false.",
         },
       },
     },
@@ -1022,6 +1023,7 @@ export function createTamanduaMcpServer(port = DEFAULT_MCP_PORT, options: Tamand
 
       httpServer.once("error", onError);
       httpServer.once("listening", onListening);
+      assertPortIsolation(port, "MCP server");
       httpServer.listen(port);
     });
 

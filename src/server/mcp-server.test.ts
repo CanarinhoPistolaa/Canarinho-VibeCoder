@@ -303,7 +303,7 @@ describe("mcp-server bootstrap", () => {
       assert.ok(runStartSchema.properties?.worktreeOriginRef, "should have worktreeOriginRef property");
       assert.deepEqual(runStartSchema.properties?.noHurrySaveTokensMode, {
         type: "boolean",
-        description: "Accepted for back-compat; no effect on cost anymore — the dispatch motor checks for work without a model, so idle runs spend zero tokens. Optional, defaults to false.",
+        description: "When true, work spawns prefer a pi-token-saver command from PATH over pi (looked up per invocation; falls back to pi when absent). Idle dispatch is free either way. Optional, defaults to false.",
       });
 
       const eventsRecent = await callTool(server.port, sessionId, 6, "tamandua.events.recent", { limit: 7 });
