@@ -113,6 +113,37 @@ describe("logger", () => {
     );
   });
 
+  it("numbered rotation keeps up to 5 archives and shifts them on each rotation", () => {
+    // Simulate 7 rotations to verify archives shift correctly and stop at .5
+    for (let gen = 0; gen < 7; gen++) {
+      // Create a large log file to trigger rotation
+      const largeSize = 5 * 1024 * 1024 + 100;
+      const fd = fs.openSync(logPath, "w");
+      const buf = Buffer.alloc(1, "x");
+      fs.writeSync(fd, buf, 0, 1, largeSize - 1);
+      fs.closeSync(fd);
+
+      // Write a marker for this generation
+      logger.info(`generation-${gen}`);
+    }
+
+    // archives .1 through .5 should exist (most recent 5 rotations)
+    const archiveFiles = [];
+    for (let i = 1; i <= 5; i++) {
+      const p = `${logPath}.${i}`;
+      assert.ok(fs.existsSync(p), `archive .${i} should exist`);
+      archiveFiles.push(p);
+    }
+
+    // .6 should NOT exist (only 5 archives kept)
+    assert.ok(!fs.existsSync(`${logPath}.6`), "archive .6 should not exist");
+
+    // Clean up archives for subsequent tests
+    for (const a of archiveFiles) {
+      try { fs.unlinkSync(a); } catch {}
+    }
+  });
+
   it("readRecentLogs uses default limit of 50", async () => {
     // When called with no arguments, should default to 50
     const lines = await readRecentLogs();

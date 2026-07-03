@@ -3,6 +3,7 @@ import path from "node:path";
 import os from "node:os";
 
 const MAX_LOG_SIZE = 5 * 1024 * 1024; // 5MB
+const MAX_ROTATED_FILES = 5;
 
 function getLogDir(): string {
   const stateDir = process.env.TAMANDUA_STATE_DIR?.trim();
@@ -22,9 +23,15 @@ function rotateIfNeeded(): void {
   try {
     const stats = fs.statSync(logFile);
     if (stats.size > MAX_LOG_SIZE) {
-      const rotated = logFile + ".1";
-      try { fs.unlinkSync(rotated); } catch {}
-      fs.renameSync(logFile, rotated);
+      // Shift numbered archives: delete oldest, then rename 4->5, 3->4, ..., 1->2, current->1
+      const oldest = `${logFile}.${MAX_ROTATED_FILES}`;
+      try { fs.unlinkSync(oldest); } catch {}
+      for (let i = MAX_ROTATED_FILES - 1; i >= 1; i--) {
+        const src = `${logFile}.${i}`;
+        const dst = `${logFile}.${i + 1}`;
+        try { fs.renameSync(src, dst); } catch { /* race with concurrent writer — acceptable */ }
+      }
+      fs.renameSync(logFile, `${logFile}.1`);
     }
   } catch {}
 }
