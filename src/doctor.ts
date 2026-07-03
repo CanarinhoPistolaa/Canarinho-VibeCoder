@@ -68,6 +68,7 @@ const STATUS_ICONS: Record<DoctorCheckResult["status"], string> = {
 export function formatDoctorOutput(groups: CheckGroup[]): { output: string; hasFailures: boolean } {
   const lines: string[] = [];
   let hasFailures = false;
+  let warningCount = 0;
 
   for (const group of groups) {
     lines.push(`─── ${group.label} ───`);
@@ -80,12 +81,17 @@ export function formatDoctorOutput(groups: CheckGroup[]): { output: string; hasF
       if (check.status === "fail") {
         hasFailures = true;
       }
+      if (check.status === "warn") {
+        warningCount++;
+      }
     }
     lines.push("");
   }
 
   if (hasFailures) {
     lines.push("Some checks failed. Review the remedies above to fix each issue.");
+  } else if (warningCount > 0) {
+    lines.push(`All checks passed with ${warningCount} warning(s) - review items marked with the warning symbol above.`);
   } else {
     lines.push("All checks passed.");
   }

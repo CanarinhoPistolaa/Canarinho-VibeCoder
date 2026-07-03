@@ -956,4 +956,58 @@ describe("formatDoctorOutput", () => {
     assert.ok(output.includes("─── FIRST ───"));
     assert.ok(output.includes("─── SECOND ───"));
   });
+
+  it("reports warning count when only warnings are present (no failures)", () => {
+    const groups: CheckGroup[] = [
+      {
+        label: "STALENESS",
+        checks: [
+          { name: "Daemon build version vs installed", status: "warn", message: "Staleness check inconclusive — daemon predates build version reporting", remedy: "Run: tamandua dashboard restart to update" },
+        ],
+      },
+    ];
+    const { output, hasFailures } = formatDoctorOutput(groups);
+    assert.strictEqual(hasFailures, false, "Warnings-only should not set hasFailures");
+    assert.ok(output.includes("All checks passed with 1 warning(s)"),
+      `Should report warning count. Got: ${output}`);
+    assert.ok(!output.includes("All checks passed.\n"),
+      `Should NOT include bare "All checks passed." when warnings present. Got: ${output}`);
+    assert.ok(output.includes("review items marked with the warning symbol above"),
+      `Should instruct user to review warnings. Got: ${output}`);
+  });
+
+  it("reports plural warning count for multiple warnings", () => {
+    const groups: CheckGroup[] = [
+      {
+        label: "TEST",
+        checks: [
+          { name: "check-a", status: "warn", message: "warning one" },
+          { name: "check-b", status: "pass", message: "all good" },
+          { name: "check-c", status: "warn", message: "warning two" },
+        ],
+      },
+    ];
+    const { output, hasFailures } = formatDoctorOutput(groups);
+    assert.strictEqual(hasFailures, false);
+    assert.ok(output.includes("All checks passed with 2 warning(s)"),
+      `Should report count of 2 warnings. Got: ${output}`);
+  });
+
+  it("reports failures normally when both warnings and failures present", () => {
+    const groups: CheckGroup[] = [
+      {
+        label: "MIXED",
+        checks: [
+          { name: "check-a", status: "warn", message: "caution" },
+          { name: "check-b", status: "fail", message: "broken", remedy: "fix it" },
+        ],
+      },
+    ];
+    const { output, hasFailures } = formatDoctorOutput(groups);
+    assert.strictEqual(hasFailures, true);
+    assert.ok(output.includes("Some checks failed."),
+      `Should report failures when mixed with warnings. Got: ${output}`);
+    assert.ok(!output.includes("All checks passed"),
+      `Should not claim all checks passed when failures exist. Got: ${output}`);
+  });
 });
