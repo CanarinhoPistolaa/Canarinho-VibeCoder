@@ -1302,16 +1302,20 @@ Examples:
 }
 
 function getNudgeHelp(): string {
-  return `tamandua nudge — Wake all scheduled agents for running runs
+  return `tamandua nudge — Trigger an immediate dispatch round for running runs
 
 Usage: tamandua nudge
 
-Wakes all scheduled agents for all currently running runs, causing them to
-poll once immediately without waiting for their normal timers. Does not
-resume paused runs or interrupt in-flight agents.
+Launches an immediate dispatch round for every scheduled agent of every
+running run: the scheduler peeks for pending work (a database check — no
+model is invoked) and spawns an agent only where a step is ready. Normally
+unnecessary — step completions and run starts nudge automatically and a 15s
+fallback sweep covers missed nudges — but useful to force a check right
+away, e.g. after manual state changes. Does not resume paused runs or
+interrupt in-flight agents; idle nudges cost nothing.
 
 Examples:
-  tamandua nudge            # Nudge all scheduled agents for active runs`;
+  tamandua nudge            # Dispatch immediately for all active runs`;
 }
 
 function getWorktreeGroupHelp(): string {
@@ -1645,7 +1649,7 @@ function getUsageText(): string {
     "", "tamandua version                      Show installed version",
     "tamandua skill-path                  Print path to the bundled tamandua-agents skill",
     "tamandua source-path                  Print source checkout path",
-    "tamandua nudge                       Wake all scheduled agents for all running runs",
+    "tamandua nudge                       Trigger an immediate dispatch round for running runs",
     "tamandua update [--force]             Pull latest, rebuild, reinstall",
   ].join("\n") + "\n";
 }

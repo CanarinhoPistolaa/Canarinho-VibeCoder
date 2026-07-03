@@ -2171,7 +2171,7 @@ describe("nudge command", { concurrency: 1 }, () => {
     const result = cli(["--help"]);
     try {
       assert.equal(result.status, 0);
-      assert.match(result.stdout ?? "", /tamandua nudge.*Wake all scheduled agents for all running runs/);
+      assert.match(result.stdout ?? "", /tamandua nudge.*Trigger an immediate dispatch round for running runs/);
     } finally {
       fs.rmSync(result.testEnv.tmpDir, { recursive: true, force: true });
     }
@@ -2181,10 +2181,10 @@ describe("nudge command", { concurrency: 1 }, () => {
     const result = cli(["nudge", "--help"]);
     try {
       assert.equal(result.status, 0);
-      assert.match(result.stdout ?? "", /tamandua nudge — Wake all scheduled agents for running runs/);
+      assert.match(result.stdout ?? "", /tamandua nudge — Trigger an immediate dispatch round for running runs/);
       assert.match(result.stdout ?? "", /Usage: tamandua nudge/);
-      assert.match(result.stdout ?? "", /Wakes all scheduled agents for all currently running runs/);
-      assert.match(result.stdout ?? "", /Does not\nresume paused runs or interrupt in-flight agents/);
+      assert.match(result.stdout ?? "", /Launches an immediate dispatch round for every scheduled agent/);
+      assert.match(result.stdout ?? "", /Does not resume paused runs or\ninterrupt in-flight agents/);
       assert.doesNotMatch(result.stdout ?? "", /tamandua get-ready/);
     } finally {
       fs.rmSync(result.testEnv.tmpDir, { recursive: true, force: true });
