@@ -517,7 +517,7 @@ const mcpTools: Array<Record<string, unknown>> = [
       properties: {
         cwd: { type: "string", minLength: 1, description: "Project directory." },
         metric: { type: "number", description: "Optional metric override." },
-        status: { type: "string", enum: ["auto", "baseline", "keep", "discard", "crash", "checks_failed"], description: "Decision. Defaults to auto." },
+        status: { type: "string", enum: ["auto", "baseline", "keep", "discard", "crash", "metric_not_found", "checks_failed"], description: "Decision. Defaults to auto." },
         description: { type: "string", minLength: 1, description: "What changed in this experiment." },
         hypothesis: { type: "string", description: "Hypothesis tested." },
         learned: { type: "string", description: "Evidence learned from the result." },
@@ -636,8 +636,8 @@ function readDirectionArgument(args: Record<string, unknown>): AutoresearchDirec
 function readAutoresearchStatusArgument(args: Record<string, unknown>): AutoresearchDecision | "auto" | undefined {
   const value = readOptionalStringArgument(args, "status");
   if (!value) return undefined;
-  if (value === "auto" || value === "baseline" || value === "keep" || value === "discard" || value === "crash" || value === "checks_failed") return value;
-  invalidParams('Argument "status" must be auto, baseline, keep, discard, crash, or checks_failed');
+  if (value === "auto" || value === "baseline" || value === "keep" || value === "discard" || value === "crash" || value === "metric_not_found" || value === "checks_failed") return value;
+  invalidParams('Argument "status" must be auto, baseline, keep, discard, crash, metric_not_found, or checks_failed');
 }
 
 function createToolResult(payload: Record<string, unknown>): { content: [{ type: "text"; text: string }]; structuredContent: Record<string, unknown> } {

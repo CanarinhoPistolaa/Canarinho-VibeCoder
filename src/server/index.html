@@ -763,13 +763,13 @@
         ["Confidence", confidenceValue],
         ["Runs", `${summary.totalRuns ?? 0}`],
         ["Kept", `${summary.keptRuns ?? 0}`],
-        ["Failures", `${(summary.crashedRuns ?? 0) + (summary.checksFailedRuns ?? 0)}`],
+        ["Failures", `${(summary.crashedRuns ?? 0) + (summary.metricNotFoundRuns ?? 0) + (summary.checksFailedRuns ?? 0)}`],
       ].map(([label, value]) => `<div class="autoresearch-kpi"><div class="label">${esc(label)}</div><div class="value mono">${esc(String(value))}</div></div>`).join("");
 
       const chart = renderAutoresearchTraceChart(experiments, summary, metricLabel);
 
       const rows = experiments.slice(-10).reverse().map(e => {
-        const badgeClass = e.status === "discard" ? "badge-paused" : (e.status === "crash" || e.status === "checks_failed" ? "badge-failed" : "badge-completed");
+        const badgeClass = e.status === "discard" ? "badge-paused" : (e.status === "crash" || e.status === "checks_failed" || e.status === "metric_not_found" ? "badge-failed" : "badge-completed");
         return `<tr>
           <td class="num">#${e.run}</td>
           <td><span class="badge ${badgeClass}">${esc(e.status)}</span></td>

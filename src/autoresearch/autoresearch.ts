@@ -4,8 +4,8 @@ import path from "node:path";
 import { parsePiOutputStream } from "../installer/pi-stream-parser.js";
 
 export type AutoresearchDirection = "lower" | "higher";
-export type AutoresearchDecision = "baseline" | "keep" | "discard" | "crash" | "checks_failed";
-export type AutoresearchRunStatus = "measured" | "crash" | "checks_failed";
+export type AutoresearchDecision = "baseline" | "keep" | "discard" | "crash" | "metric_not_found" | "checks_failed";
+export type AutoresearchRunStatus = "measured" | "crash" | "metric_not_found" | "checks_failed";
 export type AutoresearchConfidenceBand = "high" | "medium" | "low" | "unknown";
 
 export type AutoresearchSessionConfig = {
@@ -109,6 +109,7 @@ export type AutoresearchSummary = {
   keptRuns: number;
   discardedRuns: number;
   crashedRuns: number;
+  metricNotFoundRuns: number;
   checksFailedRuns: number;
   baselineMetric: number | null;
   bestMetric: number | null;
@@ -184,6 +185,7 @@ export type LoopAutoresearchResult = {
   kept: number;
   discarded: number;
   crashed: number;
+  metricNotFound: number;
   checksFailed: number;
   stopReason: string;
   cancelled: boolean;
@@ -409,7 +411,14 @@ export async function runExperiment(options: RunExperimentOptions = {}): Promise
   const result = await runCommand(command, cwd, options.timeoutMs ?? DEFAULT_TIMEOUT_MS);
   const metric = result.exitCode === 0 ? parseMetric(result.stdout + "\n" + result.stderr, config.metricName, metricRegex) : null;
 
-  let status: AutoresearchRunStatus = result.exitCode === 0 && metric !== null ? "measured" : "crash";
+  let status: AutoresearchRunStatus;
+  if (result.exitCode !== 0 || result.timedOut) {
+    status = "crash";
+  } else if (metric !== null) {
+    status = "measured";
+  } else {
+    status = "metric_not_found";
+  }
   let checks: AutoresearchRunResultEntry["checks"] | undefined;
   const checksCommand = options.checksCommand ?? config.checksCommand ?? (fs.existsSync(paths.checksScript) ? paths.checksScript : undefined);
   if (status === "measured" && checksCommand) {
@@ -523,6 +532,7 @@ export function summarizeAutoresearch(cwd = process.cwd()): AutoresearchSummary 
       keptRuns: 0,
       discardedRuns: 0,
       crashedRuns: 0,
+      metricNotFoundRuns: 0,
       checksFailedRuns: 0,
       baselineMetric: null,
       bestMetric: null,
@@ -556,6 +566,7 @@ export function summarizeAutoresearch(cwd = process.cwd()): AutoresearchSummary 
     keptRuns: runs.filter((entry) => entry.status === "baseline" || entry.status === "keep").length,
     discardedRuns: runs.filter((entry) => entry.status === "discard").length,
     crashedRuns: runs.filter((entry) => entry.status === "crash").length + results.filter((entry) => entry.status === "crash").length,
+    metricNotFoundRuns: runs.filter((entry) => entry.status === "metric_not_found").length + results.filter((entry) => entry.status === "metric_not_found").length,
     checksFailedRuns: runs.filter((entry) => entry.status === "checks_failed").length + results.filter((entry) => entry.status === "checks_failed").length,
     baselineMetric,
     bestMetric: best?.metric ?? null,
@@ -591,8 +602,9 @@ export function decideStatus(
   runStatus: AutoresearchRunStatus | undefined,
 ): AutoresearchDecision {
   if (runStatus === "crash") return "crash";
+  if (runStatus === "metric_not_found") return "metric_not_found";
   if (runStatus === "checks_failed") return "checks_failed";
-  if (metric === null) return "crash";
+  if (metric === null) return "metric_not_found";
   const configEntry = entries.find((entry): entry is AutoresearchSessionEntry => entry.type === "session");
   const direction = configEntry?.direction ?? "lower";
   const priorRuns = entries.filter((entry): entry is AutoresearchRunEntry => entry.type === "run");
@@ -620,6 +632,7 @@ export function calculateAutoresearchConfidence(
   // delta metrics, negative log-likelihood).
   const numericRuns = runs.filter((entry) =>
     entry.status !== "crash" &&
+    entry.status !== "metric_not_found" &&
     typeof entry.metric === "number" &&
     Number.isFinite(entry.metric),
   );
@@ -1061,7 +1074,7 @@ export async function runLoopIteration(options: RunLoopIterationOptions = {}): P
 
   // logExperiment's revertDiscard only handles status=discard.
   // Manually revert crash and checks_failed changes here.
-  if (logEntry.status === "crash" || logEntry.status === "checks_failed") {
+  if (logEntry.status === "crash" || logEntry.status === "checks_failed" || logEntry.status === "metric_not_found") {
     revertExperimentChanges(cwd);
   }
 
@@ -1082,7 +1095,7 @@ export async function runLoopIteration(options: RunLoopIterationOptions = {}): P
     metric: logEntry.metric,
     agentSuccess,
     committed: keep && Boolean(logEntry.commit_after),
-    reverted: discard || logEntry.status === "crash" || logEntry.status === "checks_failed",
+    reverted: discard || logEntry.status === "crash" || logEntry.status === "checks_failed" || logEntry.status === "metric_not_found",
     logEntry,
   };
 }
@@ -1125,6 +1138,7 @@ export async function loopAutoresearch(options: LoopAutoresearchOptions = {}): P
   let kept = 0;
   let discarded = 0;
   let crashed = 0;
+  let metricNotFound = 0;
   let checksFailed = 0;
   let stopReason: string | null = null;
   let lastCompletedIteration = 0;
@@ -1198,6 +1212,9 @@ export async function loopAutoresearch(options: LoopAutoresearchOptions = {}): P
       } else if (logEntry.status === "checks_failed") {
         checksFailed++;
         consecutiveFailures++;
+      } else if (logEntry.status === "metric_not_found") {
+        metricNotFound++;
+        consecutiveFailures++;
       } else {
         consecutiveFailures = 0;
         if (logEntry.status === "keep" || logEntry.status === "baseline") {
@@ -1214,7 +1231,7 @@ export async function loopAutoresearch(options: LoopAutoresearchOptions = {}): P
         }
       }
 
-      const metricStr = iterationResult.metric !== null ? String(iterationResult.metric) : "crash";
+      const metricStr = iterationResult.metric !== null ? String(iterationResult.metric) : iterationResult.status;
       const loopBestStr = bestMetric !== null ? String(bestMetric) : "-";
       const allTimeStr = allTimeBestMetric !== null ? `${allTimeBestMetric}${allTimeBestRun ? ` (run ${allTimeBestRun})` : ""}` : "-";
       const transactionLabel = iterationResult.committed ? "committed" : (iterationResult.reverted ? "reverted" : "unchanged");
@@ -1245,7 +1262,7 @@ export async function loopAutoresearch(options: LoopAutoresearchOptions = {}): P
     process.stdout.write(`Best (this loop): ${bestMetric !== null ? `${config.metricName}=${bestMetric}` : "(none)"}${bestRun ? ` (run ${bestRun})` : ""}\n`);
     process.stdout.write(`Best (all-time): ${allTimeBestMetric !== null ? `${config.metricName}=${allTimeBestMetric}` : "(none)"}${allTimeBestRun ? ` (run ${allTimeBestRun})` : ""}\n`);
     process.stdout.write(`Confidence: ${formatConfidenceLabel(summarizeAutoresearch(cwd))}\n`);
-    process.stdout.write(`Kept: ${kept}  Discarded: ${discarded}  Crashed: ${crashed}  Checks failed: ${checksFailed}\n`);
+    process.stdout.write(`Kept: ${kept}  Discarded: ${discarded}  Crashed: ${crashed}  Metric not found: ${metricNotFound}  Checks failed: ${checksFailed}\n`);
 
     return {
       iterations,
@@ -1256,6 +1273,7 @@ export async function loopAutoresearch(options: LoopAutoresearchOptions = {}): P
       kept,
       discarded,
       crashed,
+      metricNotFound,
       checksFailed,
       stopReason,
       cancelled,

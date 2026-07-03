@@ -199,8 +199,8 @@ function parseDirection(value: string): AutoresearchDirection {
 
 function parseAutoresearchDecision(value: string | undefined): AutoresearchDecision | "auto" | undefined {
   if (!value) return undefined;
-  if (value === "auto" || value === "baseline" || value === "keep" || value === "discard" || value === "crash" || value === "checks_failed") return value;
-  process.stderr.write(`Invalid --status "${value}". Use auto, baseline, keep, discard, crash, or checks_failed.\n`);
+  if (value === "auto" || value === "baseline" || value === "keep" || value === "discard" || value === "crash" || value === "metric_not_found" || value === "checks_failed") return value;
+  process.stderr.write(`Invalid --status "${value}". Use auto, baseline, keep, discard, crash, metric_not_found, or checks_failed.\n`);
   process.exit(1);
 }
 
@@ -224,7 +224,7 @@ function printAutoresearchSummary(cwd?: string): void {
   console.log(`Metric:      ${summary.metricName}${summary.metricUnit ? ` (${summary.metricUnit})` : ""}`);
   console.log(`Direction:   ${summary.direction}`);
   console.log(`Runs:        ${summary.totalRuns} logged (${summary.keptRuns} kept, ${summary.discardedRuns} discarded)`);
-  console.log(`Failures:    ${summary.crashedRuns} crash, ${summary.checksFailedRuns} checks_failed`);
+  console.log(`Failures:    ${summary.crashedRuns} crash, ${summary.metricNotFoundRuns} metric_not_found, ${summary.checksFailedRuns} checks_failed`);
   console.log(`Baseline:    ${summary.baselineMetric ?? "(none)"}`);
   console.log(`Best:        ${summary.bestMetric ?? "(none)"}${summary.bestRun ? ` at run ${summary.bestRun}` : ""}`);
   console.log(`Confidence:  ${formatAutoresearchConfidence(summary)}`);
@@ -1452,7 +1452,7 @@ runs in autoresearch.jsonl.
 
 Options:
   --cwd <dir>               Project directory (default: current directory)
-  --status <status>         auto, baseline, keep, discard, crash, checks_failed
+  --status <status>         auto, baseline, keep, discard, crash, metric_not_found, checks_failed
   --metric <number>         Metric value if no latest run_result should be used
   --description <text>      What changed in this experiment
   --hypothesis <text>       Hypothesis tested

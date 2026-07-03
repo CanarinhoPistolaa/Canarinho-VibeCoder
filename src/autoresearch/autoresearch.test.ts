@@ -41,7 +41,7 @@ function git(cwd: string, args: string[]): void {
 
 function confidenceRun(
   run: number,
-  status: "baseline" | "keep" | "discard" | "crash" | "checks_failed",
+  status: "baseline" | "keep" | "discard" | "crash" | "metric_not_found" | "checks_failed",
   metric: number | null,
   direction: "lower" | "higher" = "lower",
 ) {
@@ -186,6 +186,18 @@ describe("autoresearch confidence", () => {
     assert.equal(improved.confidence_band, "unknown");
     assert.equal(improved.noise_floor_mad, 0);
   });
+
+  it("ignores metric_not_found runs in confidence calculations", () => {
+    const confidence = calculateAutoresearchConfidence([
+      confidenceRun(1, "baseline", 10),
+      confidenceRun(2, "metric_not_found", null),
+      confidenceRun(3, "discard", 12),
+      confidenceRun(4, "keep", 8),
+    ]);
+    assert.equal(confidence.confidence_sample_count, 3);
+    assert.equal(confidence.confidence_band, "medium");
+    assert.equal(confidence.confidence_score, 1);
+  });
 });
 
 describe("autoresearch state model", () => {
@@ -325,6 +337,45 @@ describe("autoresearch state model", () => {
     assert.match(summary.nextPrompt, /Confidence: high/);
   });
 
+  it("reads old log files with crash entries (backward compatibility)", () => {
+    const cwd = makeTempDir();
+    initExperiment({
+      cwd,
+      goal: "reduce loss",
+      metricName: "loss",
+      direction: "lower",
+      command: nodeMetricCommand("loss", 10),
+    });
+
+    const logPath = path.join(cwd, "autoresearch.jsonl");
+    const session = fs.readFileSync(logPath, "utf-8").trim();
+    // Write log entries with old "crash" status — these must still load
+    fs.writeFileSync(logPath, [
+      session,
+      JSON.stringify({
+        type: "run", run: 1, created_at: "2026-01-01T00:00:00.000Z",
+        status: "baseline", metric: 10, metric_name: "loss", direction: "lower",
+        description: "baseline", baseline_metric: 10, best_metric: 10, improvement_ratio: null,
+      }),
+      JSON.stringify({
+        type: "run", run: 2, created_at: "2026-01-01T00:01:00.000Z",
+        status: "crash", metric: null, metric_name: "loss", direction: "lower",
+        description: "old crash entry", baseline_metric: 10, best_metric: 10, improvement_ratio: null,
+      }),
+    ].join("\n") + "\n");
+
+    const entries = readAutoresearchLog(cwd);
+    const runs = entries.filter((e): e is Awaited<ReturnType<typeof logExperiment>> => e.type === "run");
+    assert.equal(runs.length, 2);
+    assert.equal(runs[0].status, "baseline");
+    assert.equal(runs[1].status, "crash", "old crash entries must still load as crash");
+
+    const summary = summarizeAutoresearch(cwd);
+    assert.equal(summary.totalRuns, 2);
+    assert.equal(summary.crashedRuns, 1);
+    assert.equal(summary.metricNotFoundRuns, 0, "old crash entries should NOT be counted as metric_not_found");
+  });
+
   it("classifies improvements according to direction", () => {
     const entries = [
       { type: "session", created_at: "2026-01-01T00:00:00.000Z", goal: "increase auc", metric_name: "auc", direction: "higher", command: "echo auc: 0.7" },
@@ -346,6 +397,10 @@ describe("autoresearch state model", () => {
     assert.equal(decideStatus([...entries], 0.8, "measured"), "keep");
     assert.equal(decideStatus([...entries], 0.6, "measured"), "discard");
     assert.equal(decideStatus([...entries], null, "crash"), "crash");
+    // metric_not_found run_status should be distinct from crash
+    assert.equal(decideStatus([...entries], null, "metric_not_found"), "metric_not_found");
+    // metric is null even with measured run_status should return metric_not_found (safety)
+    assert.equal(decideStatus([...entries], null, "measured"), "metric_not_found");
   });
 
   it("marks successful benchmarks as checks_failed when checks fail", async () => {
@@ -364,6 +419,59 @@ describe("autoresearch state model", () => {
     assert.equal(result.status, "checks_failed");
     assert.equal(result.metric, 42);
     assert.equal(result.checks?.exit_code, 2);
+  });
+
+  it("classifies exit-0 no-metric as metric_not_found instead of crash", async () => {
+    const cwd = makeTempDir();
+    initExperiment({
+      cwd,
+      goal: "reduce loss",
+      metricName: "val_bpb",
+      direction: "lower",
+      command: `echo "unrelated output"`,
+    });
+
+    const result = await runExperiment({ cwd });
+    assert.equal(result.exit_code, 0);
+    assert.equal(result.metric, null);
+    assert.equal(result.status, "metric_not_found", "exit 0 with no parseable metric should be metric_not_found, not crash");
+  });
+
+  it("classifies non-zero exit as crash even if metric present in output", async () => {
+    const cwd = makeTempDir();
+    initExperiment({
+      cwd,
+      goal: "reduce loss",
+      metricName: "val_bpb",
+      direction: "lower",
+      command: `${process.execPath} -e "console.log('val_bpb: 1.5'); process.exit(1)"`,
+    });
+
+    const result = await runExperiment({ cwd });
+    assert.equal(result.exit_code, 1);
+    // exit !== 0 -> crash regardless of metric parsing
+    assert.equal(result.status, "crash");
+  });
+
+  it("logs metric_not_found as distinct decision in logExperiment", async () => {
+    const cwd = makeTempDir();
+    initExperiment({
+      cwd,
+      goal: "reduce loss",
+      metricName: "val_bpb",
+      direction: "lower",
+      command: `echo "unrelated output"`,
+    });
+
+    await runExperiment({ cwd });
+    const log = await logExperiment({
+      cwd,
+      status: "auto",
+      description: "metric not found experiment",
+      learned: "metric config needs fixing",
+    });
+    assert.equal(log.status, "metric_not_found", "logExperiment auto should detect metric_not_found");
+    assert.equal(log.metric, null);
   });
 
   it("reverts tracked and untracked experiment files while preserving autoresearch state", async () => {
@@ -1397,6 +1505,45 @@ describe("runLoopIteration", () => {
 
     const dirty = hasDirtyNonAutoresearchFiles(cwd);
     assert.equal(dirty.dirty, false);
+  });
+
+  it("reverts changes and returns status=metric_not_found when metric is absent (exit 0)", async () => {
+    const cwd = makeTempDir();
+    dirtyGitInit(cwd);
+
+    fs.writeFileSync(path.join(cwd, "app.ts"), "original");
+    git(cwd, ["add", "app.ts"]);
+    git(cwd, ["commit", "-m", "initial"]);
+
+    initExperiment({
+      cwd,
+      goal: "improve score",
+      metricName: "score",
+      direction: "lower",
+      command: nodeMetricCommand("score", 3.0),
+    });
+
+    await runExperiment({ cwd });
+    await logExperiment({ cwd, status: "auto", description: "baseline" });
+
+    fs.writeFileSync(path.join(cwd, "app.ts"), "metric-not-found change");
+
+    const result = await runLoopIteration({
+      cwd,
+      command: `echo "no metric here"`,
+      description: "metric_not_found iteration",
+      iteration: 2,
+    });
+
+    assert.equal(result.status, "metric_not_found");
+    assert.equal(result.committed, false);
+    assert.ok(result.reverted, "should have reverted");
+
+    const content = fs.readFileSync(path.join(cwd, "app.ts"), "utf-8");
+    assert.equal(content, "original");
+
+    const dirty2 = hasDirtyNonAutoresearchFiles(cwd);
+    assert.equal(dirty2.dirty, false);
   });
 
   it("throws if working tree is dirty after runLoopIteration", async () => {
