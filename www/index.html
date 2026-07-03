@@ -441,18 +441,18 @@ cd tamandua
         <div class="arch-step">
           <span class="arch-number">2</span>
           <strong>Install</strong>
-          <p>One command provisions everything: agent workspaces, polling, subagent permissions. No Docker, no queues, no external services.</p>
+          <p>One command provisions everything: agent workspaces, scheduling, subagent permissions. No Docker, no queues, no external services.</p>
         </div>
         <div class="arch-arrow" aria-hidden="true">→</div>
         <div class="arch-step">
           <span class="arch-number">3</span>
           <strong>Run</strong>
-          <p>Agents poll for work independently. Claim a step, do the work, pass context to the next agent. SQLite tracks state. The scheduler keeps it moving.</p>
+          <p>The scheduler checks for work deterministically — a database peek, not a model call — and spawns an agent the moment a step is ready. Claim, work, pass context to the next agent. SQLite tracks state.</p>
         </div>
       </div>
 
       <h3>Minimal by Design</h3>
-      <p>YAML + SQLite + polling. That's it. No Redis, no Kafka, no container orchestrator. Tamandua is a TypeScript CLI with zero external dependencies. It runs wherever pi runs.</p>
+      <p>YAML + SQLite + deterministic dispatch. That's it. No Redis, no Kafka, no container orchestrator. Tamandua is a TypeScript CLI with zero external dependencies. It runs wherever pi runs. And because checking for work never invokes a model, <strong>idle runs cost zero tokens</strong> — you pay for the work your agents do, not for the waiting.</p>
 
       <h3>Quick Example</h3>
       <div class="terminal-window" data-terminal-animate>
@@ -760,7 +760,7 @@ steps:
           <tr>
             <td><code>noHurrySaveTokensMode</code></td>
             <td>No</td>
-            <td>When <code>true</code>, reduces polling frequency to save tokens (15-min floor and default instead of 1-min floor, 5-min default). Defaults to <code>false</code>.</td>
+            <td>When <code>true</code>, work spawns prefer a <code>pi-token-saver</code> command from <code>PATH</code> over <code>pi</code> (looked up per invocation; falls back to <code>pi</code> when absent). Idle dispatch is free either way. Defaults to <code>false</code>.</td>
           </tr>
         </tbody>
       </table>

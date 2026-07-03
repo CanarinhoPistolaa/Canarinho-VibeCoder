@@ -161,9 +161,22 @@ duration (e.g. `7d`, `24h`, `30m`). Requires both `--completed` and
 The control plane provides run-scoped scheduling that the dashboard daemon
 uses to manage deterministic work dispatch.
 
+**Live-instance isolation (for agents running INSIDE a tamandua run):** the
+`tamandua step` reporting commands (claim / complete / fail, documented
+below) are the ONLY sanctioned interaction with the live tamandua instance
+that is scheduling you. Never start/stop/restart the live daemon, MCP, or control plane — to
+exercise lifecycle behavior, spin up an ISOLATED instance instead: point
+`HOME`/`TAMANDUA_STATE_DIR` at a temp directory and use non-default ports
+(`TAMANDUA_CONTROL_PORT` plus explicit `--port` values). As a backstop,
+`stop`/`restart` refuse to signal the daemon that scheduled you
+("Refusing to stop the dashboard daemon…"): that error means you targeted
+the live instance — switch to an isolated one.
+
 ```bash
 tamandua control-plane start [--port N]
 tamandua control-plane stop
+tamandua control-plane restart [--port N]
+tamandua control-plane status
 tamandua control-plane status
 ```
 
@@ -628,12 +641,13 @@ Start, stop, and check the web dashboard:
 ```bash
 tamandua dashboard start [--port N]    # Start dashboard (default: 3334)
 tamandua dashboard stop                # Stop dashboard
+tamandua dashboard restart [--port N]  # Stop then start (also picks up rebuilt code)
 tamandua dashboard status              # Check dashboard + MCP status
 ```
 
 `dashboard status` reports both dashboard and MCP server status in a single
 output. The remote MCP server can be managed independently with
-`tamandua mcp start [--port N]`, `tamandua mcp stop`, and `tamandua mcp status`
+`tamandua mcp start [--port N]`, `tamandua mcp stop`, `tamandua mcp restart [--port N]`, and `tamandua mcp status`
 (standalone on port 3338 by default).
 
 `tamandua source-path` prints the source checkout path that `tamandua update`
