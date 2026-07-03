@@ -4,7 +4,7 @@ import path from "node:path";
 import os from "node:os";
 import { execSync, execFileSync } from "node:child_process";
 import { getDb } from "../db.js";
-import { resolveWorkflowDir, resolveTamanduaCli } from "./paths.js";
+import { resolvePiStateDir, resolveWorkflowDir, resolveTamanduaCli } from "./paths.js";
 import { teardownWorkflowCronsIfIdle } from "./agent-scheduler.js";
 import { emitEvent } from "./events.js";
 import { logger } from "../lib/logger.js";
@@ -140,6 +140,39 @@ export function scheduleRunCronTeardown(runId: string): void {
     // the completion grace window to flush before the leak-guard kill.
     import("./agent-scheduler.js")
       .then((m) => m.removeRunCrons(runId, { graceMs: m.HARNESS_TEARDOWN_GRACE_MS }))
+      .catch(() => {});
+    // Fire-and-forget cleanup sweep: kill surviving processes tied to the
+    // run after the harness process group kill from removeRunCrons completes.
+    import("./agent-scheduler.js")
+      .then(async (m) => {
+        await new Promise((resolve) => setTimeout(resolve, m.HARNESS_TEARDOWN_GRACE_MS));
+        try {
+          const { getRunWorktree } = await import("./worktree-manager.js");
+          const wt = getRunWorktree(runId);
+          if (!wt) return;
+
+          // Read daemon PID for exclusion
+          let daemonPid: number | undefined;
+          try {
+            const pidContent = fs.readFileSync(
+              path.join(resolvePiStateDir(), "daemon.pid"),
+              "utf-8",
+            ).trim();
+            const parsed = parseInt(pidContent, 10);
+            if (Number.isInteger(parsed) && parsed > 0) daemonPid = parsed;
+          } catch {
+            // daemon.pid may not exist
+          }
+
+          const { sweepRunProcesses } = await import("./run-cleanup.js");
+          sweepRunProcesses(runId, wt.worktreePath, { daemonPid });
+        } catch (cleanupErr) {
+          logger.warn("Process cleanup sweep failed", {
+            runId,
+            error: (cleanupErr as Error).message,
+          });
+        }
+      })
       .catch(() => {});
     import("../server/control-client.js")
       .then((m) => m.terminateRunWithDaemon(runId))

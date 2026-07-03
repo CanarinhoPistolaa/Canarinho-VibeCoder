@@ -4,6 +4,8 @@ import path from "node:path";
 import os from "node:os";
 import { createHash } from "node:crypto";
 import { getDb } from "../db.js";
+import { logger } from "../lib/logger.js";
+import { sweepRunProcesses } from "./run-cleanup.js";
 
 // ── Types ──
 
@@ -338,6 +340,16 @@ export function removeRunWorktree(params: {
   }
 
   if (pathExists) {
+    // Sweep for surviving processes tied to this worktree before removal
+    try {
+      sweepRunProcesses(params.runId, wt.worktreePath);
+    } catch (err) {
+      logger.warn(
+        `Process cleanup sweep failed for run ${params.runId}, proceeding with worktree removal`,
+        { runId: params.runId, error: String(err) },
+      );
+    }
+
     // Check dirty state
     if (!params.force) {
       const statusResult = runGit(["status", "--porcelain"], wt.worktreePath);
