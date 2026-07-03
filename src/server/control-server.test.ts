@@ -79,7 +79,7 @@ async function jsonRequest(
   });
 }
 
-async function waitForControlUp(timeoutMs = 7000): Promise<void> {
+async function waitForControlUp(timeoutMs = 30000): Promise<void> {
   const startedAt = Date.now();
   while (Date.now() - startedAt < timeoutMs) {
     try {

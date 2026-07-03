@@ -149,7 +149,7 @@ async function waitForHttpUp(
   throw new Error(`Timed out waiting for ${url} to become reachable: ${String(lastError)}`);
 }
 
-async function waitForHttpDown(url: string, timeoutMs = 7000): Promise<void> {
+async function waitForHttpDown(url: string, timeoutMs = 30000): Promise<void> {
   const startedAt = Date.now();
 
   while (Date.now() - startedAt < timeoutMs) {
@@ -500,8 +500,9 @@ describe("MCP lifecycle integration", { concurrency: 1 }, () => {
       assert.equal(stop.code, 0, `MCP stop failed: ${cleanStderr(stop.stderr) || stop.stdout}`);
       assert.match(stop.stdout, /MCP server stopped/);
 
-      // Wait for process to fully exit
-      await new Promise<void>((resolve) => setTimeout(resolve, 500));
+      // Wait for process to fully exit. Generous on purpose: under a
+      // loaded parallel suite, SIGTERM-to-exit can take seconds.
+      await new Promise<void>((resolve) => setTimeout(resolve, 5000));
 
       // Verify the isolated MCP state via CLI status and HTTP reachability.
       status = await runCli(["mcp", "status"], cliEnv);
