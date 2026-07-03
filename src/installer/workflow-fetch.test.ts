@@ -206,4 +206,70 @@ describe("workflow-fetch", () => {
       );
     });
   });
+
+  describe("fetchWorkflow refresh semantics", () => {
+    it("refreshes symlink-sharing worktree variants without EINVAL (regression)", async () => {
+      const os = await import("node:os");
+      const fsSync = await import("node:fs");
+      const path = await import("node:path");
+      const { fetchWorkflow } = await import("../../dist/installer/workflow-fetch.js");
+
+      const tempHome = fsSync.mkdtempSync(path.join(os.tmpdir(), "tamandua-fetch-symlink-"));
+      const savedStateDir = process.env.TAMANDUA_STATE_DIR;
+      process.env.TAMANDUA_STATE_DIR = path.join(tempHome, ".tamandua");
+      try {
+        // bug-fix-worktree ships symlinked agent dirs (shared personas).
+        const { workflowDir } = await fetchWorkflow("bug-fix-worktree");
+        const fixerLink = path.join(workflowDir, "agents", "fixer");
+        const first = fsSync.lstatSync(fixerLink);
+        const assert = (await import("node:assert/strict")).default;
+        assert.ok(first.isSymbolicLink(), "installed agent dir should be a symlink (shared persona)");
+
+        // Second install (update path) must refresh in place — the old
+        // force-copy dereferenced onto the existing link and threw EINVAL.
+        await fetchWorkflow("bug-fix-worktree");
+        const second = fsSync.lstatSync(fixerLink);
+        assert.ok(second.isSymbolicLink(), "refresh must keep the symlink a symlink");
+        assert.ok(
+          fsSync.existsSync(path.join(fixerLink, "AGENTS.md")),
+          "symlink must still resolve to the shared persona",
+        );
+      } finally {
+        if (savedStateDir === undefined) delete process.env.TAMANDUA_STATE_DIR;
+        else process.env.TAMANDUA_STATE_DIR = savedStateDir;
+        fsSync.rmSync(tempHome, { recursive: true, force: true });
+      }
+    });
+
+    it("overwrites a stale installed workflow definition (update delivers current YAML)", async () => {
+      const os = await import("node:os");
+      const fsSync = await import("node:fs");
+      const path = await import("node:path");
+      const { fetchWorkflow } = await import("../../dist/installer/workflow-fetch.js");
+
+      const tempHome = fsSync.mkdtempSync(path.join(os.tmpdir(), "tamandua-fetch-refresh-"));
+      const savedStateDir = process.env.TAMANDUA_STATE_DIR;
+      process.env.TAMANDUA_STATE_DIR = path.join(tempHome, ".tamandua");
+      try {
+        // First install
+        const { workflowDir } = await fetchWorkflow("do-now");
+        const ymlPath = path.join(workflowDir, "workflow.yml");
+        const original = fsSync.readFileSync(ymlPath, "utf-8");
+
+        // Simulate a stale/customized installed copy
+        fsSync.writeFileSync(ymlPath, "id: do-now\n# STALE INSTALLED COPY\n", "utf-8");
+
+        // Re-install (what tamandua update does) must refresh to current
+        await fetchWorkflow("do-now");
+        const refreshed = fsSync.readFileSync(ymlPath, "utf-8");
+        const assert = (await import("node:assert/strict")).default;
+        assert.equal(refreshed, original, "reinstall must overwrite the installed definition with the bundled one");
+        assert.ok(!refreshed.includes("STALE INSTALLED COPY"));
+      } finally {
+        if (savedStateDir === undefined) delete process.env.TAMANDUA_STATE_DIR;
+        else process.env.TAMANDUA_STATE_DIR = savedStateDir;
+        fsSync.rmSync(tempHome, { recursive: true, force: true });
+      }
+    });
+  });
 });

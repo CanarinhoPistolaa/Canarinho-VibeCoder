@@ -109,8 +109,17 @@ export async function getWorkflowShortDescription(
 }
 
 /**
- * Recursively copy all files and directories from src to dest.
- * Skips existing files (does not overwrite — install handles the "fetch once" semantic).
+ * Recursively copy all files and directories from src to dest,
+ * OVERWRITING existing files.
+ *
+ * Workflow definitions are owned by the bundled source: installs and
+ * `tamandua update` must deliver the current definitions, not freeze the
+ * copy made at first install. (The previous "fetch once" skip-existing
+ * semantic silently pinned every user to the workflow YAML of their first
+ * install — shipped workflow fixes never arrived, and update's
+ * "installed <workflow>" output was a no-op for existing installs.)
+ * Users who customize workflows should copy them under a new id; installed
+ * bundled ids are refreshed on every install.
  */
 async function copyDirContents(src: string, dest: string): Promise<void> {
   const entries = await fs.readdir(src, { withFileTypes: true });
@@ -121,21 +130,15 @@ async function copyDirContents(src: string, dest: string): Promise<void> {
       await fs.mkdir(destPath, { recursive: true });
       await copyDirContents(srcPath, destPath);
     } else {
-      try {
-        await fs.lstat(destPath);
-        continue;
-      } catch (err) {
-        const code = (err as NodeJS.ErrnoException)?.code;
-        if (code !== "ENOENT") throw err;
-      }
-
-      try {
-        await fs.cp(srcPath, destPath, { force: false });
-      } catch (err) {
-        const code = (err as NodeJS.ErrnoException)?.code;
-        if (code === "EEXIST") continue; // already copied — skip
-        throw err;
-      }
+      // Remove the destination first: worktree-variant workflows ship
+      // symlinked agent dirs (e.g. agents/fixer -> ../../bug-fix-merge/...),
+      // and fs.cp onto an existing symlink dereferences into a self-copy
+      // EINVAL. Removing the link (not its target — rm does not follow
+      // symlinks) lets cp recreate it; cp's default non-verbatim mode
+      // resolves relative link targets to absolute source paths, matching
+      // what first-time installs have always produced.
+      await fs.rm(destPath, { recursive: true, force: true });
+      await fs.cp(srcPath, destPath, { force: true });
     }
   }
 }
