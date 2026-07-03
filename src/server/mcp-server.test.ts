@@ -856,4 +856,248 @@ describe("mcp-server bootstrap", () => {
       await stopTamanduaMcpServer(server);
     }
   });
+
+  it("supports autoresearch init and status tools over HTTP", async () => {
+    const initCalls: Array<{
+      cwd: string;
+      goal: string;
+      metricName: string;
+      direction: string;
+      command: string;
+    }> = [];
+    const statusCalls: string[] = [];
+
+    const mockSession: Record<string, unknown> = {
+      type: "session",
+      created_at: "2026-07-03T12:00:00.000Z",
+      goal: "Optimize JSON parsing performance",
+      metric_name: "req_per_sec",
+      metric_unit: "req/s",
+      direction: "higher",
+      command: "npm run bench",
+      metric_regex: "([0-9.]+) req/s",
+      checks_command: "npm test",
+    };
+
+    const mockSummary: Record<string, unknown> = {
+      exists: true,
+      goal: "Optimize JSON parsing performance",
+      metricName: "req_per_sec",
+      metricUnit: "req/s",
+      direction: "higher",
+      command: "npm run bench",
+      totalRuns: 5,
+      measuredRuns: 5,
+      keptRuns: 3,
+      discardedRuns: 2,
+      crashedRuns: 0,
+      checksFailedRuns: 0,
+      baselineMetric: 1000,
+      bestMetric: 1250,
+      bestRun: 3,
+      confidence_score: 0.85,
+      confidence_band: "high",
+      noise_floor_mad: 12.5,
+      confidence_sample_count: 5,
+      nextPrompt: "Next: try X approach",
+    };
+
+    const server = await startTamanduaMcpServer(0, {
+      services: {
+        listRuns: () => [],
+        getWorkflowStatus: () => ({} as any),
+        runWorkflow: async () => ({
+          runId: "x", runNumber: 1, workflowId: "x", taskTitle: "x",
+          status: "running", stepCount: 0, workingDirectoryForHarness: "/x",
+        }),
+        getRecentEvents: () => [],
+        getSourcePath: () => "/x",
+        pauseRun: async () => ({ runId: "x", status: "paused" }),
+        resumeRun: async () => ({ runId: "x", status: "running" }),
+        resolveWorkspaceMode: async () => "direct",
+        initAutoresearch: (opts) => {
+          initCalls.push({
+            cwd: opts.cwd ?? "",
+            goal: opts.goal,
+            metricName: opts.metricName,
+            direction: opts.direction,
+            command: opts.command,
+          });
+          return mockSession as any;
+        },
+        summarizeAutoresearch: (cwd: string) => {
+          statusCalls.push(cwd);
+          return mockSummary as any;
+        },
+      },
+    });
+
+    try {
+      const sessionId = await initializeSession(server.port);
+
+      // Call tamandua.autoresearch.init
+      const initResult = await callTool(server.port, sessionId, 110, "tamandua.autoresearch.init", {
+        cwd: "/tmp/test-project",
+        goal: "Optimize JSON parsing performance",
+        metricName: "req_per_sec",
+        metricUnit: "req/s",
+        direction: "higher",
+        command: "npm run bench",
+        metricRegex: "([0-9.]+) req/s",
+        checksCommand: "npm test",
+      });
+      assert.equal(initResult.status, 200);
+      assert.equal(initResult.body?.error, undefined);
+      const session = initResult.body?.result?.structuredContent?.session as Record<string, unknown> | undefined;
+      assert.ok(session, "session should be present");
+      assert.equal(session?.goal, "Optimize JSON parsing performance");
+      assert.equal(session?.metric_name, "req_per_sec");
+      assert.equal(session?.direction, "higher");
+      assert.deepEqual(initCalls, [{
+        cwd: "/tmp/test-project",
+        goal: "Optimize JSON parsing performance",
+        metricName: "req_per_sec",
+        direction: "higher",
+        command: "npm run bench",
+      }]);
+
+      // Call tamandua.autoresearch.status
+      const statusResult = await callTool(server.port, sessionId, 111, "tamandua.autoresearch.status", {
+        cwd: "/tmp/test-project",
+      });
+      assert.equal(statusResult.status, 200);
+      assert.equal(statusResult.body?.error, undefined);
+      const summary = statusResult.body?.result?.structuredContent?.summary as Record<string, unknown> | undefined;
+      assert.ok(summary, "summary should be present");
+      assert.equal(summary?.exists, true);
+      assert.equal(summary?.totalRuns, 5);
+      assert.equal(summary?.bestMetric, 1250);
+      assert.equal(summary?.goal, "Optimize JSON parsing performance");
+      assert.deepEqual(statusCalls, ["/tmp/test-project"]);
+    } finally {
+      await stopTamanduaMcpServer(server);
+    }
+  });
+
+  it("supports autoresearch run and log tools over HTTP", async () => {
+    const runCalls: Array<{ cwd: string; command?: string }> = [];
+    const logCalls: Array<{ cwd: string; description: string }> = [];
+
+    const mockRunResult: Record<string, unknown> = {
+      type: "run_result",
+      run: 1,
+      created_at: "2026-07-03T12:01:00.000Z",
+      status: "measured",
+      metric: 1050,
+      metric_name: "req_per_sec",
+      metric_unit: "req/s",
+      direction: "higher",
+      duration_ms: 1523,
+      exit_code: 0,
+      command: "npm run bench",
+      output_tail: "1050 req/s",
+      error_tail: "",
+    };
+
+    const mockLogEntry: Record<string, unknown> = {
+      type: "run",
+      run: 1,
+      created_at: "2026-07-03T12:02:00.000Z",
+      status: "keep",
+      metric: 1050,
+      metric_name: "req_per_sec",
+      metric_unit: "req/s",
+      direction: "higher",
+      duration_ms: 1523,
+      command: "npm run bench",
+      description: "Added caching layer",
+      baseline_metric: 1000,
+      best_metric: 1050,
+      improvement_ratio: 1.05,
+      confidence_score: 0.5,
+      confidence_band: "unknown",
+      noise_floor_mad: null,
+      confidence_sample_count: 1,
+      asi: {
+        hypothesis: "Caching reduces parse time",
+        learned: "10% improvement observed",
+        next_focus: "Try larger cache",
+      },
+    };
+
+    const server = await startTamanduaMcpServer(0, {
+      services: {
+        listRuns: () => [],
+        getWorkflowStatus: () => ({} as any),
+        runWorkflow: async () => ({
+          runId: "x", runNumber: 1, workflowId: "x", taskTitle: "x",
+          status: "running", stepCount: 0, workingDirectoryForHarness: "/x",
+        }),
+        getRecentEvents: () => [],
+        getSourcePath: () => "/x",
+        pauseRun: async () => ({ runId: "x", status: "paused" }),
+        resumeRun: async () => ({ runId: "x", status: "running" }),
+        resolveWorkspaceMode: async () => "direct",
+        runAutoresearchExperiment: async (opts) => {
+          runCalls.push({ cwd: opts.cwd ?? "", command: opts.command });
+          return mockRunResult as any;
+        },
+        logAutoresearchExperiment: async (opts) => {
+          logCalls.push({ cwd: opts.cwd ?? "", description: opts.description });
+          return mockLogEntry as any;
+        },
+      },
+    });
+
+    try {
+      const sessionId = await initializeSession(server.port);
+
+      // Call tamandua.autoresearch.run_experiment
+      const runResult = await callTool(server.port, sessionId, 120, "tamandua.autoresearch.run_experiment", {
+        cwd: "/tmp/test-project",
+        command: "npm run bench -- --iterations=10",
+        timeoutMs: 30000,
+      });
+      assert.equal(runResult.status, 200);
+      assert.equal(runResult.body?.error, undefined);
+      const result = runResult.body?.result?.structuredContent?.result as Record<string, unknown> | undefined;
+      assert.ok(result, "result should be present");
+      assert.equal(result?.type, "run_result");
+      assert.equal(result?.metric, 1050);
+      assert.equal(result?.duration_ms, 1523);
+      assert.equal(result?.command, "npm run bench");
+      assert.deepEqual(runCalls, [{
+        cwd: "/tmp/test-project",
+        command: "npm run bench -- --iterations=10",
+      }]);
+
+      // Call tamandua.autoresearch.log_experiment
+      const logResult = await callTool(server.port, sessionId, 121, "tamandua.autoresearch.log_experiment", {
+        cwd: "/tmp/test-project",
+        description: "Added caching layer",
+        status: "keep",
+        hypothesis: "Caching reduces parse time",
+        learned: "10% improvement observed",
+        nextFocus: "Try larger cache",
+      });
+      assert.equal(logResult.status, 200);
+      assert.equal(logResult.body?.error, undefined);
+      const entry = logResult.body?.result?.structuredContent?.entry as Record<string, unknown> | undefined;
+      assert.ok(entry, "entry should be present");
+      assert.equal(entry?.type, "run");
+      assert.equal(entry?.status, "keep");
+      assert.equal(entry?.description, "Added caching layer");
+      assert.deepEqual(entry?.asi, {
+        hypothesis: "Caching reduces parse time",
+        learned: "10% improvement observed",
+        next_focus: "Try larger cache",
+      });
+      assert.deepEqual(logCalls, [{
+        cwd: "/tmp/test-project",
+        description: "Added caching layer",
+      }]);
+    } finally {
+      await stopTamanduaMcpServer(server);
+    }
+  });
 });
