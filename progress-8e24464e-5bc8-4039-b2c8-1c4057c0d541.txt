@@ -1,0 +1,55 @@
+# Progress Log
+Run: 8e24464e-5bc8-4039-b2c8-1c4057c0d541
+Task: Feature WLNT: a static workflow contract linter
+Started: 2026-07-03T21:00:00Z
+
+## Codebase Patterns
+- Workflow specs live in `workflows/<id>/workflow.yml`, parsed via `loadWorkflowSpec()`
+- Step input templates contain both consumed `{{placeholders}}` and output-contract `KEY: value` lines
+- Step `expects` field uses `regex:^KEY:` patterns to enforce output format at parseOutputKeyValues level
+- `collectPlaceholders()` uses `/{{(\w+(?:\.\w+)*)}}/g` — identical in simulation test and contract lint
+- AUTO_CONTEXT_KEYS and HARNESS_SEEDED_CONTEXT_KEYS must stay in sync between contract lint and simulation tests
+- Tests import from `dist/` (built output), not `src/` — always run `npm run build` before testing
+- RESERVED_CONTEXT_KEYS in step-ops.ts defines keys that cannot be overwritten by step output
+- Expects strings contain literal `\n` (YAML escape) — split on `\n` not `\\n`
+- 15 branch-producing workflows have `regex:^BRANCH:\s*\S+` in step 0 expects; 8 others don't
+- `regex:PR:` (no caret) in PR-producing steps for github-pr workflow variants
+- Shell command detection: backtick-quoted commands or lines with common shell words (git, npm, cd, etc.)
+- Quarantine workflows are the only legitimate exception to stricter tier: no triage/plan step, so no regex:^BRANCH: producer exists
+
+## Story Plan
+
+### US-001: Create contract lint test file with shared context-key infrastructure
+
+### US-002: Compute provided-key set and assert consumed subseteq provided for every workflow
+
+### US-003: Parse expects regex colon caret KEY patterns and detect produced-key promises
+
+### US-004: Implement stricter tier: shell/command-argument consumers must have enforced producers, plus allowlist
+
+---
+## 2026-07-03T21:00:00Z - US-002: Compute provided-key set and assert consumed subseteq provided for every workflow
+- Implemented `extractProducedKeysFromExpects()`, `extractProducedKeysFromInputTemplate()`, `computeProvidedKeys()`
+- Created ALLOWLIST with 11 entries for quarantine workflows
+- Added per-workflow describe blocks with 6 assertions each
+- 147 contract lint tests pass across all 23 bundled workflows
+- Files changed: tests/workflow-contract-lint.test.ts (+328 lines)
+- **Learnings:** Both expects field and Reply-with block needed for full produced-key set. Quarantine workflows are a known exception.
+
+## 2026-07-03T22:00:00Z - US-003: Parse expects regex colon caret KEY patterns and detect produced-key promises
+- Refined `extractProducedKeysFromExpects()` with three tiers: caret-enforced regex, non-caret regex, plain KEY:
+- Added `hasRegexEnforcement(expects, key)` function
+- Added 14 new tests: regex:^BRANCH: enforcement count (15 workflows), extractProducedKeysFromExpects correctness
+- Total tests: 186 (up from 147), all passing
+- **Learnings:** 15 workflows have regex:^BRANCH: in step 0; regex:^KEY: and regex:KEY: patterns are mutually exclusive
+
+## 2026-07-03T23:00:00Z - US-004: Implement stricter tier: shell/command-argument consumers must have enforced producers, plus allowlist
+- Added `isConsumedInCommandContext(template, key)` with two-tier detection: backtick-quoted commands and lines with shell command words (git, npm, cd, docker, curl, etc.)
+- Added `findFirstBranchProducer(spec, stepIndex)` to locate the first upstream branch producer
+- Added `STRICTER_TIER_ALLOWLIST` with 8 entries covering quarantine workflows
+- Added 13 unit tests for `isConsumedInCommandContext`
+- Added 7 integration tests: stricter-tier baseline, per-workflow check, allowlist coverage, allowlist integrity
+- Total tests: 206 (up from 186), all passing
+- Files changed: tests/workflow-contract-lint.test.ts (+245 lines)
+- **Learnings:** `BRANCH: {{branch}}` output-contract lines correctly NOT flagged as command context. `cd into the repo and ensure you're on {{branch}}` IS flagged (line contains shell word `cd`). Backtick detection works regardless of words inside. Only quarantine workflows need allowlist entries.
+---

@@ -106,6 +106,255 @@ export function findMissingTemplateKeys(template: string, context: Record<string
   return missing;
 }
 
+/**
+ * Parse the `Reply with:` section of a step's input template to extract
+ * the set of uppercase KEY names that the step is expected to produce in
+ * its output.  Only lines matching `KEY: <value>` (uppercase identifier,
+ * colon, optional value) within that section are captured; continuation /
+ * multi-line values and other prose are skipped.
+ *
+ * Returns an array of lowercased key names.  Returns an empty array when
+ * no `Reply with:` (or `Reply with :` / `Reply-with:`) section is found.
+ */
+export function parseExpectedKeys(inputTemplate: string): string[] {
+  const keys = new Set<string>();
+
+  // Locate the Reply-with header.  Accept the most common spelling but
+  // tolerate minor whitespace/hyphen variants seen in real templates.
+  const headerMatch = inputTemplate.match(/^[\t ]*Reply[- ]with\s*:\s*$/im);
+  if (!headerMatch || headerMatch.index === undefined) return [];
+
+  // Take everything after the header line (skip the newline that follows).
+  const afterHeader = inputTemplate.slice(headerMatch.index + headerMatch[0].length);
+
+  // Walk line by line; stop at a blank line (end of the block).
+  // The first element after split on the trailing newline is empty — skip it.
+  const lines = afterHeader.split("\n");
+  let started = false;
+  for (const rawLine of lines) {
+    const line = rawLine.trimEnd();
+    // Skip leading empty lines before the first key.
+    if (!started && line.trim() === "") continue;
+    started = true;
+    // Blank line → block ended.
+    if (line.trim() === "") break;
+
+    // Match KEY: <value> patterns (uppercase letters + underscores),
+    // allowing leading whitespace (indentation from the YAML template).
+    const keyMatch = line.match(/^[\t ]*([A-Z_]+):\s*(.*)$/);
+    if (keyMatch) {
+      keys.add(keyMatch[1].toLowerCase());
+      continue;
+    }
+  }
+
+  return Array.from(keys);
+}
+
+/**
+ * Result of finding a producer step for a missing template key.
+ */
+export interface ProducerResult {
+  stepId: string;
+  stepIndex: number;
+  retryCount: number;
+  maxRetries: number;
+}
+
+/**
+ * Find the most recent upstream DONE step whose Reply-with block declares
+ * a given key as expected output.  Used by the missing-template-key
+ * recovery path to determine which producer step to re-pend.
+ *
+ * Returns null when no upstream DONE step declares the missing key.
+ */
+export function findProducerForMissingKey(
+  runId: string,
+  currentStepIndex: number,
+  missingKey: string
+): ProducerResult | null {
+  const db = getDb();
+
+  const upstreamSteps = db.prepare(
+    `SELECT id, step_id, step_index, input_template, retry_count, max_retries
+     FROM steps
+     WHERE run_id = ? AND step_index < ? AND status = 'done'
+     ORDER BY step_index DESC`
+  ).all(runId, currentStepIndex) as {
+    id: string;
+    step_id: string;
+    step_index: number;
+    input_template: string;
+    retry_count: number;
+    max_retries: number;
+  }[];
+
+  const lowerKey = missingKey.toLowerCase();
+  for (const step of upstreamSteps) {
+    const expectedKeys = parseExpectedKeys(step.input_template);
+    if (expectedKeys.includes(lowerKey)) {
+      return {
+        stepId: step.id,
+        stepIndex: step.step_index,
+        retryCount: step.retry_count,
+        maxRetries: step.max_retries,
+      };
+    }
+  }
+
+  return null;
+}
+
+// ══════════════════════════════════════════════════════════════════════
+// Missing Template Key Blocking & Recovery
+// ══════════════════════════════════════════════════════════════════════
+
+/**
+ * Result of handling missing template keys in claimStep.
+ * - 'proceed': no missing keys, continue with normal claim flow.
+ * - 'rejected': producers were re-pended; caller must unclaim and return { found: false }.
+ * - Any other string: the run was failed with this message; caller must return { found: false }.
+ */
+type MissingKeyAction = 'proceed' | 'rejected' | string;
+
+/**
+ * When claimStep discovers missing template keys, block the model round and
+ * route recovery to upstream producers.  Returns the action taken:
+ *
+ * - 'proceed'     no missing keys (should not happen if missingKeys is empty,
+ *                  but defensive).
+ * - 'rejected'    one or more producer steps were re-pended with retry_feedback
+ *                  naming the missing key(s).  The caller must unclaim the
+ *                  consumer step and return { found: false }.
+ * - string         the run was failed immediately.  The string is the failure
+ *                  message, suitable for logging.  The caller must return
+ *                  { found: false } without further work.
+ */
+function resolveMissingKeys(
+  runId: string,
+  currentStepIndex: number,
+  consumerStepId: string,
+  consumerStepRowId: string,
+  agentId: string,
+  missingKeys: string[]
+): MissingKeyAction {
+  if (missingKeys.length === 0) return 'proceed';
+
+  const db = getDb();
+
+  // Phase 1: collect producer info for each missing key.
+  // Deduplicate by producer stepId — multiple keys from the same upstream
+  // step should only re-pend that step once.
+  const producerMap = new Map<string, ProducerResult>();
+  const unresolvableKeys: string[] = [];
+  const exhaustedDetails: string[] = [];
+
+  for (const key of missingKeys) {
+    const producer = findProducerForMissingKey(runId, currentStepIndex, key);
+    if (!producer) {
+      unresolvableKeys.push(key);
+    } else if (producer.retryCount >= producer.maxRetries) {
+      exhaustedDetails.push(
+        `${key} (producer ${producer.stepId} exhausted at ${producer.retryCount}/${producer.maxRetries} retries)`
+      );
+    } else {
+      producerMap.set(producer.stepId, producer);
+    }
+  }
+
+  // Phase 2: no-producer fail-fast — any unresolvable key kills the run.
+  if (unresolvableKeys.length > 0) {
+    const msg =
+      `Run failed: step "${consumerStepId}" requires template key(s) ` +
+      `${unresolvableKeys.join(", ")} but no upstream DONE step declares ` +
+      `them in its Reply-with block.`;
+    failRunForMissingTemplateKeys(consumerStepRowId, consumerStepId, runId, agentId, msg);
+    return msg;
+  }
+
+  // Phase 3: exhausted-producer fail-fast.
+  if (exhaustedDetails.length > 0) {
+    const msg =
+      `Run failed: step "${consumerStepId}" requires template key(s) ` +
+      `${missingKeys.join(", ")} but producer retries are exhausted: ` +
+      `${exhaustedDetails.join("; ")}.`;
+    failRunForMissingTemplateKeys(consumerStepRowId, consumerStepId, runId, agentId, msg);
+    return msg;
+  }
+
+  // Phase 4: re-pend producers with retry_feedback naming the missing keys.
+  const feedback =
+    `Missing key(s) needed by downstream step "${consumerStepId}": ` +
+    `${missingKeys.join(", ")}`;
+  const wfId = getWorkflowId(runId);
+  for (const producer of producerMap.values()) {
+    const newRetryCount = producer.retryCount + 1;
+    db.prepare(
+      `UPDATE steps
+       SET status = 'pending', retry_count = ?, output = ?,
+           claim_job_id = NULL, claim_pid = NULL, claim_pgid = NULL,
+           updated_at = datetime('now')
+       WHERE id = ?`
+    ).run(newRetryCount, feedback, producer.stepId);
+    emitEvent({
+      ts: new Date().toISOString(),
+      event: "step.repended",
+      runId,
+      workflowId: wfId,
+      stepId: producer.stepId,
+      agentId,
+      detail: `Re-pended with retry_feedback: ${feedback}`,
+    });
+    logger.info(
+      `Re-pended producer step ${producer.stepId} ` +
+        `(retry ${newRetryCount}/${producer.maxRetries}) ` +
+        `for missing keys: ${missingKeys.join(", ")}`,
+      { runId, consumerStepId, producerStepId: producer.stepId, missingKeys },
+    );
+  }
+
+  return 'rejected';
+}
+
+/**
+ * Mark the consumer step and the run as failed, emit events, and tear down
+ * crons.  This is the fail-fast path invoked when missing template keys
+ * cannot be resolved by re-pending an upstream producer.
+ */
+function failRunForMissingTemplateKeys(
+  stepRowId: string,
+  stepId: string,
+  runId: string,
+  agentId: string,
+  message: string
+): void {
+  const db = getDb();
+  const wfId = getWorkflowId(runId);
+  db.prepare(
+    "UPDATE steps SET status = 'failed', output = ?, updated_at = datetime('now') WHERE id = ?"
+  ).run(message, stepRowId);
+  db.prepare(
+    "UPDATE runs SET status = 'failed', updated_at = datetime('now') WHERE id = ?"
+  ).run(runId);
+  emitEvent({
+    ts: new Date().toISOString(),
+    event: "step.failed",
+    runId,
+    workflowId: wfId,
+    stepId,
+    agentId,
+    detail: message,
+  });
+  emitRunTerminalEvent({
+    event: "run.failed",
+    runId,
+    workflowId: wfId,
+    detail: message,
+  });
+  logger.error(message, { runId, stepId, agentId });
+  scheduleRunCronTeardown(runId);
+}
+
 // ══════════════════════════════════════════════════════════════════════
 // Cron Teardown & Run Lookup
 // ══════════════════════════════════════════════════════════════════════
@@ -1215,12 +1464,28 @@ export function claimStep(agentId: string, runId: string, workerOwnership?: Work
         context["verify_feedback"] = "";
       }
 
+      if (!context["timeout_retry"]) {
+        context["timeout_retry"] = "";
+      }
+
       const missingKeys = findMissingTemplateKeys(step.input_template, context);
-      if (missingKeys.length > 0) {
-        logger.warn(
-          `Step ${step.step_id} claimed with missing template key(s): ${missingKeys.join(", ")} — substituting [missing: <key>] and letting the agent decide`,
-          { runId: step.run_id, stepId: step.step_id, missingKeys },
-        );
+      const blockResult = resolveMissingKeys(
+        step.run_id, step.step_index, step.step_id, step.id, agentId, missingKeys
+      );
+      if (blockResult !== 'proceed') {
+        if (blockResult === 'rejected') {
+          // Unclaim the story
+          db.prepare(
+            "UPDATE stories SET status = 'pending', updated_at = datetime('now') WHERE id = ?"
+          ).run(nextStory.id);
+          // Unclaim the loop step: reset to pending so the scheduler re-evaluates
+          db.prepare(
+            "UPDATE steps SET status = 'pending', current_story_id = NULL, claim_job_id = NULL, claim_pid = NULL, claim_pgid = NULL, updated_at = datetime('now') WHERE id = ?"
+          ).run(step.id);
+        }
+        // blockResult is a string (fail message): failRunForMissingTemplateKeys
+        // already marked step + run as failed; just bail.
+        return { found: false };
       }
 
       // Clear one-shot timeout_retry so it doesn't leak into subsequent stories.
@@ -1267,12 +1532,27 @@ export function claimStep(agentId: string, runId: string, workerOwnership?: Work
   // into downstream steps.
   const hasTimeoutRetry = Boolean(context["timeout_retry"]);
 
+  if (!context["verify_feedback"]) {
+    context["verify_feedback"] = "";
+  }
+  if (!context["timeout_retry"]) {
+    context["timeout_retry"] = "";
+  }
+
   const missingKeys = findMissingTemplateKeys(step.input_template, context);
-  if (missingKeys.length > 0) {
-    logger.warn(
-      `Step ${step.step_id} claimed with missing template key(s): ${missingKeys.join(", ")} — substituting [missing: <key>] and letting the agent decide`,
-      { runId: step.run_id, stepId: step.step_id, missingKeys },
-    );
+  const blockResult = resolveMissingKeys(
+    step.run_id, step.step_index, step.step_id, step.id, agentId, missingKeys
+  );
+  if (blockResult !== 'proceed') {
+    if (blockResult === 'rejected') {
+      // Unclaim the step: reset to pending so the scheduler re-evaluates
+      db.prepare(
+        "UPDATE steps SET status = 'pending', claim_job_id = NULL, claim_pid = NULL, claim_pgid = NULL, updated_at = datetime('now') WHERE id = ?"
+      ).run(step.id);
+    }
+    // blockResult is a string (fail message): failRunForMissingTemplateKeys
+    // already marked step + run as failed; just bail.
+    return { found: false };
   }
 
   const resolvedInput = resolveTemplate(step.input_template, context);

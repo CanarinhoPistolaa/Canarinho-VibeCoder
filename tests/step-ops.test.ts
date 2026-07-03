@@ -1,6 +1,7 @@
 import { describe, it, before, after } from "node:test";
 import assert from "node:assert/strict";
-import { parseOutputKeyValues, resolveTemplate, buildStoryPlanSection, mergeStoryPlanIntoProgress, validateExpects, completeStep, resolveStepContext, failStep, claimStep } from "../dist/installer/step-ops.js";
+import { parseOutputKeyValues, parseExpectedKeys, findProducerForMissingKey, resolveTemplate, buildStoryPlanSection, mergeStoryPlanIntoProgress, validateExpects, completeStep, resolveStepContext, failStep, claimStep, getWorkflowId } from "../dist/installer/step-ops.js";
+import { getRunEvents } from "../dist/installer/events.js";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -46,6 +47,98 @@ describe("parseOutputKeyValues", () => {
     const result = parseOutputKeyValues("STATUS:\nCHANGES: something");
     assert.equal(result.status, "");
     assert.equal(result.changes, "something");
+  });
+});
+
+describe("parseExpectedKeys", () => {
+  it("extracts BRANCH, REPO, ORIGINAL_BRANCH from setup step input template", () => {
+    const template = `Prepare the development environment.
+
+      TASK:
+      {{task}}
+
+      REPO: {{repo}}
+      BRANCH: {{branch}}
+
+      Reply with:
+      STATUS: done
+      BUILD_CMD: <build command>
+      TEST_CMD: <test command>
+      ORIGINAL_BRANCH: main region
+      BRANCH: <new branch>
+      REPO: /path/to/repo
+      CI_NOTES: <notes>
+      BASELINE: <baseline>`;
+    const keys = parseExpectedKeys(template);
+    assert.deepEqual(keys.sort(), ["baseline", "branch", "build_cmd", "ci_notes", "original_branch", "repo", "status", "test_cmd"].sort());
+  });
+
+  it("returns empty array when no 'Reply with:' section exists", () => {
+    const template = "Just a plain template with {{key}} and no Reply-with block.";
+    const keys = parseExpectedKeys(template);
+    assert.deepEqual(keys, []);
+  });
+
+  it("handles multi-line values after KEY: lines (does not capture them as keys)", () => {
+    const template = `Do the work.
+
+      Reply with:
+      STATUS: done
+      CHANGES: fixed bug
+        - item 1
+        - item 2
+      TESTS: all pass`;
+    const keys = parseExpectedKeys(template);
+    assert.deepEqual(keys.sort(), ["changes", "status", "tests"].sort());
+  });
+
+  it("stops at blank line after Reply-with block", () => {
+    const template = `Task here.
+
+      Reply with:
+      STATUS: done
+      BRANCH: my-branch
+
+      Instructions:
+      Some more text after the blank line.
+      MORE_KEYS: should not be captured`;
+    const keys = parseExpectedKeys(template);
+    assert.deepEqual(keys.sort(), ["branch", "status"].sort());
+  });
+
+  it("handles 'Reply with :' with extra spaces", () => {
+    const template = `Task.
+
+      Reply with :
+      STATUS: done
+      REPO: /x`;
+    const keys = parseExpectedKeys(template);
+    assert.ok(keys.includes("status"));
+    assert.ok(keys.includes("repo"));
+  });
+
+  it("handles 'Reply-with:' variant", () => {
+    const template = `Task.
+
+      Reply-with:
+      STATUS: done
+      BRANCH: x`;
+    const keys = parseExpectedKeys(template);
+    assert.ok(keys.includes("status"));
+    assert.ok(keys.includes("branch"));
+  });
+
+  it("returns empty array for empty input", () => {
+    assert.deepEqual(parseExpectedKeys(""), []);
+  });
+
+  it("returns empty array when Reply-with section has no keys", () => {
+    const template = `Task.
+
+      Reply with:
+      (explain what you did here)`;
+    const keys = parseExpectedKeys(template);
+    assert.deepEqual(keys, []);
   });
 });
 
@@ -1092,5 +1185,1054 @@ describe("completeStep retry response includes detail field", () => {
     assert.notEqual(result.status, "retrying", "success path should not retry");
     assert.notEqual(result.status, "failed", "success path should not fail");
     assert.equal(result.detail, undefined, "success path should not include detail field");
+  });
+});
+
+describe("findProducerForMissingKey", () => {
+  const _savedStateDir = process.env.TAMANDUA_STATE_DIR;
+  const _savedDbPath = process.env.TAMANDUA_DB_PATH;
+  let _testIsolationDir: string;
+
+  before(() => {
+    _testIsolationDir = fs.mkdtempSync(path.join(os.tmpdir(), "tamandua-find-producer-test-"));
+    process.env.TAMANDUA_STATE_DIR = _testIsolationDir;
+    process.env.TAMANDUA_DB_PATH = path.join(_testIsolationDir, "tamandua.db");
+  });
+
+  after(() => {
+    if (_savedStateDir === undefined) delete process.env.TAMANDUA_STATE_DIR;
+    else process.env.TAMANDUA_STATE_DIR = _savedStateDir;
+    if (_savedDbPath === undefined) delete process.env.TAMANDUA_DB_PATH;
+    else process.env.TAMANDUA_DB_PATH = _savedDbPath;
+    try { fs.rmSync(_testIsolationDir, { recursive: true, force: true }); } catch { /* best effort */ }
+  });
+
+  function ts(): string {
+    return new Date().toISOString();
+  }
+
+  function setupTemplate(keys: string[]): string {
+    const keyLines = keys.map((k) => `      ${k.toUpperCase()}: <value>`).join("\n");
+    return `Task description.\n\n      Reply with:\n${keyLines}`;
+  }
+
+  it("returns the most recent upstream DONE step whose input template declares the missing key", async () => {
+    const { getDb } = await import("../dist/db.js");
+    const db = getDb();
+    const runId = crypto.randomUUID();
+    const setupStepId = crypto.randomUUID();
+    const planStepId = crypto.randomUUID();
+    const now = ts();
+
+    const seededContext = JSON.stringify({ task: "implement feature", repo: "/tmp/repo", branch: "feature/x" });
+    db.prepare(
+      "INSERT INTO runs (id, run_number, workflow_id, task, status, context, tokens_spent, created_at, updated_at) VALUES (?, 1, 'test-wf', 'implement feature', 'running', ?, 0, ?, ?)"
+    ).run(runId, seededContext, now, now);
+
+    // Setup step (index 0) declares BRANCH and REPO in Reply-with
+    db.prepare(
+      "INSERT INTO steps (id, run_id, step_id, agent_id, step_index, input_template, expects, status, retry_count, max_retries, type, created_at, updated_at) VALUES (?, ?, 'setup', 'test-wf_setup', 0, ?, '', 'done', 1, 4, 'single', ?, ?)"
+    ).run(setupStepId, runId, setupTemplate(["STATUS", "BRANCH", "REPO", "ORIGINAL_BRANCH"]), now, now);
+
+    // Plan step (index 1) also declares BRANCH (but setup is more recent)
+    db.prepare(
+      "INSERT INTO steps (id, run_id, step_id, agent_id, step_index, input_template, expects, status, retry_count, max_retries, type, created_at, updated_at) VALUES (?, ?, 'plan', 'test-wf_planner', 1, ?, '', 'done', 0, 3, 'single', ?, ?)"
+    ).run(planStepId, runId, setupTemplate(["STATUS", "BRANCH"]), now, now);
+
+    // Looking for producer of 'branch' from the perspective of a step at index 2
+    const result = findProducerForMissingKey(runId, 2, "branch");
+
+    assert.ok(result !== null, "should find a producer for branch");
+    assert.equal(result!.stepId, planStepId, "should return the plan step (index 1), which is the most recent DONE upstream step declaring branch");
+    assert.equal(result!.stepIndex, 1);
+    assert.equal(result!.retryCount, 0);
+    assert.equal(result!.maxRetries, 3);
+  });
+
+  it("returns null when no upstream step declares the missing key", async () => {
+    const { getDb } = await import("../dist/db.js");
+    const db = getDb();
+    const runId = crypto.randomUUID();
+    const setupStepId = crypto.randomUUID();
+    const now = ts();
+
+    const seededContext = JSON.stringify({ task: "implement feature", repo: "/tmp/repo", branch: "feature/x" });
+    db.prepare(
+      "INSERT INTO runs (id, run_number, workflow_id, task, status, context, tokens_spent, created_at, updated_at) VALUES (?, 1, 'test-wf', 'implement feature', 'running', ?, 0, ?, ?)"
+    ).run(runId, seededContext, now, now);
+
+    // Setup step declares only BRANCH and REPO
+    db.prepare(
+      "INSERT INTO steps (id, run_id, step_id, agent_id, step_index, input_template, expects, status, retry_count, max_retries, type, created_at, updated_at) VALUES (?, ?, 'setup', 'test-wf_setup', 0, ?, '', 'done', 0, 4, 'single', ?, ?)"
+    ).run(setupStepId, runId, setupTemplate(["STATUS", "BRANCH", "REPO"]), now, now);
+
+    // none of the upstream steps declare 'nonexistent_key'
+    const result = findProducerForMissingKey(runId, 1, "nonexistent_key");
+    assert.equal(result, null, "should return null when no upstream step declares the key");
+  });
+
+  it("skips non-done upstream steps", async () => {
+    const { getDb } = await import("../dist/db.js");
+    const db = getDb();
+    const runId = crypto.randomUUID();
+    const runningStepId = crypto.randomUUID();
+    const doneStepId = crypto.randomUUID();
+    const now = ts();
+
+    const seededContext = JSON.stringify({ task: "implement feature", repo: "/tmp/repo", branch: "feature/x" });
+    db.prepare(
+      "INSERT INTO runs (id, run_number, workflow_id, task, status, context, tokens_spent, created_at, updated_at) VALUES (?, 1, 'test-wf', 'implement feature', 'running', ?, 0, ?, ?)"
+    ).run(runId, seededContext, now, now);
+
+    // A running step (index 0) that declares DEPLOY_TARGET — should be skipped
+    db.prepare(
+      "INSERT INTO steps (id, run_id, step_id, agent_id, step_index, input_template, expects, status, retry_count, max_retries, type, created_at, updated_at) VALUES (?, ?, 'deploy-check', 'test-wf_deployer', 0, ?, '', 'running', 0, 4, 'single', ?, ?)"
+    ).run(runningStepId, runId, setupTemplate(["STATUS", "DEPLOY_TARGET"]), now, now);
+
+    // A done step (index 1) that also declares DEPLOY_TARGET — should be found
+    db.prepare(
+      "INSERT INTO steps (id, run_id, step_id, agent_id, step_index, input_template, expects, status, retry_count, max_retries, type, created_at, updated_at) VALUES (?, ?, 'setup', 'test-wf_setup', 1, ?, '', 'done', 0, 4, 'single', ?, ?)"
+    ).run(doneStepId, runId, setupTemplate(["STATUS", "DEPLOY_TARGET"]), now, now);
+
+    const result = findProducerForMissingKey(runId, 2, "deploy_target");
+    assert.ok(result !== null, "should skip the running step and find the done step");
+    assert.equal(result!.stepId, doneStepId, "should return the done step, not the running one");
+    assert.equal(result!.stepIndex, 1);
+  });
+
+  it("returns the step with correct retry counts", async () => {
+    const { getDb } = await import("../dist/db.js");
+    const db = getDb();
+    const runId = crypto.randomUUID();
+    const stepId = crypto.randomUUID();
+    const now = ts();
+
+    const seededContext = JSON.stringify({ task: "implement feature", repo: "/tmp/repo" });
+    db.prepare(
+      "INSERT INTO runs (id, run_number, workflow_id, task, status, context, tokens_spent, created_at, updated_at) VALUES (?, 1, 'test-wf', 'implement feature', 'running', ?, 0, ?, ?)"
+    ).run(runId, seededContext, now, now);
+
+    // Setup step at retry_count=2, max_retries=4
+    db.prepare(
+      "INSERT INTO steps (id, run_id, step_id, agent_id, step_index, input_template, expects, status, retry_count, max_retries, type, created_at, updated_at) VALUES (?, ?, 'setup', 'test-wf_setup', 0, ?, '', 'done', 2, 4, 'single', ?, ?)"
+    ).run(stepId, runId, setupTemplate(["STATUS", "BRANCH"]), now, now);
+
+    const result = findProducerForMissingKey(runId, 1, "branch");
+    assert.ok(result !== null);
+    assert.equal(result!.retryCount, 2, "retryCount should be 2");
+    assert.equal(result!.maxRetries, 4, "maxRetries should be 4");
+  });
+
+  it("returns null when there are no upstream steps at all", async () => {
+    const { getDb } = await import("../dist/db.js");
+    const db = getDb();
+    const runId = crypto.randomUUID();
+    const now = ts();
+
+    const seededContext = JSON.stringify({ task: "implement feature", repo: "/tmp/repo", branch: "feature/x" });
+    db.prepare(
+      "INSERT INTO runs (id, run_number, workflow_id, task, status, context, tokens_spent, created_at, updated_at) VALUES (?, 1, 'test-wf', 'implement feature', 'running', ?, 0, ?, ?)"
+    ).run(runId, seededContext, now, now);
+
+    // No steps inserted — there are no upstream steps at all
+    const result = findProducerForMissingKey(runId, 0, "branch");
+    assert.equal(result, null, "should return null when no upstream steps exist");
+  });
+
+  it("returns null when upstream done steps exist but none declare the key", async () => {
+    const { getDb } = await import("../dist/db.js");
+    const db = getDb();
+    const runId = crypto.randomUUID();
+    const setupStepId = crypto.randomUUID();
+    const planStepId = crypto.randomUUID();
+    const now = ts();
+
+    const seededContext = JSON.stringify({ task: "implement feature", repo: "/tmp/repo" });
+    db.prepare(
+      "INSERT INTO runs (id, run_number, workflow_id, task, status, context, tokens_spent, created_at, updated_at) VALUES (?, 1, 'test-wf', 'implement feature', 'running', ?, 0, ?, ?)"
+    ).run(runId, seededContext, now, now);
+
+    // Setup declares only STATUS and REPO
+    db.prepare(
+      "INSERT INTO steps (id, run_id, step_id, agent_id, step_index, input_template, expects, status, retry_count, max_retries, type, created_at, updated_at) VALUES (?, ?, 'setup', 'test-wf_setup', 0, ?, '', 'done', 0, 4, 'single', ?, ?)"
+    ).run(setupStepId, runId, setupTemplate(["STATUS", "REPO"]), now, now);
+
+    // Plan declares only STATUS and CHANGES
+    db.prepare(
+      "INSERT INTO steps (id, run_id, step_id, agent_id, step_index, input_template, expects, status, retry_count, max_retries, type, created_at, updated_at) VALUES (?, ?, 'plan', 'test-wf_planner', 1, ?, '', 'done', 0, 4, 'single', ?, ?)"
+    ).run(planStepId, runId, setupTemplate(["STATUS", "CHANGES"]), now, now);
+
+    // No one declares 'branch'
+    const result = findProducerForMissingKey(runId, 2, "branch");
+    assert.equal(result, null, "should return null when upstream done steps exist but none declare the key");
+  });
+
+  it("is case-insensitive for the missing key lookup", async () => {
+    const { getDb } = await import("../dist/db.js");
+    const db = getDb();
+    const runId = crypto.randomUUID();
+    const stepId = crypto.randomUUID();
+    const now = ts();
+
+    const seededContext = JSON.stringify({ task: "implement feature", repo: "/tmp/repo" });
+    db.prepare(
+      "INSERT INTO runs (id, run_number, workflow_id, task, status, context, tokens_spent, created_at, updated_at) VALUES (?, 1, 'test-wf', 'implement feature', 'running', ?, 0, ?, ?)"
+    ).run(runId, seededContext, now, now);
+
+    // Setup declares ORIGINAL_BRANCH (which parseExpectedKeys lowercases to 'original_branch')
+    db.prepare(
+      "INSERT INTO steps (id, run_id, step_id, agent_id, step_index, input_template, expects, status, retry_count, max_retries, type, created_at, updated_at) VALUES (?, ?, 'setup', 'test-wf_setup', 0, ?, '', 'done', 0, 4, 'single', ?, ?)"
+    ).run(stepId, runId, setupTemplate(["STATUS", "ORIGINAL_BRANCH"]), now, now);
+
+    // Look up with uppercase — should still match (lowercased comparison)
+    const result = findProducerForMissingKey(runId, 1, "ORIGINAL_BRANCH");
+    assert.ok(result !== null, "should find producer even when search key is uppercase");
+    assert.equal(result!.stepId, stepId);
+  });
+
+  it("returns the most recent upstream DONE step when multiple upstream steps declare the same key", async () => {
+    const { getDb } = await import("../dist/db.js");
+    const db = getDb();
+    const runId = crypto.randomUUID();
+    const step0Id = crypto.randomUUID();
+    const step1Id = crypto.randomUUID();
+    const now = ts();
+
+    const seededContext = JSON.stringify({ task: "implement feature", repo: "/tmp/repo", branch: "feature/x" });
+    db.prepare(
+      "INSERT INTO runs (id, run_number, workflow_id, task, status, context, tokens_spent, created_at, updated_at) VALUES (?, 1, 'test-wf', 'implement feature', 'running', ?, 0, ?, ?)"
+    ).run(runId, seededContext, now, now);
+
+    // Step at index 0 declares BRANCH
+    db.prepare(
+      "INSERT INTO steps (id, run_id, step_id, agent_id, step_index, input_template, expects, status, retry_count, max_retries, type, created_at, updated_at) VALUES (?, ?, 'setup', 'test-wf_setup', 0, ?, '', 'done', 0, 4, 'single', ?, ?)"
+    ).run(step0Id, runId, setupTemplate(["STATUS", "BRANCH", "REPO"]), now, now);
+
+    // Step at index 1 also declares BRANCH (and is more recent)
+    db.prepare(
+      "INSERT INTO steps (id, run_id, step_id, agent_id, step_index, input_template, expects, status, retry_count, max_retries, type, created_at, updated_at) VALUES (?, ?, 'scan', 'test-wf_scanner', 1, ?, '', 'done', 1, 4, 'single', ?, ?)"
+    ).run(step1Id, runId, setupTemplate(["STATUS", "BRANCH", "FINDINGS"]), now, now);
+
+    // Looking from step at index 2 — should return the most recent (index 1)
+    const result = findProducerForMissingKey(runId, 2, "branch");
+    assert.ok(result !== null);
+    assert.equal(result!.stepId, step1Id, "should return the step at index 1 (most recent)");
+    assert.equal(result!.stepIndex, 1);
+    assert.equal(result!.retryCount, 1);
+  });
+});
+
+describe("claimStep missing-template-key blocking (US-003)", () => {
+  const _savedStateDir = process.env.TAMANDUA_STATE_DIR;
+  const _savedDbPath = process.env.TAMANDUA_DB_PATH;
+  let _testIsolationDir: string;
+
+  before(() => {
+    _testIsolationDir = fs.mkdtempSync(path.join(os.tmpdir(), "tamandua-missingkey-block-test-"));
+    process.env.TAMANDUA_STATE_DIR = _testIsolationDir;
+    process.env.TAMANDUA_DB_PATH = path.join(_testIsolationDir, "tamandua.db");
+  });
+
+  after(() => {
+    if (_savedStateDir === undefined) delete process.env.TAMANDUA_STATE_DIR;
+    else process.env.TAMANDUA_STATE_DIR = _savedStateDir;
+    if (_savedDbPath === undefined) delete process.env.TAMANDUA_DB_PATH;
+    else process.env.TAMANDUA_DB_PATH = _savedDbPath;
+    try { fs.rmSync(_testIsolationDir, { recursive: true, force: true }); } catch { /* best effort */ }
+  });
+
+  function ts(): string {
+    return new Date().toISOString();
+  }
+
+  function replyTemplate(keys: string[]): string {
+    const keyLines = keys.map((k) => `      ${k.toUpperCase()}: <value>`).join("\n");
+    return `Task description.\n\n      Reply with:\n${keyLines}`;
+  }
+
+  it("claimStep returns { found: false } when missing keys are detected — producer re-pend path", async () => {
+    const { getDb } = await import("../dist/db.js");
+    const db = getDb();
+    const runId = crypto.randomUUID();
+    const producerStepId = crypto.randomUUID();
+    const consumerStepId = crypto.randomUUID();
+    const now = ts();
+
+    // NOTE: repo is in seeded context but branch is NOT — so {{branch}} will be missing
+    const seededContext = JSON.stringify({ task: "implement feature", repo: "/tmp/repo" });
+    db.prepare(
+      "INSERT INTO runs (id, run_number, workflow_id, task, status, context, tokens_spent, created_at, updated_at) VALUES (?, 1, 'test-wf', 'implement feature', 'running', ?, 0, ?, ?)"
+    ).run(runId, seededContext, now, now);
+
+    // Producer (index 0): a DONE step whose Reply-with declares BRANCH and REPO
+    db.prepare(
+      "INSERT INTO steps (id, run_id, step_id, agent_id, step_index, input_template, expects, status, output, retry_count, max_retries, type, created_at, updated_at) VALUES (?, ?, 'setup', 'test-wf_setup', 0, ?, '', 'done', 'STATUS: done\nREPO: /tmp/repo\nBRANCH: feature/x', 0, 4, 'single', ?, ?)"
+    ).run(producerStepId, runId, replyTemplate(["STATUS", "BRANCH", "REPO", "ORIGINAL_BRANCH"]), now, now);
+
+    // Consumer (index 1): a PENDING step that needs {{branch}} and {{repo}}
+    // The consumer needs {{branch}} but the producer's output only has REPO and BRANCH...
+    // Actually, the producer's output IS "BRANCH: feature/x" which resolveStepContext will parse.
+    // BUT the test needs to simulate that the producer's output is MISSING the key.
+    // So producer output should NOT contain BRANCH: so {{branch}} is missing in context.
+    db.prepare(
+      "UPDATE steps SET output = ? WHERE id = ?"
+    ).run("STATUS: done\nREPO: /tmp/repo", producerStepId);
+
+    db.prepare(
+      "INSERT INTO steps (id, run_id, step_id, agent_id, step_index, input_template, expects, status, retry_count, max_retries, type, created_at, updated_at) VALUES (?, ?, 'fix', 'test-wf_fixer', 1, 'Fix {{task}} on branch {{branch}} in repo {{repo}}\nRETRY FEEDBACK: {{retry_feedback}}', '', 'pending', 0, 4, 'single', ?, ?)"
+    ).run(consumerStepId, runId, now, now);
+
+    // Claim the consumer step — should block because {{branch}} is missing
+    const result = claimStep("test-wf_fixer", runId);
+
+    assert.equal(result.found, false, "claimStep should return found: false when missing keys block dispatch");
+
+    // Producer should be re-pended (status = 'pending')
+    const producer = db.prepare("SELECT status, retry_count, output FROM steps WHERE id = ?").get(producerStepId) as { status: string; retry_count: number; output: string | null };
+    assert.equal(producer.status, "pending", "producer step should be re-pended");
+    assert.equal(producer.retry_count, 1, "producer retry_count should be incremented");
+    assert.ok(producer.output?.includes("Missing key"), `producer output should contain retry_feedback about missing keys, got: ${producer.output}`);
+    assert.ok(producer.output?.includes("branch"), `producer output should name the missing key "branch", got: ${producer.output}`);
+
+    // Consumer should be returned to pending (unclaimed)
+    const consumer = db.prepare("SELECT status FROM steps WHERE id = ?").get(consumerStepId) as { status: string };
+    assert.equal(consumer.status, "pending", "consumer step should be reset to pending");
+
+    // Run should still be running
+    const run = db.prepare("SELECT status FROM runs WHERE id = ?").get(runId) as { status: string };
+    assert.equal(run.status, "running", "run should still be running after producer re-pend");
+  });
+
+  it("claimStep fails run when no producer can be identified for a missing key", async () => {
+    const { getDb } = await import("../dist/db.js");
+    const db = getDb();
+    const runId = crypto.randomUUID();
+    const stepId = crypto.randomUUID();
+    const now = ts();
+
+    const seededContext = JSON.stringify({ task: "implement feature", repo: "/tmp/repo" });
+    db.prepare(
+      "INSERT INTO runs (id, run_number, workflow_id, task, status, context, tokens_spent, created_at, updated_at) VALUES (?, 1, 'test-wf', 'implement feature', 'running', ?, 0, ?, ?)"
+    ).run(runId, seededContext, now, now);
+
+    // Single step (index 0) with a template referencing {{nonexistent_key}}
+    // No upstream DONE steps exist, so no producer can be found
+    db.prepare(
+      "INSERT INTO steps (id, run_id, step_id, agent_id, step_index, input_template, expects, status, retry_count, max_retries, type, created_at, updated_at) VALUES (?, ?, 'scan', 'test-wf_scanner', 0, 'Scan with key {{nonexistent_key}}\
+RETRY FEEDBACK: {{retry_feedback}}', '', 'pending', 0, 4, 'single', ?, ?)"
+    ).run(stepId, runId, now, now);
+
+    const result = claimStep("test-wf_scanner", runId);
+
+    assert.equal(result.found, false, "claimStep should return found: false when no producer and missing keys");
+
+    // Step should be failed
+    const step = db.prepare("SELECT status, output FROM steps WHERE id = ?").get(stepId) as { status: string; output: string | null };
+    assert.equal(step.status, "failed", "step should be marked failed");
+    assert.ok(step.output?.includes("nonexistent_key"), `step output should name the missing key, got: ${step.output}`);
+    assert.ok(step.output?.includes("no upstream DONE step"), `step output should explain no upstream DONE step, got: ${step.output}`);
+
+    // Run should be failed
+    const run = db.prepare("SELECT status FROM runs WHERE id = ?").get(runId) as { status: string };
+    assert.equal(run.status, "failed", "run should be failed when no producer found");
+  });
+
+  it("claimStep fails run when producer has exhausted retries", async () => {
+    const { getDb } = await import("../dist/db.js");
+    const db = getDb();
+    const runId = crypto.randomUUID();
+    const producerStepId = crypto.randomUUID();
+    const consumerStepId = crypto.randomUUID();
+    const now = ts();
+
+    // NOTE: branch is NOT in seeded context — so {{branch}} will be missing
+    const seededContext = JSON.stringify({ task: "implement feature", repo: "/tmp/repo" });
+    db.prepare(
+      "INSERT INTO runs (id, run_number, workflow_id, task, status, context, tokens_spent, created_at, updated_at) VALUES (?, 1, 'test-wf', 'implement feature', 'running', ?, 0, ?, ?)"
+    ).run(runId, seededContext, now, now);
+
+    // Producer (index 0): DONE, but already at retry_count = max_retries (exhausted)
+    // Its output is missing BRANCH so {{branch}} won't resolve
+    db.prepare(
+      "INSERT INTO steps (id, run_id, step_id, agent_id, step_index, input_template, expects, status, output, retry_count, max_retries, type, created_at, updated_at) VALUES (?, ?, 'setup', 'test-wf_setup', 0, ?, '', 'done', 'STATUS: done\nREPO: /tmp/repo', 4, 4, 'single', ?, ?)"
+    ).run(producerStepId, runId, replyTemplate(["STATUS", "BRANCH", "REPO"]), now, now);
+
+    // Consumer (index 1): needs {{branch}}
+    db.prepare(
+      "INSERT INTO steps (id, run_id, step_id, agent_id, step_index, input_template, expects, status, retry_count, max_retries, type, created_at, updated_at) VALUES (?, ?, 'fix', 'test-wf_fixer', 1, 'Fix {{task}} on {{branch}}\
+RETRY FEEDBACK: {{retry_feedback}}', '', 'pending', 0, 4, 'single', ?, ?)"
+    ).run(consumerStepId, runId, now, now);
+
+    const result = claimStep("test-wf_fixer", runId);
+
+    assert.equal(result.found, false, "claimStep should return found: false when producer retries exhausted");
+
+    // Consumer should be failed
+    const consumer = db.prepare("SELECT status, output FROM steps WHERE id = ?").get(consumerStepId) as { status: string; output: string | null };
+    assert.equal(consumer.status, "failed", "consumer step should be marked failed");
+    assert.ok(consumer.output?.includes("producer retries are exhausted"), `consumer output should mention exhausted retries, got: ${consumer.output}`);
+    assert.ok(consumer.output?.includes("branch"), `consumer output should name the missing key, got: ${consumer.output}`);
+
+    // Run should be failed
+    const run = db.prepare("SELECT status FROM runs WHERE id = ?").get(runId) as { status: string };
+    assert.equal(run.status, "failed", "run should be failed when producer retries exhausted");
+  });
+
+  it("claimStep works normally when no template keys are missing", async () => {
+    const { getDb } = await import("../dist/db.js");
+    const db = getDb();
+    const runId = crypto.randomUUID();
+    const stepId = crypto.randomUUID();
+    const now = ts();
+
+    const seededContext = JSON.stringify({ task: "fix bug", repo: "/tmp/repo", branch: "bugfix/x" });
+    db.prepare(
+      "INSERT INTO runs (id, run_number, workflow_id, task, status, context, tokens_spent, created_at, updated_at) VALUES (?, 1, 'test-wf', 'fix bug', 'running', ?, 0, ?, ?)"
+    ).run(runId, seededContext, now, now);
+
+    // Step with template that fully resolves from seeded context
+    db.prepare(
+      "INSERT INTO steps (id, run_id, step_id, agent_id, step_index, input_template, expects, status, retry_count, max_retries, type, created_at, updated_at) VALUES (?, ?, 'fix', 'test-wf_fixer', 0, 'Fix {{task}} in {{repo}} on branch {{branch}}\
+RETRY FEEDBACK: {{retry_feedback}}', '', 'pending', 0, 4, 'single', ?, ?)"
+    ).run(stepId, runId, now, now);
+
+    const result = claimStep("test-wf_fixer", runId);
+
+    assert.equal(result.found, true, "claimStep should find step when no keys are missing");
+    assert.ok(result.resolvedInput, "resolvedInput should be present");
+    assert.ok(result.resolvedInput!.includes("fix bug"), `resolvedInput should include task, got: ${result.resolvedInput}`);
+    assert.ok(result.resolvedInput!.includes("/tmp/repo"), `resolvedInput should include repo, got: ${result.resolvedInput}`);
+    assert.ok(result.resolvedInput!.includes("bugfix/x"), `resolvedInput should include branch, got: ${result.resolvedInput}`);
+    assert.ok(!result.resolvedInput!.includes("[missing:"), `resolvedInput should NOT contain [missing: key], got: ${result.resolvedInput}`);
+  });
+
+  it("special keys (retry_feedback, verify_feedback, timeout_retry) are never treated as missing", async () => {
+    const { getDb } = await import("../dist/db.js");
+    const db = getDb();
+    const runId = crypto.randomUUID();
+    const stepId = crypto.randomUUID();
+    const now = ts();
+
+    // Seeded context has NO retry_feedback, verify_feedback, timeout_retry
+    // They should not be flagged as missing because claimStep populates them as ""
+    const seededContext = JSON.stringify({ task: "fix bug", repo: "/tmp/repo", branch: "bugfix/x" });
+    db.prepare(
+      "INSERT INTO runs (id, run_number, workflow_id, task, status, context, tokens_spent, created_at, updated_at) VALUES (?, 1, 'test-wf', 'fix bug', 'running', ?, 0, ?, ?)"
+    ).run(runId, seededContext, now, now);
+
+    // Step template references all three special keys
+    db.prepare(
+      "INSERT INTO steps (id, run_id, step_id, agent_id, step_index, input_template, expects, status, retry_count, max_retries, type, created_at, updated_at) VALUES (?, ?, 'fix', 'test-wf_fixer', 0, 'Fix {{task}}\
+RETRY FEEDBACK: {{retry_feedback}}\
+VERIFY FEEDBACK: {{verify_feedback}}\
+TIMEOUT RETRY: {{timeout_retry}}', '', 'pending', 0, 4, 'single', ?, ?)"
+    ).run(stepId, runId, now, now);
+
+    const result = claimStep("test-wf_fixer", runId);
+
+    assert.equal(result.found, true, "claimStep should succeed — special keys are not treated as missing");
+    assert.ok(result.resolvedInput!.includes("RETRY FEEDBACK:"), `resolvedInput should include retry_feedback section, got: ${result.resolvedInput}`);
+    assert.ok(result.resolvedInput!.includes("VERIFY FEEDBACK:"), `resolvedInput should include verify_feedback section, got: ${result.resolvedInput}`);
+    assert.ok(result.resolvedInput!.includes("TIMEOUT RETRY:"), `resolvedInput should include timeout_retry section, got: ${result.resolvedInput}`);
+    assert.ok(!result.resolvedInput!.includes("[missing: retry_feedback]"), "retry_feedback should NOT appear as [missing:]");
+    assert.ok(!result.resolvedInput!.includes("[missing: verify_feedback]"), "verify_feedback should NOT appear as [missing:]");
+    assert.ok(!result.resolvedInput!.includes("[missing: timeout_retry]"), "timeout_retry should NOT appear as [missing:]");
+  });
+
+  it("re-pend path emits step.repended event", async () => {
+    const { getDb } = await import("../dist/db.js");
+    const db = getDb();
+    const runId = crypto.randomUUID();
+    const producerStepId = crypto.randomUUID();
+    const consumerStepId = crypto.randomUUID();
+    const now = ts();
+
+    // NOTE: branch is NOT in seeded context — so {{branch}} will be missing
+    const seededContext = JSON.stringify({ task: "implement feature", repo: "/tmp/repo" });
+    db.prepare(
+      "INSERT INTO runs (id, run_number, workflow_id, task, status, context, tokens_spent, created_at, updated_at) VALUES (?, 1, 'test-wf', 'implement feature', 'running', ?, 0, ?, ?)"
+    ).run(runId, seededContext, now, now);
+
+    // Producer (index 0): DONE, Reply-with declares BRANCH, but output is missing BRANCH
+    db.prepare(
+      "INSERT INTO steps (id, run_id, step_id, agent_id, step_index, input_template, expects, status, output, retry_count, max_retries, type, created_at, updated_at) VALUES (?, ?, 'setup', 'test-wf_setup', 0, ?, '', 'done', 'STATUS: done\nREPO: /tmp/repo', 0, 4, 'single', ?, ?)"
+    ).run(producerStepId, runId, replyTemplate(["STATUS", "BRANCH", "REPO"]), now, now);
+
+    // Consumer (index 1): needs {{branch}}
+    db.prepare(
+      "INSERT INTO steps (id, run_id, step_id, agent_id, step_index, input_template, expects, status, retry_count, max_retries, type, created_at, updated_at) VALUES (?, ?, 'fix', 'test-wf_fixer', 1, 'Fix {{task}} on {{branch}}\
+RETRY FEEDBACK: {{retry_feedback}}', '', 'pending', 0, 4, 'single', ?, ?)"
+    ).run(consumerStepId, runId, now, now);
+
+    claimStep("test-wf_fixer", runId);
+
+    // Verify a step.repended event was emitted
+    const events = getRunEvents(runId);
+    const rependEvent = events.find((e: any) => e.event === "step.repended");
+    assert.ok(rependEvent, "step.repended event should be emitted for producer re-pend");
+    assert.ok(rependEvent.detail?.includes("branch"), `repend event should mention the missing key, got: ${rependEvent?.detail}`);
+  });
+
+  it("fail-fast path emits step.failed and run.failed events", async () => {
+    const { getDb } = await import("../dist/db.js");
+    const db = getDb();
+    const runId = crypto.randomUUID();
+    const stepId = crypto.randomUUID();
+    const now = ts();
+
+    const seededContext = JSON.stringify({ task: "implement feature", repo: "/tmp/repo" });
+    db.prepare(
+      "INSERT INTO runs (id, run_number, workflow_id, task, status, context, tokens_spent, created_at, updated_at) VALUES (?, 1, 'test-wf', 'implement feature', 'running', ?, 0, ?, ?)"
+    ).run(runId, seededContext, now, now);
+
+    // Step with unresolvable key, no upstream producer
+    db.prepare(
+      "INSERT INTO steps (id, run_id, step_id, agent_id, step_index, input_template, expects, status, retry_count, max_retries, type, created_at, updated_at) VALUES (?, ?, 'scan', 'test-wf_scanner', 0, 'Scan with key {{unresolvable}}\
+RETRY FEEDBACK: {{retry_feedback}}', '', 'pending', 0, 4, 'single', ?, ?)"
+    ).run(stepId, runId, now, now);
+
+    claimStep("test-wf_scanner", runId);
+
+    // Verify step.failed and run.failed events were emitted
+    const events = getRunEvents(runId);
+    const stepFailedEvent = events.find((e: any) => e.event === "step.failed");
+    const runFailedEvent = events.find((e: any) => e.event === "run.failed");
+    assert.ok(stepFailedEvent, "step.failed event should be emitted on fail-fast");
+    assert.ok(runFailedEvent, "run.failed event should be emitted on fail-fast");
+    assert.ok(stepFailedEvent.detail?.includes("unresolvable"), `step.failed event should name the missing key, got: ${stepFailedEvent?.detail}`);
+    assert.ok(stepFailedEvent.detail?.includes("no upstream DONE step"), `step.failed event should explain cause, got: ${stepFailedEvent?.detail}`);
+  });
+
+  it("boundedness: producer re-pend that itself has missing keys does not create infinite loop", async () => {
+    // Simulate: setup -> fix chain where fix needs {{branch}} from setup.
+    // Setup's output is missing BRANCH, so fix triggers re-pend of setup.
+    // When setup is re-pended with retry_count=1, the next claim attempt for
+    // fix should find setup was re-pended (retries incremented), and if fix
+    // is claimed again without setup having produced the key, eventually
+    // setup exhausts retries and the run fails — no infinite ping-pong.
+    const { getDb } = await import("../dist/db.js");
+    const db = getDb();
+    const runId = crypto.randomUUID();
+    const setupStepId = crypto.randomUUID();
+    const fixStepId = crypto.randomUUID();
+    const now = ts();
+
+    const seededContext = JSON.stringify({ task: "implement feature", repo: "/tmp/repo" });
+    db.prepare(
+      "INSERT INTO runs (id, run_number, workflow_id, task, status, context, tokens_spent, created_at, updated_at) VALUES (?, 1, 'test-wf', 'implement feature', 'running', ?, 0, ?, ?)"
+    ).run(runId, seededContext, now, now);
+
+    // Setup (index 0): DONE but retry_count already at 3 (max_retries=4)
+    db.prepare(
+      "INSERT INTO steps (id, run_id, step_id, agent_id, step_index, input_template, expects, status, output, retry_count, max_retries, type, created_at, updated_at) VALUES (?, ?, 'setup', 'test-wf_setup', 0, ?, '', 'done', 'STATUS: done\nREPO: /tmp/repo', 3, 4, 'single', ?, ?)"
+    ).run(setupStepId, runId, replyTemplate(["STATUS", "BRANCH", "REPO"]), now, now);
+
+    // Fix (index 1): pending, needs {{branch}}
+    db.prepare(
+      "INSERT INTO steps (id, run_id, step_id, agent_id, step_index, input_template, expects, status, retry_count, max_retries, type, created_at, updated_at) VALUES (?, ?, 'fix', 'test-wf_fixer', 1, 'Fix {{task}} on {{branch}}\
+RETRY FEEDBACK: {{retry_feedback}}', '', 'pending', 0, 4, 'single', ?, ?)"
+    ).run(fixStepId, runId, now, now);
+
+    // First claim attempt — setup has retry_count=3 < max_retries=4, so it can be re-pended
+    const result1 = claimStep("test-wf_fixer", runId);
+    assert.equal(result1.found, false, "first claim should block");
+
+    // Setup should now be re-pended with retry_count=4
+    const setupAfter = db.prepare("SELECT status, retry_count FROM steps WHERE id = ?").get(setupStepId) as { status: string; retry_count: number };
+    assert.equal(setupAfter.status, "pending", "setup should be re-pended on first block");
+    assert.equal(setupAfter.retry_count, 4, "setup retry_count should be 4 after re-pend");
+
+    // Simulate setup completing again (but still without BRANCH output)
+    // Mark setup as DONE again, retry_count stays at 4
+    db.prepare(
+      "UPDATE steps SET status = 'done', output = 'STATUS: done\nREPO: /tmp/repo', updated_at = datetime('now') WHERE id = ?"
+    ).run(setupStepId);
+
+    // Second claim attempt for fix — setup retry_count=4 >= max_retries=4, should fail-fast
+    const result2 = claimStep("test-wf_fixer", runId);
+    assert.equal(result2.found, false, "second claim should also block (exhausted)");
+
+    // Run should be failed now (producer exhausted)
+    const run = db.prepare("SELECT status FROM runs WHERE id = ?").get(runId) as { status: string };
+    assert.equal(run.status, "failed", "run should fail when producer retries exhausted — no infinite ping-pong");
+
+    // Consumer should be failed
+    const consumer = db.prepare("SELECT status, output FROM steps WHERE id = ?").get(fixStepId) as { status: string; output: string | null };
+    assert.equal(consumer.status, "failed", "consumer should be failed when producer exhausted");
+    assert.ok(consumer.output?.includes("producer retries are exhausted"), `consumer output should mention exhausted, got: ${consumer.output}`);
+  });
+
+  it("multiple missing keys from a single producer re-pend the producer once", async () => {
+    const { getDb } = await import("../dist/db.js");
+    const db = getDb();
+    const runId = crypto.randomUUID();
+    const producerStepId = crypto.randomUUID();
+    const consumerStepId = crypto.randomUUID();
+    const now = ts();
+
+    // NOTE: neither branch nor repo in seeded context — both will be missing from producer output
+    const seededContext = JSON.stringify({ task: "implement feature" });
+    db.prepare(
+      "INSERT INTO runs (id, run_number, workflow_id, task, status, context, tokens_spent, created_at, updated_at) VALUES (?, 1, 'test-wf', 'implement feature', 'running', ?, 0, ?, ?)"
+    ).run(runId, seededContext, now, now);
+
+    // Producer (index 0): DONE, Reply-with declares STATUS, BRANCH, REPO
+    // Output is missing BRANCH and REPO — so both {{branch}} and {{repo}} will be missing
+    db.prepare(
+      "INSERT INTO steps (id, run_id, step_id, agent_id, step_index, input_template, expects, status, output, retry_count, max_retries, type, created_at, updated_at) VALUES (?, ?, 'setup', 'test-wf_setup', 0, ?, '', 'done', 'STATUS: done', 0, 4, 'single', ?, ?)"
+    ).run(producerStepId, runId, replyTemplate(["STATUS", "BRANCH", "REPO"]), now, now);
+
+    // Consumer (index 1): needs both {{branch}} and {{repo}}
+    db.prepare(
+      "INSERT INTO steps (id, run_id, step_id, agent_id, step_index, input_template, expects, status, retry_count, max_retries, type, created_at, updated_at) VALUES (?, ?, 'fix', 'test-wf_fixer', 1, 'Fix {{task}} in {{repo}} on {{branch}}\
+RETRY FEEDBACK: {{retry_feedback}}', '', 'pending', 0, 4, 'single', ?, ?)"
+    ).run(consumerStepId, runId, now, now);
+
+    const result = claimStep("test-wf_fixer", runId);
+
+    assert.equal(result.found, false, "claimStep should block");
+
+    // Producer should be re-pended exactly once (retry_count incremented by 1)
+    const producer = db.prepare("SELECT status, retry_count, output FROM steps WHERE id = ?").get(producerStepId) as { status: string; retry_count: number; output: string | null };
+    assert.equal(producer.status, "pending", "producer should be re-pended once");
+    assert.equal(producer.retry_count, 1, "producer retry_count should be 1 (only incremented once)");
+    assert.ok(producer.output?.includes("branch"), `retry_feedback should name branch, got: ${producer.output}`);
+    assert.ok(producer.output?.includes("repo"), `retry_feedback should name repo, got: ${producer.output}`);
+  });
+
+  it("mixed resolvable and unresolvable keys: unresolvable key fails the run", async () => {
+    // If some missing keys have producers and others don't, the unresolvable
+    // keys should take precedence and fail the run immediately.
+    const { getDb } = await import("../dist/db.js");
+    const db = getDb();
+    const runId = crypto.randomUUID();
+    const producerStepId = crypto.randomUUID();
+    const consumerStepId = crypto.randomUUID();
+    const now = ts();
+
+    const seededContext = JSON.stringify({ task: "implement feature", repo: "/tmp/repo" });
+    db.prepare(
+      "INSERT INTO runs (id, run_number, workflow_id, task, status, context, tokens_spent, created_at, updated_at) VALUES (?, 1, 'test-wf', 'implement feature', 'running', ?, 0, ?, ?)"
+    ).run(runId, seededContext, now, now);
+
+    // Producer (index 0): DONE, declares BRANCH (so branch has a producer)
+    db.prepare(
+      "INSERT INTO steps (id, run_id, step_id, agent_id, step_index, input_template, expects, status, output, retry_count, max_retries, type, created_at, updated_at) VALUES (?, ?, 'setup', 'test-wf_setup', 0, ?, '', 'done', 'STATUS: done\nREPO: /tmp/repo', 0, 4, 'single', ?, ?)"
+    ).run(producerStepId, runId, replyTemplate(["STATUS", "BRANCH"]), now, now);
+
+    // Consumer (index 1): needs {{branch}} (has producer) and {{unresolvable}} (no producer)
+    db.prepare(
+      "INSERT INTO steps (id, run_id, step_id, agent_id, step_index, input_template, expects, status, retry_count, max_retries, type, created_at, updated_at) VALUES (?, ?, 'fix', 'test-wf_fixer', 1, 'Fix {{task}} on {{branch}} with {{unresolvable}}\
+RETRY FEEDBACK: {{retry_feedback}}', '', 'pending', 0, 4, 'single', ?, ?)"
+    ).run(consumerStepId, runId, now, now);
+
+    const result = claimStep("test-wf_fixer", runId);
+
+    assert.equal(result.found, false, "claimStep should block");
+
+    // Unresolvable key should cause fail-fast — not re-pend
+    const run = db.prepare("SELECT status FROM runs WHERE id = ?").get(runId) as { status: string };
+    assert.equal(run.status, "failed", "run should fail when any key is unresolvable");
+
+    // Consumer should be failed with message mentioning unresolvable
+    const consumer = db.prepare("SELECT status, output FROM steps WHERE id = ?").get(consumerStepId) as { status: string; output: string | null };
+    assert.equal(consumer.status, "failed", "consumer should be failed");
+    assert.ok(consumer.output?.includes("unresolvable"), `should mention unresolvable key, got: ${consumer.output}`);
+    assert.ok(consumer.output?.includes("no upstream DONE step"), `should mention no upstream step, got: ${consumer.output}`);
+
+    // Producer should NOT be re-pended (fail-fast takes priority)
+    const producer = db.prepare("SELECT status, retry_count FROM steps WHERE id = ?").get(producerStepId) as { status: string; retry_count: number };
+    assert.equal(producer.status, "done", "producer should stay done — fail-fast prevents re-pend");
+    assert.equal(producer.retry_count, 0, "producer retry_count should not change");
+  });
+});
+
+describe("claimStep missing-template-key blocking — loop claim path (US-004)", () => {
+  const _savedStateDir = process.env.TAMANDUA_STATE_DIR;
+  const _savedDbPath = process.env.TAMANDUA_DB_PATH;
+  let _testIsolationDir: string;
+
+  before(() => {
+    _testIsolationDir = fs.mkdtempSync(path.join(os.tmpdir(), "tamandua-missingkey-loop-test-"));
+    process.env.TAMANDUA_STATE_DIR = _testIsolationDir;
+    process.env.TAMANDUA_DB_PATH = path.join(_testIsolationDir, "tamandua.db");
+  });
+
+  after(() => {
+    if (_savedStateDir === undefined) delete process.env.TAMANDUA_STATE_DIR;
+    else process.env.TAMANDUA_STATE_DIR = _savedStateDir;
+    if (_savedDbPath === undefined) delete process.env.TAMANDUA_DB_PATH;
+    else process.env.TAMANDUA_DB_PATH = _savedDbPath;
+    try { fs.rmSync(_testIsolationDir, { recursive: true, force: true }); } catch { /* best effort */ }
+  });
+
+  function ts(): string {
+    return new Date().toISOString();
+  }
+
+  function replyTemplate(keys: string[]): string {
+    const keyLines = keys.map((k) => `      ${k.toUpperCase()}: <value>`).join("\n");
+    return `Task description.\n\n      Reply with:\n${keyLines}`;
+  }
+
+  async function seedStories(runId: string): Promise<void> {
+    const { getDb } = await import("../dist/db.js");
+    const db = getDb();
+    const now = ts();
+    const storyId = crypto.randomUUID();
+    db.prepare(
+      "INSERT INTO stories (id, run_id, story_index, story_id, title, description, acceptance_criteria, status, retry_count, max_retries, created_at, updated_at) VALUES (?, ?, 0, 'US-001', 'Add feature', 'Implement the feature', ?, 'pending', 0, 4, ?, ?)"
+    ).run(storyId, runId, JSON.stringify(["Feature works", "Typecheck passes"]), now, now);
+  }
+
+  it("loop path: producer re-pend when loop step template has a missing key", async () => {
+    const { getDb } = await import("../dist/db.js");
+    const db = getDb();
+    const runId = crypto.randomUUID();
+    const producerStepId = crypto.randomUUID();
+    const loopStepId = crypto.randomUUID();
+    const now = ts();
+
+    // branch is NOT in seeded context — {{branch}} will be missing
+    const seededContext = JSON.stringify({ task: "implement feature", repo: "/tmp/repo" });
+    db.prepare(
+      "INSERT INTO runs (id, run_number, workflow_id, task, status, context, tokens_spent, created_at, updated_at) VALUES (?, 1, 'feature-dev-merge', 'implement feature', 'running', ?, 0, ?, ?)"
+    ).run(runId, seededContext, now, now);
+
+    // Producer (index 0): DONE step whose Reply-with declares BRANCH but output is missing BRANCH
+    db.prepare(
+      "INSERT INTO steps (id, run_id, step_id, agent_id, step_index, input_template, expects, status, output, retry_count, max_retries, type, created_at, updated_at) VALUES (?, ?, 'setup', 'fdm_setup', 0, ?, '', 'done', 'STATUS: done\nREPO: /tmp/repo', 0, 4, 'single', ?, ?)"
+    ).run(producerStepId, runId, replyTemplate(["STATUS", "BRANCH", "REPO", "ORIGINAL_BRANCH"]), now, now);
+
+    // Loop step (index 1): needs {{branch}} (missing) and {{repo}} (present)
+    db.prepare(
+      "INSERT INTO steps (id, run_id, step_id, agent_id, step_index, input_template, expects, status, retry_count, max_retries, type, loop_config, created_at, updated_at) VALUES (?, ?, 'implement', 'fdm_developer', 1, 'Implement {{task}} on {{branch}}\nRETRY FEEDBACK: {{retry_feedback}}', '', 'pending', 0, 4, 'loop', ?, ?, ?)"
+    ).run(loopStepId, runId, JSON.stringify({ over: "stories" }), now, now);
+
+    await seedStories(runId);
+
+    const result = claimStep("fdm_developer", runId);
+
+    assert.equal(result.found, false, "loop claim should return found: false when missing keys block dispatch");
+
+    // Producer should be re-pended
+    const producer = db.prepare("SELECT status, retry_count, output FROM steps WHERE id = ?").get(producerStepId) as { status: string; retry_count: number; output: string | null };
+    assert.equal(producer.status, "pending", "producer step should be re-pended");
+    assert.equal(producer.retry_count, 1, "producer retry_count should be incremented");
+    assert.ok(producer.output?.includes("branch"), `producer retry_feedback should name missing key "branch", got: ${producer.output}`);
+
+    // Loop step should be reset to pending
+    const loopStep = db.prepare("SELECT status, current_story_id FROM steps WHERE id = ?").get(loopStepId) as { status: string; current_story_id: string | null };
+    assert.equal(loopStep.status, "pending", "loop step should be reset to pending");
+    assert.equal(loopStep.current_story_id, null, "current_story_id should be cleared");
+
+    // Story should be unclaimed (back to pending)
+    const stories = db.prepare("SELECT status FROM stories WHERE run_id = ?").all(runId) as { status: string }[];
+    assert.equal(stories.length, 1);
+    assert.equal(stories[0].status, "pending", "story should be unclaimed back to pending");
+
+    // Run should still be running
+    const run = db.prepare("SELECT status FROM runs WHERE id = ?").get(runId) as { status: string };
+    assert.equal(run.status, "running", "run should still be running after producer re-pend");
+
+    // step.repended event should be emitted
+    const events = getRunEvents(runId);
+    const rependEvent = events.find((e: any) => e.event === "step.repended");
+    assert.ok(rependEvent, "step.repended event should be emitted for loop path producer re-pend");
+    assert.ok(rependEvent.detail?.includes("branch"), `repend event should mention missing key, got: ${rependEvent?.detail}`);
+  });
+
+  it("loop path: fail-fast when no producer can be identified for a missing key", async () => {
+    const { getDb } = await import("../dist/db.js");
+    const db = getDb();
+    const runId = crypto.randomUUID();
+    const loopStepId = crypto.randomUUID();
+    const now = ts();
+
+    const seededContext = JSON.stringify({ task: "implement feature", repo: "/tmp/repo" });
+    db.prepare(
+      "INSERT INTO runs (id, run_number, workflow_id, task, status, context, tokens_spent, created_at, updated_at) VALUES (?, 1, 'feature-dev-merge', 'implement feature', 'running', ?, 0, ?, ?)"
+    ).run(runId, seededContext, now, now);
+
+    // Loop step (index 0): template has {{nonexistent_key}} — no upstream steps at all
+    db.prepare(
+      "INSERT INTO steps (id, run_id, step_id, agent_id, step_index, input_template, expects, status, retry_count, max_retries, type, loop_config, created_at, updated_at) VALUES (?, ?, 'fix', 'test-wf_fixer', 0, 'Fix with key {{nonexistent_key}}\nRETRY FEEDBACK: {{retry_feedback}}', '', 'pending', 0, 4, 'loop', ?, ?, ?)"
+    ).run(loopStepId, runId, JSON.stringify({ over: "stories" }), now, now);
+
+    await seedStories(runId);
+
+    const result = claimStep("test-wf_fixer", runId);
+
+    assert.equal(result.found, false, "loop claim should return found: false when no producer");
+
+    // Step should be failed
+    const step = db.prepare("SELECT status, output FROM steps WHERE id = ?").get(loopStepId) as { status: string; output: string | null };
+    assert.equal(step.status, "failed", "loop step should be failed when no producer found");
+    assert.ok(step.output?.includes("nonexistent_key"), `step output should name the missing key, got: ${step.output}`);
+    assert.ok(step.output?.includes("no upstream DONE step"), `step output should explain cause, got: ${step.output}`);
+
+    // Run should be failed
+    const run = db.prepare("SELECT status FROM runs WHERE id = ?").get(runId) as { status: string };
+    assert.equal(run.status, "failed", "run should be failed when no producer found in loop path");
+
+    // Events should be emitted
+    const events = getRunEvents(runId);
+    const stepFailedEvent = events.find((e: any) => e.event === "step.failed");
+    const runFailedEvent = events.find((e: any) => e.event === "run.failed");
+    assert.ok(stepFailedEvent, "step.failed event should be emitted");
+    assert.ok(runFailedEvent, "run.failed event should be emitted");
+  });
+
+  it("loop path: fail-fast when producer has exhausted retries", async () => {
+    const { getDb } = await import("../dist/db.js");
+    const db = getDb();
+    const runId = crypto.randomUUID();
+    const producerStepId = crypto.randomUUID();
+    const loopStepId = crypto.randomUUID();
+    const now = ts();
+
+    const seededContext = JSON.stringify({ task: "implement feature", repo: "/tmp/repo" });
+    db.prepare(
+      "INSERT INTO runs (id, run_number, workflow_id, task, status, context, tokens_spent, created_at, updated_at) VALUES (?, 1, 'feature-dev-merge', 'implement feature', 'running', ?, 0, ?, ?)"
+    ).run(runId, seededContext, now, now);
+
+    // Producer (index 0): DONE, declares BRANCH, output missing BRANCH, already at retry_count = max_retries
+    db.prepare(
+      "INSERT INTO steps (id, run_id, step_id, agent_id, step_index, input_template, expects, status, output, retry_count, max_retries, type, created_at, updated_at) VALUES (?, ?, 'setup', 'fdm_setup', 0, ?, '', 'done', 'STATUS: done\nREPO: /tmp/repo', 4, 4, 'single', ?, ?)"
+    ).run(producerStepId, runId, replyTemplate(["STATUS", "BRANCH", "REPO"]), now, now);
+
+    // Loop step (index 1): needs {{branch}}
+    db.prepare(
+      "INSERT INTO steps (id, run_id, step_id, agent_id, step_index, input_template, expects, status, retry_count, max_retries, type, loop_config, created_at, updated_at) VALUES (?, ?, 'implement', 'fdm_developer', 1, 'Implement {{task}} on {{branch}}\nRETRY FEEDBACK: {{retry_feedback}}', '', 'pending', 0, 4, 'loop', ?, ?, ?)"
+    ).run(loopStepId, runId, JSON.stringify({ over: "stories" }), now, now);
+
+    await seedStories(runId);
+
+    const result = claimStep("fdm_developer", runId);
+
+    assert.equal(result.found, false, "loop claim should return found: false when producer exhausted");
+
+    // Loop step should be failed
+    const consumer = db.prepare("SELECT status, output FROM steps WHERE id = ?").get(loopStepId) as { status: string; output: string | null };
+    assert.equal(consumer.status, "failed", "loop step should be failed when producer exhausted");
+    assert.ok(consumer.output?.includes("producer retries are exhausted"), `output should mention exhausted, got: ${consumer.output}`);
+    assert.ok(consumer.output?.includes("branch"), `output should name missing key, got: ${consumer.output}`);
+
+    // Run should be failed
+    const run = db.prepare("SELECT status FROM runs WHERE id = ?").get(runId) as { status: string };
+    assert.equal(run.status, "failed", "run should be failed when producer exhausted");
+  });
+
+  it("loop path: claimStep works normally when all template keys are present and stories exist", async () => {
+    const { getDb } = await import("../dist/db.js");
+    const db = getDb();
+    const runId = crypto.randomUUID();
+    const loopStepId = crypto.randomUUID();
+    const now = ts();
+
+    const seededContext = JSON.stringify({ task: "implement feature", repo: "/tmp/repo", branch: "feature/x" });
+    db.prepare(
+      "INSERT INTO runs (id, run_number, workflow_id, task, status, context, tokens_spent, created_at, updated_at) VALUES (?, 1, 'feature-dev-merge', 'implement feature', 'running', ?, 0, ?, ?)"
+    ).run(runId, seededContext, now, now);
+
+    // Loop step (index 0): all keys are in seeded context
+    db.prepare(
+      "INSERT INTO steps (id, run_id, step_id, agent_id, step_index, input_template, expects, status, retry_count, max_retries, type, loop_config, created_at, updated_at) VALUES (?, ?, 'implement', 'fdm_developer', 0, 'Implement {{task}} in {{repo}} on {{branch}}\nRETRY FEEDBACK: {{retry_feedback}}', '', 'pending', 0, 4, 'loop', ?, ?, ?)"
+    ).run(loopStepId, runId, JSON.stringify({ over: "stories" }), now, now);
+
+    await seedStories(runId);
+
+    const result = claimStep("fdm_developer", runId);
+
+    assert.equal(result.found, true, "loop claim should succeed when all keys are present");
+    assert.ok(result.resolvedInput, "resolvedInput should be present");
+    assert.ok(result.resolvedInput!.includes("implement feature"), `resolvedInput should include task, got: ${result.resolvedInput}`);
+    assert.ok(result.resolvedInput!.includes("/tmp/repo"), `resolvedInput should include repo, got: ${result.resolvedInput}`);
+    assert.ok(result.resolvedInput!.includes("feature/x"), `resolvedInput should include branch, got: ${result.resolvedInput}`);
+    assert.ok(!result.resolvedInput!.includes("[missing:"), `resolvedInput should NOT contain [missing: key], got: ${result.resolvedInput}`);
+    // Loop step claim also returns the resolvedInput — template keys resolved correctly
+    assert.equal(result.runId, runId, "returned runId should match");
+  });
+
+  it("loop path: story context keys (current_story, current_story_id, etc.) are never treated as missing", async () => {
+    const { getDb } = await import("../dist/db.js");
+    const db = getDb();
+    const runId = crypto.randomUUID();
+    const loopStepId = crypto.randomUUID();
+    const now = ts();
+
+    // Seeded context has NO current_story, current_story_id, current_story_title, completed_stories, stories_remaining, progress, verify_feedback, timeout_retry
+    // These are all populated by claimStep before findMissingTemplateKeys
+    const seededContext = JSON.stringify({ task: "implement feature", repo: "/tmp/repo", branch: "feature/x" });
+    db.prepare(
+      "INSERT INTO runs (id, run_number, workflow_id, task, status, context, tokens_spent, created_at, updated_at) VALUES (?, 1, 'feature-dev-merge', 'implement feature', 'running', ?, 0, ?, ?)"
+    ).run(runId, seededContext, now, now);
+
+    // Loop step template references ALL story context keys that claimStep populates
+    db.prepare(
+      "INSERT INTO steps (id, run_id, step_id, agent_id, step_index, input_template, expects, status, retry_count, max_retries, type, loop_config, created_at, updated_at) VALUES (?, ?, 'implement', 'fdm_developer', 0, 'Story: {{current_story}}\nID: {{current_story_id}}\nTitle: {{current_story_title}}\nCompleted: {{completed_stories}}\nRemaining: {{stories_remaining}}\nRETRY FEEDBACK: {{retry_feedback}}\nVERIFY FEEDBACK: {{verify_feedback}}\nTIMEOUT RETRY: {{timeout_retry}}', '', 'pending', 0, 4, 'loop', ?, ?, ?)"
+    ).run(loopStepId, runId, JSON.stringify({ over: "stories" }), now, now);
+
+    await seedStories(runId);
+
+    const result = claimStep("fdm_developer", runId);
+
+    assert.equal(result.found, true, "loop claim should succeed — story context keys are not treated as missing");
+    assert.ok(!result.resolvedInput!.includes("[missing: current_story]"), "current_story should not be missing-key");
+    assert.ok(!result.resolvedInput!.includes("[missing: current_story_id]"), "current_story_id should not be missing-key");
+    assert.ok(!result.resolvedInput!.includes("[missing: current_story_title]"), "current_story_title should not be missing-key");
+    assert.ok(!result.resolvedInput!.includes("[missing: completed_stories]"), "completed_stories should not be missing-key");
+    assert.ok(!result.resolvedInput!.includes("[missing: stories_remaining]"), "stories_remaining should not be missing-key");
+    assert.ok(!result.resolvedInput!.includes("[missing: retry_feedback]"), "retry_feedback should not be missing-key");
+    assert.ok(!result.resolvedInput!.includes("[missing: verify_feedback]"), "verify_feedback should not be missing-key");
+    assert.ok(!result.resolvedInput!.includes("[missing: timeout_retry]"), "timeout_retry should not be missing-key");
+    assert.ok(result.resolvedInput!.includes("US-001"), "resolved input should contain story content");
+  });
+
+  it("loop path: boundedness — re-pend loop eventually exhausts producer retries, no infinite ping-pong", async () => {
+    const { getDb } = await import("../dist/db.js");
+    const db = getDb();
+    const runId = crypto.randomUUID();
+    const producerStepId = crypto.randomUUID();
+    const loopStepId = crypto.randomUUID();
+    const now = ts();
+
+    const seededContext = JSON.stringify({ task: "implement feature", repo: "/tmp/repo" });
+    db.prepare(
+      "INSERT INTO runs (id, run_number, workflow_id, task, status, context, tokens_spent, created_at, updated_at) VALUES (?, 1, 'feature-dev-merge', 'implement feature', 'running', ?, 0, ?, ?)"
+    ).run(runId, seededContext, now, now);
+
+    // Producer (index 0): DONE, declares BRANCH, output missing BRANCH, retry_count=3, max_retries=4
+    // Only ONE re-pend remaining before exhaustion
+    db.prepare(
+      "INSERT INTO steps (id, run_id, step_id, agent_id, step_index, input_template, expects, status, output, retry_count, max_retries, type, created_at, updated_at) VALUES (?, ?, 'setup', 'fdm_setup', 0, ?, '', 'done', 'STATUS: done\nREPO: /tmp/repo', 3, 4, 'single', ?, ?)"
+    ).run(producerStepId, runId, replyTemplate(["STATUS", "BRANCH", "REPO"]), now, now);
+
+    // Loop step (index 1): needs {{branch}}
+    db.prepare(
+      "INSERT INTO steps (id, run_id, step_id, agent_id, step_index, input_template, expects, status, retry_count, max_retries, type, loop_config, created_at, updated_at) VALUES (?, ?, 'implement', 'fdm_developer', 1, 'Implement {{task}} on {{branch}}\nRETRY FEEDBACK: {{retry_feedback}}', '', 'pending', 0, 4, 'loop', ?, ?, ?)"
+    ).run(loopStepId, runId, JSON.stringify({ over: "stories" }), now, now);
+
+    await seedStories(runId);
+
+    // First claim attempt — producer has retries left (3 < 4), so it gets re-pended
+    const result1 = claimStep("fdm_developer", runId);
+    assert.equal(result1.found, false, "first loop claim should block");
+
+    // Producer re-pended with retry_count=4
+    const setupAfter = db.prepare("SELECT status, retry_count FROM steps WHERE id = ?").get(producerStepId) as { status: string; retry_count: number };
+    assert.equal(setupAfter.status, "pending", "producer should be re-pended on first block");
+    assert.equal(setupAfter.retry_count, 4, "producer retry_count should be 4 after re-pend");
+    const runAfter1 = db.prepare("SELECT status FROM runs WHERE id = ?").get(runId) as { status: string };
+    assert.equal(runAfter1.status, "running", "run should still be running after first claim");
+
+    // Simulate setup completing again (still without BRANCH output)
+    db.prepare(
+      "UPDATE steps SET status = 'done', output = 'STATUS: done\nREPO: /tmp/repo', updated_at = datetime('now') WHERE id = ?"
+    ).run(producerStepId);
+
+    // Reset loop step back to pending for second attempt
+    db.prepare(
+      "UPDATE steps SET status = 'pending', current_story_id = NULL, updated_at = datetime('now') WHERE id = ?"
+    ).run(loopStepId);
+
+    // Re-seed a new story (the previous one was consumed)
+    await seedStories(runId);
+
+    // Second claim attempt — producer now at retry_count=4 >= max_retries=4, should fail-fast
+    const result2 = claimStep("fdm_developer", runId);
+    assert.equal(result2.found, false, "second loop claim should also block (exhausted)");
+
+    // Run should be failed — no infinite ping-pong
+    const run = db.prepare("SELECT status FROM runs WHERE id = ?").get(runId) as { status: string };
+    assert.equal(run.status, "failed", "run should fail when producer retries exhausted — no infinite ping-pong");
+
+    // Loop step should be failed
+    const consumer = db.prepare("SELECT status, output FROM steps WHERE id = ?").get(loopStepId) as { status: string; output: string | null };
+    assert.equal(consumer.status, "failed", "loop step should be failed when producer exhausted");
+    assert.ok(consumer.output?.includes("producer retries are exhausted"), `output should mention exhausted, got: ${consumer.output}`);
+  });
+
+  it("loop path: multiple missing keys from a single producer only re-pend the producer once", async () => {
+    const { getDb } = await import("../dist/db.js");
+    const db = getDb();
+    const runId = crypto.randomUUID();
+    const producerStepId = crypto.randomUUID();
+    const loopStepId = crypto.randomUUID();
+    const now = ts();
+
+    // Neither branch nor repo in seeded context
+    const seededContext = JSON.stringify({ task: "implement feature" });
+    db.prepare(
+      "INSERT INTO runs (id, run_number, workflow_id, task, status, context, tokens_spent, created_at, updated_at) VALUES (?, 1, 'feature-dev-merge', 'implement feature', 'running', ?, 0, ?, ?)"
+    ).run(runId, seededContext, now, now);
+
+    // Producer (index 0): DONE, declares BRANCH and REPO, but output missing both
+    db.prepare(
+      "INSERT INTO steps (id, run_id, step_id, agent_id, step_index, input_template, expects, status, output, retry_count, max_retries, type, created_at, updated_at) VALUES (?, ?, 'setup', 'fdm_setup', 0, ?, '', 'done', 'STATUS: done', 0, 4, 'single', ?, ?)"
+    ).run(producerStepId, runId, replyTemplate(["STATUS", "BRANCH", "REPO"]), now, now);
+
+    // Loop step (index 1): needs both {{branch}} and {{repo}}
+    db.prepare(
+      "INSERT INTO steps (id, run_id, step_id, agent_id, step_index, input_template, expects, status, retry_count, max_retries, type, loop_config, created_at, updated_at) VALUES (?, ?, 'implement', 'fdm_developer', 1, 'Implement {{task}} in {{repo}} on {{branch}}\nRETRY FEEDBACK: {{retry_feedback}}', '', 'pending', 0, 4, 'loop', ?, ?, ?)"
+    ).run(loopStepId, runId, JSON.stringify({ over: "stories" }), now, now);
+
+    await seedStories(runId);
+
+    const result = claimStep("fdm_developer", runId);
+
+    assert.equal(result.found, false, "loop claim should block");
+
+    // Producer should be re-pended exactly once
+    const producer = db.prepare("SELECT status, retry_count, output FROM steps WHERE id = ?").get(producerStepId) as { status: string; retry_count: number; output: string | null };
+    assert.equal(producer.status, "pending", "producer should be re-pended once");
+    assert.equal(producer.retry_count, 1, "producer retry_count should be 1 (only incremented once)");
+    assert.ok(producer.output?.includes("branch"), `retry_feedback should name branch, got: ${producer.output}`);
+    assert.ok(producer.output?.includes("repo"), `retry_feedback should name repo, got: ${producer.output}`);
+  });
+
+  it("loop path: mixed resolvable and unresolvable keys — unresolvable takes priority, fails fast", async () => {
+    const { getDb } = await import("../dist/db.js");
+    const db = getDb();
+    const runId = crypto.randomUUID();
+    const producerStepId = crypto.randomUUID();
+    const loopStepId = crypto.randomUUID();
+    const now = ts();
+
+    const seededContext = JSON.stringify({ task: "implement feature", repo: "/tmp/repo" });
+    db.prepare(
+      "INSERT INTO runs (id, run_number, workflow_id, task, status, context, tokens_spent, created_at, updated_at) VALUES (?, 1, 'feature-dev-merge', 'implement feature', 'running', ?, 0, ?, ?)"
+    ).run(runId, seededContext, now, now);
+
+    // Producer (index 0): DONE, declares BRANCH (so branch has a producer) but output missing BRANCH
+    db.prepare(
+      "INSERT INTO steps (id, run_id, step_id, agent_id, step_index, input_template, expects, status, output, retry_count, max_retries, type, created_at, updated_at) VALUES (?, ?, 'setup', 'fdm_setup', 0, ?, '', 'done', 'STATUS: done\nREPO: /tmp/repo', 0, 4, 'single', ?, ?)"
+    ).run(producerStepId, runId, replyTemplate(["STATUS", "BRANCH"]), now, now);
+
+    // Loop step (index 1): needs {{branch}} (has producer) and {{unresolvable}} (no producer)
+    db.prepare(
+      "INSERT INTO steps (id, run_id, step_id, agent_id, step_index, input_template, expects, status, retry_count, max_retries, type, loop_config, created_at, updated_at) VALUES (?, ?, 'implement', 'fdm_developer', 1, 'Implement {{task}} on {{branch}} with {{unresolvable}}\nRETRY FEEDBACK: {{retry_feedback}}', '', 'pending', 0, 4, 'loop', ?, ?, ?)"
+    ).run(loopStepId, runId, JSON.stringify({ over: "stories" }), now, now);
+
+    await seedStories(runId);
+
+    const result = claimStep("fdm_developer", runId);
+
+    assert.equal(result.found, false, "loop claim should block");
+
+    // Unresolvable key should cause fail-fast — not re-pend
+    const run = db.prepare("SELECT status FROM runs WHERE id = ?").get(runId) as { status: string };
+    assert.equal(run.status, "failed", "run should fail when any key is unresolvable");
+
+    // Loop step should be failed with message mentioning unresolvable
+    const consumer = db.prepare("SELECT status, output FROM steps WHERE id = ?").get(loopStepId) as { status: string; output: string | null };
+    assert.equal(consumer.status, "failed", "loop step should be failed");
+    assert.ok(consumer.output?.includes("unresolvable"), `should mention unresolvable key, got: ${consumer.output}`);
+    assert.ok(consumer.output?.includes("no upstream DONE step"), `should explain no upstream step, got: ${consumer.output}`);
+
+    // Producer should NOT be re-pended (fail-fast takes priority)
+    const producer = db.prepare("SELECT status, retry_count FROM steps WHERE id = ?").get(producerStepId) as { status: string; retry_count: number };
+    assert.equal(producer.status, "done", "producer should stay done — fail-fast prevents re-pend");
+    assert.equal(producer.retry_count, 0, "producer retry_count should not change");
   });
 });

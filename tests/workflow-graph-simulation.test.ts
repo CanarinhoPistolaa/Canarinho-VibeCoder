@@ -98,6 +98,7 @@ function seedContext(spec: WorkflowSpec): Record<string, string> {
     harness_type: "pi",
     no_relaunch_upon_rugpull: "false",
     repo: "/sim/origin-repo",
+    branch: `sim-branch-${spec.id}`,
     original_branch: "main",
     working_directory_for_harness: "/sim/origin-repo",
     base_branch_sha: "sim-sha",
