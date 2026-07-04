@@ -60,6 +60,9 @@ steps:
       TASK:
       {{task}}
 
+      RETRY FEEDBACK (only present if your previous attempt was rejected — read carefully and fix specifically what it complains about):
+      {{retry_feedback}}
+
       Instructions:
       1. Navigate to the skills directory specified in the task and list all subdirectories
       2. For each subdirectory, read the SKILL.md file
@@ -90,6 +93,9 @@ steps:
 
       SKILLS_COUNT: {{skills_count}}
       SKILLS_JSON: {{skills_json}}
+
+      RETRY FEEDBACK (only present if your previous attempt was rejected — read carefully and fix specifically what it complains about):
+      {{retry_feedback}}
 
       Instructions:
       1. Parse SKILLS_JSON into a dataset
@@ -134,6 +140,9 @@ steps:
       REDUNDANT_COUNT: {{redundant_count}}
       CLUSTERS_JSON: {{clusters_json}}
       CLEAN_SKILLS: {{clean_skills}}
+
+      RETRY FEEDBACK (only present if your previous attempt was rejected — read carefully and fix specifically what it complains about):
+      {{retry_feedback}}
 
       Instructions:
       Read SKILLS_JSON to recover the full description and name of each skill.

@@ -28,6 +28,9 @@ steps:
 
       {{task}}
 
+      RETRY FEEDBACK (only present if your previous attempt was rejected — read carefully and fix specifically what it complains about):
+      {{retry_feedback}}
+
       Instructions:
       1. Build the project: `./build` — this must succeed.
          If it fails, report STATUS: failed with the build error.

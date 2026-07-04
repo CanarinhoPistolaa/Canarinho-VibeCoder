@@ -204,6 +204,9 @@ steps:
       PROGRESS LOG:
       {{progress}}
 
+      RETRY FEEDBACK (only present if your previous attempt was rejected — read carefully and fix specifically what it complains about):
+      {{retry_feedback}}
+
       Instructions:
       1. Read progress-{{run_id}}.txt — especially the Codebase Patterns section
       2. Pull latest on the branch
@@ -270,6 +273,9 @@ steps:
 
       If {{has_frontend_changes}} is 'false', skip visual verification entirely.
 
+      RETRY FEEDBACK (only present if your previous attempt was rejected — read carefully and fix specifically what it complains about):
+      {{retry_feedback}}
+
       Reply with:
       STATUS: done
       VERIFIED: What you confirmed
@@ -309,6 +315,9 @@ steps:
       4. Check cross-cutting concerns: error handling, edge cases across features
       5. Verify the overall feature works as a cohesive whole
 
+      RETRY FEEDBACK (only present if your previous attempt was rejected — read carefully and fix specifically what it complains about):
+      {{retry_feedback}}
+
       Reply with:
       STATUS: done
       RESULTS: What you tested and the outcomes
@@ -346,6 +355,9 @@ steps:
       - Reference to what was tested
 
       Use: gh pr create
+
+      RETRY FEEDBACK (only present if your previous attempt was rejected — read carefully and fix specifically what it complains about):
+      {{retry_feedback}}
 
       Reply with:
       STATUS: done
@@ -397,6 +409,9 @@ steps:
       If {{has_frontend_changes}} is 'false', skip visual review entirely.
 
       If changes needed, add comments to the PR explaining what needs to change.
+
+      RETRY FEEDBACK (only present if your previous attempt was rejected — read carefully and fix specifically what it complains about):
+      {{retry_feedback}}
 
       Reply with:
       STATUS: done

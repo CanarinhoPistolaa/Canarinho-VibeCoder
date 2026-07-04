@@ -194,6 +194,9 @@ steps:
       PROGRESS LOG:
       {{progress}}
 
+      RETRY FEEDBACK (only present if your previous attempt was rejected — read carefully and fix specifically what it complains about):
+      {{retry_feedback}}
+
       Instructions:
       1. Read progress-{{run_id}}.txt — especially the Codebase Patterns section
       2. Pull latest on the branch
@@ -260,6 +263,9 @@ steps:
 
       If {{has_frontend_changes}} is 'false', skip visual verification entirely.
 
+      RETRY FEEDBACK (only present if your previous attempt was rejected — read carefully and fix specifically what it complains about):
+      {{retry_feedback}}
+
       Reply with:
       STATUS: done
       VERIFIED: What you confirmed
@@ -298,6 +304,9 @@ steps:
       3. If this is a UI feature, use agent-browser to test it end-to-end
       4. Check cross-cutting concerns: error handling, edge cases across features
       5. Verify the overall feature works as a cohesive whole
+
+      RETRY FEEDBACK (only present if your previous attempt was rejected — read carefully and fix specifically what it complains about):
+      {{retry_feedback}}
 
       Reply with:
       STATUS: done

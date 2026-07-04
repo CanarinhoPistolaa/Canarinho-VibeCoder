@@ -39,6 +39,9 @@ steps:
 
       NO_HURRY_SAVE_TOKENS_MODE: {{no_hurry_save_tokens_mode}}
 
+      RETRY FEEDBACK (only present if your previous attempt was rejected — read carefully and fix specifically what it complains about):
+      {{retry_feedback}}
+
       Instructions:
       1. Discover available workflows: `tamandua workflow list --json`
          Parse the JSON output. Each entry has id, name, description.

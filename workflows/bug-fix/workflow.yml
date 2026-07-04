@@ -121,6 +121,9 @@ steps:
       REPRODUCTION: {{reproduction}}
       PROBLEM_STATEMENT: {{problem_statement}}
 
+      RETRY FEEDBACK (only present if your previous attempt was rejected — read carefully and fix specifically what it complains about):
+      {{retry_feedback}}
+
       Instructions:
       1. Read the code in the affected area
       2. Trace the bug to its root cause
@@ -143,6 +146,9 @@ steps:
 
       REPO: {{repo}}
       BRANCH: {{branch}}
+
+      RETRY FEEDBACK (only present if your previous attempt was rejected — read carefully and fix specifically what it complains about):
+      {{retry_feedback}}
 
       Instructions:
       1. cd into the repo
@@ -187,6 +193,9 @@ steps:
       TIMEOUT RETRY (if previous attempt timed out):
       {{timeout_retry}}
 
+      RETRY FEEDBACK (only present if your previous attempt was rejected — read carefully and fix specifically what it complains about):
+      {{retry_feedback}}
+
       Instructions:
       1. cd into the repo, checkout the branch
       2. Implement the fix based on the root cause and fix approach
@@ -220,6 +229,9 @@ steps:
       ROOT_CAUSE: {{root_cause}}
       PROBLEM_STATEMENT: {{problem_statement}}
 
+      RETRY FEEDBACK (only present if your previous attempt was rejected — read carefully and fix specifically what it complains about):
+      {{retry_feedback}}
+
       Instructions:
       1. Run the full test suite with {{test_cmd}}
       2. Confirm the regression test exists and tests the right thing
@@ -238,6 +250,8 @@ steps:
       - The fix should be minimal and targeted — not a refactor disguised as a bugfix
       - Check that the fix addresses the ROOT CAUSE, not just a symptom
       - All changes must be to files INSIDE the repo — not external workspace files
+
+      IMPORTANT: your step-complete report must use exactly the Reply format below — starting with STATUS: done and including the VERIFIED: line. Do not substitute a generic CHANGES/TESTS report.
 
       Reply with:
       STATUS: done

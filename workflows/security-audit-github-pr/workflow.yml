@@ -156,6 +156,9 @@ steps:
       VULNERABILITY_COUNT: {{vulnerability_count}}
       FINDINGS: {{findings}}
 
+      RETRY FEEDBACK (only present if your previous attempt was rejected — read carefully and fix specifically what it complains about):
+      {{retry_feedback}}
+
       Instructions:
       1. Deduplicate findings (same root cause = one fix)
       2. Group related issues (e.g., multiple XSS from same missing sanitizer = one fix)
@@ -190,6 +193,9 @@ steps:
 
       REPO: {{repo}}
       BRANCH: {{branch}}
+
+      RETRY FEEDBACK (only present if your previous attempt was rejected — read carefully and fix specifically what it complains about):
+      {{retry_feedback}}
 
       Instructions:
       1. cd into the repo
@@ -247,6 +253,9 @@ steps:
       PROGRESS LOG:
       {{progress}}
 
+      RETRY FEEDBACK (only present if your previous attempt was rejected — read carefully and fix specifically what it complains about):
+      {{retry_feedback}}
+
       Instructions:
       1. cd into the repo, pull latest on the branch
       2. Read the vulnerability description carefully
@@ -282,6 +291,9 @@ steps:
 
       PROGRESS LOG:
       {{progress}}
+
+      RETRY FEEDBACK (only present if your previous attempt was rejected — read carefully and fix specifically what it complains about):
+      {{retry_feedback}}
 
       Instructions:
       1. Run the full test suite with {{test_cmd}}
@@ -330,6 +342,9 @@ steps:
 
       PROGRESS LOG:
       {{progress}}
+
+      RETRY FEEDBACK (only present if your previous attempt was rejected — read carefully and fix specifically what it complains about):
+      {{retry_feedback}}
 
       Instructions:
       1. Run the full test suite ({{test_cmd}}) — all tests must pass
@@ -406,6 +421,9 @@ steps:
       Label: security
 
       Use: gh pr create
+
+      RETRY FEEDBACK (only present if your previous attempt was rejected — read carefully and fix specifically what it complains about):
+      {{retry_feedback}}
 
       Reply with:
       STATUS: done
