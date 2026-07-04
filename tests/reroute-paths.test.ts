@@ -5,7 +5,7 @@
 //   - retry_feedback truncation at 200-char boundary
 //   - claim ownership fields cleared on consumer reset
 //   - invalid target rejection in completeStep and orphan-recovery paths
-//   - escalate_to does not fire when reroute succeeds
+
 //   - first-step self-reference (no upstream) is rejected
 
 import { describe, it, before, after } from "node:test";
@@ -134,35 +134,6 @@ steps:
       retry_step: step1
 `;
 
-// Consume has escalate_to configured but also retry_step.
-// Escalate must NOT fire when reroute succeeds; only on final failure.
-const escalAndRerouteYaml = `
-id: test-reroute-escalate-reroute
-agents:
-  - id: producer
-    workspace:
-      baseDir: .
-      files: {}
-  - id: consumer
-    workspace:
-      baseDir: .
-      files: {}
-steps:
-  - id: produce
-    agent: producer
-    input: "Produce"
-    expects: "STATUS: done"
-    max_retries: 3
-  - id: consume
-    agent: consumer
-    input: "Consume"
-    expects: "STATUS: done"
-    max_retries: 2
-    on_fail:
-      retry_step: produce
-      escalate_to: agent:dev:dev
-`;
-
 // ══════════════════════════════════════════════════════════════════════
 // Test suite
 // ══════════════════════════════════════════════════════════════════════
@@ -187,7 +158,6 @@ describe("RETR: Comprehensive Reroute Paths", () => {
       "test-reroute-three": threeStepsYaml,
       "test-reroute-downstream": downstreamTargetYaml,
       "test-reroute-first-step": firstStepSelfRefYaml,
-      "test-reroute-escalate-reroute": escalAndRerouteYaml,
     };
     for (const [id, yml] of Object.entries(workflows)) {
       const dir = path.join(_workflowsDir, id);
@@ -356,55 +326,6 @@ describe("RETR: Comprehensive Reroute Paths", () => {
   });
 
   // ────────────────────────────────────────────────────────────────
-  // Gap 3: escalate_to does NOT fire when reroute succeeds
-  // ────────────────────────────────────────────────────────────────
-
-  describe("escalate_to + retry_step interaction", () => {
-    it("escalate_to does NOT fire when reroute succeeds (only on final failure)", async () => {
-      const db = await getTestDb();
-      const { runId, stepRows } = insertRunAndSteps(db, "test-reroute-escalate-reroute", [
-        { step_id: "produce", agent_id: "producer", step_index: 0, status: "done", retry_count: 0, max_retries: 3, input_template: "Produce", expects: "STATUS: done", output: "STATUS: done" },
-        { step_id: "consume", agent_id: "consumer", step_index: 1, status: "running", retry_count: 2, max_retries: 2, input_template: "Consume", expects: "STATUS: done" },
-      ]);
-
-      const consumerRowId = stepRows.find(s => s.step_id === "consume")!.rowId;
-
-      const result = await failStep(consumerRowId, "Consumer failed");
-      assert.equal(result.status, "rerouted", "should reroute, not escalate");
-
-      // No step.escalation event should exist
-      const events = getRunEvents(runId);
-      const escalationEvents = events.filter(e => e.event === "step.escalation");
-      assert.equal(escalationEvents.length, 0, "escalation event must NOT fire when reroute succeeds");
-
-      // step.rerouted event should exist
-      const rerouteEvents = events.filter(e => e.event === "step.rerouted");
-      assert.equal(rerouteEvents.length, 1, "rerouted event must fire");
-    });
-
-    it("escalate_to DOES fire on final failure when retry_step exists but budget exhausted", async () => {
-      const db = await getTestDb();
-      const { runId, stepRows } = insertRunAndSteps(db, "test-reroute-escalate-reroute", [
-        { step_id: "produce", agent_id: "producer", step_index: 0, status: "done", retry_count: 0, max_retries: 3, input_template: "Produce", expects: "STATUS: done", output: "STATUS: done" },
-        { step_id: "consume", agent_id: "consumer", step_index: 1, status: "running", retry_count: 2, max_retries: 2, input_template: "Consume", expects: "STATUS: done" },
-      ]);
-
-      const consumerRowId = stepRows.find(s => s.step_id === "consume")!.rowId;
-
-      // Set reroute_count to budget (2) — budget exhausted
-      db.prepare("UPDATE steps SET reroute_count = 2 WHERE id = ?").run(consumerRowId);
-
-      const result = await failStep(consumerRowId, "Consumer failed after reroutes");
-      assert.equal(result.status, "failed", "should fail when budget exhausted");
-
-      const events = getRunEvents(runId);
-      const escalationEvents = events.filter(e => e.event === "step.escalation");
-      assert.equal(escalationEvents.length, 1, "escalation event must fire on final failure");
-      assert.ok(escalationEvents[0].detail?.includes("agent:dev:dev"), `escalation should mention target, got: ${escalationEvents[0].detail}`);
-    });
-  });
-
-  // ────────────────────────────────────────────────────────────────
   // Gap 4: invalid retry_step in completeStep expects-validation path
   // ────────────────────────────────────────────────────────────────
 
@@ -504,13 +425,13 @@ describe("RETR: Comprehensive Reroute Paths", () => {
   // ────────────────────────────────────────────────────────────────
 
   describe("rugpull path intact after budget exhaustion", () => {
-    it("runs the full failure path (step.failed, run.failed, escalation if configured) after budget exhaustion", async () => {
+    it("runs the full failure path (step.failed, run.failed, step.reroute_budget_exhausted) after budget exhaustion", async () => {
       // This test proves that after reroute budget exhaustion, the normal failure
-      // path runs correctly — including step.failed/run.failed events, escalation
-      // if configured, and the rugpull setImmediate block (which we verify
+      // path runs correctly — including step.failed/run.failed events
+      // and the rugpull setImmediate block (which we verify
       // indirectly by checking the run's terminal state and events).
       const db = await getTestDb();
-      const { runId, stepRows } = insertRunAndSteps(db, "test-reroute-escalate-reroute", [
+      const { runId, stepRows } = insertRunAndSteps(db, "test-reroute-paths", [
         { step_id: "produce", agent_id: "producer", step_index: 0, status: "done", retry_count: 0, max_retries: 3, input_template: "Produce", expects: "STATUS: done", output: "STATUS: done" },
         { step_id: "consume", agent_id: "consumer", step_index: 1, status: "running", retry_count: 2, max_retries: 2, input_template: "Consume", expects: "STATUS: done" },
       ]);
@@ -532,7 +453,7 @@ describe("RETR: Comprehensive Reroute Paths", () => {
       assert.equal(consumer.status, "failed", "consumer step should be failed");
       assert.equal(consumer.retry_count, 3, "consumer retry_count should be incremented (2+1=3)");
 
-      // Events: step.failed, run.failed, step.escalation, step.reroute_budget_exhausted
+      // Events: step.failed, run.failed, step.reroute_budget_exhausted
       const events = getRunEvents(runId);
 
       const failedEvents = events.filter(e => e.event === "step.failed");
@@ -541,8 +462,9 @@ describe("RETR: Comprehensive Reroute Paths", () => {
       const runFailedEvents = events.filter(e => e.event === "run.failed");
       assert.equal(runFailedEvents.length, 1, "run.failed event must be emitted");
 
+      // No step.escalation events (escalation concept removed)
       const escalationEvents = events.filter(e => e.event === "step.escalation");
-      assert.equal(escalationEvents.length, 1, "step.escalation must be emitted (escalate_to configured)");
+      assert.equal(escalationEvents.length, 0, "step.escalation must NOT be emitted");
 
       const budgetEvents = events.filter(e => e.event === "step.reroute_budget_exhausted");
       assert.equal(budgetEvents.length, 1, "step.reroute_budget_exhausted must be emitted");

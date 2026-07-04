@@ -118,8 +118,6 @@ steps:
       Without STORIES_JSON the run cannot proceed; do not summarize stories in prose under CHANGES — only the literal STORIES_JSON line is parsed.
     expects: "STATUS: done\nregex:^BRANCH:\\s*\\S+"
     max_retries: 4
-    on_fail:
-      escalate_to: human
 
   - id: setup
     agent: setup
@@ -155,7 +153,6 @@ steps:
     on_fail:
       # Setup failures often originate from an incomplete plan; re-planning refreshes understanding of the codebase
       retry_step: plan
-      escalate_to: human
 
   - id: implement
     agent: developer
@@ -214,8 +211,6 @@ steps:
       TESTS: what tests you wrote
     expects: "STATUS: done"
     max_retries: 4
-    on_fail:
-      escalate_to: human
 
   - id: verify
     agent: verifier
@@ -278,8 +273,6 @@ steps:
     on_fail:
       retry_step: implement
       max_retries: 4
-      on_exhausted:
-        escalate_to: human
 
   - id: test
     agent: tester
@@ -320,5 +313,3 @@ steps:
     on_fail:
       retry_step: implement
       max_retries: 4
-      on_exhausted:
-        escalate_to: human

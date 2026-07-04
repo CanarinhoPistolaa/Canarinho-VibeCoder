@@ -587,7 +587,7 @@ is logged for diagnostics.
 If no error message is provided, "Unknown error" is used.
 
 Retry behavior: Steps that exceed the maximum retry count (configured in
-the workflow spec) are escalated rather than retried.
+the workflow spec) permanently fail the run.
 
 Examples:
   tamandua step fail 123e4567-e89b-12d3-a456-426614174000

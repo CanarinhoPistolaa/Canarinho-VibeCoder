@@ -237,9 +237,6 @@ Events emitted during routing:
 - `step.rerouted` — step was sent back to an upstream producer
 - `step.reroute_budget_exhausted` — reroute limit reached; step is
   permanently failed
-- `step.escalation` — `escalate_to` target is logged and emitted as an event
-  (it does **not** notify a human)
-
 These events are visible in `tamandua logs` and `tamandua logs-tail`.
 Permanently failed runs can be reattempted with
 `tamandua workflow resume <run-id>`; fix the underlying issue before

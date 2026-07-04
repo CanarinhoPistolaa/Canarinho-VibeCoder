@@ -23,7 +23,8 @@ agents:
   - id: setup
     name: Setup
     role: coding
-    description: Prepares environment, creates branch, discovers build/test commands, establishes baseline.
+    description: Prepares environment, creates branch, discovers build/test
+      commands, establishes baseline.
     workspace:
       baseDir: agents/setup
       skills:
@@ -91,8 +92,6 @@ steps:
       BASELINE: <baseline status including test results>
     expects: "STATUS: done"
     max_retries: 4
-    on_fail:
-      escalate_to: human
 
   - id: quarantine
     agent: quarantiner
@@ -131,8 +130,6 @@ steps:
       REASON: <why>
     expects: "STATUS: done"
     max_retries: 4
-    on_fail:
-      escalate_to: human
 
   - id: verify
     agent: verifier
@@ -171,5 +168,3 @@ steps:
     on_fail:
       retry_step: quarantine
       max_retries: 4
-      on_exhausted:
-        escalate_to: human

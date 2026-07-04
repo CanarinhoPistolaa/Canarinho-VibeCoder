@@ -63,5 +63,3 @@ steps:
       CHECKS_TOTAL: <M>
     expects: "STATUS: done"
     max_retries: 2
-    on_fail:
-      escalate_to: human

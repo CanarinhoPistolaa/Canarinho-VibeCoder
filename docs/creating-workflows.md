@@ -66,8 +66,6 @@ steps:
       Reply with STATUS: done.
     expects: "STATUS: done"    # Required. Substring expected in the agent's output.
     max_retries: 4             # Optional. Step-level retry budget. Default: 4.
-    on_fail:
-      escalate_to: human       # On exhausting max_retries, escalate to the lead agent.
 
   - id: implement
     agent: developer
@@ -89,9 +87,7 @@ steps:
     expects: "STATUS: done"
     max_retries: 4
     on_fail:
-      retry_step: implement    # Informational — current code only honors escalate_to
-      on_exhausted:
-        escalate_to: human
+      retry_step: implement    # Reroute to implement on retry exhaustion
 
   - id: verify
     agent: verifier
@@ -223,9 +219,9 @@ STORIES_JSON: [{"id":"S1","title":"Add login","description":"...","acceptanceCri
 
 If `role` is omitted, the role is inferred from the agent id (e.g., ids containing `planner` → `analysis`, `verifier` → `verification`, `tester` → `testing`, `scanner` → `scanning`, `pr` → `pr`, anything else → `coding`).
 
-## Retry and Escalation
+## Retry and Rerouting
 
-When a step fails and exhausts its retry budget (`max_retries`), Tamandua consults the `on_fail` block for recovery directives. There are three layers: **retry (in-place)**, **reroute (cross-step)**, and **escalation (reporting)**.
+When a step fails and exhausts its retry budget (`max_retries`), Tamandua consults the `on_fail` block for recovery directives. There are two layers: **retry (in-place)** and **reroute (cross-step)**.
 
 ### In-Place Retries
 
@@ -249,7 +245,6 @@ When a step exhausts its retries, Tamandua checks `on_fail.retry_step`. If decla
     # Setup failures often originate from an incomplete plan; re-planning refreshes understanding of the codebase
     retry_step: plan       # Reroute to the named upstream step.
     max_reroutes: 3        # How many times the CONSUMER may trigger a reroute. Default: 2.
-    escalate_to: human
 ```
 
 When a reroute fires:
@@ -259,24 +254,12 @@ When a reroute fires:
 
 **Constraints:**
 - `retry_step` MUST name an upstream step (lower `step_index`) in the same workflow. A downstream or unknown target is treated as a workflow spec error and fails the run with a clear message.
-- `max_reroutes` applies to the consumer's `reroute_count`. When the consumer reaches this budget, the system falls through to normal failure behavior (run fails, escalation logged). Default is `2`.
+- `max_reroutes` applies to the consumer's `reroute_count`. When the consumer reaches this budget, the system falls through to normal failure behavior (run fails). Default is `2`.
 - The reroute budget is **separate** from `retry_count`: the producer's `retry_count` never changes across reroutes; the consumer's `retry_count` resets to 0 on each reroute.
-- Rerouting does **NOT** apply to `verify_each` verify steps (those referenced as `verify_step` in a loop's `loop_config`). Loop story-level retries use their own escalation path.
+- Rerouting does **NOT** apply to `verify_each` verify steps (those referenced as `verify_step` in a loop's `loop_config`).
 - `finalize_merge` steps should **not** be wired with `retry_step` — the rugpull mechanism owns merge-failure recovery.
 
 **Observability:** Every reroute emits a `step.rerouted` event with `fromStep`, `toStep`, `rerouteCount`, `budget`, and a bounded reason. Budget exhaustion emits `step.reroute_budget_exhausted`. Both are logged with the same structured metadata.
-
-### Escalation
-
-```yaml
-- id: implement
-  on_fail:
-    escalate_to: human     # Valid: "human", "main", or "agent:<id>:<name>".
-```
-
-When a step permanently fails (after exhausting all retries, and after any reroute budget is exhausted), the escalation target is logged. The escalation target is **logged only** — no notification is sent automatically. The system now emits a `step.escalation` event for observability (so dashboards and logs can surface escalations), but no actual paging or messaging is triggered by the runtime.
-
-Valid targets: `"human"`, `"main"`, or `"agent:<id>:<name>"`. Other values (e.g. `"user"`) silently no-op.
 
 ### Complete Example
 
@@ -299,7 +282,6 @@ steps:
     on_fail:
       retry_step: plan       # Setup failures often stem from a flawed plan; re-planning refreshes context
       max_reroutes: 2        # Allow up to 2 reroutes back to plan before failing the run
-      escalate_to: human
 
   - id: implement
     agent: developer
@@ -310,7 +292,7 @@ steps:
     max_retries: 4
 ```
 
-In this example: if `setup` exhausts its 4 retries, it reroutes to `plan` (up to 2 times). The planner gets rerun with `retry_feedback` describing why setup failed, giving it a chance to fix the plan. If both reroutes are exhausted, the run fails and escalates to `human`.
+In this example: if `setup` exhausts its 4 retries, it reroutes to `plan` (up to 2 times). The planner gets rerun with `retry_feedback` describing why setup failed, giving it a chance to fix the plan. If both reroutes are exhausted, the run fails — terminally and automatically.
 
 ### Summary Table
 
@@ -320,7 +302,6 @@ In this example: if `setup` exhausts its 4 retries, it reroutes to `plan` (up to
 | `on_fail.max_retries` | — | — | **Not read** by the runtime — do not use |
 | `on_fail.retry_step` | Cross-step reroute trigger | none | Upstream step to reroute to on retry exhaustion |
 | `on_fail.max_reroutes` | Reroute budget on the consumer | 2 | How many times the consumer can trigger a reroute |
-| `on_fail.escalate_to` | Final escalation target | none | Logged + emits `step.escalation` event on final failure |
 
 ## Loops
 

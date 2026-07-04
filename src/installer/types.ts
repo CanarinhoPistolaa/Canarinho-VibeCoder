@@ -33,8 +33,6 @@ export type WorkflowStepFailure = {
   retry_step?: string;
   max_retries?: number;
   max_reroutes?: number;
-  on_exhausted?: { escalate_to: string } | { escalate_to?: string } | undefined;
-  escalate_to?: string;
 };
 
 export type LoopConfig = {

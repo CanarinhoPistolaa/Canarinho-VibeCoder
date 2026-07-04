@@ -70,7 +70,7 @@ baseline assertions.
 
 ### Failure & recovery
 
-- **C8** `step fail` → retry until `max_retries` → escalate per `on_fail`.
+- **C8** `step fail` → retry until `max_retries` → reroute per `on_fail.retry_step` or fail the run.
 - **C9** Lost steps are recovered: an agent that claims a step and exits
   without reporting (no STATUS output, crash, non-zero exit, timeout kill)
   leaves a `running` step that must be requeued and retried — not stuck

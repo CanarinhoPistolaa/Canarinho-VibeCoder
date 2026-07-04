@@ -562,7 +562,24 @@ describe("workflow structure", () => {
     assert.ok(finalStep, "finalize_merge step must exist");
     assert.equal(finalStep!.on_fail?.retry_step, "test");
     assert.ok(finalStep!.on_fail?.max_retries);
-    assert.equal(finalStep!.on_fail?.on_exhausted?.escalate_to, "human");
+    assert.equal(finalStep!.on_fail?.on_exhausted, undefined);
+  });
+
+  it("no bundled workflow.yml contains escalate_to (regression guard)", () => {
+    // After removing the escalation concept, escalate_to must not appear
+    // in any bundled workflow definition.
+    const entries = readdirSync(workflowsDir, { withFileTypes: true });
+    for (const entry of entries) {
+      if (!entry.isDirectory()) continue;
+      const wfPath = resolve(workflowsDir, entry.name, "workflow.yml");
+      if (!existsSync(wfPath)) continue;
+      const content = readFileSync(wfPath, "utf-8");
+      assert.doesNotMatch(
+        content,
+        /escalate_to/,
+        `${entry.name}/workflow.yml must not contain escalate_to`,
+      );
+    }
   });
 
 describe("US-004: fast-forward-first merge contradiction prevention and ordering", () => {

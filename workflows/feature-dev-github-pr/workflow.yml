@@ -130,8 +130,6 @@ steps:
       Without STORIES_JSON the run cannot proceed; do not summarize stories in prose under CHANGES — only the literal STORIES_JSON line is parsed.
     expects: "STATUS: done\nregex:^BRANCH:\\s*\\S+"
     max_retries: 4
-    on_fail:
-      escalate_to: human
 
   - id: setup
     agent: setup
@@ -164,8 +162,6 @@ steps:
       BASELINE: <baseline status>
     expects: "STATUS: done"
     max_retries: 4
-    on_fail:
-      escalate_to: human
 
   - id: implement
     agent: developer
@@ -224,8 +220,6 @@ steps:
       TESTS: what tests you wrote
     expects: "STATUS: done"
     max_retries: 4
-    on_fail:
-      escalate_to: human
 
   - id: verify
     agent: verifier
@@ -288,8 +282,6 @@ steps:
     on_fail:
       retry_step: implement
       max_retries: 4
-      on_exhausted:
-        escalate_to: human
 
   - id: test
     agent: tester
@@ -330,8 +322,6 @@ steps:
     on_fail:
       retry_step: implement
       max_retries: 4
-      on_exhausted:
-        escalate_to: human
 
   - id: pr
     agent: developer
@@ -362,9 +352,9 @@ steps:
       Reply with:
       STATUS: done
       PR: URL to the pull request
-    expects: "STATUS: done\nregex:PR:\\s*https?://github\\.com/[^/]+/[^/]+/pull/\\d+"
-    on_fail:
-      escalate_to: human
+    expects: "STATUS: done
+
+      regex:PR:\\s*https?://github\\.com/[^/]+/[^/]+/pull/\\d+"
 
   - id: review
     agent: reviewer
@@ -426,5 +416,3 @@ steps:
     on_fail:
       retry_step: implement
       max_retries: 6
-      on_exhausted:
-        escalate_to: human

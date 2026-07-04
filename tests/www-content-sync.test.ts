@@ -59,6 +59,7 @@ describe("www/index.html content sync", () => {
       "polling frequency",
       "SQLite + polling",
       "poll immediately",
+      "escalate",
     ];
     for (const phrase of forbidden) {
       assert.ok(
@@ -69,10 +70,12 @@ describe("www/index.html content sync", () => {
   });
 
   // Regression test: DRTR — retry story no longer claims human escalation
-  it("does not claim escalation notifies a human", () => {
+  it("does not claim failed runs notify a human", () => {
+    // Failed runs are terminal and automatic — nothing notifies anyone.
+    // Operators inspect and resume at their own initiative.
     assert.ok(
       !wwwContent.includes("escalates to you"),
-      "www/index.html must not contain 'escalates to you' — escalate_to only logs/emits events, never notifies humans",
+      "www/index.html must not claim failed runs notify a human",
     );
   });
 

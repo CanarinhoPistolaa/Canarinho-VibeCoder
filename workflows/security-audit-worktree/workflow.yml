@@ -47,7 +47,8 @@ agents:
   - id: setup
     name: Setup
     role: coding
-    description: Creates security branch in the worktree, captures original branch from harness context, and establishes baseline.
+    description: Creates security branch in the worktree, captures original branch
+      from harness context, and establishes baseline.
     workspace:
       baseDir: agents/setup
       skills:
@@ -136,8 +137,6 @@ steps:
       FINDINGS: <detailed list of each vulnerability>
     expects: "STATUS: done\nregex:^BRANCH:\\s*\\S+"
     max_retries: 4
-    on_fail:
-      escalate_to: human
 
   - id: prioritize
     agent: prioritizer
@@ -178,8 +177,6 @@ steps:
       STORIES_JSON: [ ... array of story objects ... ]
     expects: "STATUS: done"
     max_retries: 4
-    on_fail:
-      escalate_to: human
 
   - id: setup
     agent: setup
@@ -214,7 +211,6 @@ steps:
     on_fail:
       # Setup failures often originate from incomplete scanning; re-scanning refreshes vulnerability findings
       retry_step: scan
-      escalate_to: human
 
   - id: fix
     agent: fixer
@@ -272,8 +268,6 @@ steps:
       REGRESSION_TEST: what test was added
     expects: "STATUS: done"
     max_retries: 4
-    on_fail:
-      escalate_to: human
 
   - id: verify
     agent: verifier
@@ -322,8 +316,6 @@ steps:
     on_fail:
       retry_step: fix
       max_retries: 6
-      on_exhausted:
-        escalate_to: human
 
   - id: test
     agent: tester
@@ -367,5 +359,3 @@ steps:
     on_fail:
       retry_step: fix
       max_retries: 4
-      on_exhausted:
-        escalate_to: human

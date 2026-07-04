@@ -113,5 +113,3 @@ steps:
       LAUNCHED_RUN_ID: <the run ID from tamandua workflow run>
     expects: "STATUS: done"
     max_retries: 2
-    on_fail:
-      escalate_to: human

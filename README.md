@@ -243,7 +243,7 @@ $ tamandua workflow install --all
 - **Deterministic workflows** — Same workflow, same steps, same order. Not "hopefully the agent remembers to test."
 - **Agents verify each other** — The developer doesn't mark their own homework. A separate verifier checks every story against acceptance criteria.
 - **Fresh context, every step** — Each agent gets a clean session. No context window bloat. No hallucinated state from 50 messages ago.
-- **Retry and escalate** — Failed steps retry automatically. If retries exhaust, it escalates to you. Nothing fails silently.
+- **Retry and reroute** — Failed steps retry automatically, and can be rerouted to upstream producers for fresh context. When budgets exhaust, the run fails — terminally and automatically. Nothing fails silently.
 - **Zero tokens when idle** — Checking for work is a database peek, not a model call; agents spawn only when a step is ready, and completion nudges make step-to-step latency near zero. The old polling motor measured roughly 30% token overhead; the new motor: zero.
 
 ---

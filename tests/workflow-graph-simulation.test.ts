@@ -12,7 +12,7 @@
  *   deadlocks, loop wiring (stories, verify_each) converges
  * - context propagation: KEY: value outputs resolve later {{placeholders}}
  * - a mid-run step failure retries and the run still completes
- * - exhausting a step's retries fails the run (escalation path)
+ * - exhausting a step's retries fails the run (retry exhaustion path)
  *
  * Output generation is generic: each completed step emits its `expects`
  * text plus a `KEY: sim-<key>` line for every {{placeholder}} any LATER

@@ -2275,24 +2275,6 @@ steps:
       retry_step: nonexistent
 `;
 
-  // Workflow for escalation testing: no retry_step, escalate_to to pager
-  const escalationWorkflowYaml = `
-id: test-reroute-escalate
-agents:
-  - id: prod
-    workspace:
-      baseDir: .
-      files: {}
-steps:
-  - id: produce
-    agent: prod
-    input: "Produce output"
-    expects: "STATUS: done"
-    max_retries: 2
-    on_fail:
-      escalate_to: agent:main:main
-`;
-
   // Workflow with explicit max_reroutes: 3 (custom budget)
   const maxReroutes3Yaml = `
 id: test-reroute-max3
@@ -2339,14 +2321,11 @@ steps:
     fs.mkdirSync(retryDir, { recursive: true });
     fs.mkdirSync(downstreamDir, { recursive: true });
     fs.mkdirSync(unknownDir, { recursive: true });
-    const escalateDir = path.join(workflowsDir, "test-reroute-escalate");
     fs.mkdirSync(max3Dir, { recursive: true });
-    fs.mkdirSync(escalateDir, { recursive: true });
     fs.writeFileSync(path.join(retryDir, "workflow.yml"), retryWorkflowYaml);
     fs.writeFileSync(path.join(downstreamDir, "workflow.yml"), downstreamTargetYaml);
     fs.writeFileSync(path.join(unknownDir, "workflow.yml"), unknownTargetYaml);
     fs.writeFileSync(path.join(max3Dir, "workflow.yml"), maxReroutes3Yaml);
-    fs.writeFileSync(path.join(escalateDir, "workflow.yml"), escalationWorkflowYaml);
   });
 
   after(() => {
@@ -2791,39 +2770,6 @@ steps:
     // run.failed event should fire
     const runFailedEvents = events.filter(e => e.event === "run.failed");
     assert.equal(runFailedEvents.length, 1, "should have run.failed event after budget exhaustion");
-  });
-
-  it("step.escalation event is emitted when escalate_to is configured", async () => {
-    // When a step exhausts its retries AND escalate_to is configured,
-    // a step.escalation event should be emitted (log-only behavior preserved).
-    const db = await getTestDb();
-    const { runId, stepRows } = insertRunAndSteps(db, "test-reroute-escalate", [
-      // Step at retry exhaustion (retry_count=2, max_retries=2), no retry_step so no reroute
-      { step_id: "produce", agent_id: "prod", step_index: 0, status: "running", retry_count: 2, max_retries: 2, input_template: "Produce output", expects: "STATUS: done" },
-    ]);
-
-    const consumerRowId = stepRows.find(s => s.step_id === "produce")!.rowId;
-
-    const result = await failStep(consumerRowId, "Step exhausted retries");
-    assert.equal(result.status, "failed", "should fail when retries exhausted and no retry_step");
-
-    // Check events
-    const events = getRunEvents(runId);
-    const escalationEvents = events.filter(e => e.event === "step.escalation");
-    assert.equal(escalationEvents.length, 1, "should have exactly one step.escalation event");
-
-    const escalation = escalationEvents[0];
-    assert.equal(escalation.stepId, "produce", "event stepId should be the failing step");
-    assert.equal(escalation.runId, runId, "event should have correct runId");
-    assert.ok(escalation.detail?.includes("Escalation target"), `event detail should mention escalation target, got: ${escalation.detail}`);
-    assert.ok(escalation.detail?.includes("agent:main:main"), `event detail should include target, got: ${escalation.detail}`);
-    assert.ok(escalation.detail?.includes("Step exhausted retries"), `event detail should include reason, got: ${escalation.detail}`);
-
-    // step.failed and run.failed events should still fire
-    const failedEvents = events.filter(e => e.event === "step.failed");
-    assert.equal(failedEvents.length, 1, "step.failed should still be emitted");
-    const runFailedEvents = events.filter(e => e.event === "run.failed");
-    assert.equal(runFailedEvents.length, 1, "run.failed should still be emitted");
   });
 
   it("resolveMissingKeys is unchanged — pre-execution path still works", async () => {

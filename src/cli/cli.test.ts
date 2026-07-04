@@ -631,7 +631,7 @@ describe("--help infrastructure", () => {
       assert.equal(result.status, 0);
       assert.match(result.stdout ?? "", /Mark a step as failed/);
       assert.match(result.stdout ?? "", /retry logic/);
-      assert.match(result.stdout ?? "", /escalated/);
+      assert.match(result.stdout ?? "", /permanently fail/);
       assert.match(result.stdout ?? "", /Unknown error/);
       assert.doesNotMatch(result.stdout ?? "", /tamandua get-ready/);
     } finally {

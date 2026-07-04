@@ -28,7 +28,8 @@ agents:
   - id: auditor
     name: Auditor
     role: analysis
-    description: Analyzes skill metadata for redundancies, groups overlapping skills, and produces consolidation recommendations.
+    description: Analyzes skill metadata for redundancies, groups overlapping
+      skills, and produces consolidation recommendations.
     workspace:
       baseDir: agents/auditor
       skills:
@@ -79,8 +80,6 @@ steps:
       The SKILLS_JSON must be a valid JSON array with all skills included.
     expects: "STATUS: done"
     max_retries: 4
-    on_fail:
-      escalate_to: human
 
   - id: audit
     agent: auditor
@@ -124,8 +123,6 @@ steps:
       - Recommendations must be actionable — say exactly which skill to keep
     expects: "STATUS: done"
     max_retries: 4
-    on_fail:
-      escalate_to: human
 
   - id: report
     agent: reporter
@@ -172,5 +169,3 @@ steps:
       REPORT: full markdown report
     expects: "STATUS: done"
     max_retries: 4
-    on_fail:
-      escalate_to: human

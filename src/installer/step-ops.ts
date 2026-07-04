@@ -1791,7 +1791,7 @@ function completeStepInternal(stepId: string, output: string): { status: string;
   // check the immediately-following step to avoid blaming a non-producing step
   // when a later intermediate step is supposed to generate stories (e.g.
   // security-audit: scan → prioritize(produces stories) → fix(loop)).
-  // Honor max_retries so a permanently-broken planner still escalates.
+  // Honor max_retries so a permanently-broken planner still fails.
   if (step.type !== "loop") {
     const stepMentionsStories = step.input_template?.includes("STORIES_JSON");
     let downstreamLoopExpectingStories: { id: string; step_id: string; loop_config: string | null } | undefined;
@@ -2147,16 +2147,6 @@ export function archiveRunProgress(runId: string): void {
 // Fail Step
 // ══════════════════════════════════════════════════════════════════════
 
-function resolveEscalationTarget(policy: WorkflowStepFailure | null): string | null {
-  const escalateTo = policy?.on_exhausted?.escalate_to || policy?.escalate_to;
-  if (!escalateTo) return null;
-
-  const normalized = escalateTo.trim().toLowerCase();
-  if (normalized === "human" || normalized === "main") return "agent:main:main";
-  if (normalized.startsWith("agent:")) return escalateTo;
-  return null;
-}
-
 async function getOnFailPolicy(runId: string, stepId: string): Promise<WorkflowStepFailure | null> {
   try {
     const db = getDb();
@@ -2193,7 +2183,6 @@ function getOnFailPolicySync(runId: string, stepId: string): WorkflowStepFailure
 
 /**
  * Fail a step, with retry logic. For loop steps, applies per-story retry.
- * Handles escalate_on_failure by logging the escalation target.
  */
 export async function failStep(stepId: string, error: string): Promise<{ status: string }> {
   const result = await failStepInternal(stepId, error);
@@ -2240,18 +2229,6 @@ async function failStepInternal(stepId: string, error: string): Promise<{ status
         emitRunTerminalEvent({ event: "run.failed", runId: step.run_id, workflowId: wfId, detail: "Story retries exhausted" });
         scheduleRunCronTeardown(step.run_id);
         finalizeDrainingPause(step.run_id);
-
-        // Escalation: log the target and emit event if configured
-        try {
-          const policy = await getOnFailPolicy(step.run_id, step.step_id);
-          const target = resolveEscalationTarget(policy);
-          if (target) {
-            logger.warn(`Step failure exhausted — escalation target: ${target}`, { runId: step.run_id, stepId: step.step_id, error });
-            emitEvent({ ts: new Date().toISOString(), event: "step.escalation", runId: step.run_id, workflowId: wfId, stepId: step.step_id, detail: `Escalation target: ${target}. Reason: ${error}` });
-          }
-        } catch {
-          // escalation logging is best-effort
-        }
 
         return { status: "failed" };
       }
@@ -2303,18 +2280,6 @@ async function failStepInternal(stepId: string, error: string): Promise<{ status
     emitRunTerminalEvent({ event: "run.failed", runId: step.run_id, workflowId: wfId2, detail: "Step retries exhausted" });
     scheduleRunCronTeardown(step.run_id);
     finalizeDrainingPause(step.run_id);
-
-    // Escalation: log the target and emit event if configured
-    try {
-      const policy = await getOnFailPolicy(step.run_id, step.step_id);
-      const target = resolveEscalationTarget(policy);
-      if (target) {
-        logger.warn(`Step failure exhausted — escalation target: ${target}`, { runId: step.run_id, stepId: step.step_id, error });
-        emitEvent({ ts: new Date().toISOString(), event: "step.escalation", runId: step.run_id, workflowId: wfId2, stepId: step.step_id, detail: `Escalation target: ${target}. Reason: ${error}` });
-      }
-    } catch {
-      // escalation logging is best-effort
-    }
 
     // Rugpull detection: for single step failures, check if the base branch
     // moved under the run and launch a replacement. Fire-and-forget via

@@ -44,7 +44,8 @@ agents:
   - id: setup
     name: Setup
     role: coding
-    description: Creates bugfix branch in the worktree, captures original branch from harness context, and establishes baseline.
+    description: Creates bugfix branch in the worktree, captures original branch
+      from harness context, and establishes baseline.
     workspace:
       baseDir: agents/setup
       skills:
@@ -109,8 +110,6 @@ steps:
       PROBLEM_STATEMENT: clear description of what's wrong
     expects: "STATUS: done\nregex:^BRANCH:\\s*\\S+"
     max_retries: 4
-    on_fail:
-      escalate_to: human
 
   - id: investigate
     agent: investigator
@@ -141,8 +140,6 @@ steps:
       FIX_APPROACH: what needs to change and where
     expects: "STATUS: done"
     max_retries: 4
-    on_fail:
-      escalate_to: human
 
   - id: setup
     agent: setup
@@ -177,7 +174,6 @@ steps:
     on_fail:
       # Setup failures often stem from triage-level misdiagnosis (wrong branch, wrong build); re-triaging refreshes context
       retry_step: triage
-      escalate_to: human
 
   - id: fix
     agent: fixer
@@ -219,8 +215,6 @@ steps:
       REGRESSION_TEST: what test was added
     expects: "STATUS: done"
     max_retries: 4
-    on_fail:
-      escalate_to: human
 
   - id: verify
     agent: verifier
@@ -274,5 +268,3 @@ steps:
     on_fail:
       retry_step: fix
       max_retries: 6
-      on_exhausted:
-        escalate_to: human

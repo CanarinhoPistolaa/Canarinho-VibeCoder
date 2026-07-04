@@ -12,7 +12,8 @@ agents:
   - id: doer
     name: Doer
     role: coding
-    description: Executes arbitrary tasks and reports success or failure with a clear reason.
+    description: Executes arbitrary tasks and reports success or failure with a
+      clear reason.
     workspace:
       baseDir: agents/doer
       skills:
@@ -45,5 +46,3 @@ steps:
       REPORT: clear explanation of what happened and why (succeeded or failed)
     expects: "STATUS: done"
     max_retries: 4
-    on_fail:
-      escalate_to: human

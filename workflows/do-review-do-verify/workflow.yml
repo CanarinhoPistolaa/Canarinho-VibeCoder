@@ -70,8 +70,6 @@ steps:
       REPORT: detailed report of what was accomplished
     expects: "STATUS: done"
     max_retries: 2
-    on_fail:
-      escalate_to: human
 
   - id: review
     agent: reviewer
@@ -103,8 +101,6 @@ steps:
       ISSUES: specific problems that need to be addressed (or "none" if the work is perfect)
     expects: "STATUS: done"
     max_retries: 2
-    on_fail:
-      escalate_to: human
 
   - id: do-again
     agent: doer
@@ -135,8 +131,6 @@ steps:
       REPORT: detailed report of the refined work
     expects: "STATUS: done"
     max_retries: 2
-    on_fail:
-      escalate_to: human
 
   - id: verify
     agent: verifier
@@ -170,5 +164,3 @@ steps:
       DETAILS: detailed reasoning for the verdict
     expects: "STATUS: done"
     max_retries: 2
-    on_fail:
-      escalate_to: human
