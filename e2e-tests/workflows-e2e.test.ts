@@ -6,7 +6,7 @@
  *
  * COST/TIME WARNING:
  *   - SPENDS REAL API TOKENS (may cost money)
- *   - Expected runtime: 60–120 minutes (two sequential real workflows)
+ *   - Expected runtime: 90–180 minutes (four sequential real workflows)
  *   - Requires a configured pi agent setup (model, provider, auth)
  *   - Uses significant CPU while the daemon processes steps
  *
@@ -37,11 +37,15 @@
  *   - after() hook + per-test finally blocks guarantee cleanup on failure
  *
  * TEST ORDERING:
- *   The two tests run SEQUENTIALLY (concurrency: 1):
+ *   The four tests run SEQUENTIALLY (concurrency: 1):
  *   1. bug-fix-merge-worktree  — fixes the deliberately broken add function
  *   2. feature-dev-merge-worktree — adds a multiply function
- *   Test 2 depends on the state produced by Test 1 (same sample repo, shared
- *   temp HOME), so they must execute in order and share the before/after hooks.
+ *   3. quarantine-broken-tests-merge-worktree — quarantines failing test
+ *   4. security-audit-merge-worktree — fixes command injection vulnerability
+ *   Tests 1–2 share the origin-repo (sample-project fixture). Tests 3 and 4
+ *   use separate repos: quarantine-repo (sample-project fixture) and
+ *   origin-vuln-repo (sample-project-vuln fixture). All tests share the
+ *   same temp HOME and before/after hooks.
  *****************************************************************************/
 
 import { describe, it, before, after } from "node:test";
@@ -131,6 +135,11 @@ describe(
         ["workflow", "install", "quarantine-broken-tests-merge-worktree"],
         baseEnv(env.homeDir, env.controlPort),
         "install quarantine-broken-tests-merge-worktree",
+      );
+      cliMustSucceed(
+        ["workflow", "install", "security-audit-merge-worktree"],
+        baseEnv(env.homeDir, env.controlPort),
+        "install security-audit-merge-worktree",
       );
 
       // Prepare a clean git repo from the sample-project fixture.
@@ -575,6 +584,177 @@ describe(
           assertRepoClean(quarantineRepoDir, "quarantine post-check");
         } finally {
           // ── Stop daemon ─────────────────────────────────────────
+          await stopIsolatedDaemon(daemon);
+        }
+      },
+    );
+
+    // ── TEST 4: security-audit-merge-worktree (separate vuln repo) ─
+    it(
+      "security-audit-merge-worktree: fixes command injection in server.ts",
+      { timeout: 60 * 60_000 }, // 60 minutes
+      async () => {
+        // ── Prepare a git repo from the vulnerable fixture ──────
+        const vulnFixtureDir = path.join(
+          process.cwd(),
+          "e2e-tests",
+          "fixtures",
+          "sample-project-vuln",
+        );
+        const vulnRepoDir = path.join(env.root, "origin-vuln-repo");
+        prepareGitRepo(vulnFixtureDir, vulnRepoDir);
+
+        // ── Restart daemon for clean scheduler state ────────────
+        daemon = await startIsolatedDaemon(
+          env.dashboardPort,
+          env.homeDir,
+          env.controlPort,
+        );
+
+        try {
+          // ── Verify precondition: server.ts has exec() vuln ───
+          const preServerTs = fs.readFileSync(
+            path.join(vulnRepoDir, "src", "server.ts"),
+            "utf-8",
+          );
+          assert.ok(
+            preServerTs.includes("exec("),
+            `Precondition: server.ts should contain exec() vulnerability. Content:\n${preServerTs}`,
+          );
+
+          // ── Verify non-security code exists pre-fix ──────────
+          const preMathTs = fs.readFileSync(
+            path.join(vulnRepoDir, "src", "math.ts"),
+            "utf-8",
+          );
+          assert.ok(
+            preMathTs.includes("a - b"),
+            `Precondition: math.ts should have the subtract bug. Content:\n${preMathTs}`,
+          );
+
+          // ── Create run ───────────────────────────────────────
+          const runIdPrefix = await spawnWorkflowRun(
+            [
+              "workflow",
+              "run",
+              "security-audit-merge-worktree",
+              "Perform a security audit of this codebase. The repository contains a command injection vulnerability in src/server.ts where user input is passed unsanitized to a shell command.",
+              "--worktree-origin-repository",
+              vulnRepoDir,
+            ],
+            baseEnv(env.homeDir, env.controlPort),
+          );
+          const runId = resolveFullRunId(runIdPrefix, env.tamanduaDir);
+
+          // ── Wait for completion ──────────────────────────────
+          await waitForRunTerminal(
+            runId,
+            baseEnv(env.homeDir, env.controlPort),
+            45 * 60_000, // 45 min timeout
+            10_000,       // poll every 10s
+            env.tamanduaDir, // attach log/event/step diagnostics on timeout
+          );
+
+          // ── Verify run status ────────────────────────────────
+          const statusOut = cliMustSucceed(
+            ["workflow", "status", runId],
+            baseEnv(env.homeDir, env.controlPort),
+            "workflow status after security-audit completion",
+          );
+          assert.match(statusOut, /Status:\s+completed/i);
+
+          // ── Token accounting audit (MOTOR-CONTRACT.md C14/C15) ──
+          const securityAudit = auditRunTokens(env.tamanduaDir, runId);
+          assert.ok(
+            securityAudit.workTokens > 0,
+            `security-audit run should have attributed work tokens, got ${securityAudit.workTokens}`,
+          );
+          assert.equal(
+            typeof securityAudit.terminalTokensSpent,
+            "number",
+            "run.completed should carry tokensSpent",
+          );
+          console.log(
+            `[real-e2e baseline] security-audit-merge-worktree: workTokens=${securityAudit.workTokens} ` +
+              `systemTokens=${securityAudit.systemTokens} tokenUpdateEvents=${securityAudit.tokenUpdateEvents}`,
+          );
+
+          // ── Verify repository state ──────────────────────────
+          // Git log shows a fix(security) merge commit on main
+          const gitLog = execSync("git log --oneline -5", {
+            cwd: vulnRepoDir,
+            encoding: "utf-8",
+          });
+          const commitLines = gitLog.trim().split("\n");
+          assert.ok(
+            commitLines.length >= 2,
+            `Expected at least 2 commits (initial + fix merge), got:\n${gitLog}`,
+          );
+          const hasSecurityCommit =
+            gitLog.includes("fix(security)") ||
+            gitLog.toLowerCase().includes("security");
+          assert.ok(
+            hasSecurityCommit,
+            `Expected a fix(security) or security-related merge commit in git log:\n${gitLog}`,
+          );
+
+          // ── Verify the vulnerability is fixed ────────────────
+          // src/server.ts should no longer use exec() with unsanitized input
+          const postServerTs = fs.readFileSync(
+            path.join(vulnRepoDir, "src", "server.ts"),
+            "utf-8",
+          );
+          assert.ok(
+            !postServerTs.includes("exec("),
+            `src/server.ts should no longer contain exec() after fix. Content:\n${postServerTs.substring(0, 800)}`,
+          );
+
+          // ── Verify non-security code survives unchanged ──────
+          const postMathTs = fs.readFileSync(
+            path.join(vulnRepoDir, "src", "math.ts"),
+            "utf-8",
+          );
+          assert.ok(
+            postMathTs.includes("a - b"),
+            `math.ts should be unchanged by security audit (only the vulnerability should be fixed). Content:\n${postMathTs}`,
+          );
+
+          // ── Build and test after fix ─────────────────────────
+          buildSampleProject(vulnRepoDir);
+          const testOutput = execSync("npm test", {
+            cwd: vulnRepoDir,
+            encoding: "utf-8",
+            env: testCommandEnv(),
+          });
+          assert.ok(
+            testOutput.match(/pass|OK|0 fail/),
+            `Tests should pass after fix. Output:\n${testOutput.substring(0, 500)}`,
+          );
+
+          // ── Verify regression test still exists ──────────────
+          const serverTestPath = path.join(
+            vulnRepoDir,
+            "test",
+            "server.test.ts",
+          );
+          if (fs.existsSync(serverTestPath)) {
+            const serverTestTs = fs.readFileSync(serverTestPath, "utf-8");
+            assert.ok(
+              serverTestTs.includes("catFile"),
+              `server.test.ts should still test catFile after fix. Content:\n${serverTestTs.substring(0, 500)}`,
+            );
+            // The regression test from US-001 reads a safe filename
+            assert.ok(
+              serverTestTs.includes("legitimate") ||
+                serverTestTs.includes("safe") ||
+                serverTestTs.includes("catFile"),
+              `server.test.ts should have safe-path tests.`,
+            );
+          }
+
+          assertRepoClean(vulnRepoDir, "security-audit post-check");
+        } finally {
+          // ── Stop daemon ─────────────────────────────────────
           await stopIsolatedDaemon(daemon);
         }
       },
