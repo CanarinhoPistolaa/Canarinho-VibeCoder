@@ -7,8 +7,13 @@
 # COST/TIME WARNING:
 #   - Invokes REAL Tamandua agents with REAL model invocations
 #   - Spends REAL API tokens (may cost money)
-#   - Expected runtime: 30+ minutes per workflow (2 workflows tested)
+#   - Expected runtime: 30+ minutes per workflow (3 workflows tested)
 #   - Runs a full daemon + scheduler + agent pipeline end-to-end
+#
+# Workflows covered:
+#   - feature-dev-merge (feature-dev-merge-worktree)
+#   - bug-fix-merge (bug-fix-merge-worktree)
+#   - do-review-do-verify
 #
 # When to use:
 #   - Verifying the full Tamandua pipeline works end-to-end
@@ -30,5 +35,5 @@ cd "$(dirname "$0")"
 LOG="${TAMANDUA_REAL_E2E_LOG:-e2e-real-test-output.log}"
 
 npm run build
-node --test e2e-tests/workflows-e2e.test.ts 2>&1 | tee "$LOG"
+node --test e2e-tests/workflows-e2e.test.ts e2e-tests/workflows-do-review-do-verify-real.test.ts 2>&1 | tee "$LOG"
 exit "${PIPESTATUS[1]}"
