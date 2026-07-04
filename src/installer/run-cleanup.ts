@@ -26,7 +26,7 @@ export interface SweepOptions {
  * Read /proc/<pid>/cwd (the current working directory of the process).
  * Returns the absolute path, or null if the entry disappeared.
  */
-function readProcCwd(pid: number): string | null {
+export function readProcCwd(pid: number): string | null {
   try {
     const cwd = fs.readlinkSync(`/proc/${pid}/cwd`);
     if (typeof cwd === "string" && cwd.length > 0) return cwd;
@@ -43,7 +43,7 @@ function readProcCwd(pid: number): string | null {
  * Read /proc/<pid>/environ as a raw Buffer and convert to string.
  * Returns the raw environ content, or null if the entry disappeared.
  */
-function readProcEnviron(pid: number): string | null {
+export function readProcEnviron(pid: number): string | null {
   try {
     const buf = fs.readFileSync(`/proc/${pid}/environ`);
     // environ entries are null-separated
@@ -59,7 +59,7 @@ function readProcEnviron(pid: number): string | null {
  * Check if a process belongs to the run by inspecting its cwd and environ.
  * Returns the evidence string (which check matched), or null if no match.
  */
-function processBelongsToRun(
+export function processBelongsToRun(
   pid: number,
   runId: string,
   worktreePath: string,
@@ -102,7 +102,7 @@ function processBelongsToRun(
 /**
  * Get a list of numeric PIDs from /proc.
  */
-function getProcPids(): number[] {
+export function getProcPids(): number[] {
   const pids: number[] = [];
   let entries: string[];
   try {

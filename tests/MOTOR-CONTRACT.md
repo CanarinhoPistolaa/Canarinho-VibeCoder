@@ -132,6 +132,57 @@ baseline assertions.
   no longer stop the very daemon scheduling it
   (`src/server/daemonctl-self-stop-guard.test.ts`).
 
+### Post-grace process cleanup sweep
+
+When a run reaches a terminal state, in-flight harness processes are given a
+grace window (`HARNESS_TEARDOWN_GRACE_MS`, 10 s) to flush output and exit
+(C12). After the grace window expires, a **post-grace process cleanup
+sweep** (`sweepRunProcesses` in `src/installer/run-cleanup.ts`) kills any
+surviving orphan processes associated with the run.
+
+**Architecture:**
+
+- **Daemon-resident scheduling:** `removeRunCrons` in
+  `src/installer/agent-scheduler.ts` schedules a one-shot, unref-ed timer at
+  `HARNESS_TEARDOWN_GRACE_MS + 2 s` for every run whose crons are torn down.
+  When the timer fires, `sweepRunProcesses` is called with the daemon PID
+  excluded and NO `excludePgids` — after the grace window, any remaining
+  harness process group was not cleaned up by the leak guard (C12) and IS a
+  leak. The 2 s buffer gives the leak guard's immediate kill time to
+  complete before the sweep runs.
+- **Deduplication:** At most one pending timer per run (module-level
+  `Map<runId, Timeout>` in agent-scheduler.ts). Duplicate `removeRunCrons`
+  calls (e.g., control-plane terminate + natural completion race) do not
+  create duplicate sweeps.
+- **Daemon-resident by design:** The sweep timer is scheduled inside the
+  daemon, not in the short-lived CLI process (`scheduleRunCronTeardown` in
+  `step-ops.ts` no longer schedules a sweep — the CLI-side hook was removed
+  in US-003; its unref-ed timer never fired in short-lived CLI processes
+  anyway). The daemon is the natural long-lived home for the post-grace
+  sweep.
+- **Complementary pre-removal sweep:** The worktree-manager
+  pre-removal sweep (`src/installer/worktree-manager.ts`, line ~354) runs
+  `sweepRunProcesses` WITH `excludePgids` at worktree removal time, and
+  remains unchanged. This sweep handles cleanup during worktree garbage
+  collection, not during teardown.
+
+**Accepted-miss risks:**
+
+- **Daemon restart before sweep timer fires:** If the daemon is stopped or
+  crashes between scheduling the timer and its firing, the sweep is lost.
+  The pending sweep timers are in-memory only — they are not persisted.
+- **Late-detaching stragglers:** A process that detaches from the harness
+  process group after the sweep has already run (e.g., a deeply nested
+  child subprocess that survives parent exit and re-parents to init) will
+  not be caught by the one-shot sweep.
+
+**Accountability layer — doctor check:** The `runProcessLeakChecks` function
+in `src/doctor.ts` (STATE category, report-only, NEVER kills) scans for
+processes belonging to runs in terminal status and reports them as warnings
+with PID, evidence string, and run ID. This is the accountability layer for
+accepted-miss risks: it surfaces leaked processes that escaped the sweep so
+a human can clean them up. Remedy text: `Manual cleanup: kill <pid>`.
+
 ### Token accounting
 
 - **C14** Model usage from *work* is attributed to `runs.tokens_spent`

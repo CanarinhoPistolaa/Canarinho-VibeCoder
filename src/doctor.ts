@@ -26,6 +26,8 @@ import { getBuildVersion } from "./lib/version.js";
 import { getDb } from "./db.js";
 import { runMedicCheck } from "./medic/medic.js";
 import type { MedicFinding } from "./medic/medic.js";
+import { getRunWorktree } from "./installer/worktree-manager.js";
+import { getProcPids, processBelongsToRun } from "./installer/run-cleanup.js";
 
 // ── Types ──────────────────────────────────────────────────────────
 
@@ -557,6 +559,72 @@ async function runStateChecks(opts?: DoctorOpts): Promise<DoctorCheckResult[]> {
   }
 }
 
+// ── Process-Leak Check (US-004) ──────────────────────────────────
+
+/**
+ * Scan for processes tied to terminal runs — report-only, never kills.
+ *
+ * Serves as the accountability layer for accepted sweep-miss risks:
+ * daemon restarted before a pending sweep timer fired, late-detaching
+ * stragglers after the one-shot sweep, etc.
+ */
+function runProcessLeakChecks(opts?: DoctorOpts): DoctorCheckResult[] {
+  const results: DoctorCheckResult[] = [];
+
+  // Check if /proc exists (Linux only) — skip gracefully on non-Linux
+  try {
+    fs.accessSync("/proc", fs.constants.R_OK);
+  } catch {
+    return results;
+  }
+
+  const savedDbPath = process.env.TAMANDUA_DB_PATH;
+  if (opts?.homeDir) {
+    process.env.TAMANDUA_DB_PATH = path.join(opts.homeDir, ".tamandua", "tamandua.db");
+  }
+
+  try {
+    const db = getDb();
+
+    const rows = db
+      .prepare("SELECT id FROM runs WHERE status IN ('completed', 'failed', 'canceled')")
+      .all() as { id: string }[];
+
+    for (const row of rows) {
+      const runId = row.id;
+
+      const wt = getRunWorktree(runId);
+      if (!wt) continue;
+
+      // Worktree directory may have been removed — skip gracefully
+      if (!fs.existsSync(wt.worktreePath)) continue;
+
+      const pids = getProcPids();
+      for (const pid of pids) {
+        if (pid === process.pid) continue;
+
+        const evidence = processBelongsToRun(pid, runId, wt.worktreePath);
+        if (evidence) {
+          results.push({
+            name: "Run-process leak",
+            status: "warn",
+            message: `Process ${pid} belongs to terminal run ${runId}: ${evidence}`,
+            remedy: `Manual cleanup: kill ${pid}`,
+          });
+        }
+      }
+    }
+
+    return results;
+  } finally {
+    if (savedDbPath !== undefined) {
+      process.env.TAMANDUA_DB_PATH = savedDbPath;
+    } else if (opts?.homeDir) {
+      delete process.env.TAMANDUA_DB_PATH;
+    }
+  }
+}
+
 // ── Check Runner ───────────────────────────────────────────────────
 
 /**
@@ -566,7 +634,7 @@ async function runStateChecks(opts?: DoctorOpts): Promise<DoctorCheckResult[]> {
  *   1. ENVIRONMENT — runtime environment checks (Node.js, pi, gh, etc.)
  *   2. SERVICES    — daemon, control plane, dashboard, MCP liveness
  *   3. STALENESS   — running daemon build vs. installed build
- *   4. STATE       — database health and run-level anomalies
+ *   4. STATE       — database health, run-level anomalies, process leaks
  */
 export async function runDoctorChecks(opts?: DoctorOpts): Promise<CheckGroup[]> {
   // ENVIRONMENT — wired in US-003
@@ -586,6 +654,10 @@ export async function runDoctorChecks(opts?: DoctorOpts): Promise<CheckGroup[]> 
 
   // STATE — wired in US-006
   const stateChecks = await runStateChecks(opts);
+
+  // Process-leak checks — wired in US-004 (report-only, appended after existing STATE checks)
+  const leakChecks = runProcessLeakChecks(opts);
+  stateChecks.push(...leakChecks);
 
   return [
     { label: "ENVIRONMENT", checks: environmentChecks },

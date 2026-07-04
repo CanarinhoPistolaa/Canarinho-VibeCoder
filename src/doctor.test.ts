@@ -27,6 +27,7 @@ import {
   readMcpPort,
   writeMcpPort,
 } from "../dist/server/daemonctl.js";
+import { spawn } from "node:child_process";
 
 // ── Test-isolation DB setup ────────────────────────────────────
 
@@ -864,6 +865,323 @@ describe("STATE checks (US-006)", () => {
         `Remedy should mention medic, got: ${zombieCheck!.remedy}`);
     } finally {
       process.env.TAMANDUA_DB_PATH = savedDbPath;
+      try { fs.rmSync(homeDir, { recursive: true, force: true }); } catch {}
+    }
+  });
+});
+
+describe("STATE run-process-leak checks (US-004)", () => {
+  /** Seed a DB with a terminal run + worktree record. */
+  function seedTerminalRunWithWorktree(
+    dbPath: string,
+    runId: string,
+    worktreePath: string,
+  ): void {
+    const db = new DatabaseSync(dbPath);
+    db.exec("PRAGMA journal_mode=WAL");
+    db.exec("PRAGMA foreign_keys=ON");
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS runs (
+        id TEXT PRIMARY KEY, workflow_id TEXT NOT NULL, task TEXT NOT NULL,
+        status TEXT NOT NULL DEFAULT 'running', context TEXT NOT NULL DEFAULT '{}',
+        tokens_spent INTEGER NOT NULL DEFAULT 0, created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      );
+      CREATE TABLE IF NOT EXISTS run_worktrees (
+        run_id TEXT PRIMARY KEY,
+        worktree_origin_repository TEXT NOT NULL,
+        worktree_origin_git_common_dir TEXT NOT NULL,
+        worktree_path TEXT NOT NULL,
+        worktree_origin_ref TEXT,
+        worktree_origin_sha TEXT,
+        original_branch TEXT,
+        status TEXT NOT NULL DEFAULT 'creating',
+        cleanup_policy TEXT NOT NULL DEFAULT 'remove_on_success',
+        created_at TEXT NOT NULL,
+        removed_at TEXT,
+        error TEXT
+      );
+      CREATE TABLE IF NOT EXISTS steps (
+        id TEXT PRIMARY KEY, run_id TEXT NOT NULL, step_id TEXT NOT NULL,
+        agent_id TEXT NOT NULL, step_index INTEGER NOT NULL,
+        input_template TEXT NOT NULL, expects TEXT NOT NULL,
+        status TEXT NOT NULL DEFAULT 'waiting', output TEXT,
+        retry_count INTEGER DEFAULT 0, max_retries INTEGER DEFAULT 4,
+        type TEXT NOT NULL DEFAULT 'single', loop_config TEXT,
+        current_story_id TEXT, abandoned_count INTEGER DEFAULT 0,
+        created_at TEXT NOT NULL, updated_at TEXT NOT NULL
+      );
+    `);
+    const now = new Date().toISOString();
+    db.prepare(
+      "INSERT INTO runs (id, workflow_id, task, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)",
+    ).run(runId, "test-workflow", "test", "completed", now, now);
+    db.prepare(
+      "INSERT INTO run_worktrees (run_id, worktree_origin_repository, worktree_origin_git_common_dir, worktree_path, status, cleanup_policy, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+    ).run(runId, "/fake/repo", "/fake/repo/.git", worktreePath, "ready", "remove_on_terminal", now);
+    db.close();
+  }
+
+  it("reports process leak for terminal run with surviving process", { timeout: 10000 }, async () => {
+    const homeDir = createTempHome();
+    const dbPath = path.join(homeDir, ".tamandua", "tamandua.db");
+    fs.mkdirSync(path.dirname(dbPath), { recursive: true });
+
+    // Create a fake worktree directory
+    const worktreePath = path.join(homeDir, "worktrees", "test-run");
+    fs.mkdirSync(worktreePath, { recursive: true });
+
+    // Seed DB with terminal run
+    fs.writeFileSync(dbPath, "");
+    seedTerminalRunWithWorktree(dbPath, "terminal-run-001", worktreePath);
+
+    // Spawn a marker process whose cwd is the worktree path
+    const child = spawn("sleep", ["10"], {
+      cwd: worktreePath,
+      detached: false,
+      stdio: "ignore",
+    });
+
+    // Wait for the process to start
+    await new Promise<void>((resolve) => {
+      child.on("spawn", () => resolve());
+      setTimeout(() => resolve(), 500);
+    });
+
+    const childPid = child.pid!;
+
+    try {
+      const groups = await runDoctorChecks({ homeDir });
+      const state = groups.find((g) => g.label === "STATE");
+      assert.ok(state);
+
+      const leakChecks = state!.checks.filter((c) => c.name === "Run-process leak");
+      assert.ok(leakChecks.length >= 1,
+        `Expected at least 1 leak check, got ${leakChecks.length}. STATE checks: ${JSON.stringify(state!.checks.map((c) => c.name))}`);
+
+      // Find the check for our specific process
+      const ourLeak = leakChecks.find((c) => c.message.includes(String(childPid)));
+      assert.ok(ourLeak,
+        `Expected leak check for PID ${childPid}. Leak checks: ${leakChecks.map((c) => c.message).join(" | ")}`);
+      assert.strictEqual(ourLeak!.status, "warn",
+        `Leak check should be warn, got: ${ourLeak!.status}`);
+      assert.ok(ourLeak!.message.includes("terminal-run-001"),
+        `Message should include run ID. Got: ${ourLeak!.message}`);
+      assert.ok(ourLeak!.message.includes("cwd under worktree") || ourLeak!.message.includes("environ"),
+        `Message should include evidence. Got: ${ourLeak!.message}`);
+      assert.strictEqual(
+        ourLeak!.remedy,
+        `Manual cleanup: kill ${childPid}`,
+        `Remedy should suggest manual kill. Got: ${ourLeak!.remedy}`,
+      );
+
+      // Assert the process is NOT killed by the doctor (report-only)
+      let procExists = true;
+      try {
+        process.kill(childPid, 0);
+      } catch {
+        procExists = false;
+      }
+      assert.ok(procExists,
+        `Process ${childPid} should still be alive — doctor must NEVER kill processes`);
+    } finally {
+      // Kill the marker process
+      try { child.kill("SIGKILL"); } catch { /* already dead */ }
+      try { fs.rmSync(homeDir, { recursive: true, force: true }); } catch {}
+    }
+  });
+
+  it("does not report processes belonging to active runs", { timeout: 10000 }, async () => {
+    const homeDir = createTempHome();
+    const dbPath = path.join(homeDir, ".tamandua", "tamandua.db");
+    fs.mkdirSync(path.dirname(dbPath), { recursive: true });
+    fs.writeFileSync(dbPath, "");
+
+    const worktreePath = path.join(homeDir, "worktrees", "active-run");
+    fs.mkdirSync(worktreePath, { recursive: true });
+
+    // Seed DB with an ACTIVE (running) run with worktree
+    const now = new Date().toISOString();
+    const db = new DatabaseSync(dbPath);
+    db.exec("PRAGMA journal_mode=WAL");
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS runs (
+        id TEXT PRIMARY KEY, workflow_id TEXT NOT NULL, task TEXT NOT NULL,
+        status TEXT NOT NULL DEFAULT 'running', context TEXT NOT NULL DEFAULT '{}',
+        tokens_spent INTEGER NOT NULL DEFAULT 0, created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      );
+      CREATE TABLE IF NOT EXISTS run_worktrees (
+        run_id TEXT PRIMARY KEY,
+        worktree_origin_repository TEXT NOT NULL,
+        worktree_origin_git_common_dir TEXT NOT NULL,
+        worktree_path TEXT NOT NULL,
+        worktree_origin_ref TEXT,
+        worktree_origin_sha TEXT,
+        original_branch TEXT,
+        status TEXT NOT NULL DEFAULT 'creating',
+        cleanup_policy TEXT NOT NULL DEFAULT 'remove_on_success',
+        created_at TEXT NOT NULL,
+        removed_at TEXT,
+        error TEXT
+      );
+    `);
+    db.prepare(
+      "INSERT INTO runs (id, workflow_id, task, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)",
+    ).run("active-run-001", "test-workflow", "test", "running", now, now);
+    db.prepare(
+      "INSERT INTO run_worktrees (run_id, worktree_origin_repository, worktree_origin_git_common_dir, worktree_path, status, cleanup_policy, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+    ).run("active-run-001", "/fake/repo", "/fake/repo/.git", worktreePath, "ready", "remove_on_success", now);
+    db.close();
+
+    // Spawn marker process in the worktree
+    const child = spawn("sleep", ["10"], {
+      cwd: worktreePath,
+      detached: false,
+      stdio: "ignore",
+    });
+    await new Promise<void>((resolve) => {
+      child.on("spawn", () => resolve());
+      setTimeout(() => resolve(), 500);
+    });
+
+    const childPid = child.pid!;
+
+    try {
+      const groups = await runDoctorChecks({ homeDir });
+      const state = groups.find((g) => g.label === "STATE");
+      assert.ok(state);
+
+      const leakChecks = state!.checks.filter((c) => c.name === "Run-process leak");
+
+      // None should reference our process — it belongs to an active run
+      const activeLeaks = leakChecks.filter((c) => c.message.includes(String(childPid)));
+      assert.strictEqual(activeLeaks.length, 0,
+        `Process ${childPid} belongs to an active run — should NOT be reported as leak. Leaks: ${activeLeaks.map((c) => c.message).join(" | ")}`);
+    } finally {
+      try { child.kill("SIGKILL"); } catch {}
+      try { fs.rmSync(homeDir, { recursive: true, force: true }); } catch {}
+    }
+  });
+
+  it("handles missing worktree gracefully", async () => {
+    const homeDir = createTempHome();
+    const dbPath = path.join(homeDir, ".tamandua", "tamandua.db");
+    fs.mkdirSync(path.dirname(dbPath), { recursive: true });
+    fs.writeFileSync(dbPath, "");
+
+    // Seed DB with a terminal run but NO worktree record
+    // getRunWorktree returns null — check must not crash
+    const now = new Date().toISOString();
+    const db = new DatabaseSync(dbPath);
+    db.exec("PRAGMA journal_mode=WAL");
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS runs (
+        id TEXT PRIMARY KEY, workflow_id TEXT NOT NULL, task TEXT NOT NULL,
+        status TEXT NOT NULL DEFAULT 'running', context TEXT NOT NULL DEFAULT '{}',
+        tokens_spent INTEGER NOT NULL DEFAULT 0, created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      );
+    `);
+    db.prepare(
+      "INSERT INTO runs (id, workflow_id, task, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)",
+    ).run("no-wt-run", "test-workflow", "test", "completed", now, now);
+    db.close();
+
+    try {
+      // Must not throw — missing worktree should be skipped gracefully
+      const groups = await runDoctorChecks({ homeDir });
+      const state = groups.find((g) => g.label === "STATE");
+      assert.ok(state);
+
+      // No leak checks for this run since there's no worktree
+      const leakChecks = state!.checks.filter((c) => c.name === "Run-process leak");
+      const noWtLeaks = leakChecks.filter((c) => c.message.includes("no-wt-run"));
+      assert.strictEqual(noWtLeaks.length, 0,
+        `Run with no worktree should have no leak reports. Got: ${noWtLeaks.map((c) => c.message).join(" | ")}`);
+    } finally {
+      try { fs.rmSync(homeDir, { recursive: true, force: true }); } catch {}
+    }
+  });
+
+  it("zero matches produces no additional check", async () => {
+    const homeDir = createTempHome();
+    const dbPath = path.join(homeDir, ".tamandua", "tamandua.db");
+    fs.mkdirSync(path.dirname(dbPath), { recursive: true });
+
+    const worktreePath = path.join(homeDir, "worktrees", "clean-run");
+    fs.mkdirSync(worktreePath, { recursive: true });
+
+    fs.writeFileSync(dbPath, "");
+    seedTerminalRunWithWorktree(dbPath, "clean-terminal-run", worktreePath);
+
+    // Spawn NO process — the worktree is empty, no processes attached
+
+    try {
+      const groups = await runDoctorChecks({ homeDir });
+      const state = groups.find((g) => g.label === "STATE");
+      assert.ok(state);
+
+      const leakChecks = state!.checks.filter((c) => c.name === "Run-process leak");
+      // Should have zero leak reports since no processes are attached
+      assert.strictEqual(
+        leakChecks.length,
+        0,
+        `Expected 0 leak reports for clean run with no attached processes, got ${leakChecks.length}: ${leakChecks.map((c) => c.message).join(" | ")}`,
+      );
+    } finally {
+      try { fs.rmSync(homeDir, { recursive: true, force: true }); } catch {}
+    }
+  });
+
+  it("warnings include remedy text suggesting manual kill", { timeout: 10000 }, async () => {
+    const homeDir = createTempHome();
+    const dbPath = path.join(homeDir, ".tamandua", "tamandua.db");
+    fs.mkdirSync(path.dirname(dbPath), { recursive: true });
+
+    const worktreePath = path.join(homeDir, "worktrees", "leak-run");
+    fs.mkdirSync(worktreePath, { recursive: true });
+
+    fs.writeFileSync(dbPath, "");
+    seedTerminalRunWithWorktree(dbPath, "leak-run-001", worktreePath);
+
+    const child = spawn("sleep", ["10"], {
+      cwd: worktreePath,
+      detached: false,
+      stdio: "ignore",
+    });
+    await new Promise<void>((resolve) => {
+      child.on("spawn", () => resolve());
+      setTimeout(() => resolve(), 500);
+    });
+
+    const childPid = child.pid!;
+
+    try {
+      const groups = await runDoctorChecks({ homeDir });
+      const state = groups.find((g) => g.label === "STATE");
+      assert.ok(state);
+
+      const ourLeak = state!.checks.find(
+        (c) => c.name === "Run-process leak" && c.message.includes(String(childPid)),
+      );
+      assert.ok(ourLeak, `Expected leak check for PID ${childPid}`);
+      assert.strictEqual(ourLeak!.status, "warn");
+      assert.ok(ourLeak!.remedy, "Leak check should have a remedy");
+      assert.ok(
+        ourLeak!.remedy!.includes("kill"),
+        `Remedy should mention kill. Got: ${ourLeak!.remedy}`,
+      );
+      assert.ok(
+        ourLeak!.remedy!.includes(String(childPid)),
+        `Remedy should include PID. Got: ${ourLeak!.remedy}`,
+      );
+      assert.ok(
+        ourLeak!.remedy!.includes("Manual cleanup"),
+        `Remedy should suggest manual cleanup. Got: ${ourLeak!.remedy}`,
+      );
+    } finally {
+      try { child.kill("SIGKILL"); } catch {}
       try { fs.rmSync(homeDir, { recursive: true, force: true }); } catch {}
     }
   });

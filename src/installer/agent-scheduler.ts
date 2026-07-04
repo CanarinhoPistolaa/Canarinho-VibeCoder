@@ -98,6 +98,20 @@ interface InFlightChild {
 }
 const inFlightChildren = new Map<string, InFlightChild>();
 
+/**
+ * Pending post-grace process-cleanup sweep timers keyed by runId.
+ * At most one timer per run: `removeRunCrons` schedules a one-shot
+ * unref-ed timer at HARNESS_TEARDOWN_GRACE_MS + 2s after the last
+ * crons-teardown call for the run. When the timer fires it sweep-kills
+ * surviving leaked processes tied to the run's worktree. The timer is
+ * unref-ed so a process with an empty event loop exits without waiting.
+ *
+ * Cleared on fire and in `shutdownAllCrons` for test isolation.
+ *
+ * @internal — exposed for test introspection via `_pendingSweepTimerCount`.
+ */
+const pendingSweepTimers = new Map<string, NodeJS.Timeout>();
+
 const AGENT_PERSONA_FILES = ["AGENTS.md", "IDENTITY.md", "SOUL.md"] as const;
 
 export interface CronJobInfo {
@@ -1708,6 +1722,57 @@ export interface RemoveRunCronsOptions {
 }
 
 /**
+ * Schedule a one-shot post-grace sweep timer for a run. Deduplicated: at
+ * most one pending timer per runId. The timer is unref-ed so a process
+ * with an empty event loop exits without waiting. Called from
+ * `removeRunCrons` so every run teardown path (control-plane terminate,
+ * dispatch-round run_not_running) gets a sweep scheduled.
+ */
+function scheduleSweepTimer(runId: string): void {
+  if (pendingSweepTimers.has(runId)) return;
+
+  const delayMs = HARNESS_TEARDOWN_GRACE_MS + 2_000;
+  const timer = setTimeout(async () => {
+    pendingSweepTimers.delete(runId);
+    try {
+      const { getRunWorktree } = await import("./worktree-manager.js");
+      const wt = getRunWorktree(runId);
+      if (!wt) {
+        logger.info("Sweep timer: no worktree found for run (already removed?)", { runId });
+        return;
+      }
+
+      const { sweepRunProcesses } = await import("./run-cleanup.js");
+      const result = sweepRunProcesses(runId, wt.worktreePath, {
+        daemonPid: process.pid,
+        // After grace, the leak guard already killed harness groups;
+        // survivors ARE leaks — no exclusions.
+      });
+
+      if (result.killedPids.length > 0) {
+        logger.info("Post-grace sweep killed leaked processes", {
+          runId,
+          killedPids: result.killedPids,
+          evidence: result.evidence,
+        });
+      } else {
+        logger.debug("Post-grace sweep found no leaked processes", { runId });
+      }
+    } catch (err) {
+      logger.warn("Post-grace sweep timer callback failed", {
+        runId,
+        error: (err as Error).message,
+      });
+    }
+  }, delayMs);
+
+  timer.unref();
+  pendingSweepTimers.set(runId, timer);
+
+  logger.debug("Scheduled post-grace sweep timer", { runId, delayMs });
+}
+
+/**
  * Remove all dispatch jobs for a given runId. Terminates any in-flight
  * pi process group for the run as well (after `options.graceMs`, if set).
  */
@@ -1762,6 +1827,14 @@ export async function removeRunCrons(
   if (removed.length > 0) {
     logger.info("Removed run-scoped crons", { runId, count: removed.length, jobIds: removed, graceMs });
   }
+
+  // ── Post-grace process cleanup sweep ────────────────────────────
+  // After harness processes exit (or the leak guard kills them), sweep
+  // for any surviving leaked processes tied to the run's worktree.
+  // Daemon-resident: only fires when the daemon tears down a run's
+  // crons. One-shot, deduplicated per runId, unref-ed so empty event
+  // loops exit without waiting.
+  scheduleSweepTimer(runId);
 }
 
 /**
@@ -1849,6 +1922,10 @@ export function shutdownAllCrons(): void {
       safeKillPgid(child.pgid, "SIGTERM");
       setTimeout(() => safeKillPgid(child.pgid, "SIGKILL"), 5000).unref();
     }
+  }
+  for (const [runId, timer] of pendingSweepTimers) {
+    clearTimeout(timer);
+    pendingSweepTimers.delete(runId);
   }
   inFlightChildren.clear();
   inFlightJobs.clear();
@@ -2022,6 +2099,16 @@ export async function nudgeScheduledRuns(
 }
 
 // ── Internal helpers (exposed for daemon reconciler + tests) ─────────
+
+/** @internal — exposed for tests to introspect pending sweep timers. */
+export function _pendingSweepTimerCount(): number {
+  return pendingSweepTimers.size;
+}
+
+/** @internal — exposed for tests to check whether a timer is pending for a runId. */
+export function _hasPendingSweepTimer(runId: string): boolean {
+  return pendingSweepTimers.has(runId);
+}
 
 /** @internal — exposed for daemon reconciler. */
 export function _scheduledRunIds(): Set<string> {

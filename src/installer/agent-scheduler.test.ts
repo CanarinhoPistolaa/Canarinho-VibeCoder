@@ -18,7 +18,10 @@ import {
   shutdownAllCrons,
   tryMarkJobInFlight,
   nudgeScheduledRuns,
+  _pendingSweepTimerCount,
+  _hasPendingSweepTimer,
   DISPATCH_INTERVAL_MS,
+  HARNESS_TEARDOWN_GRACE_MS,
 } from "../../dist/installer/agent-scheduler.js";
 import type { SetupAgentCronsOptions, NudgeResult } from "../../dist/installer/agent-scheduler.js";
 import type { WorkflowSpec } from "../../dist/installer/types.js";
@@ -394,5 +397,99 @@ describe("nudgeScheduledRuns", () => {
     assert.equal(skipped.length, 1);
     assert.equal(launched[0].agentId, "wf-mixed_qa");
     assert.equal(skipped[0].agentId, "wf-mixed_dev");
+  });
+});
+
+// ── Sweep timer scheduling tests ───────────────────────────────────
+
+describe("removeRunCrons sweep timer scheduling", () => {
+  afterEach(() => {
+    shutdownAllCrons();
+  });
+
+  it("schedules a sweep timer when removeRunCrons is called", async () => {
+    const workflow = makeWorkflow();
+    const runId = "run-sweep-scheduled";
+
+    await setupAgentCrons(workflow, runId);
+    assert.equal(_pendingSweepTimerCount(), 0);
+
+    await removeRunCrons(runId);
+    assert.equal(_pendingSweepTimerCount(), 1);
+    assert.equal(_hasPendingSweepTimer(runId), true);
+  });
+
+  it("deduplicates sweep timers per runId", async () => {
+    const workflow = makeWorkflow();
+    const runId = "run-sweep-dedup";
+
+    await setupAgentCrons(workflow, runId);
+
+    // First call schedules the timer
+    await removeRunCrons(runId);
+    assert.equal(_pendingSweepTimerCount(), 1);
+
+    // Second call should not schedule a duplicate
+    await removeRunCrons(runId);
+    assert.equal(_pendingSweepTimerCount(), 1);
+
+    // Third call still only one
+    await removeRunCrons(runId);
+    assert.equal(_pendingSweepTimerCount(), 1);
+  });
+
+  it("schedules independent timers for different runIds", async () => {
+    const workflow = makeWorkflow();
+
+    await setupAgentCrons(workflow, "run-a");
+    await setupAgentCrons(workflow, "run-b");
+
+    await removeRunCrons("run-a");
+    assert.equal(_pendingSweepTimerCount(), 1);
+    assert.equal(_hasPendingSweepTimer("run-a"), true);
+    assert.equal(_hasPendingSweepTimer("run-b"), false);
+
+    await removeRunCrons("run-b");
+    assert.equal(_pendingSweepTimerCount(), 2);
+    assert.equal(_hasPendingSweepTimer("run-a"), true);
+    assert.equal(_hasPendingSweepTimer("run-b"), true);
+  });
+
+  it("sweep timer delay is HARNESS_TEARDOWN_GRACE_MS + 2s", () => {
+    // The formula is: delay = HARNESS_TEARDOWN_GRACE_MS + 2_000
+    const expectedMin = HARNESS_TEARDOWN_GRACE_MS + 2_000;
+    assert.ok(
+      expectedMin > HARNESS_TEARDOWN_GRACE_MS,
+      `Expected delay ${expectedMin} to be > grace ${HARNESS_TEARDOWN_GRACE_MS}`,
+    );
+    assert.ok(
+      expectedMin > 10_000,
+      `Expected delay ${expectedMin} to be > 10s`,
+    );
+  });
+
+  it("sweep timer is cleared on shutdownAllCrons", async () => {
+    const workflow = makeWorkflow();
+    const runId = "run-sweep-shutdown";
+
+    await setupAgentCrons(workflow, runId);
+    await removeRunCrons(runId);
+    assert.equal(_pendingSweepTimerCount(), 1);
+
+    shutdownAllCrons();
+    assert.equal(_pendingSweepTimerCount(), 0);
+    assert.equal(_hasPendingSweepTimer(runId), false);
+  });
+
+  it("does not schedule sweep timer when no jobs were removed", async () => {
+    // removeRunCrons on an unknown runId should still schedule a timer
+    // (the timer callback handles the "no worktree" case gracefully).
+    await removeRunCrons("no-such-run");
+    assert.equal(_pendingSweepTimerCount(), 1);
+    assert.equal(_hasPendingSweepTimer("no-such-run"), true);
+
+    // Cleanup
+    shutdownAllCrons();
+    assert.equal(_pendingSweepTimerCount(), 0);
   });
 });

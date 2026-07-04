@@ -1,0 +1,175 @@
+# Progress Log
+Run: f2453a33-415f-4242-bdc8-aa522c6ec5d2
+Task: Feature WCLE: daemon-resident process cleanup sweep + doctor check
+Started: 2026-07-04T01:26:30Z
+
+## Codebase Patterns
+
+- `src/installer/run-cleanup.ts` contains `/proc` scanning helpers and `sweepRunProcesses` main export
+- Tests live alongside source: `src/installer/run-cleanup.test.ts`
+- Build with `npm run build` (tsc + HTML copy + version injection)
+- Test with `npm test` which runs `node --test tests/*.test.ts src/**/*.test.ts`
+- ESM project — dist files use `export` keyword, not CJS `exports.`
+- `getRunWorktree(runId)` in `src/installer/worktree-manager.ts` retrieves worktree metadata from DB
+- `removeRunCrons` in `src/installer/agent-scheduler.ts` tears down dispatch jobs for a run
+- Module-level Maps in agent-scheduler.ts are the pattern for in-memory state (activeTimers, pendingStartTimers, jobMetadata, inFlightChildren)
+- Internal helpers exposed for tests use `_` prefix (e.g., `_scheduledJobCountForRun`, `_pendingSweepTimerCount`)
+- `shutdownAllCrons()` is the teardown hook for test isolation — must clear all Maps
+- The daemon-resident sweep timer pattern: schedule an unref-ed timer in removeRunCrons, dedup via Map<runId, Timeout>, import runtime deps (worktree-manager, run-cleanup) dynamically within the timer callback
+- Doctor check functions follow the `run<Category>Checks(opts?: DoctorOpts)` pattern with DB path isolation via save/restore of TAMANDUA_DB_PATH
+- Doctor tests seed DBs manually (DatabaseSync + SQL) for fully isolated scenarios; temp HOME per test
+- Process-matching helpers (getProcPids, processBelongsToRun) are now exported from run-cleanup.ts and importable by doctor.ts
+- MOTOR-CONTRACT.md sections: Lifecycle & pipeline, Dispatch, Deterministic-motor guarantees, Failure & recovery, Control plane & scheduling lifecycle, Token accounting, Workspace
+
+## Story Plan
+
+### US-001: Refactor-export process-matching helpers from run-cleanup.ts
+
+**Description:** Export getProcPids, processBelongsToRun, readProcCwd, readProcEnviron from run-cleanup.ts for reuse by doctor.ts
+
+**Acceptance Criteria:**
+- processBelongsToRun is exported and callable from external modules
+- readProcCwd and readProcEnviron are exported
+- getProcPids is exported
+- Existing run-cleanup tests continue to pass with no changes
+- Typecheck passes
+
+### US-002: Add daemon-resident sweep scheduling to removeRunCrons
+
+**Description:** Schedule a post-grace process cleanup sweep in removeRunCrons (daemon-resident)
+
+**Acceptance Criteria:**
+- removeRunCrons schedules a sweep timer after HARNESS_TEARDOWN_GRACE_MS + 2s
+- Duplicate calls do not create duplicate timers
+- Timer is unref-ed
+- sweepRunProcesses called with daemonPid excluded, no excludePgids
+- Map entry removed after timer fires
+- Tests pass, typecheck passes
+
+### US-003: Remove CLI-side delayed sweep hook from scheduleRunCronTeardown
+
+**Description:** Remove redundant CLI-side fire-and-forget sweep from step-ops.ts
+
+**Acceptance Criteria:**
+- scheduleRunCronTeardown no longer schedules a cleanup sweep via setTimeout
+- scheduleRunCronTeardown still calls removeRunCrons
+- Worktree-manager pre-removal sweep unchanged
+- Tests pass, typecheck passes
+
+### US-004: Add STATE-category run-process-leak check to doctor
+
+**Description:** Add report-only doctor check for processes tied to terminal runs
+
+**Acceptance Criteria:**
+- Doctor STATE group includes run-process-leak checks
+- Processes tied to terminal runs reported as warnings
+- Warnings include remedy text
+- Doctor never kills processes
+- No false positives for active runs
+- Handles missing worktree/non-Linux gracefully
+- Tests pass, typecheck passes
+
+### US-005: Update MOTOR-CONTRACT.md with sweep documentation
+
+**Description:** Document post-grace sweep architecture in MOTOR-CONTRACT.md
+
+**Acceptance Criteria:**
+- MOTOR-CONTRACT.md documents sweep location
+- Explains daemon-resident and one-shot design
+- Accepted-miss risks documented
+- Doctor check documented as accountability layer
+- Typecheck passes
+
+### US-006: Integration verification — npm test and scripted e2e
+
+**Description:** Run full test suite to verify all changes
+
+**Acceptance Criteria:**
+- npm test passes
+- ./run-all-e2e-tests passes
+- C12 token-flush test stays green
+- Typecheck passes
+
+---
+## 2026-07-04T01:28:00Z - US-001: Refactor-export process-matching helpers from run-cleanup.ts
+- Added `export` keyword to four functions in src/installer/run-cleanup.ts:
+  - `processBelongsToRun` (line 46)
+  - `readProcCwd` (line 10)
+  - `readProcEnviron` (line 29)
+  - `getProcPids` (line 80)
+- No behavioral changes — only added `export` to existing function declarations
+- Verified all four exports present in dist/installer/run-cleanup.js
+- **Files changed:** src/installer/run-cleanup.ts
+- **Learnings:** run-cleanup.ts uses ESM exports throughout; dist output confirms export keyword; existing 10 tests all pass unchanged
+---
+## 2026-07-04T02:35:00Z - US-002: Add daemon-resident sweep scheduling to removeRunCrons
+- Added module-level `pendingSweepTimers` Map in src/installer/agent-scheduler.ts
+- Added `scheduleSweepTimer(runId)` function:
+  - Deduplicates via Map: at most one pending timer per runId
+  - Schedules one-shot unref-ed timer at HARNESS_TEARDOWN_GRACE_MS + 2000ms
+  - On fire: dynamically imports worktree-manager (`getRunWorktree`) and run-cleanup (`sweepRunProcesses`)
+  - Passes `daemonPid: process.pid` (daemon excluded from kill), NO `excludePgids` (after grace, survivors ARE leaks)
+  - Clears Map entry when timer fires
+  - Timer is unref-ed so empty event loop exits without waiting
+- Modified `removeRunCrons`: calls `scheduleSweepTimer(runId)` after existing cleanup
+- Modified `shutdownAllCrons`: clears pending sweep timers for test isolation
+- Exported `_pendingSweepTimerCount()` and `_hasPendingSweepTimer(runId)` for test introspection
+- Added 6 tests in src/installer/agent-scheduler.test.ts
+- All 59 agent-scheduler + run-cleanup tests pass; npm test: 2690 pass (1 pre-existing flaky failure unrelated)
+- **Files changed:** src/installer/agent-scheduler.ts, src/installer/agent-scheduler.test.ts
+- **Learnings:** `scheduleSweepTimer` is called from `removeRunCrons` which runs in the daemon for both control-plane terminate path and dispatch-round run_not_running path; Map-based dedup is the standard pattern in agent-scheduler.ts
+---
+## 2026-07-04T02:54:00Z - US-003: Remove CLI-side delayed sweep hook from scheduleRunCronTeardown
+- Removed the entire second dynamic import block in scheduleRunCronTeardown (step-ops.ts)
+  - The fire-and-forget cleanup sweep (setTimeout + unref + sweepRunProcesses) was redundant
+  - The daemon-resident sweep in removeRunCrons (US-002) now covers post-grace process cleanup
+  - The unref-ed timer never fired in short-lived CLI processes anyway
+- Preserved the first dynamic import block (removeRunCrons trigger) — this is what causes the daemon-side sweep to be scheduled
+- Worktree-manager pre-removal sweep (line 354, with excludePgids) is untouched
+- npm test: 2691 pass, 0 fail (1 pre-existing skip)
+- ./run-all-e2e-tests: 12 pass, 0 fail, including "final-round token usage survives completion teardown" (C12)
+- **Files changed:** src/installer/step-ops.ts (41 deletions)
+- **Learnings:** scheduleRunCronTeardown now delegates cleanup solely to removeRunCrons, which schedules the daemon-resident sweep; the CLI side is intentionally lean
+---
+## 2026-07-04T03:00:00Z - US-004: Add STATE-category run-process-leak check to doctor
+- Added `runProcessLeakChecks(opts?: DoctorOpts)` function to src/doctor.ts
+  - Queries runs WHERE status IN ('completed', 'failed', 'canceled') from DB
+  - For each terminal run: gets worktree via `getRunWorktree(runId)`, skips if null or worktree path doesn't exist on disk
+  - Scans /proc via `getProcPids()` + `processBelongsToRun()` (imported from run-cleanup.ts)
+  - For each matched process: produces DoctorCheckResult with status: 'warn', message containing pid + evidence + runId, remedy: 'Manual cleanup: kill <pid>'
+  - NEVER kills any process — report-only accountability layer for accepted sweep-miss risks
+  - Skips non-Linux gracefully (no /proc → returns empty array)
+- Added 2 new imports: `getRunWorktree` from worktree-manager, `getProcPids` + `processBelongsToRun` from run-cleanup
+- Merged results into `runDoctorChecks`: appends leak checks to STATE group after existing Database opens + Run-level anomalies checks
+- Added 5 tests in src/doctor.test.ts
+- npm test: 2691 pass, 0 fail (1 pre-existing skip)
+- **Files changed:** src/doctor.ts (+74 lines), src/doctor.test.ts (+318 lines)
+- **Learnings:** Doctor check functions follow the run<Category>Checks(opts?) pattern; process-matching helpers are exported from run-cleanup.ts; tests seed DB manually for fully isolated scenarios
+---
+## 2026-07-04T03:10:00Z - US-005: Update MOTOR-CONTRACT.md with sweep documentation
+- Added "Post-grace process cleanup sweep" subsection under "Control plane & scheduling lifecycle" in tests/MOTOR-CONTRACT.md
+- Documents the daemon-resident sweep architecture: scheduleSweepTimer in removeRunCrons (agent-scheduler.ts), one-shot unref-ed timer at HARNESS_TEARDOWN_GRACE_MS + 2s
+- Documents deduplication via module-level Map<runId, Timeout>
+- Documents the removal of the CLI-side hook (US-003) and why the daemon is the correct home
+- Documents the complementary worktree-manager pre-removal sweep (with excludePgids, unchanged)
+- Documents accepted-miss risks: daemon restart before sweep timer fires, late-detaching stragglers
+- Documents doctor check (runProcessLeakChecks) as the accountability layer — STATE category, report-only, never kills
+- npm test: 2692 tests, 2691 pass, 0 fail, 1 skipped
+- ./run-all-e2e-tests: 12 pass, 0 fail, including "final-round token usage survives completion teardown" (C12)
+- **Files changed:** tests/MOTOR-CONTRACT.md (+51 lines)
+- **Learnings:** MOTOR-CONTRACT.md sections: Lifecycle & pipeline, Dispatch, Deterministic-motor guarantees, Failure & recovery, Control plane & scheduling lifecycle, Token accounting, Workspace; post-grace sweep fits naturally under Control plane next to C12 (grace window) and C18 (worker recovery)
+---
+## 2026-07-04T03:23:00Z - US-006: Integration verification — npm test and scripted e2e
+- Ran full test suite to verify all US-001 through US-005 changes are correct and regression-free
+- **npm test:** 2691 pass, 0 fail, 1 skipped (pre-existing skip only)
+- **./run-all-e2e-tests:** 12 pass, 0 fail (smoke + scripted)
+  - "final-round token usage survives completion teardown" (C12) stays green ✓
+  - "daemon SIGKILL'd mid-work — restarted daemon recovers" (C18) stays green ✓
+  - All scripted pipeline tests pass (bug-fix-merge-worktree, do-now lost step, do-now completion teardown, daemon recovery, reroute, agent crash)
+- **Deterministic motor acceptance (MOTOR-CONTRACT.md N1–N3):** pass ✓
+- **C14 work-round token attribution:** pass ✓
+- **Typecheck (tsc --noEmit):** clean ✓
+- No code changes — pure integration verification; progress file only
+- **Files changed:** progress-f2453a33-415f-4242-bdc8-aa522c6ec5d2.txt
+- **Learnings:** All 6 stories (US-001 through US-006) are complete; the feature branch `feature/daemon-resident-process-sweep` has 6 commits ready for PR
+---

@@ -390,47 +390,6 @@ export function scheduleRunCronTeardown(runId: string): void {
     import("./agent-scheduler.js")
       .then((m) => m.removeRunCrons(runId, { graceMs: m.HARNESS_TEARDOWN_GRACE_MS }))
       .catch(() => {});
-    // Fire-and-forget cleanup sweep: kill surviving processes tied to the
-    // run after the harness process group kill from removeRunCrons completes.
-    import("./agent-scheduler.js")
-      .then(async (m) => {
-        // unref'd: completeStep often runs in a short-lived CLI process
-        // spawned BY the harness — a referenced 10s timer here kept that
-        // CLI alive, blocked the harness's spawnSync for the whole grace
-        // window, and let the leak-guard SIGTERM race the final usage
-        // flush (real token-loss regression caught by the scripted e2e).
-        // The CLI exits immediately; the sweep then runs only in
-        // long-lived processes (daemon), with the worktree-removal sweep
-        // and leak guard covering the rest.
-        await new Promise((resolve) => setTimeout(resolve, m.HARNESS_TEARDOWN_GRACE_MS).unref());
-        try {
-          const { getRunWorktree } = await import("./worktree-manager.js");
-          const wt = getRunWorktree(runId);
-          if (!wt) return;
-
-          // Read daemon PID for exclusion
-          let daemonPid: number | undefined;
-          try {
-            const pidContent = fs.readFileSync(
-              path.join(resolvePiStateDir(), "daemon.pid"),
-              "utf-8",
-            ).trim();
-            const parsed = parseInt(pidContent, 10);
-            if (Number.isInteger(parsed) && parsed > 0) daemonPid = parsed;
-          } catch {
-            // daemon.pid may not exist
-          }
-
-          const { sweepRunProcesses } = await import("./run-cleanup.js");
-          sweepRunProcesses(runId, wt.worktreePath, { daemonPid });
-        } catch (cleanupErr) {
-          logger.warn("Process cleanup sweep failed", {
-            runId,
-            error: (cleanupErr as Error).message,
-          });
-        }
-      })
-      .catch(() => {});
     import("../server/control-client.js")
       .then((m) => m.terminateRunWithDaemon(runId))
       .catch(() => {});
