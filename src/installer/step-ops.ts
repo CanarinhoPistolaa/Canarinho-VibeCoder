@@ -700,7 +700,32 @@ export function formatCompletedStories(stories: Story[]): string {
 // ══════════════════════════════════════════════════════════════════════
 
 /**
+ * Count occurrences of `"<key>":` in raw JSON text where the opening quote is
+ * a real JSON delimiter, i.e. not escaped inside a string value (an odd run
+ * of preceding backslashes means the quote is string content, so prose like
+ * `the \"id\": key` in a description does not count). Used by the SJSN guard
+ * below to detect story objects that were fused by missing "},{"
+ * separators — JSON.parse accepts duplicate keys silently (last one wins),
+ * so a fused 7-story object parses as ONE valid story with no error on any
+ * surface.
+ */
+export function countUnescapedJsonKey(jsonText: string, key: string): number {
+  const re = new RegExp(`"${key}"\\s*:`, "g");
+  let count = 0;
+  for (const m of jsonText.matchAll(re)) {
+    let backslashes = 0;
+    for (let i = (m.index ?? 0) - 1; i >= 0 && jsonText[i] === "\\"; i--) backslashes++;
+    if (backslashes % 2 === 0) count++;
+  }
+  return count;
+}
+
+/**
  * Parse STORIES_JSON from step output and insert stories into the DB.
+ *
+ * Validation is two-phase: every story is checked BEFORE the first insert, so
+ * a validation throw never leaves a partial story list behind for the retry
+ * to duplicate.
  */
 export function parseAndInsertStories(output: string, runId: string): void {
   const lines = output.split("\n");
@@ -729,12 +754,21 @@ export function parseAndInsertStories(output: string, runId: string): void {
     throw new Error(`STORIES_JSON has ${stories.length} stories, max is 20`);
   }
 
-  const db = getDb();
-  const now = new Date().toISOString();
-  const insert = db.prepare(
-    "INSERT INTO stories (id, run_id, story_index, story_id, title, description, acceptance_criteria, status, retry_count, max_retries, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, 'pending', 0, 4, ?, ?)"
-  );
+  // SJSN guard: detect duplicate-key collapse. A planner that omits "},{"
+  // separators emits one fused object whose repeated keys JSON.parse silently
+  // discards (last one wins) — the payload stays valid JSON, passes every
+  // per-story check below, and quietly drops all but the final story. Compare
+  // raw "id" key occurrences against the parsed story count to catch it.
+  const rawIdCount = countUnescapedJsonKey(jsonText, "id");
+  if (rawIdCount > stories.length) {
+    throw new Error(
+      `STORIES_JSON structural mismatch: the raw JSON contains ${rawIdCount} "id" keys but parsed to only ${stories.length} ${stories.length === 1 ? "story" : "stories"}. ` +
+      `Story objects are likely fused together (missing "},{" separators between stories), so JSON.parse silently discarded every story but the last. ` +
+      `Re-emit the full STORIES_JSON as an array where each story is its own {...} object: [{"id":"US-001",...},{"id":"US-002",...}]`
+    );
+  }
 
+  // Phase 1: validate every story before inserting anything.
   const seenIds = new Set<string>();
   for (let i = 0; i < stories.length; i++) {
     const s = stories[i];
@@ -746,6 +780,17 @@ export function parseAndInsertStories(output: string, runId: string): void {
       throw new Error(`STORIES_JSON has duplicate story id "${s.id}"`);
     }
     seenIds.add(s.id);
+  }
+
+  // Phase 2: all stories valid — insert.
+  const db = getDb();
+  const now = new Date().toISOString();
+  const insert = db.prepare(
+    "INSERT INTO stories (id, run_id, story_index, story_id, title, description, acceptance_criteria, status, retry_count, max_retries, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, 'pending', 0, 4, ?, ?)"
+  );
+  for (let i = 0; i < stories.length; i++) {
+    const s = stories[i];
+    const ac = s.acceptanceCriteria ?? s.acceptance_criteria;
     insert.run(crypto.randomUUID(), runId, i, s.id, s.title, s.description, JSON.stringify(ac), now, now);
   }
 }
@@ -1776,8 +1821,51 @@ function completeStepInternal(stepId: string, output: string): { status: string;
     "UPDATE runs SET context = ?, updated_at = datetime('now') WHERE id = ?"
   ).run(JSON.stringify(context), runId);
 
-  // Parse STORIES_JSON from output (any step, typically the planner)
-  parseAndInsertStories(output, runId);
+  // Parse STORIES_JSON from output (any step, typically the planner).
+  //
+  // SJSN: a validation failure here (fused/duplicate-key collapse, malformed
+  // JSON, duplicate story ids, missing fields) re-pends this step with the
+  // reason as retry feedback, bounded by max_retries — mirroring the
+  // no-STORIES_JSON guard below. Letting the throw propagate would crash the
+  // completing CLI and leave the step running until the abandon sweep resets
+  // it blind, with no feedback about what was wrong.
+  //
+  // Note: the run-context merge above already happened; keys from this
+  // rejected output remain in context and are overwritten when the retry
+  // re-emits them. parseAndInsertStories validates before inserting, so a
+  // throw never leaves partial stories behind.
+  try {
+    parseAndInsertStories(output, runId);
+  } catch (err) {
+    const reason = err instanceof Error ? err.message : String(err);
+    const meta = db.prepare(
+      "SELECT retry_count, max_retries FROM steps WHERE id = ?"
+    ).get(step.id) as { retry_count: number; max_retries: number } | undefined;
+    const newRetry = (meta?.retry_count ?? 0) + 1;
+    const maxRetries = meta?.max_retries ?? 0;
+    const errorDetail = `${reason} Resetting to pending for retry ${newRetry}/${maxRetries}.`;
+    const wfId = getWorkflowId(step.run_id);
+    if (newRetry > maxRetries) {
+      db.prepare(
+        "UPDATE steps SET status = 'failed', output = ?, retry_count = ?, updated_at = datetime('now') WHERE id = ?"
+      ).run(errorDetail, newRetry, step.id);
+      db.prepare(
+        "UPDATE runs SET status = 'failed', updated_at = datetime('now') WHERE id = ?"
+      ).run(step.run_id);
+      emitEvent({ ts: new Date().toISOString(), event: "step.failed", runId: step.run_id, workflowId: wfId, stepId: step.step_id, detail: errorDetail });
+      emitRunTerminalEvent({ event: "run.failed", runId: step.run_id, workflowId: wfId, detail: "STORIES_JSON validation failed and retries exhausted" });
+      scheduleRunCronTeardown(step.run_id);
+      finalizeDrainingPause(step.run_id);
+      return { status: "failed" };
+    }
+    db.prepare(
+      "UPDATE steps SET status = 'pending', output = ?, retry_count = ?, updated_at = datetime('now') WHERE id = ?"
+    ).run(errorDetail, newRetry, step.id);
+    emitEvent({ ts: new Date().toISOString(), event: "step.retry", runId: step.run_id, workflowId: wfId, stepId: step.step_id, detail: errorDetail });
+    logger.warn(errorDetail, { runId: step.run_id, stepId: step.step_id });
+    finalizeDrainingPause(step.run_id);
+    return { status: "retrying", detail: errorDetail };
+  }
 
   // Write story plan to progress log after STORIES_JSON is parsed
   writeStoryPlanToProgress(runId);

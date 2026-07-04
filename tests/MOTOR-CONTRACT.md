@@ -103,6 +103,24 @@ baseline assertions.
   emits `step.reroute_budget_exhausted`. RETR does NOT fire for loop-step
   story-level exhaustion (`verify_each` territory) or for `finalize_merge`
   (rugpull owns merge-failure recovery).
+- **C20 (SJSN — story-ingestion structural validation)** A STORIES_JSON
+  payload that parses but does not faithfully represent the planner's story
+  list must be REJECTED with an informed retry, never silently accepted.
+  Specifically: JSON.parse collapses duplicate keys (last-one-wins), so a
+  planner that omits `},{` separators between stories produces ONE fused
+  object that passes every per-story field check while silently discarding
+  all but the final story (run 9672c8dd lost 6 of 7 stories this way and
+  burned 560k tokens on the survivor, a verification-only story).
+  `parseAndInsertStories` compares unescaped `"id"` key occurrences in the
+  raw JSON text against the parsed story count and throws on mismatch;
+  validation is two-phase (all stories checked before any insert) so a
+  rejection never leaves partial stories for a retry to duplicate. Any
+  STORIES_JSON validation failure inside `completeStep` re-pends the
+  producing step with the reason as retry feedback, bounded by
+  `max_retries`, then fails the run on exhaustion — it must NOT propagate
+  as a thrown error (which would crash the completing CLI and leave the
+  step to the blind abandon sweep). Pinned by
+  `tests/stories-json-validation.test.ts`.
 
 ### Control plane & scheduling lifecycle
 
