@@ -286,3 +286,14 @@ steps, so runs now spend their time on model work, not waiting.
   FIXED: `npm test` pins `TAMANDUA_PI_BINARY=/bin/false` (passes through
   `cleanChildEnv`), and the one deliberately-real-pi unit test is opt-in
   via `TAMANDUA_REAL_PI_TESTS=1`.
+
+### Report-format contract (MPRT)
+
+The work prompt's REPORT section defers to each step's own `Reply with:`
+format; the generic `STATUS/CHANGES/TESTS` shape is a fallback used only
+when the task specifies no reply format. History (both dev machines, both
+motors): the old always-generic example trained agents to answer
+`STATUS/CHANGES/TESTS` regardless of the step's key contract, starving
+downstream template keys (`branch`, `verified`, …) in 10–90% of runs —
+first silently (`[missing: key]` rendered into prompts), then fatally once
+claim-time key enforcement landed. Pinned by tests/work-prompt.test.ts.

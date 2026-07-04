@@ -725,7 +725,11 @@ export function buildWorkPrompt(
     ``,
     `─── REPORT ───`,
     `4. When finished, report using the SAVED stepId (NOT the agent ID):`,
-    `   - Success: echo 'STATUS: done
+    `   - Success: report using EXACTLY the reply format from the task's "Reply with:" section.`,
+    `     It always begins with "STATUS: done" and lists the KEY: lines this step must produce —`,
+    `     downstream steps consume those keys, and omitting one forces a retry.`,
+    `     echo '<your report in the task reply format>' | "${cli}" step complete "<stepId>"`,
+    `   - Only if the task has NO "Reply with:" section, report: echo 'STATUS: done
 CHANGES: <what you did>
 TESTS: <tests you ran>' | "${cli}" step complete "<stepId>"`,
     `   - Failure: "${cli}" step fail "<stepId>" "<clear reason for failure>"`,

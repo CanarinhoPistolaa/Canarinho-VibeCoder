@@ -75,4 +75,16 @@ describe("buildWorkPrompt (deterministic-dispatch work prompt)", () => {
     assert.ok(prompt.includes("stepId"), "should mention stepId");
     assert.ok(prompt.includes("SAVE"), "should instruct to save stepId");
   });
+
+  it("REPORT defers to the task's Reply-with format; generic shape is fallback-only (MPRT)", () => {
+    const prompt = buildWorkPrompt("bug-fix-merge-worktree", "verifier", RUN_ID);
+    // The success path must point at the task's own reply format...
+    assert.ok(prompt.includes('EXACTLY the reply format from the task\'s "Reply with:" section'));
+    assert.ok(prompt.includes("omitting one forces a retry"));
+    // ...and the generic STATUS/CHANGES/TESTS example only as explicit fallback.
+    const fallbackIdx = prompt.indexOf('Only if the task has NO "Reply with:" section');
+    const genericIdx = prompt.indexOf("CHANGES: <what you did>");
+    assert.ok(fallbackIdx !== -1 && genericIdx !== -1 && genericIdx > fallbackIdx,
+      "generic CHANGES/TESTS example must appear only under the no-Reply-format fallback");
+  });
 });
