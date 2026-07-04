@@ -1,10 +1,9 @@
 import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
-import os from "node:os";
 import { execSync, execFileSync } from "node:child_process";
 import { getDb } from "../db.js";
-import { resolvePiStateDir, resolveWorkflowDir, resolveTamanduaCli } from "./paths.js";
+import { resolvePiStateDir, resolveWorkflowDir, resolveTamanduaCli, resolveRunRoot } from "./paths.js";
 import { teardownWorkflowCronsIfIdle } from "./agent-scheduler.js";
 import { emitEvent } from "./events.js";
 import { logger } from "../lib/logger.js";
@@ -468,7 +467,7 @@ function emitRunTerminalEvent(params: {
  */
 export function getAgentWorkspacePath(agentId: string): string | null {
   try {
-    const configPath = path.join(os.homedir(), ".tamandua", "agents.json");
+    const configPath = path.join(resolvePiStateDir(), "agents.json");
     const raw = fs.readFileSync(configPath, "utf-8");
     const config = JSON.parse(raw);
     const agents: Array<{ id: string; workspace?: string }> = Array.isArray(config) ? config : [];
@@ -484,9 +483,31 @@ export function getAgentWorkspacePath(agentId: string): string | null {
 // ══════════════════════════════════════════════════════════════════════
 
 /**
- * Read progress.txt from the loop step's agent workspace.
+ * Return the canonical progress file path for a run.
+ * Location: <tamandua state>/runs/<runId>/progress.txt
+ */
+export function getRunProgressPath(runId: string): string {
+  return path.join(resolveRunRoot(), runId, "progress.txt");
+}
+
+/**
+ * Read progress.txt for a run.
+ *
+ * Lookup order (backward-compatible):
+ * 1. Canonical path: <tamandua state>/runs/<runId>/progress.txt
+ * 2. Workspace-scoped: <agent workspace>/progress-<runId>.txt
+ * 3. Workspace-legacy:  <agent workspace>/progress.txt
  */
 export function readProgressFile(runId: string): string {
+  // Canonical path takes priority
+  const canonicalPath = getRunProgressPath(runId);
+  try {
+    return fs.readFileSync(canonicalPath, "utf-8");
+  } catch {
+    // Fall through to legacy locations
+  }
+
+  // Backward-compatible fallback: workspace-scoped and legacy paths
   const db = getDb();
   const loopStep = db.prepare(
     "SELECT agent_id FROM steps WHERE run_id = ? AND type = 'loop' LIMIT 1"
@@ -559,48 +580,32 @@ export function mergeStoryPlanIntoProgress(existingContent: string, storyPlanSec
 
 /**
  * Write the full story plan to the progress log after STORIES_JSON is parsed.
- * Finds the loop step's agent workspace and writes/updates the '## Story Plan'
- * section in progress-{runId}.txt, preserving any existing Codebase Patterns or
- * other sections. Emits a 'stories.planned' event on success.
+ * Writes to the canonical progress file at <tamandua state>/runs/<runId>/progress.txt,
+ * preserving any existing Codebase Patterns or other sections.
+ * Emits a 'stories.planned' event on success.
  */
 export function writeStoryPlanToProgress(runId: string): void {
   if (!runHasStories(runId)) return;
 
   try {
-    const db = getDb();
-    const loopStep = db.prepare(
-      "SELECT agent_id FROM steps WHERE run_id = ? AND type = 'loop' LIMIT 1"
-    ).get(runId) as { agent_id: string } | undefined;
-
-    if (!loopStep) {
-      logger.warn("writeStoryPlanToProgress: no loop step found for run", { runId });
-      return;
-    }
-
-    const workspace = getAgentWorkspacePath(loopStep.agent_id);
-    if (!workspace) {
-      logger.warn("writeStoryPlanToProgress: no workspace configured for loop agent", { runId, agentId: loopStep.agent_id });
-      return;
-    }
-
     const stories = getStories(runId);
     if (stories.length === 0) return;
 
     const storyPlanSection = buildStoryPlanSection(stories);
-    const scopedPath = path.join(workspace, `progress-${runId}.txt`);
+    const progressPath = getRunProgressPath(runId);
 
     // Read existing content if any
     let existingContent = "";
     try {
-      existingContent = fs.readFileSync(scopedPath, "utf-8");
+      existingContent = fs.readFileSync(progressPath, "utf-8");
     } catch {
       // File doesn't exist yet — that's fine
     }
 
     const newContent = mergeStoryPlanIntoProgress(existingContent, storyPlanSection);
 
-    fs.mkdirSync(path.dirname(scopedPath), { recursive: true });
-    fs.writeFileSync(scopedPath, newContent, "utf-8");
+    fs.mkdirSync(path.dirname(progressPath), { recursive: true });
+    fs.writeFileSync(progressPath, newContent, "utf-8");
 
     const wfId = getWorkflowId(runId);
     emitEvent({
@@ -1450,6 +1455,7 @@ export function claimStep(agentId: string, runId: string, workerOwnership?: Work
       context["completed_stories"] = formatCompletedStories(allStories);
       context["stories_remaining"] = String(pendingCount);
       context["progress"] = readProgressFile(step.run_id);
+      context["progress_file"] = getRunProgressPath(step.run_id);
 
       if (!context["verify_feedback"]) {
         context["verify_feedback"] = "";
@@ -1515,6 +1521,7 @@ export function claimStep(agentId: string, runId: string, workerOwnership?: Work
   ).get(step.run_id) as { cnt: number };
   if (hasStories.cnt > 0) {
     context["progress"] = readProgressFile(step.run_id);
+    context["progress_file"] = getRunProgressPath(step.run_id);
   }
 
   // Clear one-shot timeout_retry after the template has captured it.
@@ -2101,9 +2108,21 @@ export function advancePipeline(runId: string): { advanced: boolean; runComplete
 // ══════════════════════════════════════════════════════════════════════
 
 /**
- * Archive the run's progress file to the agent workspace archive directory.
+ * Archive the run's progress file from the canonical location to the
+ * workspace archive directory (backward-compatible with old workspace paths).
  */
 export function archiveRunProgress(runId: string): void {
+  // Archive from canonical path first
+  const canonicalPath = getRunProgressPath(runId);
+  if (fs.existsSync(canonicalPath)) {
+    const archiveDir = path.join(resolveRunRoot(), runId, "archive");
+    fs.mkdirSync(archiveDir, { recursive: true });
+    fs.copyFileSync(canonicalPath, path.join(archiveDir, "progress.txt"));
+    fs.unlinkSync(canonicalPath);
+    return;
+  }
+
+  // Backward-compatible: archive from workspace paths
   const db = getDb();
   const loopStep = db.prepare(
     "SELECT agent_id FROM steps WHERE run_id = ? AND type = 'loop' LIMIT 1"
@@ -2634,6 +2653,7 @@ export function resolveStepContext(
     const pendingCount = allStories.filter((s) => s.status === "pending" || s.status === "running").length;
     context["stories_remaining"] = String(pendingCount);
     context["progress"] = readProgressFile(runId);
+    context["progress_file"] = getRunProgressPath(runId);
 
     if (!context["verify_feedback"]) {
       context["verify_feedback"] = "";

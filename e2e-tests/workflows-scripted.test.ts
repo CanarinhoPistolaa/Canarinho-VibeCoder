@@ -307,6 +307,10 @@ describe("scripted-agent full pipeline (real daemon/scheduler, zero tokens)", { 
         const porcelain = execSync("git status --porcelain", { cwd: repoDir, encoding: "utf-8" });
         assert.equal(porcelain.trim(), "", `origin repo left dirty:\n${porcelain}`);
 
+        // ── Regression: no progress-* files leaked into the repo working tree ─
+        const progressFiles = fs.readdirSync(repoDir).filter((f) => f.startsWith("progress-"));
+        assert.equal(progressFiles.length, 0, `origin repo contains leaked progress files: ${progressFiles.join(", ")}`);
+
         // ── Motor contract: each agent did exactly one work round ─
         for (const agent of BUG_FIX_AGENTS) {
           const workRounds = ctx.scripted.workInvocations(agent);

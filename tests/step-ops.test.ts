@@ -3132,3 +3132,244 @@ steps:
     assert.equal(producer.retry_count, 0, "producer retry_count should not change");
   });
 });
+
+describe("getRunProgressPath canonical path resolution", () => {
+  const _savedStateDir = process.env.TAMANDUA_STATE_DIR;
+  const _savedDbPath = process.env.TAMANDUA_DB_PATH;
+  let _testIsolationDir: string;
+
+  before(() => {
+    _testIsolationDir = fs.mkdtempSync(path.join(os.tmpdir(), "tamandua-progress-path-test-"));
+    process.env.TAMANDUA_STATE_DIR = _testIsolationDir;
+    process.env.TAMANDUA_DB_PATH = path.join(_testIsolationDir, "tamandua.db");
+    // Write agents.json so getAgentWorkspacePath can resolve workspace paths
+    const agentsConfig = [
+      { id: "test-wf_dev", workspace: path.join(_testIsolationDir, "workspaces", "workflows", "test-wf") }
+    ];
+    fs.mkdirSync(_testIsolationDir, { recursive: true });
+    fs.writeFileSync(path.join(_testIsolationDir, "agents.json"), JSON.stringify(agentsConfig), "utf-8");
+  });
+
+  after(() => {
+    if (_savedStateDir === undefined) delete process.env.TAMANDUA_STATE_DIR;
+    else process.env.TAMANDUA_STATE_DIR = _savedStateDir;
+    if (_savedDbPath === undefined) delete process.env.TAMANDUA_DB_PATH;
+    else process.env.TAMANDUA_DB_PATH = _savedDbPath;
+    try { fs.rmSync(_testIsolationDir, { recursive: true, force: true }); } catch { /* best effort */ }
+  });
+
+  it("getRunProgressPath returns canonical path under runs/<runId>/progress.txt", async () => {
+    const { getRunProgressPath } = await import("../dist/installer/step-ops.js");
+    const runId = crypto.randomUUID();
+    const progressPath = getRunProgressPath(runId);
+    assert.ok(progressPath.endsWith(`runs/${runId}/progress.txt`), `expected path ending with runs/${runId}/progress.txt, got: ${progressPath}`);
+    assert.ok(progressPath.startsWith(_testIsolationDir), `expected path under test isolation dir, got: ${progressPath}`);
+  });
+
+  it("readProgressFile reads from canonical path with fallback to workspace-scoped", async () => {
+    const { getRunProgressPath, readProgressFile } = await import("../dist/installer/step-ops.js");
+    const { getDb } = await import("../dist/db.js");
+    const db = getDb();
+    const runId = crypto.randomUUID();
+    const agentId = "test-wf_dev";
+    const now = new Date().toISOString();
+
+    const seededContext = JSON.stringify({ task: "test task" });
+    db.prepare(
+      "INSERT INTO runs (id, run_number, workflow_id, task, status, context, tokens_spent, created_at, updated_at) VALUES (?, 1, 'test-wf', 'test task', 'running', ?, 0, ?, ?)"
+    ).run(runId, seededContext, now, now);
+
+    db.prepare(
+      "INSERT INTO steps (id, run_id, step_id, agent_id, step_index, input_template, expects, status, retry_count, max_retries, type, loop_config, created_at, updated_at) VALUES (?, ?, 'loop', ?, 0, '{{task}}', '', 'done', 0, 4, 'loop', ?, ?, ?)"
+    ).run(crypto.randomUUID(), runId, agentId, JSON.stringify({ over: "stories" }), now, now);
+
+    const workspaceDir = path.join(_testIsolationDir, "workspaces", "workflows", "test-wf");
+    const workspaceScopedPath = path.join(workspaceDir, `progress-${runId}.txt`);
+    fs.mkdirSync(path.dirname(workspaceScopedPath), { recursive: true });
+    fs.writeFileSync(workspaceScopedPath, "workspace-scoped content", "utf-8");
+
+    const legacyPath = path.join(workspaceDir, "progress.txt");
+    fs.writeFileSync(legacyPath, "legacy content", "utf-8");
+
+    const canonicalPath = getRunProgressPath(runId);
+    fs.mkdirSync(path.dirname(canonicalPath), { recursive: true });
+    fs.writeFileSync(canonicalPath, "canonical content", "utf-8");
+
+    const content = readProgressFile(runId);
+    assert.equal(content, "canonical content", "should read from canonical path when it exists");
+
+    fs.unlinkSync(canonicalPath);
+    fs.unlinkSync(workspaceScopedPath);
+    fs.unlinkSync(legacyPath);
+  });
+
+  it("readProgressFile falls back to workspace-scoped path when canonical missing", async () => {
+    const { readProgressFile } = await import("../dist/installer/step-ops.js");
+    const { getDb } = await import("../dist/db.js");
+    const db = getDb();
+    const runId = crypto.randomUUID();
+    const agentId = "test-wf_dev";
+    const now = new Date().toISOString();
+
+    const seededContext = JSON.stringify({ task: "test task" });
+    db.prepare(
+      "INSERT INTO runs (id, run_number, workflow_id, task, status, context, tokens_spent, created_at, updated_at) VALUES (?, 2, 'test-wf', 'test task', 'running', ?, 0, ?, ?)"
+    ).run(runId, seededContext, now, now);
+
+    db.prepare(
+      "INSERT INTO steps (id, run_id, step_id, agent_id, step_index, input_template, expects, status, retry_count, max_retries, type, loop_config, created_at, updated_at) VALUES (?, ?, 'loop', ?, 0, '{{task}}', '', 'done', 0, 4, 'loop', ?, ?, ?)"
+    ).run(crypto.randomUUID(), runId, agentId, JSON.stringify({ over: "stories" }), now, now);
+
+    const workspaceDir = path.join(_testIsolationDir, "workspaces", "workflows", "test-wf");
+    const scopedPath = path.join(workspaceDir, `progress-${runId}.txt`);
+    fs.mkdirSync(path.dirname(scopedPath), { recursive: true });
+    fs.writeFileSync(scopedPath, "fallback content", "utf-8");
+
+    const content = readProgressFile(runId);
+    assert.equal(content, "fallback content", "should fall back to workspace-scoped path");
+
+    fs.unlinkSync(scopedPath);
+  });
+
+  it("readProgressFile falls back to legacy progress.txt when neither canonical nor scoped exist", async () => {
+    const { readProgressFile } = await import("../dist/installer/step-ops.js");
+    const { getDb } = await import("../dist/db.js");
+    const db = getDb();
+    const runId = crypto.randomUUID();
+    const agentId = "test-wf_dev";
+    const now = new Date().toISOString();
+
+    const seededContext = JSON.stringify({ task: "test task" });
+    db.prepare(
+      "INSERT INTO runs (id, run_number, workflow_id, task, status, context, tokens_spent, created_at, updated_at) VALUES (?, 3, 'test-wf', 'test task', 'running', ?, 0, ?, ?)"
+    ).run(runId, seededContext, now, now);
+
+    db.prepare(
+      "INSERT INTO steps (id, run_id, step_id, agent_id, step_index, input_template, expects, status, retry_count, max_retries, type, loop_config, created_at, updated_at) VALUES (?, ?, 'loop', ?, 0, '{{task}}', '', 'done', 0, 4, 'loop', ?, ?, ?)"
+    ).run(crypto.randomUUID(), runId, agentId, JSON.stringify({ over: "stories" }), now, now);
+
+    const workspaceDir = path.join(_testIsolationDir, "workspaces", "workflows", "test-wf");
+    const legacyPath = path.join(workspaceDir, "progress.txt");
+    fs.mkdirSync(path.dirname(legacyPath), { recursive: true });
+    fs.writeFileSync(legacyPath, "legacy fallback", "utf-8");
+
+    const content = readProgressFile(runId);
+    assert.equal(content, "legacy fallback", "should fall back to legacy progress.txt");
+
+    fs.unlinkSync(legacyPath);
+  });
+
+  it("resolveStepContext injects progress_file alongside progress for loop steps", async () => {
+    const { getRunProgressPath, resolveStepContext } = await import("../dist/installer/step-ops.js");
+    const { getDb } = await import("../dist/db.js");
+    const db = getDb();
+    const runId = crypto.randomUUID();
+    const agentId = "test-wf_dev";
+    const now = new Date().toISOString();
+
+    const seededContext = JSON.stringify({ task: "test task" });
+    db.prepare(
+      "INSERT INTO runs (id, run_number, workflow_id, task, status, context, tokens_spent, created_at, updated_at) VALUES (?, 4, 'test-wf', 'test task', 'running', ?, 0, ?, ?)"
+    ).run(runId, seededContext, now, now);
+
+    db.prepare(
+      "INSERT INTO steps (id, run_id, step_id, agent_id, step_index, input_template, expects, status, retry_count, max_retries, type, loop_config, created_at, updated_at) VALUES (?, ?, 'loop', ?, 0, '{{task}}', '', 'done', 0, 4, 'loop', ?, ?, ?)"
+    ).run(crypto.randomUUID(), runId, agentId, JSON.stringify({ over: "stories" }), now, now);
+
+    db.prepare(
+      "INSERT INTO stories (id, run_id, story_id, title, description, acceptance_criteria, status, story_index, retry_count, max_retries, created_at, updated_at) VALUES (?, ?, 'US-001', 'Test', 'Test desc', '[]', 'pending', 0, 0, 4, ?, ?)"
+    ).run(crypto.randomUUID(), runId, now, now);
+
+    const canonicalPath = getRunProgressPath(runId);
+    fs.mkdirSync(path.dirname(canonicalPath), { recursive: true });
+    fs.writeFileSync(canonicalPath, "# Progress Log\n\n## Codebase Patterns\n- Test", "utf-8");
+
+    const loopConfig = { over: "stories" as const, storiesPerStep: 1 };
+    const story = {
+      id: crypto.randomUUID(),
+      runId,
+      storyIndex: 0,
+      storyId: "US-001",
+      title: "Test",
+      description: "Test desc",
+      acceptanceCriteria: [],
+      status: "pending" as const,
+      retryCount: 0,
+      maxRetries: 4,
+    };
+
+    const context = resolveStepContext(runId, 1, loopConfig, story);
+
+    assert.ok("progress_file" in context, "context should contain progress_file key");
+    assert.equal(context["progress_file"], canonicalPath, "progress_file should be the canonical path");
+    assert.ok("progress" in context, "context should still contain progress key");
+    assert.equal(context["progress"], "# Progress Log\n\n## Codebase Patterns\n- Test", "progress should contain file contents");
+
+    fs.unlinkSync(canonicalPath);
+  });
+
+  it("writeStoryPlanToProgress writes to canonical path", async () => {
+    const { getRunProgressPath, writeStoryPlanToProgress } = await import("../dist/installer/step-ops.js");
+    const { getDb } = await import("../dist/db.js");
+    const db = getDb();
+    const runId = crypto.randomUUID();
+    const agentId = "test-wf_dev";
+    const now = new Date().toISOString();
+
+    const seededContext = JSON.stringify({ task: "test task" });
+    db.prepare(
+      "INSERT INTO runs (id, run_number, workflow_id, task, status, context, tokens_spent, created_at, updated_at) VALUES (?, 5, 'test-wf', 'test task', 'running', ?, 0, ?, ?)"
+    ).run(runId, seededContext, now, now);
+
+    db.prepare(
+      "INSERT INTO steps (id, run_id, step_id, agent_id, step_index, input_template, expects, status, retry_count, max_retries, type, loop_config, created_at, updated_at) VALUES (?, ?, 'loop', ?, 0, '{{task}}', '', 'running', 0, 4, 'loop', ?, ?, ?)"
+    ).run(crypto.randomUUID(), runId, agentId, JSON.stringify({ over: "stories" }), now, now);
+
+    db.prepare(
+      "INSERT INTO stories (id, run_id, story_id, title, description, acceptance_criteria, status, story_index, retry_count, max_retries, created_at, updated_at) VALUES (?, ?, 'US-001', 'Test story', 'Test', '[]', 'pending', 0, 0, 4, ?, ?)"
+    ).run(crypto.randomUUID(), runId, now, now);
+
+    writeStoryPlanToProgress(runId);
+
+    const canonicalPath = getRunProgressPath(runId);
+    assert.ok(fs.existsSync(canonicalPath), "canonical progress file should be created");
+    const content = fs.readFileSync(canonicalPath, "utf-8");
+    assert.ok(content.includes("## Story Plan"), "should contain Story Plan section");
+    assert.ok(content.includes("US-001"), "should contain the story");
+
+    fs.unlinkSync(canonicalPath);
+  });
+
+  it("archiveRunProgress archives from canonical path to archive subdirectory", async () => {
+    const { getRunProgressPath, archiveRunProgress } = await import("../dist/installer/step-ops.js");
+    const { getDb } = await import("../dist/db.js");
+    const db = getDb();
+    const runId = crypto.randomUUID();
+    const agentId = "test-wf_dev";
+    const now = new Date().toISOString();
+
+    const seededContext = JSON.stringify({ task: "test task" });
+    db.prepare(
+      "INSERT INTO runs (id, run_number, workflow_id, task, status, context, tokens_spent, created_at, updated_at) VALUES (?, 6, 'test-wf', 'test task', 'running', ?, 0, ?, ?)"
+    ).run(runId, seededContext, now, now);
+
+    db.prepare(
+      "INSERT INTO steps (id, run_id, step_id, agent_id, step_index, input_template, expects, status, retry_count, max_retries, type, loop_config, created_at, updated_at) VALUES (?, ?, 'loop', ?, 0, '{{task}}', '', 'done', 0, 4, 'loop', ?, ?, ?)"
+    ).run(crypto.randomUUID(), runId, agentId, JSON.stringify({ over: "stories" }), now, now);
+
+    const canonicalPath = getRunProgressPath(runId);
+    fs.mkdirSync(path.dirname(canonicalPath), { recursive: true });
+    fs.writeFileSync(canonicalPath, "progress content to archive", "utf-8");
+
+    archiveRunProgress(runId);
+
+    assert.ok(!fs.existsSync(canonicalPath), "canonical progress file should be removed after archive");
+
+    const archivePath = path.join(path.dirname(canonicalPath), "archive", "progress.txt");
+    assert.ok(fs.existsSync(archivePath), "archive copy should exist");
+    const archivedContent = fs.readFileSync(archivePath, "utf-8");
+    assert.equal(archivedContent, "progress content to archive", "archived content should match");
+
+    fs.rmSync(path.dirname(canonicalPath), { recursive: true, force: true });
+  });
+});

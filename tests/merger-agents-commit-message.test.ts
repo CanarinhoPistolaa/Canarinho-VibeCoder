@@ -34,7 +34,7 @@ describe("merger AGENTS.md commit message generation", () => {
   });
 
   it("instructs gathering information from progress file", () => {
-    assert.match(content, /progress-\{\{run_id\}\}\.txt/);
+    assert.match(content, /\{\{progress_file\}\}/);
   });
 
   it("instructs using conventional commit format for first line", () => {

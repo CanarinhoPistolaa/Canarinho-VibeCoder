@@ -87,6 +87,7 @@ const AUTO_CONTEXT_KEYS = new Set([
   "completed_stories",
   "stories_remaining",
   "progress",
+  "progress_file",
 ]);
 
 function seedContext(spec: WorkflowSpec): Record<string, string> {

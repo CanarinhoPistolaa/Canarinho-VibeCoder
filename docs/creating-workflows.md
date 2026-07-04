@@ -159,7 +159,8 @@ The context for each step is built from:
 | `{{current_story_title}}` | The current story's title |
 | `{{completed_stories}}` | Bullet list of completed stories, or `(none yet)` |
 | `{{stories_remaining}}` | Count of pending + running stories |
-| `{{progress}}` | Contents of `progress-<run_id>.txt` (if the agent maintains one) |
+| `{{progress}}` | Contents of the progress file (if the agent maintains one) |
+| `{{progress_file}}` | Absolute path to the progress file (e.g. `~/.tamandua/runs/<run_id>/progress.txt`) |
 | `{{verify_feedback}}` | Feedback from the verify step on retry, else empty |
 
 ### From prior step `KEY: value` outputs

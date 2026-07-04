@@ -63,6 +63,7 @@ export const AUTO_CONTEXT_KEYS = new Set([
   "completed_stories",
   "stories_remaining",
   "progress",
+  "progress_file",
 ]);
 
 /**
@@ -161,6 +162,7 @@ describe("workflow contract lint (all bundled workflows)", () => {
       "completed_stories",
       "stories_remaining",
       "progress",
+      "progress_file",
     ];
     assert.deepEqual([...AUTO_CONTEXT_KEYS].sort(), expected.sort());
     assert.equal(AUTO_CONTEXT_KEYS.size, expected.length);
