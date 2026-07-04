@@ -159,6 +159,8 @@ steps:
     expects: "STATUS: done"
     max_retries: 4
     on_fail:
+      # Setup failures often originate from an incomplete plan; re-planning refreshes understanding of the codebase
+      retry_step: plan
       escalate_to: human
 
   - id: implement

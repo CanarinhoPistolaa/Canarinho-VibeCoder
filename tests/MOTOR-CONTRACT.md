@@ -81,8 +81,28 @@ baseline assertions.
   failures in merge workflows (`*-merge`, `*-merge-worktree`) where the base
   branch tip moved since the run started. Mid-pipeline step retry exhaustion,
   expects validation exhaustion, and worker death permanently fail the run by
-  design — no automatic replacement is triggered. Permanently failed runs are
-  retryable via `tamandua workflow resume` with fix-then-restart semantics.
+  design UNLESS the workflow declares `on_fail.retry_step` (see C19).
+  Permanently failed runs are retryable via `tamandua workflow resume` with
+  fix-then-restart semantics.
+- **C19 (RETR — declarative cross-step retry routing)** When a step declares
+  `on_fail.retry_step` and exhausts its local retries, the run does NOT
+  immediately fail. Instead the run reroutes to the named upstream producer
+  step (lower `step_index` in the same workflow) with a bounded reroute
+  budget (`on_fail.max_reroutes`, default 2). The producer is re-pended
+  (status `pending`, `retry_count` unchanged) with retry feedback in its
+  output; the failing consumer is reset to `waiting` with `retry_count=0`
+  and `reroute_count` incremented; intermediate `done` steps between
+  producer and consumer are untouched — `advancePipeline` naturally
+  re-pends the consumer after the producer completes. When the consumer's
+  `reroute_count` reaches `max_reroutes`, the budget is exhausted and the
+  run falls through to normal failure semantics (including rugpull detection
+  on merge-step failures). The reroute budget is separate from `retry_count`:
+  the producer's `retry_count` stays unchanged; the consumer's `retry_count`
+  resets to 0 on each reroute; `reroute_count` is the dedicated boundedness
+  counter. Each reroute emits a `step.rerouted` event; budget exhaustion
+  emits `step.reroute_budget_exhausted`. RETR does NOT fire for loop-step
+  story-level exhaustion (`verify_each` territory) or for `finalize_merge`
+  (rugpull owns merge-failure recovery).
 
 ### Control plane & scheduling lifecycle
 

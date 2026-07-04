@@ -160,6 +160,13 @@ function migrate(db: DatabaseSync): void {
     db.exec("ALTER TABLE steps ADD COLUMN claim_updated_at TEXT");
   }
 
+  // ── RETR reroute counter ──
+  // Tracks how many times a retry_step reroute has occurred for each step.
+  // Used to enforce the max_reroutes budget; NULL/0 means no reroute has happened.
+  if (!stepColNames.has("reroute_count")) {
+    db.exec("ALTER TABLE steps ADD COLUMN reroute_count INTEGER DEFAULT 0");
+  }
+
   // Indexes for run-scoped scheduling and step claim queries.
   db.exec(
     "CREATE INDEX IF NOT EXISTS idx_steps_agent_run_status ON steps(agent_id, run_id, status)",

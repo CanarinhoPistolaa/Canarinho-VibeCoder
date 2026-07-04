@@ -176,6 +176,8 @@ steps:
     expects: "STATUS: done"
     max_retries: 4
     on_fail:
+      # Setup failures often stem from triage-level misdiagnosis (wrong branch, wrong build); re-triaging refreshes context
+      retry_step: triage
       escalate_to: human
 
   - id: fix

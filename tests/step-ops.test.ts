@@ -1,6 +1,6 @@
 import { describe, it, before, after } from "node:test";
 import assert from "node:assert/strict";
-import { parseOutputKeyValues, parseExpectedKeys, findProducerForMissingKey, resolveTemplate, buildStoryPlanSection, mergeStoryPlanIntoProgress, validateExpects, completeStep, resolveStepContext, failStep, claimStep, getWorkflowId } from "../dist/installer/step-ops.js";
+import { parseOutputKeyValues, parseExpectedKeys, findProducerForMissingKey, resolveTemplate, buildStoryPlanSection, mergeStoryPlanIntoProgress, validateExpects, completeStep, resolveStepContext, failStep, claimStep, getWorkflowId, advancePipeline, recoverOrphanedStepsForAgent } from "../dist/installer/step-ops.js";
 import { getRunEvents } from "../dist/installer/events.js";
 import fs from "node:fs";
 import os from "node:os";
@@ -2190,6 +2190,902 @@ describe("claimStep missing-template-key blocking — loop claim path (US-004)",
     assert.ok(producer.output?.includes("branch"), `retry_feedback should name branch, got: ${producer.output}`);
     assert.ok(producer.output?.includes("repo"), `retry_feedback should name repo, got: ${producer.output}`);
   });
+
+describe("RETR: rerouteStep and failStep exhaustion reroute", () => {
+  let _savedStateDir: string | undefined;
+  let _savedDbPath: string | undefined;
+  let _testIsolationDir: string;
+  let workflowsDir: string;
+
+  // Simple two-step workflow: produce(upstream) -> consume(downstream)
+  // consume declares on_fail.retry_step: produce
+  const retryWorkflowYaml = `
+id: test-reroute
+agents:
+  - id: producer
+    workspace:
+      baseDir: .
+      files: {}
+  - id: consumer
+    workspace:
+      baseDir: .
+      files: {}
+steps:
+  - id: produce
+    agent: producer
+    input: "Produce output"
+    expects: "STATUS: done"
+    max_retries: 3
+  - id: consume
+    agent: consumer
+    input: "Consume {{output}}"
+    expects: "STATUS: done"
+    max_retries: 2
+    on_fail:
+      retry_step: produce
+`;
+
+  // Same workflow but consume targets a downstream step (spec error)
+  const downstreamTargetYaml = `
+id: test-reroute-downstream
+agents:
+  - id: prod1
+    workspace:
+      baseDir: .
+      files: {}
+  - id: prod2
+    workspace:
+      baseDir: .
+      files: {}
+steps:
+  - id: produce
+    agent: prod1
+    input: "Produce"
+    expects: "STATUS: done"
+    max_retries: 3
+  - id: waiting
+    agent: prod2
+    input: "Wait"
+    expects: "STATUS: done"
+    max_retries: 3
+    on_fail:
+      retry_step: later
+  - id: later
+    agent: prod2
+    input: "Later"
+    expects: "STATUS: done"
+    max_retries: 3
+`;
+
+  // Same workflow but consume targets an unknown step (spec error)
+  const unknownTargetYaml = `
+id: test-reroute-unknown
+agents:
+  - id: a1
+    workspace:
+      baseDir: .
+      files: {}
+steps:
+  - id: step1
+    agent: a1
+    input: "Step 1"
+    expects: "STATUS: done"
+    max_retries: 3
+    on_fail:
+      retry_step: nonexistent
+`;
+
+  // Workflow for escalation testing: no retry_step, escalate_to to pager
+  const escalationWorkflowYaml = `
+id: test-reroute-escalate
+agents:
+  - id: prod
+    workspace:
+      baseDir: .
+      files: {}
+steps:
+  - id: produce
+    agent: prod
+    input: "Produce output"
+    expects: "STATUS: done"
+    max_retries: 2
+    on_fail:
+      escalate_to: agent:main:main
+`;
+
+  // Workflow with explicit max_reroutes: 3 (custom budget)
+  const maxReroutes3Yaml = `
+id: test-reroute-max3
+agents:
+  - id: producer
+    workspace:
+      baseDir: .
+      files: {}
+  - id: consumer
+    workspace:
+      baseDir: .
+      files: {}
+steps:
+  - id: produce
+    agent: producer
+    input: "Produce output"
+    expects: "STATUS: done"
+    max_retries: 3
+  - id: consume
+    agent: consumer
+    input: "Consume {{output}}"
+    expects: "STATUS: done"
+    max_retries: 2
+    on_fail:
+      retry_step: produce
+      max_reroutes: 3
+`;
+
+  before(async () => {
+    // Save outer env vars at hook runtime, not at module load time.
+    // This matters when nested inside an outer describe that sets isolation.
+    _savedStateDir = process.env.TAMANDUA_STATE_DIR;
+    _savedDbPath = process.env.TAMANDUA_DB_PATH;
+    _testIsolationDir = fs.mkdtempSync(path.join(os.tmpdir(), "tamandua-retr-test-"));
+    process.env.TAMANDUA_STATE_DIR = _testIsolationDir;
+    process.env.TAMANDUA_DB_PATH = path.join(_testIsolationDir, "tamandua.db");
+
+    // Create workflow dirs with the test workflows
+    workflowsDir = path.join(_testIsolationDir, "workflows");
+    const retryDir = path.join(workflowsDir, "test-reroute");
+    const downstreamDir = path.join(workflowsDir, "test-reroute-downstream");
+    const unknownDir = path.join(workflowsDir, "test-reroute-unknown");
+    const max3Dir = path.join(workflowsDir, "test-reroute-max3");
+    fs.mkdirSync(retryDir, { recursive: true });
+    fs.mkdirSync(downstreamDir, { recursive: true });
+    fs.mkdirSync(unknownDir, { recursive: true });
+    const escalateDir = path.join(workflowsDir, "test-reroute-escalate");
+    fs.mkdirSync(max3Dir, { recursive: true });
+    fs.mkdirSync(escalateDir, { recursive: true });
+    fs.writeFileSync(path.join(retryDir, "workflow.yml"), retryWorkflowYaml);
+    fs.writeFileSync(path.join(downstreamDir, "workflow.yml"), downstreamTargetYaml);
+    fs.writeFileSync(path.join(unknownDir, "workflow.yml"), unknownTargetYaml);
+    fs.writeFileSync(path.join(max3Dir, "workflow.yml"), maxReroutes3Yaml);
+    fs.writeFileSync(path.join(escalateDir, "workflow.yml"), escalationWorkflowYaml);
+  });
+
+  after(() => {
+    if (_savedStateDir === undefined) delete process.env.TAMANDUA_STATE_DIR;
+    else process.env.TAMANDUA_STATE_DIR = _savedStateDir;
+    if (_savedDbPath === undefined) delete process.env.TAMANDUA_DB_PATH;
+    else process.env.TAMANDUA_DB_PATH = _savedDbPath;
+    try { fs.rmSync(_testIsolationDir, { recursive: true, force: true }); } catch { /* best effort */ }
+  });
+
+  function ts(): string {
+    return new Date().toISOString();
+  }
+
+  function insertRunAndSteps(
+    db: ReturnType<typeof getTestDb>,
+    workflowId: string,
+    stepsData: Array<{
+      step_id: string;
+      agent_id: string;
+      step_index: number;
+      status: string;
+      retry_count: number;
+      max_retries: number;
+      input_template: string;
+      expects: string;
+      type?: string;
+      output?: string;
+    }>,
+  ): { runId: string; stepRows: Array<{ rowId: string; step_id: string }> } {
+    const runId = crypto.randomUUID();
+    const now = ts();
+    const seededContext = JSON.stringify({ task: "test task", repo: "/tmp/repo", branch: "test-branch" });
+
+    db.prepare(
+      "INSERT INTO runs (id, run_number, workflow_id, task, status, context, tokens_spent, created_at, updated_at) VALUES (?, 1, ?, 'test task', 'running', ?, 0, ?, ?)"
+    ).run(runId, workflowId, seededContext, now, now);
+
+    const stepRows: Array<{ rowId: string; step_id: string }> = [];
+    for (const sd of stepsData) {
+      const rowId = crypto.randomUUID();
+      db.prepare(
+        "INSERT INTO steps (id, run_id, step_id, agent_id, step_index, input_template, expects, status, retry_count, max_retries, type, output, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+      ).run(
+        rowId, runId, sd.step_id, sd.agent_id, sd.step_index, sd.input_template,
+        sd.expects, sd.status, sd.retry_count, sd.max_retries,
+        sd.type ?? "single", sd.output ?? null, now, now,
+      );
+      stepRows.push({ rowId, step_id: sd.step_id });
+    }
+
+    return { runId, stepRows };
+  }
+
+  // Dynamic import helper
+  async function getTestDb() {
+    return (await import("../dist/db.js")).getDb();
+  }
+
+  it("reroute on failStep exhaustion: valid upstream retry_step triggers reroute instead of run failure", async () => {
+    const db = await getTestDb();
+    const { runId, stepRows } = insertRunAndSteps(db, "test-reroute", [
+      { step_id: "produce", agent_id: "producer", step_index: 0, status: "done", retry_count: 0, max_retries: 3, input_template: "Produce output\nReply with:\nSTATUS: done", expects: "STATUS: done", output: "STATUS: done\nOUTPUT: some-value" },
+      // Consumer at retry_count = max_retries, so next failStep triggers exhaustion
+      { step_id: "consume", agent_id: "consumer", step_index: 1, status: "running", retry_count: 2, max_retries: 2, input_template: "Consume {{output}}", expects: "STATUS: done" },
+    ]);
+
+    const consumerRowId = stepRows.find(s => s.step_id === "consume")!.rowId;
+    const producerRowId = stepRows.find(s => s.step_id === "produce")!.rowId;
+
+    const result = await failStep(consumerRowId, "Consumer failed: invalid output format");
+
+    assert.equal(result.status, "rerouted", "failStep should return rerouted status");
+
+    // Run should still be running
+    const run = db.prepare("SELECT status FROM runs WHERE id = ?").get(runId) as { status: string };
+    assert.equal(run.status, "running", "run should still be running after reroute");
+
+    // Producer should be re-pended (status=pending)
+    const producer = db.prepare("SELECT status, retry_count, output FROM steps WHERE id = ?").get(producerRowId) as { status: string; retry_count: number; output: string | null };
+    assert.equal(producer.status, "pending", "producer should be re-pended to pending");
+    assert.equal(producer.retry_count, 0, "producer retry_count should be UNCHANGED (0)");
+    assert.ok(producer.output?.includes("Reroute from"), `producer output should contain reroute feedback, got: ${producer.output}`);
+    assert.ok(producer.output?.includes("consume"), `producer output should name the consumer step, got: ${producer.output}`);
+    assert.ok(producer.output?.includes("invalid output format"), `producer output should include failure reason, got: ${producer.output}`);
+
+    // Consumer should be reset to waiting with retry_count=0
+    const consumer = db.prepare("SELECT status, retry_count, reroute_count, output FROM steps WHERE id = ?").get(consumerRowId) as { status: string; retry_count: number; reroute_count: number | null; output: string | null };
+    assert.equal(consumer.status, "waiting", "consumer should be reset to waiting");
+    assert.equal(consumer.retry_count, 0, "consumer retry_count should be reset to 0");
+    assert.equal(consumer.reroute_count, 1, "consumer reroute_count should be incremented to 1");
+    assert.equal(consumer.output, null, "consumer output should be cleared");
+  });
+
+  it("producer receives retry_feedback accessible via claimStep", async () => {
+    const db = await getTestDb();
+    const { runId, stepRows } = insertRunAndSteps(db, "test-reroute", [
+      { step_id: "produce", agent_id: "producer", step_index: 0, status: "done", retry_count: 0, max_retries: 3, input_template: "Produce output\nRETRY FEEDBACK: {{retry_feedback}}\nReply with:\nSTATUS: done", expects: "STATUS: done", output: "STATUS: done\nOUTPUT: some-value" },
+      { step_id: "consume", agent_id: "consumer", step_index: 1, status: "running", retry_count: 2, max_retries: 2, input_template: "Consume {{output}}", expects: "STATUS: done" },
+    ]);
+
+    const consumerRowId = stepRows.find(s => s.step_id === "consume")!.rowId;
+    const producerRowId = stepRows.find(s => s.step_id === "produce")!.rowId;
+
+    const failResult = await failStep(consumerRowId, "Consumer failed: bad output");
+    assert.equal(failResult.status, "rerouted");
+
+    // Producer is now pending — claimStep should surface retry_feedback
+    const claimResult = claimStep("producer", runId);
+    assert.ok(claimResult.found, "claimStep should find the pending producer");
+    assert.equal(claimResult.stepId, producerRowId);
+    assert.ok(claimResult.resolvedInput!.includes("Reroute from"), `resolved input should contain reroute feedback, got: ${claimResult.resolvedInput}`);
+    assert.ok(claimResult.resolvedInput!.includes("consume"), `resolved input should name consumer, got: ${claimResult.resolvedInput}`);
+  });
+
+  it("reroute preserves intermediate done steps between producer and consumer", async () => {
+    // Use a 3-step workflow: produce (idx 0) -> middle (idx 1) -> consume (idx 2)
+    // consume retry_step -> produce; middle is done and should stay done
+    const threeStepYaml = `
+id: test-reroute-three
+agents:
+  - id: a1
+    workspace:
+      baseDir: .
+      files: {}
+  - id: a2
+    workspace:
+      baseDir: .
+      files: {}
+steps:
+  - id: produce
+    agent: a1
+    input: "Produce"
+    expects: "STATUS: done"
+    max_retries: 3
+  - id: middle
+    agent: a2
+    input: "Middle"
+    expects: "STATUS: done"
+    max_retries: 3
+  - id: consume
+    agent: a2
+    input: "Consume"
+    expects: "STATUS: done"
+    max_retries: 2
+    on_fail:
+      retry_step: produce
+`;
+    const threeDir = path.join(workflowsDir, "test-reroute-three");
+    fs.mkdirSync(threeDir, { recursive: true });
+    fs.writeFileSync(path.join(threeDir, "workflow.yml"), threeStepYaml);
+
+    const db = await getTestDb();
+    const { runId, stepRows } = insertRunAndSteps(db, "test-reroute-three", [
+      { step_id: "produce", agent_id: "a1", step_index: 0, status: "done", retry_count: 0, max_retries: 3, input_template: "Produce", expects: "STATUS: done", output: "STATUS: done\nOUTPUT: val" },
+      { step_id: "middle", agent_id: "a2", step_index: 1, status: "done", retry_count: 0, max_retries: 3, input_template: "Middle", expects: "STATUS: done", output: "STATUS: done\nMIDDLE: ok" },
+      { step_id: "consume", agent_id: "a2", step_index: 2, status: "running", retry_count: 2, max_retries: 2, input_template: "Consume", expects: "STATUS: done" },
+    ]);
+
+    const consumerRowId = stepRows.find(s => s.step_id === "consume")!.rowId;
+    const middleRowId = stepRows.find(s => s.step_id === "middle")!.rowId;
+
+    const result = await failStep(consumerRowId, "Consumer failed");
+    assert.equal(result.status, "rerouted");
+
+    // Middle step must be untouched (still done)
+    const middle = db.prepare("SELECT status, retry_count FROM steps WHERE id = ?").get(middleRowId) as { status: string; retry_count: number };
+    assert.equal(middle.status, "done", "intermediate done step should stay done");
+    assert.equal(middle.retry_count, 0, "intermediate step retry_count should not change");
+  });
+
+  it("advancePipeline re-pends consumer after producer completes (via pipeline advancement)", async () => {
+    const db = await getTestDb();
+    const { runId, stepRows } = insertRunAndSteps(db, "test-reroute", [
+      { step_id: "produce", agent_id: "producer", step_index: 0, status: "done", retry_count: 0, max_retries: 3, input_template: "Produce output\nReply with:\nSTATUS: done", expects: "STATUS: done", output: "STATUS: done\nOUTPUT: val" },
+      { step_id: "consume", agent_id: "consumer", step_index: 1, status: "running", retry_count: 2, max_retries: 2, input_template: "Consume {{output}}", expects: "STATUS: done" },
+    ]);
+
+    const consumerRowId = stepRows.find(s => s.step_id === "consume")!.rowId;
+    const producerRowId = stepRows.find(s => s.step_id === "produce")!.rowId;
+
+    // 1. Trigger reroute
+    const failResult = await failStep(consumerRowId, "Consumer failed");
+    assert.equal(failResult.status, "rerouted");
+
+    // 2. Consumer is now waiting; producer is pending
+    const consumerAfter = db.prepare("SELECT status FROM steps WHERE id = ?").get(consumerRowId) as { status: string };
+    assert.equal(consumerAfter.status, "waiting");
+
+    const producerAfter = db.prepare("SELECT status FROM steps WHERE id = ?").get(producerRowId) as { status: string };
+    assert.equal(producerAfter.status, "pending");
+
+    // 3. Complete the producer step
+    db.prepare(
+      "UPDATE steps SET status = 'done', output = 'STATUS: done\nNEW: value', updated_at = datetime('now') WHERE id = ?"
+    ).run(producerRowId);
+
+    // 4. Call advancePipeline — it should make consumer pending since producer is done
+    const advanceResult = advancePipeline(runId);
+    assert.equal(advanceResult.advanced, true, "advancePipeline should advance to consumer");
+
+    const consumerAfterAdvance = db.prepare("SELECT status FROM steps WHERE id = ?").get(consumerRowId) as { status: string };
+    assert.equal(consumerAfterAdvance.status, "pending", "consumer should be pending after pipeline advance");
+  });
+
+  it("downstream retry_step target is rejected (invalid_target) and run fails", async () => {
+    const db = await getTestDb();
+    const { runId, stepRows } = insertRunAndSteps(db, "test-reroute-downstream", [
+      { step_id: "produce", agent_id: "prod1", step_index: 0, status: "done", retry_count: 0, max_retries: 3, input_template: "Produce", expects: "STATUS: done", output: "STATUS: done" },
+      // waiting step targets 'later' which has step_index 2 > 1 — downstream!
+      { step_id: "waiting", agent_id: "prod2", step_index: 1, status: "running", retry_count: 2, max_retries: 2, input_template: "Wait", expects: "STATUS: done" },
+      { step_id: "later", agent_id: "prod2", step_index: 2, status: "waiting", retry_count: 0, max_retries: 3, input_template: "Later", expects: "STATUS: done" },
+    ]);
+
+    const waitingRowId = stepRows.find(s => s.step_id === "waiting")!.rowId;
+
+    const result = await failStep(waitingRowId, "Waiting step failed");
+
+    assert.equal(result.status, "failed", "should fail the run on invalid retry_step target");
+
+    // Run should be failed
+    const run = db.prepare("SELECT status FROM runs WHERE id = ?").get(runId) as { status: string };
+    assert.equal(run.status, "failed", "run should be failed");
+
+    // Error message should mention invalid target
+    const step = db.prepare("SELECT output FROM steps WHERE id = ?").get(waitingRowId) as { output: string | null };
+    assert.ok(step.output?.includes("not a valid upstream step"), `error should mention invalid upstream step, got: ${step.output}`);
+  });
+
+  it("unknown retry_step target is rejected (invalid_target) and run fails", async () => {
+    const db = await getTestDb();
+    const { runId, stepRows } = insertRunAndSteps(db, "test-reroute-unknown", [
+      { step_id: "step1", agent_id: "a1", step_index: 0, status: "running", retry_count: 2, max_retries: 2, input_template: "Step 1", expects: "STATUS: done" },
+    ]);
+
+    const step1RowId = stepRows.find(s => s.step_id === "step1")!.rowId;
+
+    const result = await failStep(step1RowId, "Step 1 failed");
+
+    assert.equal(result.status, "failed", "should fail the run on unknown retry_step target");
+
+    const run = db.prepare("SELECT status FROM runs WHERE id = ?").get(runId) as { status: string };
+    assert.equal(run.status, "failed", "run should be failed");
+
+    const step = db.prepare("SELECT output FROM steps WHERE id = ?").get(step1RowId) as { output: string | null };
+    assert.ok(step.output?.includes("not a valid upstream step"), `error should mention invalid upstream step, got: ${step.output}`);
+  });
+
+  it("no reroute when on_fail.retry_step is not declared — normal run failure", async () => {
+    const db = await getTestDb();
+    const { runId, stepRows } = insertRunAndSteps(db, "test-reroute", [
+      // Use produce step which does NOT have retry_step declared (consume does)
+      { step_id: "produce", agent_id: "producer", step_index: 0, status: "running", retry_count: 3, max_retries: 3, input_template: "Produce", expects: "STATUS: done" },
+    ]);
+
+    const produceRowId = stepRows.find(s => s.step_id === "produce")!.rowId;
+
+    const result = await failStep(produceRowId, "Produce failed");
+
+    assert.equal(result.status, "failed", "should fail normally when no retry_step declared");
+
+    const run = db.prepare("SELECT status FROM runs WHERE id = ?").get(runId) as { status: string };
+    assert.equal(run.status, "failed", "run should be failed");
+  });
+
+  it("step.rerouted event is emitted on reroute", async () => {
+    const db = await getTestDb();
+    const { runId, stepRows } = insertRunAndSteps(db, "test-reroute", [
+      { step_id: "produce", agent_id: "producer", step_index: 0, status: "done", retry_count: 0, max_retries: 3, input_template: "Produce", expects: "STATUS: done", output: "STATUS: done" },
+      { step_id: "consume", agent_id: "consumer", step_index: 1, status: "running", retry_count: 2, max_retries: 2, input_template: "Consume", expects: "STATUS: done" },
+    ]);
+
+    const consumerRowId = stepRows.find(s => s.step_id === "consume")!.rowId;
+
+    const result = await failStep(consumerRowId, "Consumer failure reason here");
+    assert.equal(result.status, "rerouted");
+
+    // Check events
+    const events = getRunEvents(runId);
+    const reroutedEvents = events.filter(e => e.event === "step.rerouted");
+    assert.equal(reroutedEvents.length, 1, "should have exactly one step.rerouted event");
+
+    const rerouted = reroutedEvents[0];
+    assert.equal(rerouted.stepId, "consume", "event stepId should be the consumer");
+    assert.ok(rerouted.detail?.includes("produce"), `event detail should name target produce, got: ${rerouted.detail}`);
+    assert.ok(rerouted.detail?.includes("1/2"), `event detail should include reroute count, got: ${rerouted.detail}`);
+    assert.ok(rerouted.detail?.includes("Consumer failure reason here"), `event detail should include failure reason, got: ${rerouted.detail}`);
+
+    // No run.failed event should exist
+    const failedEvents = events.filter(e => e.event === "run.failed");
+    assert.equal(failedEvents.length, 0, "should have no run.failed event after reroute");
+  });
+
+  it("reroute boundedness: reroute_count=2 with max_reroutes=2 exhausts and falls through to run failure", async () => {
+    const db = await getTestDb();
+    const { runId, stepRows } = insertRunAndSteps(db, "test-reroute", [
+      { step_id: "produce", agent_id: "producer", step_index: 0, status: "done", retry_count: 0, max_retries: 3, input_template: "Produce", expects: "STATUS: done", output: "STATUS: done" },
+      // Consumer at retry exhaustion with 2 prior reroutes (budget=2, so exhausted)
+      { step_id: "consume", agent_id: "consumer", step_index: 1, status: "running", retry_count: 2, max_retries: 2, input_template: "Consume", expects: "STATUS: done" },
+    ]);
+
+    const consumerRowId = stepRows.find(s => s.step_id === "consume")!.rowId;
+
+    // Manually set reroute_count=2 — budget is 2, so next attempt should be blocked
+    db.prepare("UPDATE steps SET reroute_count = 2 WHERE id = ?").run(consumerRowId);
+
+    const result = await failStep(consumerRowId, "Consumer failed again");
+
+    // Budget exhausted — should fail the run
+    assert.equal(result.status, "failed", "should fail when reroute budget exhausted");
+
+    const run = db.prepare("SELECT status FROM runs WHERE id = ?").get(runId) as { status: string };
+    assert.equal(run.status, "failed", "run should be failed after budget exhaustion");
+
+    // Prove ping-pong terminates after bounded reroutes
+    const consumer = db.prepare("SELECT reroute_count, status FROM steps WHERE id = ?").get(consumerRowId) as { reroute_count: number; status: string };
+    assert.equal(consumer.reroute_count, 2, "reroute_count should remain 2 — no increment on budget exhaustion");
+    assert.equal(consumer.status, "failed", "step should be failed");
+  });
+
+  it("ping-pong boundedness: full reroute loop terminates after max_reroutes iterations (max_reroutes=3)", async () => {
+    // This test simulates a ping-pong scenario:
+    // producer succeeds → consumer fails → reroute to producer → repeat
+    // After max_reroutes=3 reroutes, the 4th failure exhausts the budget → run fails.
+    // Producer retry_count is verified unchanged across all reroutes.
+    const db = await getTestDb();
+    const { runId, stepRows } = insertRunAndSteps(db, "test-reroute-max3", [
+      { step_id: "produce", agent_id: "producer", step_index: 0, status: "done", retry_count: 0, max_retries: 3, input_template: "Produce", expects: "STATUS: done", output: "STATUS: done" },
+      // Consumer at retry exhaustion (retry_count=2, max_retries=2)
+      { step_id: "consume", agent_id: "consumer", step_index: 1, status: "running", retry_count: 2, max_retries: 2, input_template: "Consume", expects: "STATUS: done" },
+    ]);
+
+    const consumerRowId = stepRows.find(s => s.step_id === "consume")!.rowId;
+    const producerRowId = stepRows.find(s => s.step_id === "produce")!.rowId;
+
+    // Track producer retry_count at start
+    const producerStart = db.prepare("SELECT retry_count FROM steps WHERE id = ?").get(producerRowId) as { retry_count: number };
+    assert.equal(producerStart.retry_count, 0, "producer starts with retry_count=0");
+
+    // Iteration 1: reroute (reroute_count becomes 1)
+    let result = await failStep(consumerRowId, "Consumer failure #1");
+    assert.equal(result.status, "rerouted", "iteration 1: should reroute");
+    let reroutes = (db.prepare("SELECT reroute_count FROM steps WHERE id = ?").get(consumerRowId) as { reroute_count: number }).reroute_count;
+    assert.equal(reroutes, 1, "iteration 1: reroute_count=1");
+    // Producer retry_count unchanged
+    let prodRetry = (db.prepare("SELECT retry_count FROM steps WHERE id = ?").get(producerRowId) as { retry_count: number }).retry_count;
+    assert.equal(prodRetry, 0, "iteration 1: producer retry_count unchanged");
+
+    // Simulate producer re-done + pipeline advance + consumer claimed → running again
+    db.prepare("UPDATE steps SET status = 'done', output = 'STATUS: done\nFIX: v2', updated_at = datetime('now') WHERE id = ?").run(producerRowId);
+    advancePipeline(runId);
+    db.prepare("UPDATE steps SET status = 'running', retry_count = 2, updated_at = datetime('now') WHERE id = ?").run(consumerRowId);
+
+    // Iteration 2: reroute (reroute_count becomes 2)
+    result = await failStep(consumerRowId, "Consumer failure #2");
+    assert.equal(result.status, "rerouted", "iteration 2: should reroute");
+    reroutes = (db.prepare("SELECT reroute_count FROM steps WHERE id = ?").get(consumerRowId) as { reroute_count: number }).reroute_count;
+    assert.equal(reroutes, 2, "iteration 2: reroute_count=2");
+    prodRetry = (db.prepare("SELECT retry_count FROM steps WHERE id = ?").get(producerRowId) as { retry_count: number }).retry_count;
+    assert.equal(prodRetry, 0, "iteration 2: producer retry_count unchanged");
+
+    // Reset again for iteration 3
+    db.prepare("UPDATE steps SET status = 'done', output = 'STATUS: done\nFIX: v3', updated_at = datetime('now') WHERE id = ?").run(producerRowId);
+    advancePipeline(runId);
+    db.prepare("UPDATE steps SET status = 'running', retry_count = 2, updated_at = datetime('now') WHERE id = ?").run(consumerRowId);
+
+    // Iteration 3: reroute (reroute_count becomes 3 — still within budget of 3)
+    result = await failStep(consumerRowId, "Consumer failure #3");
+    assert.equal(result.status, "rerouted", "iteration 3: should reroute (reroute_count=3, budget=3)");
+    reroutes = (db.prepare("SELECT reroute_count FROM steps WHERE id = ?").get(consumerRowId) as { reroute_count: number }).reroute_count;
+    assert.equal(reroutes, 3, "iteration 3: reroute_count=3");
+    prodRetry = (db.prepare("SELECT retry_count FROM steps WHERE id = ?").get(producerRowId) as { retry_count: number }).retry_count;
+    assert.equal(prodRetry, 0, "iteration 3: producer retry_count still unchanged");
+
+    // Reset for iteration 4
+    db.prepare("UPDATE steps SET status = 'done', output = 'STATUS: done\nFIX: v4', updated_at = datetime('now') WHERE id = ?").run(producerRowId);
+    advancePipeline(runId);
+    db.prepare("UPDATE steps SET status = 'running', retry_count = 2, updated_at = datetime('now') WHERE id = ?").run(consumerRowId);
+
+    // Iteration 4: budget exhausted (reroute_count=3 >= max_reroutes=3) → run fails
+    result = await failStep(consumerRowId, "Consumer failure #4");
+    assert.equal(result.status, "failed", "iteration 4: should fail (budget exhausted)");
+
+    // Verify run is failed
+    const run = db.prepare("SELECT status FROM runs WHERE id = ?").get(runId) as { status: string };
+    assert.equal(run.status, "failed", "run should be failed after reroute budget exhaustion");
+
+    // Verify consumer step is failed, reroute_count still 3
+    const consumer = db.prepare("SELECT reroute_count, status, retry_count FROM steps WHERE id = ?").get(consumerRowId) as { reroute_count: number; status: string; retry_count: number };
+    assert.equal(consumer.reroute_count, 3, "reroute_count should remain 3 — no increment on budget exhaustion");
+    assert.equal(consumer.status, "failed", "consumer should be failed");
+
+    // Producer retry_count still 0 after all reroutes
+    prodRetry = (db.prepare("SELECT retry_count FROM steps WHERE id = ?").get(producerRowId) as { retry_count: number }).retry_count;
+    assert.equal(prodRetry, 0, "producer retry_count unchanged across all reroutes (reroute budget is separate)");
+
+    // Run terminal event should exist
+    const events = getRunEvents(runId);
+    const runFailedEvents = events.filter(e => e.event === "run.failed");
+    assert.ok(runFailedEvents.length > 0, "should have run.failed event after budget exhaustion");
+
+    // step.rerouted events should have been emitted for all 3 reroutes
+    const reroutedEvents = events.filter(e => e.event === "step.rerouted");
+    assert.equal(reroutedEvents.length, 3, "should have 3 step.rerouted events");
+  });
+
+  // ── US-005: event emission tests ──
+
+  it("step.reroute_budget_exhausted event is emitted when reroute budget is exhausted", async () => {
+    // When a step exhausts its retries AND reroute budget is already at max,
+    // step.reroute_budget_exhausted should be emitted before the run fails.
+    const db = await getTestDb();
+    const { runId, stepRows } = insertRunAndSteps(db, "test-reroute", [
+      { step_id: "produce", agent_id: "producer", step_index: 0, status: "done", retry_count: 0, max_retries: 3, input_template: "Produce", expects: "STATUS: done", output: "STATUS: done" },
+      // Consumer at retry exhaustion with reroute_count already at budget (2/2)
+      { step_id: "consume", agent_id: "consumer", step_index: 1, status: "running", retry_count: 2, max_retries: 2, input_template: "Consume", expects: "STATUS: done" },
+    ]);
+
+    const consumerRowId = stepRows.find(s => s.step_id === "consume")!.rowId;
+
+    // Manually set reroute_count=2 — budget (default 2) is exhausted
+    db.prepare("UPDATE steps SET reroute_count = 2 WHERE id = ?").run(consumerRowId);
+
+    const result = await failStep(consumerRowId, "Consumer failed after all reroutes");
+    assert.equal(result.status, "failed", "should fail when reroute budget exhausted");
+
+    // Check events
+    const events = getRunEvents(runId);
+    const budgetExhaustedEvents = events.filter(e => e.event === "step.reroute_budget_exhausted");
+    assert.equal(budgetExhaustedEvents.length, 1, "should have exactly one step.reroute_budget_exhausted event");
+
+    const exhausted = budgetExhaustedEvents[0];
+    assert.equal(exhausted.stepId, "consume", "event stepId should be the consumer");
+    assert.ok(exhausted.detail?.includes("Reroute budget exhausted"), `event detail should mention budget exhausted, got: ${exhausted.detail}`);
+    assert.ok(exhausted.detail?.includes("2/2"), `event detail should include reroute count/budget, got: ${exhausted.detail}`);
+    assert.ok(exhausted.detail?.includes("produce"), `event detail should name target step, got: ${exhausted.detail}`);
+
+    // step.retries exhausted event should also fire
+    const failedEvents = events.filter(e => e.event === "step.failed");
+    assert.equal(failedEvents.length, 1, "should have step.failed event");
+
+    // run.failed event should fire
+    const runFailedEvents = events.filter(e => e.event === "run.failed");
+    assert.equal(runFailedEvents.length, 1, "should have run.failed event after budget exhaustion");
+  });
+
+  it("step.escalation event is emitted when escalate_to is configured", async () => {
+    // When a step exhausts its retries AND escalate_to is configured,
+    // a step.escalation event should be emitted (log-only behavior preserved).
+    const db = await getTestDb();
+    const { runId, stepRows } = insertRunAndSteps(db, "test-reroute-escalate", [
+      // Step at retry exhaustion (retry_count=2, max_retries=2), no retry_step so no reroute
+      { step_id: "produce", agent_id: "prod", step_index: 0, status: "running", retry_count: 2, max_retries: 2, input_template: "Produce output", expects: "STATUS: done" },
+    ]);
+
+    const consumerRowId = stepRows.find(s => s.step_id === "produce")!.rowId;
+
+    const result = await failStep(consumerRowId, "Step exhausted retries");
+    assert.equal(result.status, "failed", "should fail when retries exhausted and no retry_step");
+
+    // Check events
+    const events = getRunEvents(runId);
+    const escalationEvents = events.filter(e => e.event === "step.escalation");
+    assert.equal(escalationEvents.length, 1, "should have exactly one step.escalation event");
+
+    const escalation = escalationEvents[0];
+    assert.equal(escalation.stepId, "produce", "event stepId should be the failing step");
+    assert.equal(escalation.runId, runId, "event should have correct runId");
+    assert.ok(escalation.detail?.includes("Escalation target"), `event detail should mention escalation target, got: ${escalation.detail}`);
+    assert.ok(escalation.detail?.includes("agent:main:main"), `event detail should include target, got: ${escalation.detail}`);
+    assert.ok(escalation.detail?.includes("Step exhausted retries"), `event detail should include reason, got: ${escalation.detail}`);
+
+    // step.failed and run.failed events should still fire
+    const failedEvents = events.filter(e => e.event === "step.failed");
+    assert.equal(failedEvents.length, 1, "step.failed should still be emitted");
+    const runFailedEvents = events.filter(e => e.event === "run.failed");
+    assert.equal(runFailedEvents.length, 1, "run.failed should still be emitted");
+  });
+
+  it("resolveMissingKeys is unchanged — pre-execution path still works", async () => {
+    // This test proves resolveMissingKeys is unaffected by the RETR implementation.
+    // It blocks based on missing template keys (pre-execution), not post-execution failure.
+    const { getDb } = await import("../dist/db.js");
+    const db = getDb();
+    const runId = crypto.randomUUID();
+    const producerStepId = crypto.randomUUID();
+    const consumerStepId = crypto.randomUUID();
+    const now = ts();
+
+    const seededContext = JSON.stringify({ task: "test" });
+
+    db.prepare(
+      "INSERT INTO runs (id, run_number, workflow_id, task, status, context, tokens_spent, created_at, updated_at) VALUES (?, 1, 'bug-fix', 'test', 'running', ?, 0, ?, ?)"
+    ).run(runId, seededContext, now, now);
+
+    // Producer declares BRANCH
+    db.prepare(
+      "INSERT INTO steps (id, run_id, step_id, agent_id, step_index, input_template, expects, status, output, retry_count, max_retries, type, created_at, updated_at) VALUES (?, ?, 'triage', 'bf_triage', 0, ?, '', 'done', 'STATUS: done\nBRANCH: some-branch', 0, 4, 'single', ?, ?)"
+    ).run(producerStepId, runId, replyTemplate(["STATUS", "BRANCH", "REPO"]), now, now);
+
+    // Consumer needs {{branch}}
+    db.prepare(
+      "INSERT INTO steps (id, run_id, step_id, agent_id, step_index, input_template, expects, status, retry_count, max_retries, type, created_at, updated_at) VALUES (?, ?, 'fix', 'bf_fixer', 1, 'Fix in {{branch}}', '', 'pending', 0, 4, 'single', ?, ?)"
+    ).run(consumerStepId, runId, now, now);
+
+    // claimStep should resolve normally since {{branch}} is available
+    const result = claimStep("bf_fixer", runId);
+    assert.ok(result.found, "claimStep should find the step");
+
+    // reset for second test
+    db.prepare("UPDATE steps SET status = 'pending', updated_at = datetime('now') WHERE id = ?").run(consumerStepId);
+
+    // Now remove {{branch}} from context and producer output — should trigger resolveMissingKeys block
+    db.prepare("UPDATE steps SET output = 'STATUS: done' WHERE id = ?").run(producerStepId);
+    const result2 = claimStep("bf_fixer", runId);
+    assert.equal(result2.found, false, "claimStep should block when branch key is missing with no producer");
+
+    // The resolveMissingKeys pre-execution path is still intact — run may fail or producer re-pends
+    // depending on whether a producer declares the missing key. This verifies the path is not broken.
+  });
+
+  it("loop step story-level retry is unaffected by RETR — verify_each machinery untouched", async () => {
+    // Loop steps with current_story_id use per-story retry, not step-level retry.
+    // RETR must not interfere with this path.
+    const { getDb } = await import("../dist/db.js");
+    const db = getDb();
+    const runId = crypto.randomUUID();
+    const loopStepId = crypto.randomUUID();
+    const now = ts();
+
+    const seededContext = JSON.stringify({ task: "implement feature", repo: "/tmp/repo", branch: "feature/x" });
+    db.prepare(
+      "INSERT INTO runs (id, run_number, workflow_id, task, status, context, tokens_spent, created_at, updated_at) VALUES (?, 1, 'bug-fix', 'implement feature', 'running', ?, 0, ?, ?)"
+    ).run(runId, seededContext, now, now);
+
+    // Loop step with current_story_id (mid-iteration)
+    const storyId = crypto.randomUUID();
+    db.prepare(
+      "INSERT INTO stories (id, run_id, story_index, story_id, title, description, acceptance_criteria, status, retry_count, max_retries, created_at, updated_at) VALUES (?, ?, 0, 'S1', 'Test', 'desc', '[]', 'running', 0, 3, ?, ?)"
+    ).run(storyId, runId, now, now);
+
+    db.prepare(
+      "INSERT INTO steps (id, run_id, step_id, agent_id, step_index, input_template, expects, status, retry_count, max_retries, type, current_story_id, loop_config, created_at, updated_at) VALUES (?, ?, 'fix', 'bf_fixer', 0, 'Fix', '', 'running', 0, 4, 'loop', ?, ?, ?, ?)"
+    ).run(loopStepId, runId, storyId, JSON.stringify({ over: "stories" }), now, now);
+
+    // failStep on loop step — should use per-story retry, NOT step-level retry or reroute
+    const result = await failStep(loopStepId, "Story failed");
+
+    // Story-level retry should kick in (retry if below max_retries)
+    const story = db.prepare("SELECT status, retry_count FROM stories WHERE id = ?").get(storyId) as { status: string; retry_count: number };
+    assert.equal(story.status, "pending", "story should be re-pended (not failed)");
+    assert.equal(story.retry_count, 1, "story retry_count should be 1");
+
+    // Loop step should be pending
+    const loop = db.prepare("SELECT status, current_story_id FROM steps WHERE id = ?").get(loopStepId) as { status: string; current_story_id: string | null };
+    assert.equal(loop.status, "pending");
+    assert.equal(loop.current_story_id, null, "current_story_id should be cleared");
+
+    // Run should still be running
+    const run = db.prepare("SELECT status FROM runs WHERE id = ?").get(runId) as { status: string };
+    assert.equal(run.status, "running", "run should still be running");
+  });
+
+  // ── US-003: completeStep expects-validation exhaustion reroute ──
+
+  it("completeStep expects-validation exhaustion triggers reroute to retry_step", async () => {
+    // When expects validation fails AND step retries are exhausted,
+    // on_fail.retry_step should trigger a reroute to the upstream producer
+    // instead of killing the run.
+    const db = await getTestDb();
+    const { runId, stepRows } = insertRunAndSteps(db, "test-reroute", [
+      { step_id: "produce", agent_id: "producer", step_index: 0, status: "done", retry_count: 0, max_retries: 3, input_template: "Produce output", expects: "STATUS: done", output: "STATUS: done\nOUTPUT: some-value" },
+      // Consumer at retry_count = max_retries, so next expects failure triggers exhaustion
+      { step_id: "consume", agent_id: "consumer", step_index: 1, status: "running", retry_count: 2, max_retries: 2, input_template: "Consume {{output}}", expects: "STATUS: done", type: "single" },
+    ]);
+
+    const consumerRowId = stepRows.find(s => s.step_id === "consume")!.rowId;
+    const producerRowId = stepRows.find(s => s.step_id === "produce")!.rowId;
+
+    // completeStep with invalid output → expects validation fails → retries exhausted
+    const result = completeStep(consumerRowId, "missing status line");
+
+    assert.equal(result.status, "rerouted", "completeStep should return rerouted status, got: " + JSON.stringify(result));
+
+    // Run should still be running
+    const run = db.prepare("SELECT status FROM runs WHERE id = ?").get(runId) as { status: string };
+    assert.equal(run.status, "running", "run should still be running after expects-validation reroute");
+
+    // Producer should be re-pended
+    const producer = db.prepare("SELECT status, retry_count, output FROM steps WHERE id = ?").get(producerRowId) as { status: string; retry_count: number; output: string | null };
+    assert.equal(producer.status, "pending", "producer should be re-pended to pending");
+    assert.equal(producer.retry_count, 0, "producer retry_count should be unchanged");
+    assert.ok(producer.output?.includes("Reroute from"), `producer output should contain reroute feedback, got: ${producer.output}`);
+    assert.ok(producer.output?.includes("consume"), `producer output should name consumer, got: ${producer.output}`);
+
+    // Consumer should be reset to waiting with retry_count=0
+    const consumer = db.prepare("SELECT status, retry_count, reroute_count, output FROM steps WHERE id = ?").get(consumerRowId) as { status: string; retry_count: number; reroute_count: number | null; output: string | null };
+    assert.equal(consumer.status, "waiting", "consumer should be reset to waiting");
+    assert.equal(consumer.retry_count, 0, "consumer retry_count should be 0");
+    assert.equal(consumer.reroute_count, 1, "consumer reroute_count should be 1");
+    assert.equal(consumer.output, null, "consumer output should be cleared");
+
+    // step.rerouted event should be emitted
+    const events = getRunEvents(runId);
+    const rerouteEvents = events.filter(e => e.event === "step.rerouted");
+    assert.ok(rerouteEvents.length >= 1, `Expected at least 1 step.rerouted event, got ${rerouteEvents.length}`);
+    const re = rerouteEvents[0];
+    assert.equal(re.runId, runId);
+    assert.equal(re.stepId, "consume");
+    assert.ok((re as any).detail.includes("produce"), `event detail should mention target step, got: ${(re as any).detail}`);
+  });
+
+  it("completeStep expects-validation exhaustion falls through to run failure when budget exhausted", async () => {
+    // When expects validation fails AND step retries are exhausted AND
+    // reroute budget is already exhausted, the run should fail normally.
+    const db = await getTestDb();
+    const { runId, stepRows } = insertRunAndSteps(db, "test-reroute", [
+      { step_id: "produce", agent_id: "producer", step_index: 0, status: "done", retry_count: 0, max_retries: 3, input_template: "Produce output", expects: "STATUS: done", output: "STATUS: done\nOUTPUT: some-value" },
+      // Consumer at retry_count = max_retries, reroute_count already at budget (2)
+      { step_id: "consume", agent_id: "consumer", step_index: 1, status: "running", retry_count: 2, max_retries: 2, input_template: "Consume {{output}}", expects: "STATUS: done", type: "single" },
+    ]);
+
+    const consumerRowId = stepRows.find(s => s.step_id === "consume")!.rowId;
+
+    // Manually set reroute_count to 2 (budget exhausted)
+    db.prepare("UPDATE steps SET reroute_count = 2 WHERE id = ?").run(consumerRowId);
+
+    const result = completeStep(consumerRowId, "missing status line");
+
+    assert.equal(result.status, "failed", "completeStep should return failed when reroute budget exhausted, got: " + JSON.stringify(result));
+
+    // Run should be failed
+    const run = db.prepare("SELECT status FROM runs WHERE id = ?").get(runId) as { status: string };
+    assert.equal(run.status, "failed", "run should be failed when reroute budget exhausted");
+
+    // Consumer should be failed
+    const consumer = db.prepare("SELECT status FROM steps WHERE id = ?").get(consumerRowId) as { status: string };
+    assert.equal(consumer.status, "failed", "consumer should be failed");
+  });
+
+  // ── US-003: orphan-recovery exhaustion reroute ──
+
+  it("orphan-recovery exhaustion triggers reroute to retry_step", async () => {
+    // When orphan recovery finds a step with exhausted retries AND
+    // on_fail.retry_step is declared, it should reroute instead of failing.
+    const db = await getTestDb();
+    const { runId, stepRows } = insertRunAndSteps(db, "test-reroute", [
+      { step_id: "produce", agent_id: "producer", step_index: 0, status: "done", retry_count: 0, max_retries: 3, input_template: "Produce output", expects: "STATUS: done", output: "STATUS: done\nOUTPUT: some-value" },
+      // Consumer agent: retry_count == max_retries, running (orphaned)
+      { step_id: "consume", agent_id: "consumer", step_index: 1, status: "running", retry_count: 2, max_retries: 2, input_template: "Consume {{output}}", expects: "STATUS: done", type: "single" },
+    ]);
+
+    const consumerRowId = stepRows.find(s => s.step_id === "consume")!.rowId;
+    const producerRowId = stepRows.find(s => s.step_id === "produce")!.rowId;
+
+    // Simulate orphan recovery: consumer agent's running step has exhausted retries
+    const result = recoverOrphanedStepsForAgent("consumer", runId);
+
+    // The step should NOT be counted as failed — it was rerouted
+    assert.equal(result.failed, 0, `no steps should be failed (rerouted instead), got failed=${result.failed}`);
+    assert.equal(result.recovered, 1, `one step should be recovered (rerouted), got recovered=${result.recovered}`);
+
+    // Run should still be running
+    const run = db.prepare("SELECT status FROM runs WHERE id = ?").get(runId) as { status: string };
+    assert.equal(run.status, "running", "run should still be running after orphan-recovery reroute");
+
+    // Producer should be re-pended
+    const producer = db.prepare("SELECT status, retry_count, output FROM steps WHERE id = ?").get(producerRowId) as { status: string; retry_count: number; output: string | null };
+    assert.equal(producer.status, "pending", "producer should be re-pended to pending");
+    assert.equal(producer.retry_count, 0, "producer retry_count should be unchanged");
+    assert.ok(producer.output?.includes("Reroute from"), `producer output should contain reroute feedback, got: ${producer.output}`);
+
+    // Consumer should be reset to waiting with retry_count=0
+    const consumer = db.prepare("SELECT status, retry_count, reroute_count FROM steps WHERE id = ?").get(consumerRowId) as { status: string; retry_count: number; reroute_count: number | null };
+    assert.equal(consumer.status, "waiting", "consumer should be reset to waiting");
+    assert.equal(consumer.retry_count, 0, "consumer retry_count should be 0");
+    assert.equal(consumer.reroute_count, 1, "consumer reroute_count should be 1");
+  });
+
+  it("orphan-recovery exhaustion falls through to run failure when budget exhausted", async () => {
+    // When orphan recovery finds a step with exhausted retries AND
+    // reroute budget is already exhausted, the run should fail.
+    const db = await getTestDb();
+    const { runId, stepRows } = insertRunAndSteps(db, "test-reroute", [
+      { step_id: "produce", agent_id: "producer", step_index: 0, status: "done", retry_count: 0, max_retries: 3, input_template: "Produce output", expects: "STATUS: done", output: "STATUS: done\nOUTPUT: some-value" },
+      { step_id: "consume", agent_id: "consumer", step_index: 1, status: "running", retry_count: 2, max_retries: 2, input_template: "Consume {{output}}", expects: "STATUS: done", type: "single" },
+    ]);
+
+    const consumerRowId = stepRows.find(s => s.step_id === "consume")!.rowId;
+
+    // Manually set reroute_count to 2 (budget exhausted)
+    db.prepare("UPDATE steps SET reroute_count = 2 WHERE id = ?").run(consumerRowId);
+
+    const result = recoverOrphanedStepsForAgent("consumer", runId);
+
+    assert.equal(result.failed, 1, `one step should be failed due to budget exhaustion, got failed=${result.failed}`);
+    assert.equal(result.recovered, 0, `no steps should be recovered, got recovered=${result.recovered}`);
+
+    // Run should be failed
+    const run = db.prepare("SELECT status FROM runs WHERE id = ?").get(runId) as { status: string };
+    assert.equal(run.status, "failed", "run should be failed when orphan reroute budget exhausted");
+  });
+
+  it("orphan-recovery reroute only fires for single steps, not loop story-level exhaustion", async () => {
+    // Loop steps with current_story_id use per-story retry, not step-level retry.
+    // Orphan recovery must NOT trigger RETR for story-level exhaustion.
+    const db = await getTestDb();
+    const runId = crypto.randomUUID();
+    const now = ts();
+
+    const seededContext = JSON.stringify({ task: "fix bug", repo: "/tmp/repo", branch: "bugfix/x" });
+    db.prepare(
+      "INSERT INTO runs (id, run_number, workflow_id, task, status, context, tokens_spent, created_at, updated_at) VALUES (?, 1, 'bug-fix', 'fix bug', 'running', ?, 0, ?, ?)"
+    ).run(runId, seededContext, now, now);
+
+    // Story with exhausted retries (story retry_count == max_retries)
+    const storyId = crypto.randomUUID();
+    db.prepare(
+      "INSERT INTO stories (id, run_id, story_index, story_id, title, description, acceptance_criteria, status, retry_count, max_retries, created_at, updated_at) VALUES (?, ?, 0, 'S1', 'Test', 'desc', '[]', 'running', 3, 3, ?, ?)"
+    ).run(storyId, runId, now, now);
+
+    // Loop step mid-iteration (current_story_id set, running)
+    const loopStepId = crypto.randomUUID();
+    db.prepare(
+      "INSERT INTO steps (id, run_id, step_id, agent_id, step_index, input_template, expects, status, retry_count, max_retries, type, current_story_id, loop_config, created_at, updated_at) VALUES (?, ?, 'fix', 'bf_fixer', 0, 'Fix', '', 'running', 0, 4, 'loop', ?, ?, ?, ?)"
+    ).run(loopStepId, runId, storyId, JSON.stringify({ over: "stories" }), now, now);
+
+    // Orphan recovery for the fixer agent — story retries exhausted
+    const result = recoverOrphanedStepsForAgent("bf_fixer", runId);
+
+    // Story-level exhaustion does NOT trigger RETR — run fails
+    assert.equal(result.failed, 1, `story-level exhaustion should fail the step, got failed=${result.failed}`);
+    assert.equal(result.recovered, 0, `story-level exhaustion should not recover, got recovered=${result.recovered}`);
+
+    // Run should be failed
+    const run = db.prepare("SELECT status FROM runs WHERE id = ?").get(runId) as { status: string };
+    assert.equal(run.status, "failed", "run should be failed on story-level exhaustion");
+  });
+});
 
   it("loop path: mixed resolvable and unresolvable keys — unresolvable takes priority, fails fast", async () => {
     const { getDb } = await import("../dist/db.js");

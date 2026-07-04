@@ -197,6 +197,8 @@ steps:
     expects: "STATUS: done"
     max_retries: 4
     on_fail:
+      # Setup failures often originate from incomplete scanning; re-scanning refreshes vulnerability findings
+      retry_step: scan
       escalate_to: human
 
   - id: fix

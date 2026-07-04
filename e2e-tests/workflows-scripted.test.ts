@@ -570,6 +570,207 @@ describe("scripted-agent full pipeline (real daemon/scheduler, zero tokens)", { 
   );
 
   it(
+    "bug-fix-merge-worktree: verifier exhaustion triggers reroute to fixer via retry_step",
+    { timeout: 240_000 },
+    async () => {
+      let ctx: ScriptedRunContext | undefined;
+      try {
+        const REROUTE_BRANCH = "bugfix-scripted-reroute";
+        const rerouteBehaviors: ScriptedAgentConfig = {
+          agents: {
+            triager: {
+              output: [
+                "STATUS: done",
+                "REPO: {{cwd}}",
+                `BRANCH: ${REROUTE_BRANCH}`,
+                "SEVERITY: high",
+                "AFFECTED_AREA: src/math.ts",
+                "REPRODUCTION: add(5, 3) returns 2 instead of 8",
+                "PROBLEM_STATEMENT: add() subtracts instead of adding",
+              ].join("\n"),
+            },
+            investigator: {
+              output: [
+                "STATUS: done",
+                "ROOT_CAUSE: add() uses the subtraction operator",
+                "FIX_APPROACH: replace a - b with a + b in src/math.ts",
+              ].join("\n"),
+            },
+            setup: {
+              commands: [`git checkout -b ${REROUTE_BRANCH}`],
+              output: [
+                "STATUS: done",
+                "ORIGINAL_BRANCH: {{input.ORIGINAL_BRANCH}}",
+                "BUILD_CMD: true",
+                "TEST_CMD: true",
+                "BASELINE: add() is broken as reported",
+              ].join("\n"),
+            },
+            // Fixer: two behaviors — first produces a flawed fix, second (after reroute) fixes it
+            fixer: [
+              {
+                edits: [{ file: "src/math.ts", find: "a - b", replace: "a - b + 0" }],
+                commands: [
+                  "git add -A",
+                  'git commit -m "fix: attempt to correct add (flawed)"',
+                ],
+                output: [
+                  "STATUS: done",
+                  "CHANGES: replaced subtraction with addition-adjacent expression",
+                  "REGRESSION_TEST: covered by existing math test",
+                ].join("\n"),
+              },
+              {
+                edits: [{ file: "src/math.ts", find: "a - b + 0", replace: "a + b" }],
+                commands: [
+                  "git add -A",
+                  'git commit -m "fix: correct add implementation"',
+                ],
+                output: [
+                  "STATUS: done",
+                  "CHANGES: corrected add() to use addition",
+                  "REGRESSION_TEST: covered by existing math test",
+                ].join("\n"),
+              },
+            ],
+            // Verifier: fails 5 times (exhausting max_retries=4) then succeeds after reroute
+            verifier: [
+              { stepAction: "fail", failReason: "Fix does not address root cause — expression still involves subtraction" },
+              { stepAction: "fail", failReason: "Regression test does not properly validate the fix logic" },
+              { stepAction: "fail", failReason: "Code quality issues — unnecessary complexity in the expression" },
+              { stepAction: "fail", failReason: "Side effects not addressed — edge cases still broken" },
+              { stepAction: "fail", failReason: "Fix is semantically wrong — produces incorrect results" },
+              { output: ["STATUS: done", "VERIFIED: add() now uses a + b, regression test passes"].join("\n") },
+            ],
+            merger: {
+              commands: [
+                'git -C "{{input.WORKTREE_ORIGIN_REPOSITORY}}" checkout "{{input.ORIGINAL_BRANCH}}"',
+                `git -C "{{input.WORKTREE_ORIGIN_REPOSITORY}}" merge --squash ${REROUTE_BRANCH}`,
+                `git -C "{{input.WORKTREE_ORIGIN_REPOSITORY}}" commit -m "fix: correct add implementation (squash of ${REROUTE_BRANCH})"`,
+              ],
+              output: [
+                "STATUS: done",
+                "REBASED: false",
+                "MERGE_COMMIT: scripted",
+                "MERGED_INTO: {{input.ORIGINAL_BRANCH}}",
+              ].join("\n"),
+            },
+          },
+        };
+
+        ctx = await startScriptedEnvironment("bug-fix-merge-worktree", rerouteBehaviors);
+        const repoDir = prepareGitRepo(fixtureDir, path.join(ctx.env.root, "origin-repo"));
+
+        const runIdPrefix = await spawnWorkflowRun(
+          [
+            "workflow",
+            "run",
+            "bug-fix-merge-worktree",
+            "The add function in src/math.ts returns a - b instead of a + b",
+            "--worktree-origin-repository",
+            repoDir,
+          ],
+          baseEnv(ctx.env.homeDir, ctx.env.controlPort),
+        );
+        const runId = resolveFullRunId(runIdPrefix, ctx.env.tamanduaDir);
+
+        const status = await waitForRun(ctx, runId, 200_000);
+        assert.ok(
+          status === "completed" || status === "done",
+          `run should complete after reroute, got "${status}"\n${diagnostics(ctx)}`,
+        );
+
+        // ── Pipeline state: every step done, none failed ──
+        const steps = dbRows<{ step_id: string; status: string; reroute_count: number | null }>(
+          ctx.env.tamanduaDir,
+          "SELECT step_id, status, reroute_count FROM steps WHERE run_id = ? ORDER BY step_index",
+          runId,
+        );
+        assert.equal(steps.length, 6, `expected 6 steps, got ${JSON.stringify(steps)}`);
+        for (const step of steps) {
+          assert.equal(
+            step.status,
+            "done",
+            `step ${step.step_id} should be done, got ${step.status}\n${diagnostics(ctx)}`,
+          );
+        }
+
+        // ── step.rerouted event exists with expected fields ──
+        const events = readRunEvents(ctx.env.tamanduaDir, runId);
+        const reroutedEvent = events.find((e) => e.event === "step.rerouted");
+        assert.ok(
+          reroutedEvent,
+          `step.rerouted event missing; events: ${events.map((e) => e.event).join(", ")}`,
+        );
+        assert.equal(
+          reroutedEvent.stepId,
+          "verify",
+          `rerouted event should reference verify step, got ${reroutedEvent.stepId}`,
+        );
+        assert.ok(
+          typeof reroutedEvent.detail === "string" && reroutedEvent.detail.includes("fix"),
+          `rerouted event detail should mention target step "fix": ${reroutedEvent.detail}`,
+        );
+
+        // ── Run completed event exists ──
+        const completed = events.find((e) => e.event === "run.completed");
+        assert.ok(completed, "run.completed event missing");
+
+        // ── DB: verifier has reroute_count = 1 ──
+        const verifyStep = steps.find((s) => s.step_id === "verify");
+        assert.equal(
+          verifyStep?.reroute_count,
+          1,
+          `verify reroute_count should be 1, got ${verifyStep?.reroute_count}`,
+        );
+
+        // ── Work round counts ──
+        // triager(1) + investigator(1) + setup(1) + fixer(2) + verifier(6) + merger(1) = 12
+        const fixerRounds = ctx.scripted.workInvocations("fixer");
+        const verifierRounds = ctx.scripted.workInvocations("verifier");
+        assert.equal(
+          fixerRounds.length,
+          2,
+          `fixer should have 2 work rounds (initial + reroute), got ${fixerRounds.length}`,
+        );
+        assert.equal(
+          verifierRounds.length,
+          6,
+          `verifier should have 6 work rounds (5 fails + 1 success), got ${verifierRounds.length}`,
+        );
+
+        const totalWorkRounds = ctx.scripted.workInvocations().length;
+        assert.equal(
+          totalWorkRounds,
+          12,
+          `expected 12 total work rounds, got ${totalWorkRounds}\n${diagnostics(ctx)}`,
+        );
+
+        // ── No heartbeats (deterministic motor, N2) ──
+        const heartbeats = ctx.scripted.heartbeats();
+        assert.equal(
+          heartbeats.length,
+          0,
+          `expected 0 heartbeats, got ${heartbeats.length}\n${diagnostics(ctx)}`,
+        );
+
+        // ── Repository outcome: the corrected fix eventually landed ──
+        const mathTs = fs.readFileSync(path.join(repoDir, "src", "math.ts"), "utf-8");
+        assert.ok(mathTs.includes("a + b"), `origin math.ts should use addition:\n${mathTs}`);
+
+        console.log(
+          `[scripted-e2e reroute] verifier exhaustion → reroute to fixer: ` +
+            `${totalWorkRounds} work rounds, ${verifierRounds.length} verifier invocations (5 fails + 1 success), ` +
+            `${fixerRounds.length} fixer invocations (initial + reroute), ` +
+            `${heartbeats.length} heartbeats`,
+        );
+      } finally {
+        await teardown(ctx);
+      }
+    },
+  );
+
+  it(
     "do-now: agent process dying after claim is recovered and retried",
     { timeout: 120_000 },
     async () => {

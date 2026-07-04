@@ -1,0 +1,275 @@
+# Progress Log
+Run: fb5e64da-3306-4282-b65d-79f80aec7075
+Task: Implement RETR: declarative cross-step retry routing (on_fail.retry_step), FULLY
+Started: 2026-07-03T23:07:00Z
+
+## Codebase Patterns
+- DB migration pattern: PRAGMA table_info → Set of col names → ALTER TABLE ADD COLUMN if missing
+- Test isolation pattern: isolated HOME + TAMANDUA_DB_PATH, spawnSync with --input-type=module, cleanChildEnv
+- Subprocess-spawned migration tests go in tests/; in-process DB tests in src/db.test.ts
+- step-ops.ts functions: failStep is async (calls getOnFailPolicy → loadWorkflowSpec → fs.readFile)
+- getOnFailPolicy reads workflow YAML via resolveWorkflowDir(<state>/workflows/<id>/workflow.yml)
+- claimStep surfaces retry_feedback from step.output (now always when output is non-null, not just on retry_count>0)
+- Workflow tests need temp workflow YAML files in $TAMANDUA_STATE_DIR/workflows/<id>/workflow.yml
+- Nesting describe blocks: save env vars in before() hook, not at module eval time, to capture outer describe's isolation
+- Synchronous variant pattern: when an async function (getOnFailPolicy, rerouteStep) needs to be called from a sync context (completeStep, recoverOrphanedStepsForAgent), create a Sync variant that uses readFileSync/loadWorkflowSpecSync instead of the async file reads
+- RETR test workflow: test-reroute with produce → consume pipeline, consume declares on_fail.retry_step: produce
+- max_reroutes default: when not declared in YAML, defaults to 2 in code (policy.max_reroutes ?? 2)
+- Workflow YAML retry_step pattern: add retry_step inside on_fail block with a `# justificaton comment` line above it, after escalate_to (if present)
+- feature-dev* YAMLs: setup step on_fail block precedes `- id: implement`
+- security-audit* YAMLs: setup step on_fail block precedes `- id: fix`
+
+---
+## Story Plan
+
+### US-001: Add reroute_count column to steps table
+### US-002: Implement retry_step validation and core reroute logic in step-ops
+### US-003: Wire reroute into completeStep expects-validation and orphan-recovery exhaustion paths
+### US-004: Implement max_reroutes bounding and budget exhaustion
+### US-005: Emit step.rerouted, step.reroute_budget_exhausted, and step.escalation events
+### US-006: Wire retry_step in bug-fix* workflows YAML
+### US-007: Wire retry_step in feature-dev* and security-audit* workflows YAML
+### US-008: Update creating-workflows.md with retry_step/max_reroutes documentation
+### US-009: Update MOTOR-CONTRACT.md, README.md, and AGENTS.md for reroute semantics
+### US-010: Unit tests for all reroute paths
+### US-011: Scripted e2e chaos scenario for reroute
+
+---
+## 2026-07-03 - US-001: Add reroute_count column to steps table
+- Added reroute_count INTEGER DEFAULT 0 column to steps table in src/db.ts
+- Followed the existing ALTER TABLE migration pattern with PRAGMA table_info guard
+- Added migration after existing claim ownership columns
+- Wrote 3 migration tests in tests/reroute-count-column-migration.test.ts
+- **Learnings:** Migration and test isolation patterns documented in Codebase Patterns above
+
+---
+## 2026-07-03 - US-002: Implement retry_step validation and core reroute logic in step-ops
+- Added `rerouteStep` async function in src/installer/step-ops.ts (~130 lines)
+  - Validates retry_step targets an upstream step (lower step_index) in same workflow
+  - Re-pends producer (status=pending, retry_count UNCHANGED)
+  - Writes retry_feedback into producer output (bounded to 200 chars)
+  - Resets consumer to waiting with retry_count=0 and increments reroute_count
+  - Leaves intermediate done steps untouched
+  - Returns: "rerouted", "budget_exhausted", "invalid_target", or "not_found"
+  - Emits step.rerouted event and logs details
+- Wired into failStep exhaustion path (single-step): before marking run failed
+  - On "rerouted": nudgeDispatch(), return { status: "rerouted" }
+  - On "invalid_target": override error with clear spec-error message, fall through to run failure
+  - On "budget_exhausted": fall through to normal run failure
+- Fixed claimStep to surface retry_feedback from output regardless of retry_count
+  - Changed from `step.retry_count > 0 && step.output` to just `step.output`
+  - Covers fresh steps (output=null→""), retried steps (output=error→error), rerouted producers (output=feedback→feedback)
+- No interference with: resolveMissingKeys (pre-execution), verify_each loops, story-level retries
+- Files changed:
+  - src/installer/step-ops.ts: +150 lines (rerouteStep function + failStep wiring)
+  - tests/step-ops.test.ts: +470 lines (11 new tests in RETR describe block)
+- Tests written (11 new, all passing):
+  1. reroute on failStep exhaustion: valid upstream retry_step triggers reroute
+  2. producer receives retry_feedback accessible via claimStep
+  3. reroute preserves intermediate done steps
+  4. advancePipeline re-pends consumer after producer completes
+  5. downstream retry_step target rejected (invalid_target)
+  6. unknown retry_step target rejected (invalid_target)
+  7. no reroute when retry_step not declared — normal failure
+  8. step.rerouted event emitted on reroute
+  9. reroute boundedness: reroute_count=2 with max_reroutes=2 exhausts
+  10. resolveMissingKeys unchanged — pre-execution path still works
+  11. loop step story-level retry unaffected by RETR
+- All 97 step-ops tests pass, 69 workflow-graph-simulation tests pass, 206 contract-lint tests pass
+- Typecheck passes
+
+---
+## 2026-07-03 - US-003: Wire reroute into completeStep expects-validation and orphan-recovery exhaustion paths
+- Added `loadWorkflowSpecSync` to src/installer/workflow-spec.ts
+  - Sync variant of loadWorkflowSpec using readFileSync
+- Added `getOnFailPolicySync` to src/installer/step-ops.ts
+  - Sync variant using loadWorkflowSpecSync
+- Added `rerouteStepSync` to src/installer/step-ops.ts
+  - Sync variant using getOnFailPolicySync
+  - Same semantics as rerouteStep (re-pend producer, reset consumer, emit event)
+- Wired RETR into completeStep expects-validation exhaustion:
+  - After expects validation retries are exhausted and before marking step+run as failed
+  - On rerouted: return { status: "rerouted" }, nudge dispatch
+  - Updated completeStep wrapper to nudge on "rerouted" status
+- Wired RETR into recoverOrphanedStepsForAgent exhaustion (single steps):
+  - After orphan retries are exhausted and before marking step+run as failed
+  - On rerouted: count as recovered, continue (run stays alive)
+- Loop-step story-level exhaustion (per-story retry) unchanged — RETR does not fire
+- Files changed:
+  - src/installer/workflow-spec.ts: +105 lines (loadWorkflowSpecSync)
+  - src/installer/step-ops.ts: +130 lines (sync variants + wiring)
+  - tests/step-ops.test.ts: +160 lines (5 new tests)
+- Tests written (5 new, all passing):
+  1. completeStep expects-validation exhaustion triggers reroute
+  2. completeStep expects-validation exhaustion falls through to run failure when budget exhausted
+  3. orphan-recovery exhaustion triggers reroute to retry_step
+  4. orphan-recovery exhaustion falls through to run failure when budget exhausted
+  5. orphan-recovery reroute only fires for single steps, not loop story-level exhaustion
+- All 102 step-ops tests pass, all 305 critical tests pass (graph sim, contract lint, orphan recovery, dispatch races)
+- **Learnings:** Pattern for sync variants of async step-ops functions documented in Codebase Patterns above
+
+---
+## 2026-07-03 - US-004: Implement max_reroutes bounding and budget exhaustion
+- Added `max_reroutes?: number` to WorkflowStepFailure type in src/installer/types.ts
+- Updated both `rerouteStep` (async) and `rerouteStepSync` to read `max_reroutes` from policy:
+  - Changed from hardcoded `const maxReroutes = 2;` to `const maxReroutes = policy.max_reroutes ?? 2;`
+  - When not declared in YAML, defaults to 2
+- Consumer reroute_count increments on each reroute via the existing logic (US-002)
+- Budget exhaustion: when reroute_count >= max_reroutes, falls through to normal run failure
+- Producer retry_count is UNCHANGED across all reroutes (reroute budget is separate from retry_count)
+- Rugpull detection fires after reroute exhaustion (existing setImmediate block in failStep)
+- Files changed:
+  - src/installer/types.ts: +1 line (max_reroutes field)
+  - src/installer/step-ops.ts: 4 lines changed (two hardcoded 2 → policy.max_reroutes ?? 2)
+  - tests/step-ops.test.ts: +88 lines (ping-pong boundedness test + test workflow YAML)
+- Tests written (1 new, all passing):
+  1. ping-pong boundedness: full reroute loop terminates after max_reroutes=3 iterations
+     - Verifies 3 successful reroutes then budget exhaustion on 4th attempt
+     - Verifies producer retry_count stays 0 throughout all reroutes
+     - Verifies consumer reroute_count increments correctly
+     - Verifies step.rerouted events (3 emitted) and run.failed event (1 emitted)
+     - Verifies reroute_count does not increment on budget exhaustion
+- All 103 step-ops tests pass, all 2669 tests pass (0 failures)
+- Typecheck passes
+
+---
+## 2026-07-04 - US-005: Emit step.rerouted, step.reroute_budget_exhausted, and step.escalation events
+- step.rerouted: already emitted in both rerouteStep and rerouteStepSync from US-002 — no changes needed
+- step.reroute_budget_exhausted: added in both rerouteStep (async) and rerouteStepSync
+  - Emitted when reroute_count >= max_reroutes, before returning "budget_exhausted"
+  - Includes bounded reason excerpt, reroute count, budget, and target step in detail
+  - Accompanied by logger.warn log line with structured metadata (runId, fromStep, toStep, rerouteCount, budget, reason)
+- step.escalation: added in both escalation trigger points in failStep
+  - Loop story retries exhausted path: emit step.escalation with target, step_id, runId, reason
+  - Single-step retries exhausted path: emit step.escalation with target, step_id, runId, reason
+  - Both preserve existing logger.warn logging (no breaking change)
+  - Fixed stepId in escalation events to use logical step.step_id (not DB row ID)
+- All events use existing emitEvent infrastructure in src/installer/events.ts
+- Files changed:
+  - src/installer/step-ops.ts: +20 lines (budget_exhausted event + escalation events + fix step_id)
+  - tests/step-ops.test.ts: +89 lines (2 new tests + escalation workflow YAML)
+- Tests written (2 new, all passing):
+  1. step.reroute_budget_exhausted event emitted when reroute budget is exhausted
+     - Verifies event is emitted exactly once with correct stepId, budget info, and target step
+     - Verifies step.failed and run.failed events still fire after budget exhaustion
+  2. step.escalation event emitted when escalate_to is configured
+     - Verifies event is emitted with correct stepId, runId, target, and reason in detail
+     - Verifies step.failed and run.failed events still fire alongside escalation
+- All 105 step-ops tests pass, all 2671 tests pass (0 failures, full suite)
+- Typecheck passes
+- **Learnings:** Escalation event should use logical step.step_id rather than DB row ID for consistency with step.rerouted events
+
+---
+## 2026-07-04 - US-006: Wire retry_step in bug-fix* workflows YAML
+- Added `retry_step: triage` to setup steps in all 5 bug-fix* workflow YAMLs:
+  - workflows/bug-fix/workflow.yml
+  - workflows/bug-fix-worktree/workflow.yml
+  - workflows/bug-fix-merge/workflow.yml
+  - workflows/bug-fix-merge-worktree/workflow.yml
+  - workflows/bug-fix-github-pr/workflow.yml
+- Each wiring has a one-line justification comment: "Setup failures often stem from triage-level misdiagnosis (wrong branch, wrong build); re-triaging refreshes context"
+- verify steps already had `retry_step: fix` declared — RETR now honors it at runtime
+- No YAML changes needed for verify steps; they were already correctly wired
+- All 5 workflow graph simulations pass (happy path, mid-run retry, first-step exhaustion)
+- All 5 workflow contract lints pass
+- Full test suite: 2670 pass, 1 pre-existing flaky MCP test failure
+- Typecheck/build: clean
+- **Learnings:** The bug-fix* YAMLs are structurally very similar; setup on_fail blocks are identical across all 5 variants (same pattern, different input content)
+
+---
+## 2026-07-04 - US-007: Wire retry_step in feature-dev* and security-audit* workflows YAML
+- Added `retry_step: plan` to setup steps in all 4 feature-dev* workflow YAMLs:
+  - workflows/feature-dev/workflow.yml
+  - workflows/feature-dev-worktree/workflow.yml
+  - workflows/feature-dev-merge/workflow.yml
+  - workflows/feature-dev-merge-worktree/workflow.yml
+- Added `retry_step: scan` to setup steps in all 5 security-audit* workflow YAMLs:
+  - workflows/security-audit/workflow.yml
+  - workflows/security-audit-worktree/workflow.yml
+  - workflows/security-audit-merge/workflow.yml
+  - workflows/security-audit-merge-worktree/workflow.yml
+  - workflows/security-audit-github-pr/workflow.yml
+- Each wiring has a one-line justification comment:
+  - feature-dev*: "Setup failures often originate from an incomplete plan; re-planning refreshes understanding of the codebase"
+  - security-audit*: "Setup failures often originate from incomplete scanning; re-scanning refreshes vulnerability findings"
+- No retry_step added to loop steps (implement/fix) or verify_each verify steps
+- finalize_merge untouched (rugpull owns merge-failure recovery)
+- All 23 workflow graph simulations pass (69 tests)
+- All 207 workflow contract lint tests pass
+- Full test suite: 2671 pass, 0 failures (1 skipped)
+- Typecheck/build: clean
+- **Learnings:** feature-dev* YAMLs use `- id: implement` after setup on_fail block; security-audit* YAMLs use `- id: fix` — same edit pattern, different context text. The existing pattern from US-006 (comment line above retry_step) serves as a consistent template across all workflow families.
+
+---
+## 2026-07-04 - US-008: Update creating-workflows.md with retry_step/max_reroutes documentation
+- Rewrote the Retry and Escalation section in docs/creating-workflows.md with comprehensive RETR documentation
+- Organized into three subsections: In-Place Retries, Cross-Step Rerouting (RETR), and Escalation
+- Documented retry_step: full semantics (reroutes to upstream producer on retry exhaustion), constraints (must name a step with lower step_index), and exclusions (verify_each verify steps, finalize_merge)
+- Documented max_reroutes: default 2, per-step reroute budget on the consumer, separate from retry_count
+- Documented reroute mechanics: producer re-pended with retry_feedback, consumer reset to waiting with retry_count=0, intermediate done steps untouched, advancePipeline naturally re-pends consumer
+- Documented escalate_to: logged only, now emits step.escalation event for observability
+- Added complete YAML example (plan → setup → implement pipeline with retry_step: plan and max_reroutes: 2)
+- Added summary table of all on_fail fields (max_retries, max_retries unread warning, retry_step, max_reroutes, escalate_to)
+- Preserved existing warning that on_fail.max_retries is NOT read by the runtime
+- Files changed: docs/creating-workflows.md (+90 lines rewrote Retry and Escalation section)
+- Typecheck/build: clean. Full test suite: 2670 pass, 1 pre-existing flaky failure (work-round-persona-prompt, unrelated to docs)
+- **Learnings:** The docs/creating-workflows.md Retry and Escalation section was previously a single code block + two bullet points; the new structure mirrors the three runtime layers (retry, reroute, escalation) for clarity
+
+---
+## 2026-07-04 - US-009: Update MOTOR-CONTRACT.md, README.md, and AGENTS.md for reroute semantics
+- Added C19 invariant to MOTOR-CONTRACT.md under Failure & recovery:
+  - Documents RETR semantics: on_fail.retry_step reroutes to upstream producer with bounded max_reroutes budget (default 2)
+  - Producer re-pended with retry_feedback, consumer reset to waiting with reroute_count tracking
+  - Budget exhaustion falls through to normal run failure (incl. rugpull detection)
+  - step.rerouted and step.reroute_budget_exhausted events emitted
+  - RETR exclusions: loop-step story-level exhaustion, finalize_merge
+- Updated C8-rugpull to reference C19 (mid-pipeline exhaustion no longer always final)
+- Updated README.md "When runs fail" section:
+  - Changed "permanently fail the run by design" to include "UNLESS the workflow declares on_fail.retry_step, in which case the run reroutes to the named upstream producer (bounded by max_reroutes, default 2)"
+- Updated AGENTS.md rugpull relaunch scope section with same conditional language
+- All four doc surfaces now consistent: MOTOR-CONTRACT.md (C19), README.md, AGENTS.md, and docs/creating-workflows.md (US-008)
+- Files changed: tests/MOTOR-CONTRACT.md (+18 lines C19 + C8-rugpull update), README.md (5 lines changed), AGENTS.md (5 lines changed)
+- Typecheck/build: clean. Full test suite: 2671 pass, 0 failures (1 skipped — docs change only)
+- **Learnings:** The four doc surfaces serve different audiences: MOTOR-CONTRACT.md is the engineering invariant, README.md is the user-facing overview, AGENTS.md is the developer-facing architecture doc, and creating-workflows.md is the workflow author reference. Consistency across all four requires careful alignment of terminology ("bounded by max_reroutes, default 2") while adjusting tone and detail level for each audience.
+
+---
+## 2026-07-04 - US-010: Unit tests for all reroute paths
+- Created dedicated test file tests/reroute-paths.test.ts (14 tests)
+- Covered gaps not previously tested in step-ops.test.ts:
+  - retry_feedback truncation at 200-char boundary (over and under)
+  - claim ownership fields (claim_job_id, claim_pid, claim_pgid) cleared on consumer reset
+  - escalate_to does NOT fire when reroute succeeds; only on final failure
+  - invalid retry_step target in completeStep expects-validation exhaustion path
+  - invalid retry_step target in orphan-recovery exhaustion path
+  - first-step self-reference (no upstream step) rejected
+  - rugpull path intact: budget exhaustion → full failure path (step.failed, run.failed, escalation events) fires correctly
+  - rugpull setImmediate reachable: run terminal state is correct after budget exhaustion
+  - no retry_step declared: falls through to normal failure in completeStep expects path
+  - consumer output cleared to null on reset
+  - 3-step workflow: intermediate done steps untouched during reroute
+  - advancePipeline re-pends consumer after rerouted producer completes
+- Files changed: tests/reroute-paths.test.ts (+488 lines, new file)
+- Full test suite: 2685 pass, 0 failures (1 skipped). Typecheck clean.
+- Smoke + scripted e2e: 11/11 pass. Graph sim: 69/69 pass. Contract linter: 206/206 pass.
+- **Learnings:** When invalid_target is returned from rerouteStepSync in the orphan-recovery and completeStep expects-validation paths, the error is only logged — not written to step.output. The step.output gets the generic failure message ("Agent terminated without completing step; retries exhausted" or the validation error).
+
+---
+## 2026-07-04 - US-011: Scripted e2e chaos scenario for reroute
+- Added a scripted e2e test in e2e-tests/workflows-scripted.test.ts that exercises the full daemon → scheduler → harness → step-ops → reroute → recovery pipeline
+- Uses bug-fix-merge-worktree workflow (verify declares retry_step: fix with default max_reroutes=2)
+- Scripted behaviors:
+  - fixer: 2 behaviors — first produces a flawed fix (`a - b + 0`), second (after reroute) produces the correct fix (`a + b`)
+  - verifier: 6 behaviors — 5 fail entries (stepAction: "fail") exhaust step max_retries=4 to trigger RETR, followed by 1 success after the rerouted fix
+  - triager, investigator, setup, merger: standard happy-path outputs
+- Assertions:
+  - Run completes successfully (`run.completed` event present)
+  - All 6 steps end with status "done"
+  - step.rerouted event exists with stepId="verify" and detail mentioning target "fix"
+  - verifier reroute_count = 1 in DB
+  - Work round counts: fixer=2 (initial + reroute), verifier=6 (5 fails + 1 success), total=12
+  - 0 heartbeats (deterministic motor N2)
+  - Repository outcome: corrected fix (`a + b`) landed in origin repo
+- Files changed: e2e-tests/workflows-scripted.test.ts (+167 lines, 1 new test)
+- Tests: npm test 2685 pass / 0 fail. Smoke + scripted e2e: 12/12 pass
+- Typecheck/build: clean
+- **Learnings:** The verify step has no step-level max_retries — it defaults to 4 from run.ts. The step needs to fail 5 times (retry_count increments 0→1,1→2,2→3,3→4, then 4→5 where 5 > 4 triggers RETR). The `stepAction: "fail"` mode in the scripted agent calls `step fail` via the CLI, which goes through the full failStep → failStepInternal → rerouteStep path. The reroute resets the verifier to waiting with retry_count=0, so its work index continues incrementing (5 failures + 1 success = work index 5 for the success entry).
