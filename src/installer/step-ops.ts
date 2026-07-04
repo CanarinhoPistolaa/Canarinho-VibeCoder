@@ -105,50 +105,11 @@ export function findMissingTemplateKeys(template: string, context: Record<string
   return missing;
 }
 
-/**
- * Parse the `Reply with:` section of a step's input template to extract
- * the set of uppercase KEY names that the step is expected to produce in
- * its output.  Only lines matching `KEY: <value>` (uppercase identifier,
- * colon, optional value) within that section are captured; continuation /
- * multi-line values and other prose are skipped.
- *
- * Returns an array of lowercased key names.  Returns an empty array when
- * no `Reply with:` (or `Reply with :` / `Reply-with:`) section is found.
- */
-export function parseExpectedKeys(inputTemplate: string): string[] {
-  const keys = new Set<string>();
-
-  // Locate the Reply-with header.  Accept the most common spelling but
-  // tolerate minor whitespace/hyphen variants seen in real templates.
-  const headerMatch = inputTemplate.match(/^[\t ]*Reply[- ]with\s*:\s*$/im);
-  if (!headerMatch || headerMatch.index === undefined) return [];
-
-  // Take everything after the header line (skip the newline that follows).
-  const afterHeader = inputTemplate.slice(headerMatch.index + headerMatch[0].length);
-
-  // Walk line by line; stop at a blank line (end of the block).
-  // The first element after split on the trailing newline is empty — skip it.
-  const lines = afterHeader.split("\n");
-  let started = false;
-  for (const rawLine of lines) {
-    const line = rawLine.trimEnd();
-    // Skip leading empty lines before the first key.
-    if (!started && line.trim() === "") continue;
-    started = true;
-    // Blank line → block ended.
-    if (line.trim() === "") break;
-
-    // Match KEY: <value> patterns (uppercase letters + underscores),
-    // allowing leading whitespace (indentation from the YAML template).
-    const keyMatch = line.match(/^[\t ]*([A-Z_]+):\s*(.*)$/);
-    if (keyMatch) {
-      keys.add(keyMatch[1].toLowerCase());
-      continue;
-    }
-  }
-
-  return Array.from(keys);
-}
+// parseExpectedKeys is now the single-source-of-truth implementation in
+// workflow-contract.ts.  Re-exported here for backward compatibility
+// (existing callers in step-ops.ts and the motor import from this file).
+import { parseExpectedKeys } from "./workflow-contract.js";
+export { parseExpectedKeys };
 
 /**
  * Result of finding a producer step for a missing template key.

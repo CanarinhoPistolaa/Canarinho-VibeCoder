@@ -176,7 +176,7 @@ steps:
       TEST_CMD: <test command>
       CI_NOTES: <brief CI notes>
       BASELINE: <baseline status>
-    expects: "STATUS: done"
+    expects: "STATUS: done\nregex:^BUILD_CMD:\\s*\\S+\nregex:^TEST_CMD:\\s*\\S+"
     max_retries: 4
     on_fail:
       # Setup failures often originate from an incomplete plan; re-planning refreshes understanding of the codebase
@@ -237,7 +237,7 @@ steps:
       STATUS: done
       CHANGES: what you implemented
       TESTS: what tests you wrote
-    expects: "STATUS: done"
+    expects: "STATUS: done\nregex:^CHANGES:\\s*\\S+"
     max_retries: 4
 
   - id: verify

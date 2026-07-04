@@ -21,6 +21,23 @@ token overhead on real runs (see the historical baselines at the bottom).
 
 ## Contract invariants (any motor must satisfy these)
 
+### Key-enforcement contract (single source of truth)
+
+- **K1** The linter (`tests/workflow-contract-lint.test.ts`) and `MISS`
+  (Missing Input Step Selector, in `src/installer/step-ops.ts`) share one
+  contract module as the single source of truth for key enforcement rules:
+  `src/installer/workflow-contract.ts`.  This module exports
+  `AUTO_CONTEXT_KEYS` (runtime-provided keys), `HARNESS_SEEDED_CONTEXT_KEYS`
+  (keys seeded at run creation), `CALLER_PROVIDED` (keys supplied by the
+  caller at launch), `parseExpectedKeys` (keys mentioned in a step's
+  `Reply with:` template), and `parseEnforcedKeys` (keys pinned in a
+  step's `expects` string via `regex:^KEY:` patterns — the enforcement
+  tier).  A key that is only *mentioned* (in Reply-with) without being
+  *enforced* (in expects) is a lint failure; this single-tier enforcement
+  model replaces a historical two-tier structure where the linter and MISS
+  could disagree, causing the "verified" incident (two runs killed by
+  producer-retry exhaustion on a key the linter said was covered).
+
 ### Lifecycle & pipeline
 
 - **C1** Steps advance `waiting → pending → running → done|failed`; pipeline

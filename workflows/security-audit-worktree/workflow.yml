@@ -135,7 +135,7 @@ steps:
       BRANCH: security-audit-YYYY-MM-DD
       VULNERABILITY_COUNT: <number>
       FINDINGS: <detailed list of each vulnerability>
-    expects: "STATUS: done\nregex:^BRANCH:\\s*\\S+"
+    expects: "STATUS: done\nregex:^BRANCH:\\s*\\S+\nregex:^VULNERABILITY_COUNT:\\s*\\d+\nregex:^FINDINGS:\\s*\\S+"
     max_retries: 4
 
   - id: prioritize
@@ -175,7 +175,7 @@ steps:
       HIGH_COUNT: <number>
       DEFERRED: <any issues skipped and why>
       STORIES_JSON: [ ... array of story objects ... ]
-    expects: "STATUS: done"
+    expects: "STATUS: done\nregex:^FIX_PLAN:\\s*\\S+\nregex:^CRITICAL_COUNT:\\s*\\d+\nregex:^HIGH_COUNT:\\s*\\d+"
     max_retries: 4
 
   - id: setup
@@ -206,7 +206,7 @@ steps:
       BUILD_CMD: <build command>
       TEST_CMD: <test command>
       BASELINE: <baseline status>
-    expects: "STATUS: done"
+    expects: "STATUS: done\nregex:^BUILD_CMD:\\s*\\S+\nregex:^TEST_CMD:\\s*\\S+"
     max_retries: 4
     on_fail:
       # Setup failures often originate from incomplete scanning; re-scanning refreshes vulnerability findings
@@ -266,7 +266,7 @@ steps:
       STATUS: done
       CHANGES: what was fixed
       REGRESSION_TEST: what test was added
-    expects: "STATUS: done"
+    expects: "STATUS: done\nregex:^CHANGES:\\s*\\S+\nregex:^REGRESSION_TEST:\\s*\\S+"
     max_retries: 4
 
   - id: verify
@@ -355,7 +355,7 @@ steps:
       STATUS: retry
       FAILURES:
       - What's broken
-    expects: "STATUS: done"
+    expects: "STATUS: done\nregex:^RESULTS:\\s*\\S+\nregex:^AUDIT_AFTER:\\s*\\S+"
     on_fail:
       retry_step: fix
       max_retries: 4

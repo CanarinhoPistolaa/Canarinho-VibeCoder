@@ -78,7 +78,7 @@ steps:
       SKILLS_JSON: [{"id": "folder-name", "name": "Display Name", "description": "full description from frontmatter", "path": "/full/path/to/skill/directory"}, ...]
 
       The SKILLS_JSON must be a valid JSON array with all skills included.
-    expects: "STATUS: done"
+    expects: "STATUS: done\nregex:^SKILLS_COUNT:\\s*\\d+\nregex:^SKILLS_JSON:\\s*\\S+"
     max_retries: 4
 
   - id: audit
@@ -121,7 +121,7 @@ steps:
       - Don't force clusters — only group skills that genuinely overlap
       - For clusters, explain WHY they overlap — be specific about shared keywords or scopes
       - Recommendations must be actionable — say exactly which skill to keep
-    expects: "STATUS: done"
+    expects: "STATUS: done\nregex:^CLUSTERS_FOUND:\\s*\\d+\nregex:^REDUNDANT_COUNT:\\s*\\d+\nregex:^CLUSTERS_JSON:\\s*\\S+\nregex:^CLEAN_SKILLS:\\s*\\S+"
     max_retries: 4
 
   - id: report

@@ -206,6 +206,66 @@ STORIES_JSON: [{"id":"S1","title":"Add login","description":"...","acceptanceCri
 - Each story must have `id`, `title`, `description`, and a non-empty `acceptanceCriteria` array (`acceptance_criteria` is also accepted).
 - Story `id`s must be unique within the array.
 
+### Key Enforcement Contract
+
+When one step consumes `{{key}}` placeholders produced by an earlier step, the **producer** step must enforce that key in its `expects` string — a bare mention of `KEY:` in the `Reply with:` block of the producer's input template is NOT enough.
+
+**The rule:** every `{{key}}` consumed by a step must be:
+- in `AUTO_CONTEXT_KEYS` (keys provided by the runtime: `{{task}}`, `{{run_id}}`, etc.), OR
+- declared in the workflow-level `context:` block, OR
+- supplied by the caller at launch (caller-provided keys, e.g. `{{branch}}` for quarantine workflows), OR
+- **enforced** by an upstream producer step via its `expects` string.
+
+A key that is merely *mentioned* in the producer's `Reply with:` instruction (without enforcement in `expects`) causes a **lint failure** at `tdd workflow lint`. The linter (`tests/workflow-contract-lint.test.ts`) verifies this for all bundled workflows.
+
+**Why enforcement matters:** the `MISS` mechanism (Missing Input Step Selector, in `src/installer/step-ops.ts`) blocks a step claim when its consumed `{{key}}` placeholders have not materialized from prior step output. If the producer's `expects` string doesn't declare a key, the agent is free to omit it — and when it does, the downstream step deadlocks. Historically, the "verified" incident burned two real runs: `finalize_merge` consumed `{{verified}}`, `verify`'s `Reply with:` block *mentioned* `VERIFIED:` (so the old mention-satisfies linter was happy), but the agent omitted it in 10–90% of runs, causing producer-retry exhaustion.
+
+**The `expects` regex idiom:** to enforce a key, add a regex line to the step's `expects` string:
+
+```yaml
+# Before (mention-only — not enforced):
+expects: "STATUS: done"
+
+# After (enforced — the key is pinned):
+expects: |
+  STATUS: done
+  regex:^CHANGES:\s*\S+
+  regex:^TESTS:\s*\S+
+```
+
+Each regex line is one of:
+
+| Pattern | Example | Meaning |
+|---------|---------|---------|
+| `regex:^KEY:\s*\S+` | `regex:^CHANGES:\s*\S+` | KEY at start of line, any non-empty value |
+| `regex:^KEY:\s*\d+` | `regex:^VULNERABILITY_COUNT:\s*\d+` | KEY at start of line, numeric value |
+| `regex:^KEY:\s*(val1\|val2)` | `regex:^SEVERITY:\s*(critical\|high\|medium\|low)` | KEY at start of line, enumerated values |
+| `regex:KEY:\s*https?://...` | `regex:PR:\s*https?://\S+` | KEY anywhere on line (no `^` anchor) |
+
+**Guidelines:**
+- Always put `STATUS: done` first in the expects string (it resolves the step outcome).
+- Use value-shape-aware regexes: closed enums get `(val1|val2|...)`, numeric counts get `\d+`, text fields get `\S+`.
+- Multi-line values are fine — only the first line must be non-empty to satisfy `\S+`.
+- When a step has both a success and retry path (e.g. `STATUS: done` / `STATUS: retry`), the enforced key fires only on the done path — the agent is expected to produce it on success; MISS blocks the consumer on retry anyway.
+- The `expects` regex patterns are consumed by both the linter and the contract module (`src/installer/workflow-contract.ts`), which is the single source of truth shared by `MISS` (step-ops) and the graph simulation.
+
+**Caller-provided keys:** for workflows where the caller supplies a key at launch (no step produces it), register the key in `CALLER_PROVIDED` in `src/installer/workflow-contract.ts`. Examples:
+
+```typescript
+// quarantine-broken-tests: caller supplies the branch name;
+// the workflow has no triage/plan step that produces branch.
+"quarantine-broken-tests": ["branch"],
+```
+
+**Testing your contract:** after adding regex enforcement, run:
+
+```bash
+npm run build && npm test
+./run-all-e2e-tests          # scripted agents must satisfy all regex expects
+```
+
+The contract lint test (`tests/workflow-contract-lint.test.ts`) iterates every bundled workflow and verifies that no step consumes a key that is only mentioned (in Reply-with) but not enforced (in expects) by its upstream producer. The graph simulation (`tests/workflow-graph-simulation.test.ts`) synthesizes output for every `regex:^KEY:` pattern automatically — no hand-maintained candidate list required.
+
 ## Roles
 
 | Role | Capabilities | Use For | Default timeout |

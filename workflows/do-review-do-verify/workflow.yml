@@ -68,7 +68,7 @@ steps:
       STATUS: done|failed
       CHANGES: what you did
       REPORT: detailed report of what was accomplished
-    expects: "STATUS: done"
+    expects: "STATUS: done\nregex:^CHANGES:\\s*\\S+\nregex:^REPORT:\\s*\\S+"
     max_retries: 2
 
   - id: review
@@ -99,7 +99,7 @@ steps:
       STATUS: done
       FEEDBACK: detailed feedback on what could be improved
       ISSUES: specific problems that need to be addressed (or "none" if the work is perfect)
-    expects: "STATUS: done"
+    expects: "STATUS: done\nregex:^FEEDBACK:\\s*\\S+\nregex:^ISSUES:\\s*\\S+"
     max_retries: 2
 
   - id: do-again
@@ -129,7 +129,7 @@ steps:
       STATUS: done|failed
       CHANGES: what you changed based on feedback
       REPORT: detailed report of the refined work
-    expects: "STATUS: done"
+    expects: "STATUS: done\nregex:^CHANGES:\\s*\\S+\nregex:^REPORT:\\s*\\S+"
     max_retries: 2
 
   - id: verify
@@ -162,5 +162,5 @@ steps:
       STATUS: done
       VERDICT: accomplished|not_accomplished
       DETAILS: detailed reasoning for the verdict
-    expects: "STATUS: done"
+    expects: "STATUS: done\nregex:^VERDICT:\\s*\\S+\nregex:^DETAILS:\\s*\\S+"
     max_retries: 2

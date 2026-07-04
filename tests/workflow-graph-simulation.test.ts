@@ -33,6 +33,7 @@ import os from "node:os";
 import path from "node:path";
 import { loadWorkflowSpec } from "../dist/installer/workflow-spec.js";
 import { resolveBundledWorkflowsDir } from "../dist/installer/paths.js";
+import { AUTO_CONTEXT_KEYS } from "../dist/installer/workflow-contract.js";
 import { getDb } from "../dist/db.js";
 import {
   peekStep,
@@ -71,24 +72,8 @@ process.on("exit", () => {
 // ── Run creation (mirrors the DB work of runWorkflow in run.ts, minus
 //    daemon registration, worktree creation, and cron setup) ─────────
 
-/** Context keys the harness/step-ops provide at runtime — never emitted
- *  as simulated step output. */
-const AUTO_CONTEXT_KEYS = new Set([
-  "run_id",
-  "task",
-  "retry_feedback",
-  "verify_feedback",
-  "timeout_retry",
-  "has_frontend_changes",
-  "has_pr",
-  "current_story",
-  "current_story_id",
-  "current_story_title",
-  "completed_stories",
-  "stories_remaining",
-  "progress",
-  "progress_file",
-]);
+// AUTO_CONTEXT_KEYS imported from src/installer/workflow-contract.ts —
+// single source of truth shared by step-ops (MISS), linter, and graph sim.
 
 function seedContext(spec: WorkflowSpec): Record<string, string> {
   const workspaceMode = spec.run?.workspace ?? "direct";
@@ -204,17 +189,51 @@ interface SimState {
 }
 
 /**
- * Candidate lines for satisfying `regex:` expects clauses. validateExpects
- * treats a `regex:<pattern>` line as a pattern the output must match; a
- * simulated agent must synthesize a plausible line. Each candidate is tested
- * against the actual pattern, so a stale candidate fails loudly.
+ * Synthesize a plausible output line for a `regex:<pattern>` expects clause.
+ *
+ * Patterns follow the `regex:^KEY:\s*<value-pattern>` convention used by
+ * parseEnforcedKeys in workflow-contract.ts (anchored) or `regex:KEY:<pattern>`
+ * for unanchored patterns. The synthesis is generic and deterministic — no
+ * hand-maintained candidate list needed.
+ *
+ * Value synthesis rules (in priority order):
+ *   1. URL pattern (contains `://`) → synthetic github URL
+ *   2. Alternation group `(val1|val2|...)` → pick the first value (closed enum)
+ *   3. Numeric `\d+` → emit 0
+ *   4. Non-whitespace `\S+` → emit `sim-<lowercase-key>`
+ *   5. Fallback → emit `sim-<lowercase-key>`
  */
-const REGEX_EXPECTS_CANDIDATES = [
-  "PR: https://github.com/sim-org/sim-repo/pull/1",
-  "MERGE_COMMIT: 0123abc",
-  "BRANCH: sim-branch",
-  "STATUS: done",
-];
+function synthesizeRegexLine(regexLine: string): string {
+  const regexBody = regexLine.slice("regex:".length);
+
+  // Extract key: optional ^ anchor, then KEY:
+  const keyMatch = regexBody.match(/^\^?([A-Z_]+):(.*)/);
+  if (!keyMatch) {
+    return "synthetic: sim-value";
+  }
+  const key = keyMatch[1];
+  const valuePattern = keyMatch[2];
+
+  // URL pattern → synthetic github URL (handles PR: regex without ^ anchor)
+  if (/:\/\//.test(valuePattern)) {
+    return `${key}: https://github.com/sim-org/sim-repo/pull/1`;
+  }
+
+  // Closed enum alternation: (critical|high|medium|low) → pick first
+  const altMatch = valuePattern.match(/\(([^)]+)\)/);
+  if (altMatch) {
+    const firstAlt = altMatch[1].split("|")[0].trim();
+    return `${key}: ${firstAlt}`;
+  }
+
+  // Numeric pattern: \d+ → 0
+  if (/\\d\+/.test(valuePattern)) {
+    return `${key}: 0`;
+  }
+
+  // Generic non-whitespace or fallback
+  return `${key}: sim-${key.toLowerCase()}`;
+}
 
 function satisfyExpects(expects: string): string[] {
   const lines: string[] = [];
@@ -222,13 +241,7 @@ function satisfyExpects(expects: string): string[] {
     const line = rawLine.trim();
     if (!line) continue;
     if (line.startsWith("regex:")) {
-      const pattern = new RegExp(line.slice("regex:".length), "m");
-      const candidate = REGEX_EXPECTS_CANDIDATES.find((c) => pattern.test(c));
-      assert.ok(
-        candidate,
-        `simulation cannot satisfy expects pattern "${line}" — add a matching candidate to REGEX_EXPECTS_CANDIDATES`,
-      );
-      lines.push(candidate);
+      lines.push(synthesizeRegexLine(line));
     } else {
       lines.push(line);
     }
@@ -239,6 +252,12 @@ function satisfyExpects(expects: string): string[] {
 function generateOutput(spec: WorkflowSpec, stepIndex: number, state: SimState): string {
   const specStep = spec.steps[stepIndex];
   const lines: string[] = satisfyExpects(specStep.expects ?? "STATUS: done");
+
+  // Track keys produced by the expects lines so feed-forward doesn't double-emit
+  for (const line of lines) {
+    const keyMatch = line.match(/^([A-Z_]+):/);
+    if (keyMatch) state.emitted.add(keyMatch[1].toLowerCase());
+  }
 
   // Feed forward every key any LATER step's template references, the way a
   // real agent's structured output block does.

@@ -90,7 +90,7 @@ steps:
       TEST_CMD: <test command>
       CI_NOTES: <brief CI notes>
       BASELINE: <baseline status including test results>
-    expects: "STATUS: done"
+    expects: "STATUS: done\nregex:^BUILD_CMD:\\s*\\S+\nregex:^TEST_CMD:\\s*\\S+"
     max_retries: 4
 
   - id: quarantine
@@ -128,7 +128,7 @@ steps:
       If unable to achieve clean suite after 5 iterations:
       STATUS: failed
       REASON: <why>
-    expects: "STATUS: done"
+    expects: "STATUS: done\nregex:^DISABLED:\\s*\\d+\nregex:^SUMMARY:\\s*\\S+"
     max_retries: 4
 
   - id: verify
@@ -164,7 +164,7 @@ steps:
       STATUS: retry
       ISSUES:
       - Specific issues
-    expects: "STATUS: done"
+    expects: "STATUS: done\nregex:^VERIFIED:\\s*\\S+"
     on_fail:
       retry_step: quarantine
       max_retries: 4

@@ -102,7 +102,7 @@ steps:
       AFFECTED_AREA: what files/modules are affected
       REPRODUCTION: how to reproduce the bug
       PROBLEM_STATEMENT: clear description of what's wrong
-    expects: "STATUS: done\nregex:^BRANCH:\\s*\\S+"
+    expects: "STATUS: done\nregex:^BRANCH:\\s*\\S+\nregex:^SEVERITY:\\s*(critical|high|medium|low)\nregex:^AFFECTED_AREA:\\s*\\S+\nregex:^REPRODUCTION:\\s*\\S+\nregex:^PROBLEM_STATEMENT:\\s*\\S+"
     max_retries: 4
 
   - id: investigate
@@ -132,7 +132,7 @@ steps:
       STATUS: done
       ROOT_CAUSE: detailed explanation of the root cause
       FIX_APPROACH: what needs to change and where
-    expects: "STATUS: done"
+    expects: "STATUS: done\nregex:^ROOT_CAUSE:\\s*\\S+\nregex:^FIX_APPROACH:\\s*\\S+"
     max_retries: 4
 
   - id: setup
@@ -159,7 +159,7 @@ steps:
       BUILD_CMD: <build command>
       TEST_CMD: <test command>
       BASELINE: <baseline status>
-    expects: "STATUS: done"
+    expects: "STATUS: done\nregex:^BUILD_CMD:\\s*\\S+\nregex:^TEST_CMD:\\s*\\S+"
     max_retries: 4
     on_fail:
       # Setup failures often stem from triage-level misdiagnosis (wrong branch, wrong build); re-triaging refreshes context
@@ -203,7 +203,7 @@ steps:
       STATUS: done
       CHANGES: what was changed
       REGRESSION_TEST: what test was added
-    expects: "STATUS: done"
+    expects: "STATUS: done\nregex:^CHANGES:\\s*\\S+\nregex:^REGRESSION_TEST:\\s*\\S+"
     max_retries: 4
 
   - id: verify
@@ -254,7 +254,7 @@ steps:
       STATUS: retry
       ISSUES:
       - What's wrong or incomplete
-    expects: "STATUS: done"
+    expects: "STATUS: done\nregex:^VERIFIED:\\s*\\S+"
     on_fail:
       retry_step: fix
       max_retries: 6
