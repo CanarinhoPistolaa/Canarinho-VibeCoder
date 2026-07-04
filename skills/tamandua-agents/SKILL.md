@@ -77,10 +77,16 @@ bundled workflow in one command. `uninstall` removes the workflow and its
 agent configuration. Use `--force` to skip the active-runs safety check.
 `uninstall --all` removes every installed workflow.
 
+Installed bundled workflow files are **refreshed on every install and every
+`tamandua update`** — local edits are silently overwritten. To customize a
+workflow, copy it under a NEW workflow id instead of editing the installed
+copy.
+
 Use `tamandua update [--force]` only for local Tamandua maintenance. Without
 `--force`, update blocks after rebuilding if active runs are present — it
 leaves services and installed workflows unchanged. Use `--force` to proceed
-despite active runs (services are stopped and restarted, workflows reinstalled).
+despite active runs (services are stopped and restarted, workflows reinstalled
+— this reinstalls all workflows, refreshing bundled files).
 Remote MCP clients can discover the same maintenance command via
 `tamandua.update.command`; run the actual update through the local CLI because
 it may restart dashboard, MCP, and the control plane.
@@ -123,7 +129,7 @@ reads the project-local `autoresearch.config.json` and
 `autoresearch.jsonl` files, and prints the current metric summary and
 recent experiment timeline.
 
-### 2.6) System status with tamandua status
+### 2.7) System status with tamandua status
 
 Use `tamandua status` for a comprehensive overview of the Tamandua system:
 
@@ -138,7 +144,7 @@ tamandua status
 - **Workflow Runs** — Summary of all runs (running, paused, done, failed)
 - **Running Processes** — Active pi/hermes harness processes spawned by Tamandua
 
-### 2.7) Worktree management
+### 2.8) Worktree management
 
 Worktree commands manage the git worktrees Tamandua creates for isolated
 workflow runs.
@@ -163,7 +169,7 @@ non-ready worktrees can be removed. Use `--force` to remove any status.
 duration (e.g. `7d`, `24h`, `30m`). Requires both `--completed` and
 `--older-than` flags.
 
-### 2.8) Control plane management
+### 2.9) Control plane management
 
 The control plane provides run-scoped scheduling that the dashboard daemon
 uses to manage deterministic work dispatch.
@@ -195,7 +201,7 @@ Start will refuse if the control plane is already running, printing its
 current status instead. Stop is safe to run even when no control plane
 is active.
 
-### 2.9) Full uninstall with tamandua uninstall
+### 2.10) Full uninstall with tamandua uninstall
 
 `tamandua uninstall [--force]` stops all Tamandua services and removes every
 installed workflow, including agent workspaces, agent registrations, and cron
@@ -212,7 +218,34 @@ Compare with `tamandua workflow uninstall <name> [--force]` which removes a
 single workflow without stopping services, and `tamandua workflow uninstall
 --all [--force]` which removes all workflows (also no service stops).
 
-### 2.10) AutoResearch experiment commands
+### 2.11) On-failure routing and rerouting
+
+When a step fails, workflows can route the failure back to an upstream
+producer step for correction instead of immediately permanently failing
+(see `docs/creating-workflows.md` for full details). This is configured per
+step via `on_fail` in the workflow YAML:
+
+- **`on_fail.retry_step`** — reroutes the failing step to a named upstream
+  producer step. The producer re-executes, and the downstream step that
+  failed gets a fresh chance after the upstream fix.
+- **`max_reroutes`** — limits how many times a step can be rerouted before
+  giving up (default 2). When the reroute budget exhausts, the run
+  permanently fails.
+
+Events emitted during routing:
+
+- `step.rerouted` — step was sent back to an upstream producer
+- `step.reroute_budget_exhausted` — reroute limit reached; step is
+  permanently failed
+- `step.escalation` — `escalate_to` target is logged and emitted as an event
+  (it does **not** notify a human)
+
+These events are visible in `tamandua logs` and `tamandua logs-tail`.
+Permanently failed runs can be reattempted with
+`tamandua workflow resume <run-id>`; fix the underlying issue before
+resuming.
+
+### 2.12) AutoResearch experiment commands
 
 AutoResearch runs durable optimization experiment loops. Sessions are stored
 in project-local files (`autoresearch.config.json`, `autoresearch.jsonl`,
@@ -287,7 +320,7 @@ tamandua autoresearch log-experiment --description <text> [options]
 
 Options:
 - `--cwd <dir>` — project directory (default: current directory)
-- `--status <status>` — `auto`, `baseline`, `keep`, `discard`, `crash`, or `checks_failed`
+- `--status <status>` — `auto`, `baseline`, `keep`, `discard`, `crash`, `metric_not_found`, or `checks_failed`
 - `--metric <number>` — metric value if no latest run_result should be used
 - `--description <text>` — what changed in this experiment
 - `--hypothesis <text>` — hypothesis tested
@@ -311,7 +344,7 @@ tamandua autoresearch log-experiment \
   --next-focus "fix cache invalidation"
 ```
 
-### 2.11) AutoResearch loop and iteration commands
+### 2.13) AutoResearch loop and iteration commands
 
 AutoResearch supports running bounded experiment loops and transactional
 single-iteration execution. The loop command orchestrates the full
@@ -388,6 +421,7 @@ Transactional lifecycle:
    - `keep`/`baseline` results are committed (`autoresearch*` files excluded).
    - `discard` results are reverted (candidate changes rolled back).
    - `crash`/`checks_failed` results are reverted.
+   - `metric_not_found` results do not update best/baseline — the run is recorded as unmeasured.
 4. Ensures the working tree has no dirty non-autoresearch files.
 
 Options:
@@ -410,7 +444,7 @@ tamandua autoresearch run-loop-iteration --command "uv run train.py" --iteration
 tamandua autoresearch run-loop-iteration --prompt test --iteration 1
 ```
 
-### 2.12) AutoResearch monitoring and setup commands
+### 2.14) AutoResearch monitoring and setup commands
 
 AutoResearch provides commands for inspecting experiment status, generating
 evidence-driven prompts, pruning stale sessions, and interactive setup.
@@ -723,6 +757,20 @@ tamandua workflow run <workflow-id> "<task>" --hermes-as-harness
 If `TAMANDUA_HERMES_BINARY` is not set, Tamandua searches for `hermes` on
 `PATH`. The binary is validated at scheduling time — if it is not found or
 not executable, the run fails at startup.
+
+### 2.6) Troubleshooting with tamandua doctor
+
+`tamandua doctor` is a one-shot diagnostic that checks environment
+(Node.js >= 22, pi on PATH, gh on PATH), services (dashboard daemon,
+control plane, MCP), daemon staleness (running daemon matches installed
+build), and database state (run-level anomalies). Each check prints
+**pass/fail** status and on failure prints the **exact remedy command** to
+run.
+
+```bash
+tamandua doctor
+tamandua doctor --help
+```
 
 ### 5) Review artifacts on changes
 

@@ -67,4 +67,86 @@ describe("www/index.html content sync", () => {
       );
     }
   });
+
+  // Regression test: DRTR — retry story no longer claims human escalation
+  it("does not claim escalation notifies a human", () => {
+    assert.ok(
+      !wwwContent.includes("escalates to you"),
+      "www/index.html must not contain 'escalates to you' — escalate_to only logs/emits events, never notifies humans",
+    );
+  });
+
+  // Regression test: DDOC — tamandua doctor appears in commands table
+  it("includes tamandua doctor in the Everyday Commands table", () => {
+    assert.ok(
+      wwwContent.includes("tamandua doctor"),
+      "www/index.html Everyday Commands table must include tamandua doctor row",
+    );
+  });
+
+  // Regression test: DRTR — max_reroutes and on_fail.retry_step are documented
+  it("documents on_fail.retry_step and max_reroutes instead of stale escalation text", () => {
+    assert.ok(
+      wwwContent.includes("on_fail.retry_step"),
+      "www/index.html must document on_fail.retry_step bounded rerouting",
+    );
+    assert.ok(
+      wwwContent.includes("max_reroutes"),
+      "www/index.html must mention max_reroutes budget",
+    );
+  });
+
+  // Regression test: DMNF — metric_not_found status appears in README
+  it("READNE includes metric_not_found in autoresearch status list", () => {
+    const readmePath = join(sourcePath, "README.md");
+    const readme = readFileSync(readmePath, "utf-8");
+    assert.ok(
+      readme.includes("metric_not_found"),
+      "README.md must include metric_not_found in the autoresearch status enumeration",
+    );
+  });
+
+  // Regression test: DOVW — CLI help warns about overwrite on workflow install
+  it("CLI workflow install help warns about overwrite semantics", () => {
+    const cliPath = join(sourcePath, "src", "cli", "cli.ts");
+    const cliSource = readFileSync(cliPath, "utf-8");
+    assert.ok(
+      cliSource.includes("local edits are overwritten"),
+      "src/cli/cli.ts getWorkflowInstallHelp must warn that local edits are overwritten",
+    );
+  });
+
+  // Regression test: DOVW — SKILL.md warns about overwrite semantics
+  it("SKILL.md warns about workflow file overwrite on install/update", () => {
+    const skillPath = join(sourcePath, "skills", "tamandua-agents", "SKILL.md");
+    const skillContent = readFileSync(skillPath, "utf-8");
+    assert.ok(
+      skillContent.includes("local edits are silently overwritten"),
+      "skills/tamandua-agents/SKILL.md must warn that local edits are silently overwritten",
+    );
+  });
+
+  // Regression test: DDOC — SKILL.md includes doctor section
+  it("SKILL.md includes Troubleshooting with tamandua doctor section", () => {
+    const skillPath = join(sourcePath, "skills", "tamandua-agents", "SKILL.md");
+    const skillContent = readFileSync(skillPath, "utf-8");
+    assert.ok(
+      skillContent.includes("Troubleshooting with tamandua doctor"),
+      "skills/tamandua-agents/SKILL.md must include 'Troubleshooting with tamandua doctor' section",
+    );
+  });
+
+  // Regression test: DRTR — SKILL.md covers on_fail routing
+  it("SKILL.md documents on-failure routing and rerouting", () => {
+    const skillPath = join(sourcePath, "skills", "tamandua-agents", "SKILL.md");
+    const skillContent = readFileSync(skillPath, "utf-8");
+    assert.ok(
+      skillContent.includes("max_reroutes"),
+      "skills/tamandua-agents/SKILL.md must document max_reroutes",
+    );
+    assert.ok(
+      skillContent.includes("step.rerouted"),
+      "skills/tamandua-agents/SKILL.md must document step.rerouted event",
+    );
+  });
 });

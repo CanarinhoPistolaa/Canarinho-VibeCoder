@@ -388,7 +388,7 @@ In order, it does this:
      and leaves services/workflows unchanged.
   10. Otherwise, it stops the services that were running before the
       update.
-  11. Installs every bundled workflow.
+  11. Installs every bundled workflow (refreshes all installed bundled files — local edits are overwritten).
   12. Restarts only the services that were running before, on their
       previous ports.
 
@@ -1075,6 +1075,9 @@ SOUL.md, and any bundled skills), and registers agents in the agent config.
 
 After installation, the workflow is ready to run with:
   tamandua workflow run <name> "task description"
+
+Note: Installed bundled workflow files are refreshed on every install — local
+edits are overwritten. Copy under a new workflow id to customize.
 
 Examples:
   tamandua workflow install feature-dev-merge`;

@@ -104,8 +104,8 @@
 
       <article>
         <span class="feature-icon" aria-hidden="true">🔄</span>
-        <h3>Retry and Escalate</h3>
-        <p>Failed steps retry automatically. If retries exhaust, it escalates to you. Nothing fails silently.</p>
+        <h3>Retry and Reroute</h3>
+        <p>Failed steps retry automatically. Steps can reroute back to upstream producers for correction via <code>on_fail.retry_step</code> (bounded by a <code>max_reroutes</code> budget, default 2). When the budget exhausts, the run fails permanently. Nothing fails silently.</p>
       </article>
 
       <article>
@@ -427,8 +427,8 @@ cd tamandua
           <p>Each agent gets a clean session. No context window bloat. No hallucinated state from 50 messages ago.</p>
         </li>
         <li>
-          <strong>Retry and escalate</strong>
-          <p>Failed steps retry automatically. If retries exhaust, it escalates to you. Nothing fails silently.</p>
+          <strong>Retry and reroute</strong>
+          <p>Failed steps retry automatically. Steps can reroute back to upstream producers for correction via <code>on_fail.retry_step</code> (bounded by a <code>max_reroutes</code> budget, default 2). When the budget exhausts, the run fails permanently. Nothing fails silently.</p>
         </li>
         <li>
           <strong>Zero tokens when idle</strong>
@@ -636,6 +636,10 @@ tamandua autoresearch next</code></pre>
           <tr>
             <td><code>tamandua nudge</code></td>
             <td>Trigger an immediate dispatch round for all running runs.</td>
+          </tr>
+          <tr>
+            <td><code>tamandua doctor</code></td>
+            <td>One-shot diagnostic with per-check remedies (environment, services, database).</td>
           </tr>
           <tr>
             <td><code>tamandua update</code></td>

@@ -102,6 +102,7 @@ const actualCommands: string[] = [
   "tamandua status",
   "tamandua logs",
   "tamandua logs-tail",
+  "tamandua doctor",
 
   // dashboard
   "tamandua dashboard start",
@@ -245,8 +246,8 @@ describe("SKILL.md step command accuracy", () => {
   it("step lifecycle is documented in order: peek → claim → execute → complete/fail", () => {
     const peekIdx = skillContent.indexOf("step peek");
     const claimIdx = skillContent.indexOf("step claim");
-    const completeIdx = skillContent.indexOf("step complete");
-    const failIdx = skillContent.indexOf("step fail");
+    const completeIdx = skillContent.indexOf("tamandua step complete");
+    const failIdx = skillContent.indexOf("tamandua step fail");
 
     assert.ok(peekIdx < claimIdx, "step peek must appear before step claim in documentation");
     assert.ok(claimIdx < completeIdx, "step claim must appear before step complete");
@@ -547,8 +548,8 @@ describe("SKILL.md autoresearch commands documented", () => {
 
   it("autoresearch section uses section 2.10 numbering", () => {
     assert.ok(
-      skillContent.includes("### 2.10) AutoResearch experiment commands"),
-      "SKILL.md must use section 2.10 for autoresearch commands"
+      skillContent.includes("### 2.12) AutoResearch experiment commands"),
+      "SKILL.md must use section 2.12 for autoresearch commands"
     );
   });
 });
@@ -591,8 +592,8 @@ describe("SKILL.md autoresearch loop commands documented", () => {
 
   it("loop section uses section 2.11 numbering", () => {
     assert.ok(
-      skillContent.includes("### 2.11) AutoResearch loop and iteration commands"),
-      "SKILL.md must use section 2.11 for autoresearch loop commands"
+      skillContent.includes("### 2.13) AutoResearch loop and iteration commands"),
+      "SKILL.md must use section 2.13 for autoresearch loop commands"
     );
   });
 });
@@ -628,8 +629,8 @@ describe("SKILL.md autoresearch monitoring and setup commands documented", () =>
 
   it("monitoring section uses section 2.12 numbering", () => {
     assert.ok(
-      skillContent.includes("### 2.12) AutoResearch monitoring and setup commands"),
-      "SKILL.md must use section 2.12 for autoresearch monitoring commands"
+      skillContent.includes("### 2.14) AutoResearch monitoring and setup commands"),
+      "SKILL.md must use section 2.14 for autoresearch monitoring commands"
     );
   });
 

@@ -530,6 +530,43 @@ describe("--help infrastructure", () => {
     }
   });
 
+  // Regression test: DOVW — update help warns about workflow file overwrite
+  it("tamandua update --help warns about workflow file refresh/overwrite", () => {
+    const result = cli(["update", "--help"]);
+    try {
+      assert.equal(result.status, 0);
+      assert.match(
+        result.stdout ?? "",
+        /local.edits are overwritten/s,
+        "tamandua update --help must warn that local edits are overwritten when reinstalling workflows",
+      );
+    } finally {
+      fs.rmSync(result.testEnv.tmpDir, { recursive: true, force: true });
+    }
+  });
+
+  // Regression test: DOVW — workflow install help warns about overwrite
+  it("tamandua workflow install --help warns about overwrite semantics", () => {
+    const result = cli(["workflow", "install", "--help"]);
+    try {
+      assert.equal(result.status, 0);
+      assert.ok(
+        (result.stdout ?? "").includes("refreshed on every install"),
+        "tamandua workflow install --help must document that installed bundled files are refreshed on every install",
+      );
+      assert.ok(
+        (result.stdout ?? "").includes("overwritten"),
+        "tamandua workflow install --help must warn that local edits are overwritten",
+      );
+      assert.ok(
+        (result.stdout ?? "").includes("new workflow id"),
+        "tamandua workflow install --help must advise copying under a new workflow id to customize",
+      );
+    } finally {
+      fs.rmSync(result.testEnv.tmpDir, { recursive: true, force: true });
+    }
+  });
+
   it("tamandua uninstall shows --force flag behavior in help", () => {
     const result = cli(["uninstall", "--help"]);
     try {

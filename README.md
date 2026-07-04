@@ -472,8 +472,8 @@ dashboard includes an AutoResearch panel that reads that directory's
 failures, and the recent learning timeline.
 
 The core loop is `init -> run-experiment -> log-experiment -> next`. `log --status auto` classifies a
-run as `baseline`, `keep`, `discard`, `crash`, or `checks_failed` by comparing the
-latest metric with prior accepted results. The `next` prompt carries the ratchet:
+run as `baseline`, `keep`, `discard`, `crash`, `metric_not_found`, or `checks_failed` by comparing the
+latest metric with prior accepted results (`metric_not_found` when the command exits 0 but the metric cannot be parsed from its output — such runs do not update best/baseline). The `next` prompt carries the ratchet:
 it restates the goal, best result, last learning, and next focus before the agent
 starts another experiment.
 
@@ -510,7 +510,7 @@ If something isn't working as expected, start with the built-in diagnostic:
 | `tamandua get-ready` | Install bundled workflows and start dashboard/control plane |
 | `tamandua source-path` | Print the Tamandua source checkout path |
 | `tamandua skill-path` | Print the path to the bundled tamandua-agents agent skill |
-| `tamandua update [--force]` | Pull the source checkout, rebuild, reinstall workflows, and restart previously running services |
+| `tamandua update [--force]` | Pull the source checkout, rebuild, reinstall workflows (refreshes all installed bundled workflow files — local edits are overwritten), and restart previously running services |
 | `tamandua uninstall [--force]` | Full teardown (agents, crons, DB) |
 
 ### Workflows
@@ -523,7 +523,7 @@ If something isn't working as expected, start with the built-in diagnostic:
 | `tamandua workflow resume <run-id>` | Resume a failed run |
 | `tamandua workflow delete <run-id> [--force]` | Permanently delete a workflow run and associated data |
 | `tamandua workflow list` | List available workflows |
-| `tamandua workflow install <id> [--all]` | Install one or all workflows |
+| `tamandua workflow install <id> [--all]` | Install one or all workflows. **Installed bundled definitions are refreshed on every install/update** — local edits are overwritten. To customize a workflow, copy it under a new workflow id. |
 | `tamandua workflow uninstall <id>` | Remove a single workflow |
 
 ### Management
