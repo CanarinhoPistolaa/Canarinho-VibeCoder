@@ -479,6 +479,10 @@ Check categories:
                On mismatch, tells you to restart the dashboard daemon.
   STATE        Database opens, and medic-style run anomaly detection
                (zombie runs, long-stuck steps).
+  LLM PROMPT   Per-step key-emission rates from workflow runs — measures
+  ADHERENCE    how often agents deliver expected output keys declared in
+               step Reply-with contracts. Reports rates per key, warns on
+               keys below 50% over at least 5 samples.
 
 Exit codes:
   0 — all checks passed (or only informational warnings)

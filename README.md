@@ -494,7 +494,7 @@ You're installing agent teams that run code on your machine. We take that seriou
 
 If something isn't working as expected, start with the built-in diagnostic:
 
-- **Run `tamandua doctor`** — One-shot diagnostic that checks environment (Node.js >= 22, pi on PATH, gh on PATH), services (dashboard daemon, control plane, MCP), daemon staleness (running daemon matches installed build), and database state (run-level anomalies). Each check prints **pass/fail** status and on failure prints the **exact remedy command** to run.
+- **Run `tamandua doctor`** — One-shot diagnostic that checks environment (Node.js >= 22, pi on PATH, gh on PATH), services (dashboard daemon, control plane, MCP), daemon staleness (running daemon matches installed build), database state (run-level anomalies), and LLM prompt adherence (per-step key-emission rates from workflow runs, measuring how often agents deliver expected output keys). Each check prints **pass/fail** status and on failure prints the **exact remedy command** to run.
 - **Check dashboard status** — Run `tamandua dashboard status` to verify the daemon and control plane are running on their expected ports.
 - **Check logs** — Run `tamandua logs` to see recent daemon events. For live tailing: `tamandua logs-tail`.
 - **Restart the daemon** — If the dashboard or control plane is unresponsive, run `tamandua dashboard restart`. This stops the daemon, rebuilds, and restarts it.

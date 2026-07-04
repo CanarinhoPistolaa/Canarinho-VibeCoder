@@ -760,9 +760,10 @@ not executable, the run fails at startup.
 `tamandua doctor` is a one-shot diagnostic that checks environment
 (Node.js >= 22, pi on PATH, gh on PATH), services (dashboard daemon,
 control plane, MCP), daemon staleness (running daemon matches installed
-build), and database state (run-level anomalies). Each check prints
-**pass/fail** status and on failure prints the **exact remedy command** to
-run.
+build), database state (run-level anomalies), and LLM prompt adherence
+(per-step key-emission rates from workflow runs, measuring how often
+agents deliver expected output keys). Each check prints **pass/fail**
+status and on failure prints the **exact remedy command** to run.
 
 ```bash
 tamandua doctor

@@ -10,7 +10,7 @@ import path from "node:path";
 
 import { DatabaseSync } from "node:sqlite";
 
-import { runDoctorChecks, formatDoctorOutput } from "../dist/doctor.js";
+import { runDoctorChecks, runLlmPromptAdherenceChecks, formatDoctorOutput } from "../dist/doctor.js";
 import type { DoctorCheckResult, CheckGroup } from "../dist/doctor.js";
 import {
   startDaemon,
@@ -107,6 +107,117 @@ function seedZombieRun(dbPath: string): void {
   db.close();
 }
 
+/** Seed a DB with synthetic runs/steps/context for LLM PROMPT ADHERENCE testing. */
+function seedPromptAdherenceDb(
+  dbPath: string,
+  runs: Array<{
+    id: string;
+    workflowId: string;
+    status: string;
+    context: Record<string, string>;
+    updatedAt?: string;
+    steps: Array<{
+      stepId: string;
+      inputTemplate: string;
+      status?: string;
+    }>;
+  }>,
+): void {
+  const db = new DatabaseSync(dbPath);
+  db.exec("PRAGMA journal_mode=WAL");
+  db.exec("PRAGMA foreign_keys=ON");
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS runs (
+      id TEXT PRIMARY KEY,
+      run_number INTEGER,
+      workflow_id TEXT NOT NULL,
+      task TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'running',
+      context TEXT NOT NULL DEFAULT '{}',
+      tokens_spent INTEGER NOT NULL DEFAULT 0,
+      notify_url TEXT,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS steps (
+      id TEXT PRIMARY KEY,
+      run_id TEXT NOT NULL,
+      step_id TEXT NOT NULL,
+      agent_id TEXT NOT NULL,
+      step_index INTEGER NOT NULL,
+      input_template TEXT NOT NULL,
+      expects TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'waiting',
+      output TEXT,
+      retry_count INTEGER DEFAULT 0,
+      max_retries INTEGER DEFAULT 4,
+      type TEXT NOT NULL DEFAULT 'single',
+      loop_config TEXT,
+      current_story_id TEXT,
+      abandoned_count INTEGER DEFAULT 0,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS stories (
+      id TEXT PRIMARY KEY,
+      run_id TEXT NOT NULL REFERENCES runs(id),
+      story_index INTEGER NOT NULL,
+      story_id TEXT NOT NULL,
+      title TEXT NOT NULL,
+      description TEXT NOT NULL DEFAULT '',
+      acceptance_criteria TEXT NOT NULL DEFAULT '[]',
+      status TEXT NOT NULL DEFAULT 'pending',
+      output TEXT,
+      retry_count INTEGER DEFAULT 0,
+      max_retries INTEGER DEFAULT 4,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS run_worktrees (
+      run_id TEXT PRIMARY KEY,
+      worktree_origin_repository TEXT NOT NULL,
+      worktree_origin_git_common_dir TEXT NOT NULL,
+      worktree_path TEXT NOT NULL,
+      worktree_origin_ref TEXT,
+      worktree_origin_sha TEXT,
+      original_branch TEXT,
+      status TEXT NOT NULL DEFAULT 'creating',
+      cleanup_policy TEXT NOT NULL DEFAULT 'remove_on_success',
+      created_at TEXT NOT NULL,
+      removed_at TEXT,
+      error TEXT
+    );
+  `);
+
+  for (const run of runs) {
+    const now = new Date();
+    const updatedAt = run.updatedAt || now.toISOString();
+    db.prepare(
+      "INSERT INTO runs (id, workflow_id, task, status, context, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+    ).run(run.id, run.workflowId, "test task", run.status, JSON.stringify(run.context), updatedAt, updatedAt);
+
+    for (let i = 0; i < run.steps.length; i++) {
+      const step = run.steps[i];
+      db.prepare(
+        "INSERT INTO steps (id, run_id, step_id, agent_id, step_index, input_template, expects, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+      ).run(
+        `step-${run.id}-${i}`,
+        run.id,
+        step.stepId,
+        `${step.stepId}-agent`,
+        i,
+        step.inputTemplate,
+        "STATUS:",
+        step.status ?? "done",
+        now.toISOString(),
+        now.toISOString(),
+      );
+    }
+  }
+
+  db.close();
+}
+
 async function getAvailablePort(): Promise<number> {
   const { createServer } = await import("node:net");
   return new Promise<number>((resolve, reject) => {
@@ -191,17 +302,22 @@ describe("CheckGroup type", () => {
 });
 
 describe("runDoctorChecks", () => {
-  it("returns four check groups", async () => {
+  it("returns five check groups", async () => {
     const groups = await runDoctorChecks();
-    assert.strictEqual(groups.length, 4, `Expected 4 check groups, got ${groups.length}`);
+    assert.strictEqual(groups.length, 5, `Expected 5 check groups, got ${groups.length}`);
   });
 
   it("each group has a label and checks array", async () => {
     const groups = await runDoctorChecks();
     const labels = groups.map((g) => g.label);
-    assert.deepStrictEqual(labels, ["ENVIRONMENT", "SERVICES", "STALENESS", "STATE"]);
+    assert.deepStrictEqual(labels, ["ENVIRONMENT", "SERVICES", "STALENESS", "STATE", "LLM PROMPT ADHERENCE"]);
     for (const group of groups) {
-      assert.ok(group.checks.length > 0, `Group "${group.label}" should have checks`);
+      if (group.label === "LLM PROMPT ADHERENCE") {
+        // LLM PROMPT ADHERENCE can have 0 checks on an empty database
+        assert.ok(Array.isArray(group.checks), `Group "${group.label}" should have a checks array`);
+      } else {
+        assert.ok(group.checks.length > 0, `Group "${group.label}" should have checks`);
+      }
       for (const check of group.checks) {
         assert.strictEqual(typeof check.name, "string");
         assert.ok(["pass", "fail", "warn", "info"].includes(check.status),
@@ -1184,6 +1300,132 @@ describe("STATE run-process-leak checks (US-004)", () => {
       try { child.kill("SIGKILL"); } catch {}
       try { fs.rmSync(homeDir, { recursive: true, force: true }); } catch {}
     }
+  });
+});
+
+describe("LLM PROMPT ADHERENCE checks (US-002)", () => {
+  it("full emission: all keys at 100%, only summary line", async () => {
+    const dbPath = process.env.TAMANDUA_DB_PATH!;
+    const template = "Instructions here\n\nReply with:\nBRANCH: main\nVERIFIED: true\n";
+    seedPromptAdherenceDb(dbPath, Array.from({ length: 5 }, (_, i) => ({
+      id: `fe-${i}`,
+      workflowId: "test-workflow",
+      status: "completed",
+      context: { branch: "main", verified: "true" },
+      steps: [{ stepId: "dev", inputTemplate: template }],
+    })));
+
+    const checks = await runLlmPromptAdherenceChecks();
+    // Only the summary line — no entries below 100%
+    assert.strictEqual(checks.length, 1, `Expected 1 check (summary only), got ${checks.length}: ${JSON.stringify(checks.map((c: DoctorCheckResult) => c.message))}`);
+    const summary = checks[0];
+    assert.strictEqual(summary.name, "Summary");
+    assert.strictEqual(summary.status, "info");
+    assert.ok(summary.message.includes("100%"), `Summary should show 100%, got: ${summary.message}`);
+    assert.ok(summary.message.includes("10 keys"), `Summary should count 10 keys, got: ${summary.message}`);
+  });
+
+  it("partial emission: correct rates computed and displayed", async () => {
+    const dbPath = process.env.TAMANDUA_DB_PATH!;
+    const template = "Reply with:\nBRANCH: main\nVERIFIED: true\n";
+    seedPromptAdherenceDb(dbPath, Array.from({ length: 15 }, (_, i) => ({
+      id: `pe-${i}`,
+      workflowId: "test-workflow",
+      status: "completed",
+      // First 10 runs have BRANCH, all 15 have VERIFIED
+      context: i < 10 ? { branch: "main", verified: "true" } : { verified: "true" },
+      steps: [{ stepId: "dev", inputTemplate: template }],
+    })));
+
+    const checks = await runLlmPromptAdherenceChecks();
+    // BRANCH at 10/15 (67%) should appear as info
+    const branchCheck = checks.find((c: DoctorCheckResult) => c.message.includes("BRANCH"));
+    assert.ok(branchCheck, `Expected a check for BRANCH key, got: ${JSON.stringify(checks.map((c: DoctorCheckResult) => c.message))}`);
+    assert.ok(branchCheck!.message.includes("10/15"), `Expected 10/15, got: ${branchCheck!.message}`);
+    assert.ok(branchCheck!.message.includes("67%"), `Expected 67%, got: ${branchCheck!.message}`);
+    assert.strictEqual(branchCheck!.status, "info", "67% should be info, not warn");
+    // VERIFIED at 100% should NOT appear
+    const verifiedCheck = checks.find((c: DoctorCheckResult) => c.message.includes("VERIFIED"));
+    assert.strictEqual(verifiedCheck, undefined, "VERIFIED at 100% should not appear");
+    // Summary should exist with 30 keys tracked
+    const summary = checks.find((c: DoctorCheckResult) => c.name === "Summary");
+    assert.ok(summary, "Expected summary check");
+    assert.ok(summary!.message.includes("30 keys"), `Summary should count 30 keys, got: ${summary!.message}`);
+  });
+
+  it("sub-50% warn with remedy: keys below 50% over >=5 samples trigger warn", async () => {
+    const dbPath = process.env.TAMANDUA_DB_PATH!;
+    const template = "Reply with:\nBRANCH: main\nSEVERITY: high\n";
+    seedPromptAdherenceDb(dbPath, Array.from({ length: 6 }, (_, i) => ({
+      id: `warn-${i}`,
+      workflowId: "test-workflow",
+      status: "completed",
+      // Only 2 out of 6 runs have the keys → 33% each
+      context: i < 2 ? { branch: "main", severity: "high" } : {},
+      steps: [{ stepId: "dev", inputTemplate: template }],
+    })));
+
+    const checks = await runLlmPromptAdherenceChecks();
+
+    // BRANCH: 2/6 = 33%, below 50%, >=5 samples → warn
+    const branchCheck = checks.find((c: DoctorCheckResult) => c.message.includes("BRANCH") && c.message.includes("2/6"));
+    assert.ok(branchCheck, `Expected warn check for BRANCH, got: ${JSON.stringify(checks.map((c: DoctorCheckResult) => c.message))}`);
+    assert.strictEqual(branchCheck!.status, "warn", `BRANCH at 33% should be warn, got: ${branchCheck!.status}`);
+    assert.ok(branchCheck!.remedy, "Warn check should have remedy");
+    assert.ok(branchCheck!.remedy!.includes("step prompt"), `Remedy should mention step prompt, got: ${branchCheck!.remedy}`);
+    assert.ok(branchCheck!.remedy!.includes("BRANCH"), `Remedy should include key name, got: ${branchCheck!.remedy}`);
+
+    // SEVERITY: 2/6 = 33%, below 50%, >=5 samples → warn
+    const severityCheck = checks.find((c: DoctorCheckResult) => c.message.includes("SEVERITY") && c.message.includes("2/6"));
+    assert.ok(severityCheck, "Expected warn check for SEVERITY");
+    assert.strictEqual(severityCheck!.status, "warn");
+    assert.ok(severityCheck!.remedy, "Warn check should have remedy");
+  });
+
+  it("insufficient data: fewer than 5 terminal runs produces info message", async () => {
+    const dbPath = process.env.TAMANDUA_DB_PATH!;
+    const template = "Reply with:\nBRANCH: main\n";
+    seedPromptAdherenceDb(dbPath, Array.from({ length: 3 }, (_, i) => ({
+      id: `id-${i}`,
+      workflowId: "test-workflow",
+      status: "completed",
+      context: { branch: "main" },
+      steps: [{ stepId: "dev", inputTemplate: template }],
+    })));
+
+    const checks = await runLlmPromptAdherenceChecks();
+    assert.strictEqual(checks.length, 1);
+    assert.strictEqual(checks[0].name, "Key-emission rates");
+    assert.strictEqual(checks[0].status, "info");
+    assert.ok(checks[0].message.toLowerCase().includes("insufficient data"), `Expected 'insufficient data', got: ${checks[0].message}`);
+    assert.ok(checks[0].message.includes("3"), `Message should mention run count (3), got: ${checks[0].message}`);
+  });
+
+  it("empty database: no terminal runs returns empty array", async () => {
+    // beforeEach creates an empty file with no runs/steps — no seed needed
+    const checks = await runLlmPromptAdherenceChecks();
+    assert.strictEqual(checks.length, 0, `Expected empty array for empty DB, got ${checks.length} checks`);
+  });
+
+  it("legacy runs with no expected keys are silently skipped", async () => {
+    const dbPath = process.env.TAMANDUA_DB_PATH!;
+    // Runs with steps that have NO Reply-with block
+    seedPromptAdherenceDb(dbPath, Array.from({ length: 5 }, (_, i) => ({
+      id: `legacy-${i}`,
+      workflowId: "old-workflow",
+      status: "completed",
+      context: { whatever: "value" },
+      steps: [
+        { stepId: "old-step", inputTemplate: "Just do some work\nNo Reply-with section here.\n" },
+      ],
+    })));
+
+    // Should not throw — steps without expected keys are skipped
+    const checks = await runLlmPromptAdherenceChecks();
+    // Should have a summary with 0 keys tracked
+    const summary = checks.find((c: DoctorCheckResult) => c.name === "Summary");
+    assert.ok(summary, "Expected summary check even with no expected keys");
+    assert.ok(summary!.message.includes("0 keys"), `Summary should show 0 keys, got: ${summary!.message}`);
   });
 });
 

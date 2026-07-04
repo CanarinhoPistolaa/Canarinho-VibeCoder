@@ -1,7 +1,7 @@
 /**
  * Doctor — tamandua one-shot diagnostic tool.
  *
- * Runs grouped health checks (ENVIRONMENT, SERVICES, STALENESS, STATE)
+ * Runs grouped health checks (ENVIRONMENT, SERVICES, STALENESS, STATE, LLM PROMPT ADHERENCE)
  * and produces pass/fail output with exact remedy commands for failures.
  * All functions return results rather than printing directly, so the
  * CLI layer handles I/O and tests can assert on data.
@@ -23,6 +23,7 @@ import {
 } from "./server/daemonctl.js";
 import type { DaemonctlPathOptions } from "./server/daemonctl.js";
 import { getBuildVersion } from "./lib/version.js";
+import { parseExpectedKeys } from "./installer/step-ops.js";
 import { getDb } from "./db.js";
 import { runMedicCheck } from "./medic/medic.js";
 import type { MedicFinding } from "./medic/medic.js";
@@ -636,6 +637,142 @@ function runProcessLeakChecks(opts?: DoctorOpts): DoctorCheckResult[] {
  *   3. STALENESS   — running daemon build vs. installed build
  *   4. STATE       — database health, run-level anomalies, process leaks
  */
+/**
+ * Run LLM PROMPT ADHERENCE checks: per-step key-emission rates.
+ *
+ * Queries the most recent 50 terminal runs and checks which Reply-with
+ * contract keys each DONE step actually delivered in the run context.
+ * Reports emission rates grouped by workflow, warns on keys below 50%
+ * over at least 5 samples.
+ */
+export async function runLlmPromptAdherenceChecks(opts?: DoctorOpts): Promise<DoctorCheckResult[]> {
+  const results: DoctorCheckResult[] = [];
+
+  const savedDbPath = process.env.TAMANDUA_DB_PATH;
+  if (opts?.homeDir) {
+    process.env.TAMANDUA_DB_PATH = path.join(opts.homeDir, ".tamandua", "tamandua.db");
+  }
+
+  try {
+    const db = getDb();
+
+    // Query most recent 50 terminal runs
+    const runs = db.prepare(
+      `SELECT id, workflow_id, status, context, created_at, updated_at
+       FROM runs
+       WHERE status IN ('completed', 'failed', 'canceled')
+       ORDER BY updated_at DESC
+       LIMIT 50`
+    ).all() as { id: string; workflow_id: string; status: string; context: string; created_at: string; updated_at: string }[];
+
+    if (runs.length === 0) {
+      return results;
+    }
+
+    if (runs.length < 5) {
+      results.push({
+        name: "Key-emission rates",
+        status: "info",
+        message: `Insufficient data — only ${runs.length} terminal runs found (need at least 5)`,
+      });
+      return results;
+    }
+
+    // Aggregation: workflow_id → step_id → key → { present, total }
+    const stats: Record<string, Record<string, Record<string, { present: number; total: number }>>> = {};
+    let totalKeysTracked = 0;
+    let totalKeyPresence = 0;
+
+    for (const run of runs) {
+      let runContext: Record<string, unknown> = {};
+      try {
+        runContext = JSON.parse(run.context);
+      } catch {
+        // Legacy / corrupt context — treat as empty
+      }
+
+      const steps = db.prepare(
+        `SELECT step_id, input_template
+         FROM steps
+         WHERE run_id = ? AND status = 'done'
+         ORDER BY step_index ASC`
+      ).all(run.id) as { step_id: string; input_template: string }[];
+
+      const wfId = run.workflow_id;
+
+      for (const step of steps) {
+        const expectedKeys = parseExpectedKeys(step.input_template);
+        if (expectedKeys.length === 0) continue;
+
+        const wfStats = (stats[wfId] = stats[wfId] ?? {});
+        const keyStats = (wfStats[step.step_id] = wfStats[step.step_id] ?? {});
+
+        for (const key of expectedKeys) {
+          const entry = (keyStats[key] = keyStats[key] ?? { present: 0, total: 0 });
+          entry.total++;
+          if (hasOwn(runContext, key)) {
+            entry.present++;
+            totalKeyPresence++;
+          }
+          totalKeysTracked++;
+        }
+      }
+    }
+
+    // Generate output lines — only entries below 100%
+    for (const [wfId, wfStats] of Object.entries(stats).sort()) {
+      for (const [stepId, keyMap] of Object.entries(wfStats).sort()) {
+        for (const [key, entry] of Object.entries(keyMap).sort()) {
+          const rate = entry.present / entry.total;
+          const percent = (rate * 100).toFixed(0);
+
+          if (rate < 1) {
+            if (rate < 0.5 && entry.total >= 5) {
+              results.push({
+                name: `${wfId} ${stepId} ${key.toUpperCase()}`,
+                status: "warn",
+                message: `${wfId} ${stepId} ${key.toUpperCase()}: ${entry.present}/${entry.total} (${percent}%)`,
+                remedy: `Check the ${stepId} step prompt in ${wfId} workflow for ${key.toUpperCase()} key emission`,
+              });
+            } else {
+              results.push({
+                name: `${wfId} ${stepId} ${key.toUpperCase()}`,
+                status: "info",
+                message: `${wfId} ${stepId} ${key.toUpperCase()}: ${entry.present}/${entry.total} (${percent}%)`,
+              });
+            }
+          }
+        }
+      }
+    }
+
+    // Summary line
+    const overallRate = totalKeysTracked > 0 ? totalKeyPresence / totalKeysTracked : 0;
+    const overallPercent = (overallRate * 100).toFixed(0);
+    const oldest = runs[runs.length - 1].updated_at;
+    const newest = runs[0].updated_at;
+
+    results.push({
+      name: "Summary",
+      status: "info",
+      message: `${totalKeysTracked} keys tracked across ${runs.length} runs (${oldest} → ${newest}), overall emission rate: ${overallPercent}%`,
+    });
+
+    return results;
+  } finally {
+    if (savedDbPath !== undefined) {
+      process.env.TAMANDUA_DB_PATH = savedDbPath;
+    } else if (opts?.homeDir) {
+      delete process.env.TAMANDUA_DB_PATH;
+    }
+  }
+}
+
+/** Orphan-safe own-property check. */
+function hasOwn(obj: Record<string, unknown>, key: string): boolean {
+  return Object.prototype.hasOwnProperty.call(obj, key);
+}
+
 export async function runDoctorChecks(opts?: DoctorOpts): Promise<CheckGroup[]> {
   // ENVIRONMENT — wired in US-003
   const environmentChecks = await Promise.all([
@@ -659,10 +796,14 @@ export async function runDoctorChecks(opts?: DoctorOpts): Promise<CheckGroup[]> 
   const leakChecks = runProcessLeakChecks(opts);
   stateChecks.push(...leakChecks);
 
+  // LLM PROMPT ADHERENCE — wired in US-001
+  const adherenceChecks = await runLlmPromptAdherenceChecks(opts);
+
   return [
     { label: "ENVIRONMENT", checks: environmentChecks },
     { label: "SERVICES", checks: servicesChecks },
     { label: "STALENESS", checks: stalenessChecks },
     { label: "STATE", checks: stateChecks },
+    { label: "LLM PROMPT ADHERENCE", checks: adherenceChecks },
   ];
 }
