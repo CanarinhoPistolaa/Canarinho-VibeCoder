@@ -1124,6 +1124,12 @@ Options:
       (per invocation, so installing it mid-run takes effect) and used if
       present; otherwise pi runs as usual. Idle checking is free either
       way — the dispatch motor never spends tokens between steps.
+  --context <key=value>
+      Inject a key-value pair into the run's template context for step
+      input resolution. Repeatable for multiple keys. The key and value
+      are split on the first '=' character. Keys must be non-empty and
+      must not be duplicated across --context flags.
+      Example: --context branch=feature/my-branch
   --working-directory-for-harness <dir>
       Set the working directory for the agent harness during this run.
       Agents will operate within this directory.
@@ -1150,7 +1156,9 @@ Examples:
   tamandua workflow run feature-dev-merge "Build login page" \\
       --working-directory-for-harness /path/to/project
   tamandua workflow run feature-dev-merge "Fix bug #42" \\
-      --worktree-origin-repository /repos/myapp --worktree-origin-ref develop`;
+      --worktree-origin-repository /repos/myapp --worktree-origin-ref develop
+  tamandua workflow run quarantine-broken-tests-merge-worktree "Quarantine failing tests" \\
+      --context branch=quarantine/broken-tests`;
 }
 
 function getWorkflowStatusHelp(): string {
@@ -1637,6 +1645,7 @@ function getUsageText(): string {
     "", "tamandua workflow list                List available workflows",
     "tamandua workflow install <name|--all>  Install a workflow (or all)",
     "tamandua workflow run <name> <task> [--no-hurry-please-save-tokens-mode]",
+    "                                      [--context <key=value> ...]",
     "                                      [--working-directory-for-harness <dir>]",
     "                                      [--worktree-origin-repository <dir>]",
     "                                      [--worktree-origin-ref <ref>]",
@@ -2884,6 +2893,7 @@ async function main() {
       noHurrySaveTokensMode: runArgs.noHurrySaveTokensMode,
       noRelaunchUponRugpull: runArgs.noRelaunchUponRugpull,
       harnessType,
+      context: runArgs.context,
     });
     console.log(`Run: ${result.runId.slice(0, 8)}\nWorkflow: ${result.workflowId}\nTask: ${result.taskTitle}\nStatus: ${result.status}\nHarness CWD: ${result.workingDirectoryForHarness}`);
     return;

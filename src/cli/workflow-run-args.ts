@@ -6,6 +6,8 @@ export interface WorkflowRunArgs {
   noHurrySaveTokensMode?: boolean;
   noRelaunchUponRugpull?: boolean;
   harnessAs?: "pi" | "hermes";
+  /** Key-value pairs injected as run template context */
+  context: Record<string, string>;
 }
 
 export function parseWorkflowRunArgs(args: string[]): WorkflowRunArgs {
@@ -16,6 +18,7 @@ export function parseWorkflowRunArgs(args: string[]): WorkflowRunArgs {
   let noHurrySaveTokensMode: boolean | undefined;
   let noRelaunchUponRugpull: boolean | undefined;
   let harnessAs: "pi" | "hermes" | undefined;
+  const context: Record<string, string> = {};
 
   for (let i = 0; i < args.length; i++) {
     const token = args[i];
@@ -110,6 +113,28 @@ export function parseWorkflowRunArgs(args: string[]): WorkflowRunArgs {
       continue;
     }
 
+    if (token === "--context") {
+      const value = args[i + 1]?.trim();
+      if (!value) {
+        throw new Error("Missing value for --context. Expected format: --context key=value");
+      }
+      const eqIdx = value.indexOf("=");
+      if (eqIdx === -1) {
+        throw new Error(`Invalid --context value "${value}": expected key=value format (must contain '=')`);
+      }
+      const key = value.slice(0, eqIdx);
+      const val = value.slice(eqIdx + 1);
+      if (key.length === 0) {
+        throw new Error(`Invalid --context value "${value}": key must be non-empty`);
+      }
+      if (key in context) {
+        throw new Error(`Duplicate --context key "${key}": each key may only be specified once`);
+      }
+      context[key] = val;
+      i++;
+      continue;
+    }
+
     taskParts.push(token);
   }
 
@@ -121,5 +146,6 @@ export function parseWorkflowRunArgs(args: string[]): WorkflowRunArgs {
     noHurrySaveTokensMode,
     noRelaunchUponRugpull,
     harnessAs,
+    context,
   };
 }

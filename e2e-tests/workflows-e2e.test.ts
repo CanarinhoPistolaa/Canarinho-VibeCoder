@@ -122,6 +122,11 @@ describe(
         baseEnv(env.homeDir, env.controlPort),
         "install bug-fix-merge-worktree",
       );
+      cliMustSucceed(
+        ["workflow", "install", "quarantine-broken-tests-merge-worktree"],
+        baseEnv(env.homeDir, env.controlPort),
+        "install quarantine-broken-tests-merge-worktree",
+      );
 
       // Prepare a clean git repo from the sample-project fixture.
       // Both tests share this origin repository.
@@ -435,6 +440,134 @@ describe(
           );
 
           assertRepoClean(repoDir, "feature-dev post-check");
+        } finally {
+          // ── Stop daemon ─────────────────────────────────────────
+          await stopIsolatedDaemon(daemon);
+        }
+      },
+    );
+
+    // ── TEST 3: quarantine-broken-tests-merge-worktree (separate repo) ─
+    it(
+      "quarantine-broken-tests-merge-worktree: quarantines failing test",
+      { timeout: 60 * 60_000 }, // 60 minutes
+      async () => {
+        // Prepare a separate repo from the fixture (not the shared repoDir
+        // — tests 1/2 modified their repo; quarantine gets a fresh copy).
+        const quarantineRepoDir = path.join(env.root, "quarantine-repo");
+        prepareGitRepo(fixtureDir, quarantineRepoDir);
+
+        // ── Start daemon ──────────────────────────────────────────
+        daemon = await startIsolatedDaemon(
+          env.dashboardPort,
+          env.homeDir,
+          env.controlPort,
+        );
+
+        try {
+          // ── Verify preconditions ────────────────────────────────
+          const preTest = fs.readFileSync(
+            path.join(quarantineRepoDir, "test", "math.test.ts"),
+            "utf-8",
+          );
+          assert.ok(
+            preTest.includes("correctly expects addition"),
+            "Precondition: failing test (correctly expects addition) must exist",
+          );
+          assert.ok(
+            preTest.includes("returns the difference"),
+            "Precondition: passing test (returns the difference) must exist",
+          );
+
+          // ── Create run ──────────────────────────────────────────
+          const runIdPrefix = await spawnWorkflowRun(
+            [
+              "workflow",
+              "run",
+              "quarantine-broken-tests-merge-worktree",
+              "Quarantine broken tests in the sample math project",
+              "--context",
+              "branch=quarantine/broken-tests",
+              "--worktree-origin-repository",
+              quarantineRepoDir,
+            ],
+            baseEnv(env.homeDir, env.controlPort),
+          );
+          const runId = resolveFullRunId(runIdPrefix, env.tamanduaDir);
+
+          // ── Wait for completion ──────────────────────────────────
+          await waitForRunTerminal(
+            runId,
+            baseEnv(env.homeDir, env.controlPort),
+            45 * 60_000, // 45 min timeout
+            10_000,       // poll every 10s
+            env.tamanduaDir,
+          );
+
+          // ── Verify run status ────────────────────────────────────
+          const statusOut = cliMustSucceed(
+            ["workflow", "status", runId],
+            baseEnv(env.homeDir, env.controlPort),
+            "workflow status after quarantine completion",
+          );
+          assert.match(statusOut, /Status:\s+completed/i);
+
+          // ── Token accounting audit ───────────────────────────────
+          const quarantineAudit = auditRunTokens(env.tamanduaDir, runId);
+          assert.ok(
+            quarantineAudit.workTokens > 0,
+            `quarantine run should have attributed work tokens, got ${quarantineAudit.workTokens}`,
+          );
+          assert.equal(
+            typeof quarantineAudit.terminalTokensSpent,
+            "number",
+            "run.completed should carry tokensSpent",
+          );
+          console.log(
+            `[real-e2e baseline] quarantine-broken-tests-merge-worktree: workTokens=${quarantineAudit.workTokens} ` +
+              `systemTokens=${quarantineAudit.systemTokens} tokenUpdateEvents=${quarantineAudit.tokenUpdateEvents}`,
+          );
+
+          // ── Verify quarantine result ─────────────────────────────
+          // After the workflow completes, the origin repo should have
+          // a squash-merge commit with the quarantined test changes.
+          const testPath = path.join(quarantineRepoDir, "test", "math.test.ts");
+          const testContent = fs.readFileSync(testPath, "utf-8");
+
+          // Failing test should be quarantined with .skip (not deleted).
+          assert.ok(
+            testContent.includes(".skip"),
+            `Failing test should have .skip. Content:\n${testContent.substring(0, 800)}`,
+          );
+
+          // The failing test description must still be present.
+          assert.ok(
+            testContent.includes("correctly expects addition"),
+            "Failing test must still exist (not deleted)",
+          );
+
+          // The previously-passing test must still be present.
+          assert.ok(
+            testContent.includes("returns the difference"),
+            "Passing test must still exist",
+          );
+
+          // Verify a merge commit is present on the default branch.
+          const gitLog = execSync(
+            "git log --oneline -5",
+            { cwd: quarantineRepoDir, encoding: "utf-8" },
+          );
+          const logLines = gitLog.trim().split("\n");
+          assert.ok(
+            logLines.length >= 2,
+            `Expected at least 2 commits (initial + quarantine merge), got:\n${gitLog}`,
+          );
+          assert.ok(
+            logLines.some((line) => line.includes("chore")),
+            `Expected a chore commit for quarantine in:\n${gitLog}`,
+          );
+
+          assertRepoClean(quarantineRepoDir, "quarantine post-check");
         } finally {
           // ── Stop daemon ─────────────────────────────────────────
           await stopIsolatedDaemon(daemon);
