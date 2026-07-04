@@ -50,6 +50,7 @@ describe("parseWorkflowRunArgs", () => {
       noHurrySaveTokensMode: undefined,
       noRelaunchUponRugpull: undefined,
       harnessAs: undefined,
+      context: {},
     });
   });
 
