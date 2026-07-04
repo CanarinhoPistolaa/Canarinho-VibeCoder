@@ -49,6 +49,7 @@ import assert from "node:assert/strict";
 import { execFileSync, execSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
+import { DatabaseSync } from "node:sqlite";
 import {
   createTempHome,
   baseEnv,
@@ -64,6 +65,10 @@ import {
   stopIsolatedDaemon,
   waitForRunTerminal,
   auditRunTokens,
+  waitForRunWorkTokens,
+  pollForRunCompletionWithNudge,
+  isSuccessfulRunTerminalStatus,
+  collectRunDiagnostics,
 } from "./helpers/e2e-helpers.ts";
 import { reserveDistinctRandomPorts } from "../tests/helpers/test-env.ts";
 import type { ChildProcess } from "node:child_process";
@@ -576,3 +581,158 @@ describe(
     );
   },
 );
+
+// ═══════════════════════════════════════════════════════════════════════════
+// do-now: single-step real e2e test (separate isolated lifecycle)
+// ═══════════════════════════════════════════════════════════════════════════
+//
+// This describe block has its own distinct temp HOME, daemon, and cleanup
+// — it is NOT nested inside the sequential describe above. Each test run
+// through the real daemon → scheduler → pi pipeline with a live model.
+
+/******************************************************************************
+ * ⚠️  SLOW REAL E2E — SPENDS REAL MODEL TOKENS (cheapest in the suite)  ⚠️
+ *
+ * This test runs a single do-now workflow execution through the real
+ * pipeline: daemon → scheduler → pi agent invocation.
+ *
+ * COST/TIME WARNING:
+ *   - Spends real API tokens (one trivial agent task — cents, not dollars)
+ *   - Expected runtime: 2–10 minutes (single step, nudge-driven polling)
+ *   - Requires a configured pi agent setup (model, provider, auth)
+ *
+ * WHEN TO RUN:
+ *   - Only via: ./run-all-real-e2e-tests
+ *
+ * FOR FAINT OF HEART:
+ *   ./run-all-scripted-e2e-tests — do-now has scripted-tier coverage (~0s,
+ *     no tokens)
+ *
+ * This test is separate from the regular test suite (npm test) and is NOT
+ * picked up by tsconfig.json or npm test globs. It lives in e2e-tests/.
+ *****************************************************************************/
+
+describe("real e2e do-now workflow (LIVE agent, daemon, scheduler)", () => {
+  it(
+    "do-now creates a file in the working directory through the real pipeline",
+    { timeout: 15 * 60_000 }, // 15 minutes
+    async () => {
+      const env = await createTempHome();
+      let daemon: ChildProcess | undefined;
+      try {
+        cliMustSucceed(
+          ["workflow", "install", "do-now"],
+          baseEnv(env.homeDir, env.controlPort),
+          "install do-now",
+        );
+
+        const workdir = path.join(env.root, "do-now-workdir");
+        fs.mkdirSync(workdir, { recursive: true });
+
+        daemon = await startIsolatedDaemon(
+          env.dashboardPort,
+          env.homeDir,
+          env.controlPort,
+        );
+
+        const runIdPrefix = await spawnWorkflowRun(
+          [
+            "workflow",
+            "run",
+            "do-now",
+            "Create a file named output.txt in the current working directory containing exactly the text: tamandua e2e test passed",
+            "--working-directory-for-harness",
+            workdir,
+          ],
+          baseEnv(env.homeDir, env.controlPort),
+        );
+        const runId = resolveFullRunId(runIdPrefix, env.tamanduaDir);
+
+        // Nudge-driven poll — a single-step run completes when the
+        // model finishes; nudging removes the 5-minute interval dead time.
+        const status = await pollForRunCompletionWithNudge(
+          runId,
+          baseEnv(env.homeDir, env.controlPort),
+          12 * 60_000, // 12 min for the run itself
+          5_000,       // nudge every 5 s
+          env.tamanduaDir,
+        );
+        assert.ok(
+          isSuccessfulRunTerminalStatus(status),
+          `do-now run should complete, got "${status}"\n${collectRunDiagnostics(env.tamanduaDir, runId)}`,
+        );
+
+        // ── Artifact verification ─────────────────────────────────
+        const outputPath = path.join(workdir, "output.txt");
+        assert.ok(
+          fs.existsSync(outputPath),
+          `output.txt should exist at ${outputPath}`,
+        );
+        const fileContents = fs.readFileSync(outputPath, "utf-8");
+        assert.equal(
+          fileContents.trim(),
+          "tamandua e2e test passed",
+          `output.txt should contain expected string, got: "${fileContents.trim()}"`,
+        );
+
+        // ── Token accounting ───────────────────────────────────────
+        const audit = await waitForRunWorkTokens(env.tamanduaDir, runId);
+        assert.ok(
+          audit.workTokens > 0,
+          `do-now run should have attributed work tokens, got ${audit.workTokens}`,
+        );
+        assert.equal(
+          audit.systemTokens,
+          0,
+          `system_tokens_spent must be 0 (deterministic motor N1, no idle-poll tokens), got ${audit.systemTokens}`,
+        );
+        assert.ok(
+          audit.tokenUpdateEvents > 0,
+          `should have run.tokens.updated events, got ${audit.tokenUpdateEvents}`,
+        );
+        assert.equal(
+          typeof audit.terminalTokensSpent,
+          "number",
+          `terminalTokensSpent should be a number, got ${typeof audit.terminalTokensSpent}`,
+        );
+
+        // ── MPRT fallback report parsing ───────────────────────────
+        // do-now's execute step has no Reply-with format block, so the
+        // REPORT field is parsed by the generic KEY:value parser.
+        const db = new DatabaseSync(path.join(env.tamanduaDir, "tamandua.db"));
+        try {
+          const row = db
+            .prepare("SELECT context FROM runs WHERE id = ?")
+            .get(runId) as { context: string } | undefined;
+          const context = row?.context ? JSON.parse(row.context) : {};
+          assert.ok(
+            context.report !== undefined && context.report !== null,
+            `run context should have a report key (MPRT fallback path), got: ${JSON.stringify(context)}`,
+          );
+          assert.ok(
+            typeof context.report === "string" && context.report.length > 0,
+            `context.report should be a non-empty string, got: ${JSON.stringify(context.report)}`,
+          );
+        } finally {
+          db.close();
+        }
+
+        // ── Baseline token numbers ─────────────────────────────────
+        console.log(
+          `[real-e2e baseline] do-now: workTokens=${audit.workTokens} ` +
+            `systemTokens=${audit.systemTokens} tokenUpdateEvents=${audit.tokenUpdateEvents} ` +
+            `terminalTokensSpent=${audit.terminalTokensSpent}`,
+        );
+      } finally {
+        if (daemon) {
+          try {
+            await stopIsolatedDaemon(daemon);
+          } catch {
+            // best-effort
+          }
+        }
+        cleanupTempHome(env);
+      }
+    },
+  );
+});
