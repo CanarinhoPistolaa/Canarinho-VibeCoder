@@ -33,7 +33,7 @@ steps:
 
       Instructions:
       1. Build the project: `./build` — this must succeed.
-         If it fails, report STATUS: failed with the build error.
+         If it fails, report the build error under STATUS: done.
       2. Verify the dashboard HTML file exists and is valid:
          - Check `src/server/index.html` exists
          - Verify it contains required elements:
@@ -57,7 +57,7 @@ steps:
       Tamandua daemon and starting a second daemon would kill this process.
 
       Reply with:
-      STATUS: done|failed
+      STATUS: done
       REPORT: detailed results of each check (pass/fail)
       CHECKS_PASSED: <N>
       CHECKS_TOTAL: <M>

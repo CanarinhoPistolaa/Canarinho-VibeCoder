@@ -141,10 +141,6 @@ steps:
       DISABLED: <count>
       FILES_CHANGED: <count>
       SUMMARY: <what was disabled and why>
-
-      If unable to achieve clean suite after 5 iterations:
-      STATUS: failed
-      REASON: <why>
     expects: "STATUS: done\nregex:^DISABLED:\\s*\\d+\nregex:^SUMMARY:\\s*\\S+"
     max_retries: 4
 
@@ -177,11 +173,6 @@ steps:
       Reply with:
       STATUS: done
       VERIFIED: What you confirmed
-
-      Or if issues found:
-      STATUS: retry
-      ISSUES:
-      - Specific issues
     expects: "STATUS: done\nregex:^VERIFIED:\\s*\\S+"
     on_fail:
       retry_step: quarantine
@@ -240,17 +231,6 @@ steps:
       REBASED: <true|false>
       MERGE_COMMIT: <short commit hash>
       MERGED_INTO: {{original_branch}}
-
-      Or if rebase requires verifier re-validation:
-      STATUS: retry
-      REBASED: true
-      CONFLICT_NOTES: <description of resolved conflicts>
-      RETRY_STEP: verify
-
-      Or if merge cannot be completed:
-      STATUS: retry
-      REBASED: <true|false>
-      FAILURE: <reason>
     expects: "STATUS: done"
     on_fail:
       retry_step: verify

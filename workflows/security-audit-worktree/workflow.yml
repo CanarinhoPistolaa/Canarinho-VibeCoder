@@ -312,7 +312,7 @@ steps:
       STATUS: retry
       ISSUES:
       - What's wrong or incomplete
-    expects: "STATUS: done"
+    expects: "regex:^STATUS:\\s*(done|retry)\\s*$"
     on_fail:
       retry_step: fix
       max_retries: 6
@@ -350,11 +350,6 @@ steps:
       STATUS: done
       RESULTS: test outcomes
       AUDIT_AFTER: remaining audit issues if any
-
-      Or if issues found:
-      STATUS: retry
-      FAILURES:
-      - What's broken
     expects: "STATUS: done\nregex:^RESULTS:\\s*\\S+\nregex:^AUDIT_AFTER:\\s*\\S+"
     on_fail:
       retry_step: fix

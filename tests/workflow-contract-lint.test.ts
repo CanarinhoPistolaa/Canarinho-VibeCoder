@@ -28,6 +28,8 @@ import {
   HARNESS_SEEDED_CONTEXT_KEYS,
   parseEnforcedKeys,
   parseExpectedKeys,
+  parseStatusVariants,
+  checkExpectsAcceptsVariant,
   CALLER_PROVIDED,
 } from "../dist/installer/workflow-contract.js";
 import type { WorkflowSpec } from "../dist/installer/types.js";
@@ -747,6 +749,188 @@ describe("regression — no mention-only consumed key in bundled workflows", () 
       violations,
       [],
       `Found ${violations.length} mention-only consumed key(s). Each must be enforced with regex:^KEY: in the producer's expects:\n${violations.join("\n")}`,
+    );
+  });
+});
+
+// ── parseStatusVariants / checkExpectsAcceptsVariant self-tests ────
+
+describe("parseStatusVariants (from Reply-with section)", () => {
+  it("extracts single STATUS: done variant", () => {
+    const variants = parseStatusVariants(
+      "Do some work.\n\nReply with:\nSTATUS: done\nCHANGES: <value>",
+    );
+    assert.deepEqual(variants, ["done"]);
+  });
+
+  it("extracts both done and retry variants from separate lines", () => {
+    const variants = parseStatusVariants(
+      "Verify the work.\n\nReply with:\nSTATUS: done\nVERIFIED: <value>\n\nOr if incomplete:\nSTATUS: retry\nISSUES:\n- what\n",
+    );
+    assert.deepEqual(variants, ["done", "retry"]);
+  });
+
+  it("expands pipe notation STATUS: done|failed into two variants", () => {
+    const variants = parseStatusVariants(
+      "Do the thing.\n\nReply with:\nSTATUS: done|failed\nREPORT: <value>",
+    );
+    assert.deepEqual(variants, ["done", "failed"]);
+  });
+
+  it("returns empty array when no Reply-with section found", () => {
+    assert.deepEqual(parseStatusVariants("Just do work."), []);
+    assert.deepEqual(parseStatusVariants(""), []);
+  });
+
+  it("returns empty array when Reply-with section has no STATUS line", () => {
+    const variants = parseStatusVariants(
+      "Reply with:\nKEY: value\nOTHER: thing",
+    );
+    assert.deepEqual(variants, []);
+  });
+
+  it("deduplicates repeated STATUS: done lines", () => {
+    const variants = parseStatusVariants(
+      "Reply with:\nSTATUS: done\nMORE: info\nSTATUS: done",
+    );
+    assert.deepEqual(variants, ["done"]);
+  });
+
+  it("continues past blank lines to find all STATUS variants", () => {
+    const variants = parseStatusVariants(
+      "Reply with:\nSTATUS: done\nKEY: value\n\nSTATUS: failed",
+    );
+    assert.deepEqual(variants, ["done", "failed"]);
+  });
+
+  it("handles indented STATUS: lines (YAML template indentation)", () => {
+    const variants = parseStatusVariants(
+      "    Reply with:\n      STATUS: done\n      CHANGES: <value>",
+    );
+    assert.deepEqual(variants, ["done"]);
+  });
+});
+
+describe("checkExpectsAcceptsVariant", () => {
+  it("literal STATUS: done in expects accepts variant done", () => {
+    assert.equal(checkExpectsAcceptsVariant("STATUS: done", "done"), true);
+  });
+
+  it("literal STATUS: done rejects variant retry", () => {
+    assert.equal(checkExpectsAcceptsVariant("STATUS: done", "retry"), false);
+  });
+
+  it("literal STATUS: done rejects variant failed", () => {
+    assert.equal(checkExpectsAcceptsVariant("STATUS: done", "failed"), false);
+  });
+
+  it("regex:^STATUS:(done|retry) accepts done", () => {
+    assert.equal(
+      checkExpectsAcceptsVariant(
+        "regex:^STATUS:\\s*(done|retry)\\s*$",
+        "done",
+      ),
+      true,
+    );
+  });
+
+  it("regex:^STATUS:(done|retry) accepts retry", () => {
+    assert.equal(
+      checkExpectsAcceptsVariant(
+        "regex:^STATUS:\\s*(done|retry)\\s*$",
+        "retry",
+      ),
+      true,
+    );
+  });
+
+  it("regex:^STATUS:(done|retry) rejects failed", () => {
+    assert.equal(
+      checkExpectsAcceptsVariant(
+        "regex:^STATUS:\\s*(done|retry)\\s*$",
+        "failed",
+      ),
+      false,
+    );
+  });
+
+  it("multi-line expects with both literal and regex STATUS lines", () => {
+    const expects =
+      "STATUS: done\nregex:^BRANCH:\\s*\\S+\nregex:^CHANGES:\\s*\\S+";
+    assert.equal(checkExpectsAcceptsVariant(expects, "done"), true);
+    assert.equal(checkExpectsAcceptsVariant(expects, "retry"), false);
+  });
+
+  it("regex:STATUS:.(done|retry). (non-caret) accepts both", () => {
+    assert.equal(
+      checkExpectsAcceptsVariant("regex:STATUS:\\s*(done|retry)", "done"),
+      true,
+    );
+    assert.equal(
+      checkExpectsAcceptsVariant("regex:STATUS:\\s*(done|retry)", "retry"),
+      true,
+    );
+  });
+
+  it("case insensitive — expects STATUS: DONE accepts done", () => {
+    assert.equal(checkExpectsAcceptsVariant("STATUS: DONE", "done"), true);
+    assert.equal(checkExpectsAcceptsVariant("STATUS: done", "DONE"), true);
+  });
+
+  it("empty expects rejects all variants", () => {
+    assert.equal(checkExpectsAcceptsVariant("", "done"), false);
+    assert.equal(checkExpectsAcceptsVariant("", "retry"), false);
+  });
+
+  it("expects with only non-STATUS regex does not accept done", () => {
+    assert.equal(
+      checkExpectsAcceptsVariant(
+        "regex:^BRANCH:\\s*\\S+\nregex:^CHANGES:\\s*\\S+",
+        "done",
+      ),
+      false,
+    );
+  });
+});
+
+// ── US-005: expects-must-accept-all-reply-variants invariant ───────
+//
+// For every bundled workflow step, every STATUS variant instructed in
+// the Reply-with block MUST be accepted by the step's expects field.
+// This statically enforces that no step instructs an agent to produce a
+// reply that the step's own expects contract will reject.
+
+describe("US-005: expects-must-accept-all-reply-variants invariant", () => {
+  let fullSpecs: Map<string, WorkflowSpec>;
+
+  before(async () => {
+    fullSpecs = await loadAllSpecs();
+  });
+
+  it("every Reply-with STATUS variant satisfies step expects", () => {
+    const violations: string[] = [];
+
+    for (const workflowId of workflowIds) {
+      const spec = fullSpecs.get(workflowId)!;
+
+      for (const step of spec.steps) {
+        const variants = parseStatusVariants(step.input);
+        if (variants.length === 0) continue; // No STATUS instruction → nothing to check
+
+        for (const variant of variants) {
+          if (!checkExpectsAcceptsVariant(step.expects, variant)) {
+            violations.push(
+              `${workflowId}/${step.id}: Reply-with offers STATUS: ${variant} but expects [${step.expects}] does NOT accept it`,
+            );
+          }
+        }
+      }
+    }
+
+    assert.deepEqual(
+      violations,
+      [],
+      `Found ${violations.length} step(s) whose Reply-with STATUS variant is rejected by expects:\n${violations.join("\n")}`,
     );
   });
 });

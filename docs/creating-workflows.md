@@ -249,6 +249,24 @@ Each regex line is one of:
 - When a step has both a success and retry path (e.g. `STATUS: done` / `STATUS: retry`), the enforced key fires only on the done path — the agent is expected to produce it on success; MISS blocks the consumer on retry anyway.
 - The `expects` regex patterns are consumed by both the linter and the contract module (`src/installer/workflow-contract.ts`), which is the single source of truth shared by `MISS` (step-ops) and the graph simulation.
 
+### Verdict Steps with Multiple STATUS Outcomes
+
+Some steps (e.g., `verify_each` verifiers) offer more than one `STATUS` outcome in their `Reply with:` instructions — typically `STATUS: done` for success and `STATUS: retry` to request a redo. The step's `expects` string MUST accept every variant offered. If it doesn't, the agent's honest verdict is rejected by `validateExpects`, burning a step-level retry and pressuring the agent to emit a false `STATUS: done`.
+
+**Pattern:**
+
+```yaml
+# Accepts both STATUS: done and STATUS: retry
+expects: |
+  regex:^STATUS:\s*(done|retry)\s*$
+```
+
+Replace the bare `STATUS: done` string with a regex that matches every variant. `validateExpects` passes either verdict; the completion handler (e.g., `handleVerifyEachCompletion` in `src/installer/step-ops.ts`) branches on the specific verdict after validation.
+
+**Done-path-only keys:** Keys emitted only on success (`VERIFIED:`, `CHANGES:`, `TESTS:`) MUST NOT appear in the `expects` string of a dual-outcome step. A `STATUS: retry` output lacks these keys, so `validateExpects` would reject it. Enforce them in the completion handler instead — for `verify_each` verifiers, `handleVerifyEachCompletion` enforces `VERIFIED:` only on the `done` branch; the `retry` branch resets the story and reads `ISSUES:` from the output.
+
+**Linter enforcement:** The static contract linter (`tests/workflow-contract-lint.test.ts`) checks this invariant across all bundled workflows. It uses `parseStatusVariants()` and `checkExpectsAcceptsVariant()` from `src/installer/workflow-contract.ts` to extract every `STATUS` variant from each step's `Reply with:` block and verify it against the step's `expects` string.
+
 **Caller-provided keys:** for workflows where the caller supplies a key at launch (no step produces it), register the key in `CALLER_PROVIDED` in `src/installer/workflow-contract.ts`. Examples:
 
 ```typescript

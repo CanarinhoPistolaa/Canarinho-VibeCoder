@@ -286,7 +286,14 @@ function generateOutput(spec: WorkflowSpec, stepIndex: number, state: SimState):
 }
 
 interface SimulateOptions {
-  /** Fail the Nth successful claim once before proceeding (1-based). */
+  /**
+   * Fail the Nth successful claim once before proceeding (1-based).
+   *
+   * When the target step is a verify step inside a verify_each loop,
+   * the simulated agent emits STATUS: retry with ISSUES instead of
+   * failing — this exercises the handleVerifyEachCompletion story-reset
+   * path (honest verdict code path, US-003).
+   */
   failOnceAtClaim?: number;
 }
 
@@ -294,6 +301,8 @@ interface SimulateResult {
   status: string;
   workRounds: number;
   failuresInjected: number;
+  /** Count of STATUS: retry verdicts emitted for verify_each verify steps (US-003). */
+  retryVerdictsInjected: number;
 }
 
 async function simulate(
@@ -305,11 +314,22 @@ async function simulate(
   const state: SimState = { emitted: new Set(Object.keys(seeded)), storiesEmitted: false };
   let claims = 0;
   let failuresInjected = 0;
+  let retryVerdictsInjected = 0;
+
+  // Build a set of verify-step IDs that belong to a verify_each loop, so the
+  // retry scenario can emit STATUS: retry instead of a step failure (US-003).
+  const verifyEachVerifyStepIds = new Set<string>();
+  for (const step of spec.steps) {
+    if (step.loop && (step.loop.verifyEach || step.loop.verify_each)) {
+      const vStepId = step.loop.verifyStep || step.loop.verify_step;
+      if (vStepId) verifyEachVerifyStepIds.add(vStepId);
+    }
+  }
 
   for (let round = 0; round < MAX_ROUNDS; round++) {
     const status = runStatus(runId);
     if (status !== "running") {
-      return { status, workRounds: claims, failuresInjected };
+      return { status, workRounds: claims, failuresInjected, retryVerdictsInjected };
     }
 
     let sawWork = false;
@@ -325,10 +345,23 @@ async function simulate(
       claims++;
 
       const stepRow = getDb()
-        .prepare("SELECT step_index FROM steps WHERE id = ?")
-        .get(claim.stepId) as { step_index: number };
+        .prepare("SELECT step_index, step_id FROM steps WHERE id = ?")
+        .get(claim.stepId) as { step_index: number; step_id: string };
 
       if (options.failOnceAtClaim === claims) {
+        // US-003: For verify_each verify steps, emit an honest STATUS: retry
+        // verdict instead of injecting a step failure. This exercises the
+        // handleVerifyEachCompletion story-reset code path (story re-pended,
+        // verify_feedback set, re-implemented, re-verified).
+        if (verifyEachVerifyStepIds.has(stepRow.step_id)) {
+          retryVerdictsInjected++;
+          const retryOutput = `STATUS: retry
+ISSUES:
+- Simulated verification issue: story implementation needs improvement`;
+          completeStep(claim.stepId, retryOutput);
+          continue;
+        }
+
         failuresInjected++;
         await failStep(claim.stepId, "simulated agent failure");
         continue;
@@ -386,9 +419,15 @@ describe("workflow graph simulation (all bundled workflows, pure step-ops)", () 
         // Fail the second claim: exercises retry on a step that already has
         // upstream context (the first step's failure path is equivalent but
         // covers less of the context-propagation surface).
+        //
+        // US-003: For verify_each workflows, the second claim targets the
+        // verify step and emits an honest STATUS: retry verdict (story
+        // reset → re-implement → re-verify) instead of a step failure.
+        // For non-verify_each workflows, a regular step failure is injected.
         const target = spec.steps.length > 1 ? 2 : 1;
         const result = await simulate(spec, runId, seeded, { failOnceAtClaim: target });
-        assert.equal(result.failuresInjected, 1, "exactly one failure should have been injected");
+        const setbacksInjected = result.failuresInjected + result.retryVerdictsInjected;
+        assert.equal(setbacksInjected, 1, "exactly one setback should have been injected");
         assert.equal(
           result.status,
           "completed",

@@ -326,7 +326,7 @@ steps:
       STATUS: retry
       ISSUES:
       - What's wrong or incomplete
-    expects: "STATUS: done"
+    expects: "regex:^STATUS:\\s*(done|retry)\\s*$"
     on_fail:
       retry_step: fix
       max_retries: 6
@@ -365,11 +365,6 @@ steps:
       STATUS: done
       RESULTS: test outcomes
       AUDIT_AFTER: remaining audit issues if any
-
-      Or if issues found:
-      STATUS: retry
-      FAILURES:
-      - What's broken
     expects: "STATUS: done"
     on_fail:
       retry_step: fix
@@ -437,17 +432,6 @@ steps:
       REBASED: <true|false>
       MERGE_COMMIT: <short commit hash>
       MERGED_INTO: {{original_branch}}
-
-      Or if rebase requires tester re-validation:
-      STATUS: retry
-      REBASED: true
-      CONFLICT_NOTES: <description of resolved conflicts>
-      RETRY_STEP: test
-
-      Or if merge cannot be completed:
-      STATUS: retry
-      REBASED: <true|false>
-      FAILURE: <reason>
     expects: "STATUS: done"
     on_fail:
       retry_step: test

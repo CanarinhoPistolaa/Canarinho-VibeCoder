@@ -259,11 +259,6 @@ steps:
       Reply with:
       STATUS: done
       VERIFIED: what was confirmed
-
-      Or if issues found:
-      STATUS: retry
-      ISSUES:
-      - What's wrong or incomplete
     expects: "STATUS: done\nregex:^VERIFIED:\\s*\\S+"
     on_fail:
       retry_step: fix

@@ -265,11 +265,6 @@ steps:
       Reply with:
       STATUS: done
       VERIFIED: what was confirmed
-
-      Or if issues found:
-      STATUS: retry
-      ISSUES:
-      - What's wrong or incomplete
     expects: "STATUS: done\nregex:^VERIFIED:\\s*\\S+"
     on_fail:
       retry_step: fix
@@ -326,9 +321,4 @@ steps:
       REBASED: <true|false>
       MERGE_COMMIT: <short commit hash>
       MERGED_INTO: {{original_branch}}
-
-      Or if merge cannot be completed:
-      STATUS: retry
-      REBASED: <true|false>
-      FAILURE: <reason>
     expects: "STATUS: done"

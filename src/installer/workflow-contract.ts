@@ -147,6 +147,131 @@ export function parseExpectedKeys(inputTemplate: string): string[] {
 // parseExpectedKeys alone — it needs the expects field to carry the key).
 // ══════════════════════════════════════════════════════════════════════
 
+// ══════════════════════════════════════════════════════════════════════
+// parseStatusVariants — extract every STATUS variant a step's Reply-with
+// block instructs the agent to produce.  The pipe notation STATUS: done|failed
+// expands to two variants ("done", "failed").  Variants are deduplicated.
+// ══════════════════════════════════════════════════════════════════════
+
+/**
+ * Parse the `Reply with:` section of a step's input template to extract
+ * every STATUS variant value the step instructs the agent to produce.
+ *
+ * Handles:
+ *   - STATUS: done           →  ["done"]
+ *   - STATUS: done|failed    →  ["done", "failed"]
+ *   - STATUS: retry          →  ["retry"]
+ *
+ * Returns a deduplicated array of lowercased variants.  Returns an empty
+ * array when no `Reply with:` section or no STATUS: line is found.
+ */
+export function parseStatusVariants(inputTemplate: string): string[] {
+  const variants = new Set<string>();
+
+  // Locate the Reply-with header — same pattern as parseExpectedKeys.
+  const headerMatch = inputTemplate.match(/^[\t ]*Reply[- ]with\s*:\s*$/im);
+  if (!headerMatch || headerMatch.index === undefined) return [];
+
+  // Take everything after the header line.
+  const afterHeader = inputTemplate.slice(
+    headerMatch.index + headerMatch[0].length,
+  );
+
+  // Walk line by line.  Unlike parseExpectedKeys we do NOT stop at blank
+  // lines — real verify-step Reply-with blocks have blank-line-separated
+  // sections (e.g. "Or if incomplete:" after a blank line) that still
+  // contain valid STATUS: variants.
+  const lines = afterHeader.split("\n");
+  let started = false;
+  for (const rawLine of lines) {
+    const line = rawLine.trimEnd();
+    // Skip leading empty lines.
+    if (!started && line.trim() === "") continue;
+    started = true;
+    // Blank line — skip but keep scanning (don't terminate).
+    if (line.trim() === "") continue;
+
+    // Match STATUS: <value> — value may contain pipe (done|failed).
+    const statusMatch = line.match(/^[\t ]*STATUS:\s*(.+)$/);
+    if (statusMatch) {
+      const raw = statusMatch[1].trim();
+      // Split on pipe to handle "done|failed" notation.
+      for (const part of raw.split("|")) {
+        const variant = part.trim().toLowerCase();
+        if (variant) variants.add(variant);
+      }
+    }
+  }
+
+  return Array.from(variants);
+}
+
+// ══════════════════════════════════════════════════════════════════════
+// checkExpectsAcceptsVariant — verify that a STATUS variant satisfies the
+// step's expects contract.  Covers both literal STATUS: lines and regex
+// enforcement patterns (regex:^STATUS:… / regex:STATUS:…).
+// ══════════════════════════════════════════════════════════════════════
+
+/**
+ * Check whether a step's `expects` field accepts a given STATUS variant.
+ *
+ * Acceptance tiers:
+ *   1. Literal `STATUS: <variant>` line in expects (case-insensitive)
+ *   2. Regex enforcement: `regex:^STATUS:<pattern>` — compiles the full
+ *      `^STATUS:<pattern>` regex and tests `STATUS: <variant>` against it.
+ *   3. Regex enforcement (non-caret): `regex:STATUS:<pattern>` — same but
+ *      without anchor.
+ *
+ * Returns `true` if at least one tier accepts the variant.
+ */
+export function checkExpectsAcceptsVariant(
+  expects: string,
+  variant: string,
+): boolean {
+  const candidate = `STATUS: ${variant}`;
+
+  for (const rawLine of expects.split("\n")) {
+    const line = rawLine.trim();
+    if (!line) continue;
+
+    // Case 1: Literal STATUS line — just compare the value.
+    const literalMatch = line.match(/^STATUS:\s*(.+)$/i);
+    if (literalMatch) {
+      const literalValue = literalMatch[1].trim();
+      // The expects may have "STATUS: done" or "STATUS: done|failed".
+      for (const part of literalValue.split("|")) {
+        if (part.trim().toLowerCase() === variant.toLowerCase()) return true;
+      }
+      continue;
+    }
+
+    // Case 2: regex:^STATUS:<pattern> — caret-anchored enforcement.
+    const caretRegexMatch = line.match(/^regex:\^(STATUS:.+)/i);
+    if (caretRegexMatch) {
+      try {
+        const re = new RegExp(caretRegexMatch[1]);
+        if (re.test(candidate)) return true;
+      } catch {
+        // Invalid regex — skip this line.
+      }
+      continue;
+    }
+
+    // Case 3: regex:STATUS:<pattern> — non-caret enforcement.
+    const nonCaretRegexMatch = line.match(/^regex:(STATUS:.+)/i);
+    if (nonCaretRegexMatch) {
+      try {
+        const re = new RegExp(nonCaretRegexMatch[1]);
+        if (re.test(candidate)) return true;
+      } catch {
+        // Invalid regex — skip this line.
+      }
+    }
+  }
+
+  return false;
+}
+
 /**
  * Parse a step's `expects` string to extract every key whose output is
  * **enforced** — meaning the step contractually guarantees it will produce

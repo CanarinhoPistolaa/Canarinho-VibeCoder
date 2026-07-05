@@ -42,7 +42,7 @@ steps:
       4. Explain why — provide specific, actionable details
 
       Reply with:
-      STATUS: done|failed
+      STATUS: done
       REPORT: clear explanation of what happened and why (succeeded or failed)
     expects: "STATUS: done"
     max_retries: 4

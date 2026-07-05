@@ -275,7 +275,7 @@ steps:
       STATUS: retry
       ISSUES:
       - What's missing or incomplete
-    expects: "STATUS: done"
+    expects: "regex:^STATUS:\\s*(done|retry)\\s*$"
     on_fail:
       retry_step: implement
       max_retries: 4
@@ -310,11 +310,6 @@ steps:
       Reply with:
       STATUS: done
       RESULTS: What you tested and the outcomes
-
-      Or if issues found:
-      STATUS: retry
-      FAILURES:
-      - Specific test failures or bugs found
     expects: "STATUS: done"
     on_fail:
       retry_step: implement

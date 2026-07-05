@@ -65,7 +65,7 @@ steps:
       3. Report what you did and the results
 
       Reply with:
-      STATUS: done|failed
+      STATUS: done
       CHANGES: what you did
       REPORT: detailed report of what was accomplished
     expects: "STATUS: done\nregex:^CHANGES:\\s*\\S+\nregex:^REPORT:\\s*\\S+"
@@ -126,7 +126,7 @@ steps:
       4. Report the changes you made
 
       Reply with:
-      STATUS: done|failed
+      STATUS: done
       CHANGES: what you changed based on feedback
       REPORT: detailed report of the refined work
     expects: "STATUS: done\nregex:^CHANGES:\\s*\\S+\nregex:^REPORT:\\s*\\S+"

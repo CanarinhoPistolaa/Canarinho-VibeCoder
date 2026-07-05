@@ -3319,3 +3319,356 @@ describe("getRunProgressPath canonical path resolution", () => {
     fs.rmSync(path.dirname(canonicalPath), { recursive: true, force: true });
   });
 });
+
+describe("handleVerifyEachCompletion — honest retry verdict path (US-002)", () => {
+  const _savedStateDir = process.env.TAMANDUA_STATE_DIR;
+  const _savedDbPath = process.env.TAMANDUA_DB_PATH;
+  let _testIsolationDir: string;
+
+  before(() => {
+    _testIsolationDir = fs.mkdtempSync(path.join(os.tmpdir(), "tamandua-verify-each-retry-test-"));
+    process.env.TAMANDUA_STATE_DIR = _testIsolationDir;
+    process.env.TAMANDUA_DB_PATH = path.join(_testIsolationDir, "tamandua.db");
+  });
+
+  after(() => {
+    if (_savedStateDir === undefined) delete process.env.TAMANDUA_STATE_DIR;
+    else process.env.TAMANDUA_STATE_DIR = _savedStateDir;
+    if (_savedDbPath === undefined) delete process.env.TAMANDUA_DB_PATH;
+    else process.env.TAMANDUA_DB_PATH = _savedDbPath;
+    try { fs.rmSync(_testIsolationDir, { recursive: true, force: true }); } catch { /* best effort */ }
+  });
+
+  function ts(): string {
+    return new Date().toISOString();
+  }
+
+  // After US-001, verify_each verify step expects accepts both done and retry
+  const VERIFY_EACH_EXPECTS = "regex:^STATUS:\\s*(done|retry)\\s*$";
+
+  it("resets the last done story to pending and increments story retry_count, NOT step retry_count", async () => {
+    const { getDb } = await import("../dist/db.js");
+    const db = getDb();
+    const runId = crypto.randomUUID();
+    const loopStepId = crypto.randomUUID();
+    const verifyStepId = crypto.randomUUID();
+    const story1Id = crypto.randomUUID();
+    const story2Id = crypto.randomUUID();
+    const now = ts();
+
+    const seededContext = JSON.stringify({ task: "implement feature X" });
+
+    db.prepare(
+      "INSERT INTO runs (id, run_number, workflow_id, task, status, context, tokens_spent, created_at, updated_at) VALUES (?, 1, 'feature-dev-merge-worktree', 'implement feature X', 'running', ?, 0, ?, ?)"
+    ).run(runId, seededContext, now, now);
+
+    // Loop step (implement) — index 3, with verify_each config
+    db.prepare(
+      "INSERT INTO steps (id, run_id, step_id, agent_id, step_index, input_template, expects, status, retry_count, max_retries, type, loop_config, created_at, updated_at) VALUES (?, ?, 'implement', 'fdmw_developer', 3, '{{task}}', '', 'running', 0, 4, 'loop', ?, ?, ?)"
+    ).run(loopStepId, runId, JSON.stringify({ verify_each: true, verify_step: "verify", over: "stories" }), now, now);
+
+    // Verify step — index 4, the per-story verifier
+    db.prepare(
+      "INSERT INTO steps (id, run_id, step_id, agent_id, step_index, input_template, expects, status, retry_count, max_retries, type, created_at, updated_at) VALUES (?, ?, 'verify', 'fdmw_verifier', 4, 'Review implementation', ?, 'running', 0, 4, 'single', ?, ?)"
+    ).run(verifyStepId, runId, VERIFY_EACH_EXPECTS, now, now);
+
+    // Story 1 — done (the one that should be reset)
+    db.prepare(
+      "INSERT INTO stories (id, run_id, story_index, story_id, title, description, acceptance_criteria, status, retry_count, max_retries, created_at, updated_at) VALUES (?, ?, 0, 'US-001', 'First story', 'Do first thing', '[]', 'done', 0, 3, ?, ?)"
+    ).run(story1Id, runId, now, now);
+
+    // Story 2 — pending
+    db.prepare(
+      "INSERT INTO stories (id, run_id, story_index, story_id, title, description, acceptance_criteria, status, retry_count, max_retries, created_at, updated_at) VALUES (?, ?, 1, 'US-002', 'Second story', 'Do second thing', '[]', 'pending', 0, 3, ?, ?)"
+    ).run(story2Id, runId, now, now);
+
+    // Verifier returns STATUS: retry with issues
+    const retryOutput = "STATUS: retry\nISSUES: The implementation is incomplete — missing tests for edge cases.\nTESTS: none";
+    const result = completeStep(verifyStepId, retryOutput);
+
+    assert.equal(result.status, "advanced", "completeStep should return advanced after handling retry verdict");
+
+    // Verify step should be reset to waiting, NOT failed, NOT retried
+    const verifyStep = db.prepare("SELECT status, retry_count, output FROM steps WHERE id = ?").get(verifyStepId) as { status: string; retry_count: number; output: string };
+    assert.equal(verifyStep.status, "waiting", "verify step should be reset to waiting for next story");
+    assert.equal(verifyStep.retry_count, 0, "verify step retry_count should NOT increment — honest retry is not a step-level failure");
+    assert.ok(verifyStep.output.includes("STATUS: retry"), "verify step output should contain the retry output");
+
+    // Story 1 (US-001) should be reset to pending with incremented retry_count
+    const story1 = db.prepare("SELECT status, retry_count FROM stories WHERE id = ?").get(story1Id) as { status: string; retry_count: number };
+    assert.equal(story1.status, "pending", "last done story should be reset to pending");
+    assert.equal(story1.retry_count, 1, "story retry_count should be incremented from 0 to 1");
+
+    // Story 2 (US-002) should remain pending
+    const story2 = db.prepare("SELECT status, retry_count FROM stories WHERE id = ?").get(story2Id) as { status: string; retry_count: number };
+    assert.equal(story2.status, "pending", "other pending story should remain pending");
+    assert.equal(story2.retry_count, 0, "unrejected story retry_count should stay 0");
+
+    // Run should still be running
+    const run = db.prepare("SELECT status FROM runs WHERE id = ?").get(runId) as { status: string };
+    assert.equal(run.status, "running", "run should still be running after story retry");
+  });
+
+  it("sets verify_feedback in run context from ISSUES block", async () => {
+    const { getDb } = await import("../dist/db.js");
+    const db = getDb();
+    const runId = crypto.randomUUID();
+    const loopStepId = crypto.randomUUID();
+    const verifyStepId = crypto.randomUUID();
+    const storyId = crypto.randomUUID();
+    const now = ts();
+
+    const seededContext = JSON.stringify({ task: "implement feature Y" });
+
+    db.prepare(
+      "INSERT INTO runs (id, run_number, workflow_id, task, status, context, tokens_spent, created_at, updated_at) VALUES (?, 1, 'feature-dev-merge-worktree', 'implement feature Y', 'running', ?, 0, ?, ?)"
+    ).run(runId, seededContext, now, now);
+
+    db.prepare(
+      "INSERT INTO steps (id, run_id, step_id, agent_id, step_index, input_template, expects, status, retry_count, max_retries, type, loop_config, created_at, updated_at) VALUES (?, ?, 'implement', 'fdmw_developer', 3, '{{task}}', '', 'running', 0, 4, 'loop', ?, ?, ?)"
+    ).run(loopStepId, runId, JSON.stringify({ verify_each: true, verify_step: "verify", over: "stories" }), now, now);
+
+    db.prepare(
+      "INSERT INTO steps (id, run_id, step_id, agent_id, step_index, input_template, expects, status, retry_count, max_retries, type, created_at, updated_at) VALUES (?, ?, 'verify', 'fdmw_verifier', 4, 'Review implementation', ?, 'running', 0, 4, 'single', ?, ?)"
+    ).run(verifyStepId, runId, VERIFY_EACH_EXPECTS, now, now);
+
+    db.prepare(
+      "INSERT INTO stories (id, run_id, story_index, story_id, title, description, acceptance_criteria, status, retry_count, max_retries, created_at, updated_at) VALUES (?, ?, 0, 'US-001', 'First story', 'Do first thing', '[]', 'done', 0, 3, ?, ?)"
+    ).run(storyId, runId, now, now);
+
+    const issuesText = "Missing unit tests for the edge case handler. Module not documented.";
+    const retryOutput = `STATUS: retry\nISSUES: ${issuesText}\nTESTS: none`;
+    completeStep(verifyStepId, retryOutput);
+
+    const run = db.prepare("SELECT context FROM runs WHERE id = ?").get(runId) as { context: string };
+    const context = JSON.parse(run.context);
+
+    assert.equal(context.verify_feedback, issuesText, "verify_feedback should be set from the ISSUES block");
+    assert.equal(context.status, "retry", "STATUS key should be in context");
+    assert.ok(context.verify_feedback.includes("Missing unit tests"), "verify_feedback should contain the issue description");
+  });
+
+  it("fails the run (not just the step) when story max_retries is exhausted", async () => {
+    const { getDb } = await import("../dist/db.js");
+    const db = getDb();
+    const runId = crypto.randomUUID();
+    const loopStepId = crypto.randomUUID();
+    const verifyStepId = crypto.randomUUID();
+    const storyId = crypto.randomUUID();
+    const now = ts();
+
+    const seededContext = JSON.stringify({ task: "implement feature Z" });
+
+    db.prepare(
+      "INSERT INTO runs (id, run_number, workflow_id, task, status, context, tokens_spent, created_at, updated_at) VALUES (?, 1, 'feature-dev-merge-worktree', 'implement feature Z', 'running', ?, 0, ?, ?)"
+    ).run(runId, seededContext, now, now);
+
+    db.prepare(
+      "INSERT INTO steps (id, run_id, step_id, agent_id, step_index, input_template, expects, status, retry_count, max_retries, type, loop_config, created_at, updated_at) VALUES (?, ?, 'implement', 'fdmw_developer', 3, '{{task}}', '', 'running', 0, 4, 'loop', ?, ?, ?)"
+    ).run(loopStepId, runId, JSON.stringify({ verify_each: true, verify_step: "verify", over: "stories" }), now, now);
+
+    db.prepare(
+      "INSERT INTO steps (id, run_id, step_id, agent_id, step_index, input_template, expects, status, retry_count, max_retries, type, created_at, updated_at) VALUES (?, ?, 'verify', 'fdmw_verifier', 4, 'Review implementation', ?, 'running', 0, 4, 'single', ?, ?)"
+    ).run(verifyStepId, runId, VERIFY_EACH_EXPECTS, now, now);
+
+    // Story is already at retry_count=max_retries, one more retry exhausts
+    db.prepare(
+      "INSERT INTO stories (id, run_id, story_index, story_id, title, description, acceptance_criteria, status, retry_count, max_retries, created_at, updated_at) VALUES (?, ?, 0, 'US-001', 'First story', 'Do first thing', '[]', 'done', 3, 3, ?, ?)"
+    ).run(storyId, runId, now, now);
+
+    const retryOutput = "STATUS: retry\nISSUES: Story is unfixable — design must be revisited.\nTESTS: none";
+    const result = completeStep(verifyStepId, retryOutput);
+
+    // Verify step status after exhaustion
+    const verifyStep = db.prepare("SELECT status, retry_count FROM steps WHERE id = ?").get(verifyStepId) as { status: string; retry_count: number };
+    assert.equal(verifyStep.status, "waiting", "verify step should be reset to waiting (not failed)");
+    assert.equal(verifyStep.retry_count, 0, "step retry_count should stay 0 — step was not at fault");
+
+    // Story should be failed
+    const story = db.prepare("SELECT status, retry_count FROM stories WHERE id = ?").get(storyId) as { status: string; retry_count: number };
+    assert.equal(story.status, "failed", "story should be marked failed after exhaustion");
+    assert.equal(story.retry_count, 4, "story retry_count should be 4 (3 + 1)");
+
+    // Loop step should be failed
+    const loopStep = db.prepare("SELECT status FROM steps WHERE id = ?").get(loopStepId) as { status: string };
+    assert.equal(loopStep.status, "failed", "loop step should be failed when story retries exhausted");
+
+    // Run should be failed
+    const run = db.prepare("SELECT status FROM runs WHERE id = ?").get(runId) as { status: string };
+    assert.equal(run.status, "failed", "run should be failed when story retries exhausted");
+  });
+
+  it("re-pends the loop step so developer next claim renders verify_feedback", async () => {
+    const { getDb } = await import("../dist/db.js");
+    const db = getDb();
+    const runId = crypto.randomUUID();
+    const loopStepId = crypto.randomUUID();
+    const verifyStepId = crypto.randomUUID();
+    const storyId = crypto.randomUUID();
+    const now = ts();
+
+    const seededContext = JSON.stringify({ task: "implement feature W" });
+
+    db.prepare(
+      "INSERT INTO runs (id, run_number, workflow_id, task, status, context, tokens_spent, created_at, updated_at) VALUES (?, 1, 'feature-dev-merge-worktree', 'implement feature W', 'running', ?, 0, ?, ?)"
+    ).run(runId, seededContext, now, now);
+
+    db.prepare(
+      "INSERT INTO steps (id, run_id, step_id, agent_id, step_index, input_template, expects, status, retry_count, max_retries, type, loop_config, created_at, updated_at) VALUES (?, ?, 'implement', 'fdmw_developer', 3, '{{task}}', '', 'running', 0, 4, 'loop', ?, ?, ?)"
+    ).run(loopStepId, runId, JSON.stringify({ verify_each: true, verify_step: "verify", over: "stories" }), now, now);
+
+    db.prepare(
+      "INSERT INTO steps (id, run_id, step_id, agent_id, step_index, input_template, expects, status, retry_count, max_retries, type, created_at, updated_at) VALUES (?, ?, 'verify', 'fdmw_verifier', 4, 'Review implementation', ?, 'running', 0, 4, 'single', ?, ?)"
+    ).run(verifyStepId, runId, VERIFY_EACH_EXPECTS, now, now);
+
+    db.prepare(
+      "INSERT INTO stories (id, run_id, story_index, story_id, title, description, acceptance_criteria, status, retry_count, max_retries, created_at, updated_at) VALUES (?, ?, 0, 'US-001', 'First story', 'Do first thing', '[]', 'done', 0, 3, ?, ?)"
+    ).run(storyId, runId, now, now);
+
+    const retryOutput = "STATUS: retry\nISSUES: Needs null check on input.\nTESTS: wrote 2 tests";
+    completeStep(verifyStepId, retryOutput);
+
+    // Loop step (implement) should be re-pended to pending for next developer claim
+    const loopStep = db.prepare("SELECT status FROM steps WHERE id = ?").get(loopStepId) as { status: string };
+    assert.equal(loopStep.status, "pending", "loop step (implement) should be re-pended to pending");
+
+    // Verify feedback should be in run context — resolveStepContext will pick it up
+    const run = db.prepare("SELECT context FROM runs WHERE id = ?").get(runId) as { context: string };
+    const context = JSON.parse(run.context);
+    assert.equal(context.verify_feedback, "Needs null check on input.", "verify_feedback should be available for developer rendering");
+  });
+
+  it("STATUS: done still advances story verification normally (no regression)", async () => {
+    const { getDb } = await import("../dist/db.js");
+    const db = getDb();
+    const runId = crypto.randomUUID();
+    const loopStepId = crypto.randomUUID();
+    const verifyStepId = crypto.randomUUID();
+    const story1Id = crypto.randomUUID();
+    const story2Id = crypto.randomUUID();
+    const now = ts();
+
+    const seededContext = JSON.stringify({ task: "implement feature V" });
+
+    db.prepare(
+      "INSERT INTO runs (id, run_number, workflow_id, task, status, context, tokens_spent, created_at, updated_at) VALUES (?, 1, 'feature-dev-merge-worktree', 'implement feature V', 'running', ?, 0, ?, ?)"
+    ).run(runId, seededContext, now, now);
+
+    db.prepare(
+      "INSERT INTO steps (id, run_id, step_id, agent_id, step_index, input_template, expects, status, retry_count, max_retries, type, loop_config, created_at, updated_at) VALUES (?, ?, 'implement', 'fdmw_developer', 3, '{{task}}', '', 'running', 0, 4, 'loop', ?, ?, ?)"
+    ).run(loopStepId, runId, JSON.stringify({ verify_each: true, verify_step: "verify", over: "stories" }), now, now);
+
+    db.prepare(
+      "INSERT INTO steps (id, run_id, step_id, agent_id, step_index, input_template, expects, status, retry_count, max_retries, type, created_at, updated_at) VALUES (?, ?, 'verify', 'fdmw_verifier', 4, 'Review implementation', ?, 'running', 0, 4, 'single', ?, ?)"
+    ).run(verifyStepId, runId, VERIFY_EACH_EXPECTS, now, now);
+
+    db.prepare(
+      "INSERT INTO stories (id, run_id, story_index, story_id, title, description, acceptance_criteria, status, retry_count, max_retries, created_at, updated_at) VALUES (?, ?, 0, 'US-001', 'First story', 'Do first thing', '[]', 'done', 0, 3, ?, ?)"
+    ).run(story1Id, runId, now, now);
+
+    db.prepare(
+      "INSERT INTO stories (id, run_id, story_index, story_id, title, description, acceptance_criteria, status, retry_count, max_retries, created_at, updated_at) VALUES (?, ?, 1, 'US-002', 'Second story', 'Do second thing', '[]', 'pending', 0, 3, ?, ?)"
+    ).run(story2Id, runId, now, now);
+
+    const doneOutput = "STATUS: done\nVERIFIED: all tests pass, coverage at 90%\nTESTS: 5 tests";
+    const result = completeStep(verifyStepId, doneOutput);
+
+    assert.equal(result.status, "advanced", "completeStep should return advanced");
+
+    // Verify step should be reset to waiting for next story
+    const verifyStep = db.prepare("SELECT status FROM steps WHERE id = ?").get(verifyStepId) as { status: string };
+    assert.equal(verifyStep.status, "waiting", "verify step should be reset to waiting for next story");
+
+    // Story 1 should remain done (not retried)
+    const story1 = db.prepare("SELECT status, retry_count FROM stories WHERE id = ?").get(story1Id) as { status: string; retry_count: number };
+    assert.equal(story1.status, "done", "verified story should stay done");
+    assert.equal(story1.retry_count, 0, "story retry_count should not change on done verdict");
+
+    // Loop step should be pending (more stories remaining — checkLoopContinuation re-pends it)
+    const loopStep = db.prepare("SELECT status FROM steps WHERE id = ?").get(loopStepId) as { status: string };
+    assert.equal(loopStep.status, "pending", "loop step should be re-pended to pending for next story");
+
+    // Run should still be running
+    const run = db.prepare("SELECT status FROM runs WHERE id = ?").get(runId) as { status: string };
+    assert.equal(run.status, "running", "run should still be running");
+  });
+
+  it("does not increment step retry_count when expects passes STATUS: retry output", async () => {
+    const { getDb } = await import("../dist/db.js");
+    const db = getDb();
+    const runId = crypto.randomUUID();
+    const loopStepId = crypto.randomUUID();
+    const verifyStepId = crypto.randomUUID();
+    const storyId = crypto.randomUUID();
+    const now = ts();
+
+    const seededContext = JSON.stringify({ task: "implement feature T" });
+
+    db.prepare(
+      "INSERT INTO runs (id, run_number, workflow_id, task, status, context, tokens_spent, created_at, updated_at) VALUES (?, 1, 'feature-dev-merge-worktree', 'implement feature T', 'running', ?, 0, ?, ?)"
+    ).run(runId, seededContext, now, now);
+
+    db.prepare(
+      "INSERT INTO steps (id, run_id, step_id, agent_id, step_index, input_template, expects, status, retry_count, max_retries, type, loop_config, created_at, updated_at) VALUES (?, ?, 'implement', 'fdmw_developer', 3, '{{task}}', '', 'running', 0, 4, 'loop', ?, ?, ?)"
+    ).run(loopStepId, runId, JSON.stringify({ verify_each: true, verify_step: "verify", over: "stories" }), now, now);
+
+    // Verify step has expects that accepts both done and retry
+    db.prepare(
+      "INSERT INTO steps (id, run_id, step_id, agent_id, step_index, input_template, expects, status, retry_count, max_retries, type, created_at, updated_at) VALUES (?, ?, 'verify', 'fdmw_verifier', 4, 'Review implementation', ?, 'running', 0, 4, 'single', ?, ?)"
+    ).run(verifyStepId, runId, VERIFY_EACH_EXPECTS, now, now);
+
+    db.prepare(
+      "INSERT INTO stories (id, run_id, story_index, story_id, title, description, acceptance_criteria, status, retry_count, max_retries, created_at, updated_at) VALUES (?, ?, 0, 'US-001', 'First story', 'Do first thing', '[]', 'done', 0, 3, ?, ?)"
+    ).run(storyId, runId, now, now);
+
+    // Output contains STATUS: retry, which the regex accepts
+    const retryOutput = "STATUS: retry\nISSUES: Needs more tests.\nTESTS: none";
+    completeStep(verifyStepId, retryOutput);
+
+    // The step's retry_count should NOT have been incremented
+    const verifyStep = db.prepare("SELECT retry_count FROM steps WHERE id = ?").get(verifyStepId) as { retry_count: number };
+    assert.equal(verifyStep.retry_count, 0, "step retry_count must be 0 — STATUS: retry passed expects validation, no step-level retry triggered");
+
+    // But the story retry_count SHOULD have been incremented
+    const story = db.prepare("SELECT retry_count FROM stories WHERE id = ?").get(storyId) as { retry_count: number };
+    assert.equal(story.retry_count, 1, "story retry_count must be 1 — story was retried");
+  });
+
+  it("clears verify_feedback from context on STATUS: done (no regression)", async () => {
+    const { getDb } = await import("../dist/db.js");
+    const db = getDb();
+    const runId = crypto.randomUUID();
+    const loopStepId = crypto.randomUUID();
+    const verifyStepId = crypto.randomUUID();
+    const storyId = crypto.randomUUID();
+    const now = ts();
+
+    // Seed context with existing verify_feedback from a prior retry
+    const seededContext = JSON.stringify({ task: "implement feature S", verify_feedback: "Previous issues were addressed" });
+
+    db.prepare(
+      "INSERT INTO runs (id, run_number, workflow_id, task, status, context, tokens_spent, created_at, updated_at) VALUES (?, 1, 'feature-dev-merge-worktree', 'implement feature S', 'running', ?, 0, ?, ?)"
+    ).run(runId, seededContext, now, now);
+
+    db.prepare(
+      "INSERT INTO steps (id, run_id, step_id, agent_id, step_index, input_template, expects, status, retry_count, max_retries, type, loop_config, created_at, updated_at) VALUES (?, ?, 'implement', 'fdmw_developer', 3, '{{task}}', '', 'running', 0, 4, 'loop', ?, ?, ?)"
+    ).run(loopStepId, runId, JSON.stringify({ verify_each: true, verify_step: "verify", over: "stories" }), now, now);
+
+    db.prepare(
+      "INSERT INTO steps (id, run_id, step_id, agent_id, step_index, input_template, expects, status, retry_count, max_retries, type, created_at, updated_at) VALUES (?, ?, 'verify', 'fdmw_verifier', 4, 'Review implementation', ?, 'running', 0, 4, 'single', ?, ?)"
+    ).run(verifyStepId, runId, VERIFY_EACH_EXPECTS, now, now);
+
+    db.prepare(
+      "INSERT INTO stories (id, run_id, story_index, story_id, title, description, acceptance_criteria, status, retry_count, max_retries, created_at, updated_at) VALUES (?, ?, 0, 'US-001', 'First story', 'Do first thing', '[]', 'done', 0, 3, ?, ?)"
+    ).run(storyId, runId, now, now);
+
+    const doneOutput = "STATUS: done\nVERIFIED: all good\nTESTS: 3 tests pass";
+    completeStep(verifyStepId, doneOutput);
+
+    const run = db.prepare("SELECT context FROM runs WHERE id = ?").get(runId) as { context: string };
+    const context = JSON.parse(run.context);
+
+    assert.ok(!("verify_feedback" in context), "verify_feedback should be cleared from context on successful verification");
+    assert.ok(context.tests, "other context keys (TESTS) should be preserved");
+  });
+});

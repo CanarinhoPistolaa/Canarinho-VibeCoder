@@ -92,8 +92,41 @@ baseline assertions.
   without reporting (no STATUS output, crash, non-zero exit, timeout kill)
   leaves a `running` step that must be requeued and retried — not stuck
   forever.
-- **C10** `expects` mismatch (e.g. verifier replies `STATUS: retry`) triggers
-  the step's `on_fail` wiring (`retry_step`, `max_retries`, `on_exhausted`).
+- **C10** **Expects-must-accept-all-reply-variants invariant:** every STATUS
+  variant (`STATUS: done`, `STATUS: retry`, `STATUS: failed`) that a step's
+  `Reply with:` section instructs an agent to emit MUST satisfy that step's
+  `expects` field — no step may instruct an agent to produce a reply that
+  `validateExpects` rejects.  This invariant is statically enforced by a
+  linter rule in `tests/workflow-contract-lint.test.ts` ("US-005:
+  expects-must-accept-all-reply-variants invariant"), which calls
+  `parseStatusVariants()` and `checkExpectsAcceptsVariant()` from
+  `src/installer/workflow-contract.ts` to extract every STATUS variant from
+  every bundled workflow step's `Reply with:` block and verify acceptance
+  against the step's `expects` via literal `STATUS:` substring match,
+  `regex:^STATUS:` pattern, or `regex:STATUS:` pattern.
+
+  **verify_each (honest retry path):** loop steps declaring
+  `verify_each: true` use a regex expects (e.g.
+  `regex:^STATUS:\s*(done|retry)\s*$`) that accepts both `STATUS: done` and
+  `STATUS: retry`.  A verifier's honest `STATUS: retry` reply with `ISSUES:`
+  feedback now passes `validateExpects`, flows through
+  `completeStepInternal` into `handleVerifyEachCompletion`'s
+  `status === "retry"` branch, resets the last done story to `pending` with
+  `retry_count` incremented, sets `verify_feedback` in run context from the
+  `ISSUES` block, and re-pends the loop step — the capitulation pressure
+  that previously caused verifiers to emit false `STATUS: done` on
+  incomplete work (to avoid the "Output missing expects string" coaching
+  feedback) is eliminated.  Story-retry exhaustion (`max_retries` reached)
+  still fails the run.  Pinned by `tests/step-ops.test.ts` (US-002 unit
+  tests) and the graph simulation retry scenario (US-003).
+
+  **Non-verify_each verdict steps:** expects accepts only the primary
+  verdict (typically `STATUS: done`).  Legacy steps that once offered
+  `STATUS: retry` or `STATUS: failed` in their instructions were cleaned up
+  (US-004) so the invariant holds universally — those steps' `Reply with:`
+  now only offer the single verdict their expects accepts.  An actual
+  expects mismatch (malformed agent output) still triggers `on_fail` wiring
+  (`retry_step`, `max_retries`, `on_exhausted`).
 - **C8-rugpull** Rugpull relaunch applies **only** to `finalize_merge` step
   failures in merge workflows (`*-merge`, `*-merge-worktree`) where the base
   branch tip moved since the run started. Mid-pipeline step retry exhaustion,
