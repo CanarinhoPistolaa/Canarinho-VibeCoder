@@ -1035,6 +1035,12 @@ describe("dashboard relaunch UI", () => {
 
 describe("dashboard MCP status API", () => {
   it("GET /api/mcp-status returns { running, port, path }", async () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "tamandua-dashboard-mcp-status-"));
+    const homeDir = path.join(root, "home");
+    fs.mkdirSync(homeDir, { recursive: true });
+    const previousHome = process.env.HOME;
+    process.env.HOME = homeDir;
+
     const { server, baseUrl } = await startDashboard();
 
     try {
@@ -1047,6 +1053,8 @@ describe("dashboard MCP status API", () => {
       assert.equal(body.path, "/mcp");
     } finally {
       await stopDashboard(server);
+      process.env.HOME = previousHome;
+      fs.rmSync(root, { recursive: true, force: true });
     }
   });
 });

@@ -335,7 +335,7 @@ describe("runDoctorChecks", () => {
   });
 
   it("SERVICES group has 4 checks", async () => {
-    const groups = await runDoctorChecks();
+    const groups = await runDoctorChecks({ homeDir: guardHomeDir });
     const svc = groups.find((g) => g.label === "SERVICES");
     assert.ok(svc);
     assert.strictEqual(svc!.checks.length, 4);
@@ -652,7 +652,7 @@ describe("SERVICES checks (US-004)", () => {
   });
 
   it("all SERVICE checks have valid structure on real HOME", async () => {
-    const groups = await runDoctorChecks();
+    const groups = await runDoctorChecks({ homeDir: guardHomeDir });
     const svc = groups.find((g) => g.label === "SERVICES");
     assert.ok(svc);
     assert.strictEqual(svc!.checks.length, 4);

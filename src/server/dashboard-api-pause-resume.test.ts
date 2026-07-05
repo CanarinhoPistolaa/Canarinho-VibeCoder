@@ -178,10 +178,12 @@ describe("dashboard pause/resume API", () => {
     assert.ok(addr && typeof addr !== "string");
     controlPort = addr.port;
     process.env.TAMANDUA_CONTROL_PORT = String(controlPort);
+    process.env.HOME = root;
   });
 
   after(() => {
     delete process.env.TAMANDUA_CONTROL_PORT;
+    delete process.env.HOME;
     controlMock.close();
     fs.rmSync(root, { recursive: true, force: true });
   });

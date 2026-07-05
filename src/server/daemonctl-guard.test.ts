@@ -617,3 +617,82 @@ describe("daemonctl stopControlPlane guard", { concurrency: 1 }, () => {
     }
   });
 });
+
+// ── HOME-isolation regression (ISFO) ──────────────────────────────
+//
+// These tests verify that daemonctl path-resolution functions work
+// correctly under TAMANDUA_TEST_GUARD=1 when HOME points to an isolated
+// temp directory WITHOUT requiring opts.homeDir. This is the pattern
+// used by startDashboard() (calls readMcpPort), controlRequest() in
+// control-client (resolves daemon-secret via HOME), and runDoctorChecks()
+// (calls daemonctl functions). If this had been tested when the ISOL
+// guard was added, the fallout (11 test failures across doctor.test.ts,
+// dashboard.test.ts, and dashboard-api-pause-resume.test.ts) would have
+// been caught before merge.
+
+describe("daemonctl isolation via HOME env (no opts.homeDir)", { concurrency: 1 }, () => {
+  it("readMcpPort works when HOME is isolated temp dir", async () => {
+    const tempHome = fs.mkdtempSync(path.join(os.tmpdir(), "tamandua-dc-home-iso-"));
+    try {
+      process.env.HOME = tempHome;
+      delete process.env.TAMANDUA_STATE_DIR;
+
+      const { readMcpPort, writeMcpPort } = await importDaemonctl();
+
+      // Write a port file in the isolated HOME (no opts)
+      writeMcpPort(9191);
+      const port = readMcpPort();
+      assert.equal(port, 9191, "should read MCP port from isolated HOME dir without opts");
+    } finally {
+      fs.rmSync(tempHome, { recursive: true, force: true });
+    }
+  });
+
+  it("readControlPlanePort works when HOME is isolated temp dir", async () => {
+    const tempHome = fs.mkdtempSync(path.join(os.tmpdir(), "tamandua-dc-home-iso-"));
+    try {
+      process.env.HOME = tempHome;
+      delete process.env.TAMANDUA_STATE_DIR;
+
+      const { readControlPlanePort, writeControlPlanePort } = await importDaemonctl();
+
+      writeControlPlanePort(9292);
+      const port = readControlPlanePort();
+      assert.equal(port, 9292, "should read control plane port from isolated HOME dir without opts");
+    } finally {
+      fs.rmSync(tempHome, { recursive: true, force: true });
+    }
+  });
+
+  it("readPort works when HOME is isolated temp dir", async () => {
+    const tempHome = fs.mkdtempSync(path.join(os.tmpdir(), "tamandua-dc-home-iso-"));
+    try {
+      process.env.HOME = tempHome;
+      delete process.env.TAMANDUA_STATE_DIR;
+
+      const { readPort, writePort } = await importDaemonctl();
+
+      writePort(9393);
+      const port = readPort();
+      assert.equal(port, 9393, "should read port from isolated HOME dir without opts");
+    } finally {
+      fs.rmSync(tempHome, { recursive: true, force: true });
+    }
+  });
+
+  it("type guard smoke: readPort throws when HOME is NOT isolated", async () => {
+    // Verify the guard still fires when HOME is the real user home —
+    // this confirms the guard is active and the isolated-HOME tests
+    // above aren't false negatives (guard disabled).
+    process.env.HOME = os.userInfo().homedir;
+    delete process.env.TAMANDUA_STATE_DIR;
+
+    const { readPort } = await importDaemonctl();
+
+    assert.throws(
+      () => readPort(),
+      /TEST ISOLATION VIOLATION/,
+      "guard must still fire when HOME is real user home",
+    );
+  });
+});
