@@ -48,6 +48,18 @@ function cannedToolExecutionEnd(name: string) {
   };
 }
 
+function cannedToolExecutionUpdate(toolCallId: string | undefined, partial: string) {
+  const ev: Record<string, unknown> = {
+    type: "tool_execution_update",
+    toolName: "bash",
+    partial,
+  };
+  if (toolCallId !== undefined) {
+    ev.toolCallId = toolCallId;
+  }
+  return ev;
+}
+
 // ── filterPiEvent tests ─────────────────────────────────────────────
 
 describe("filterPiEvent", () => {
@@ -165,6 +177,122 @@ describe("filterPiEvent", () => {
   });
 });
 
+// ── SNIF: prefix fast-path tests ─────────────────────────────────────
+
+describe("filterPiEvent — SNIF discard prefix fast-path", () => {
+  // Each discard prefix returns null without JSON.parse
+  it("returns null for message_update via prefix fast-path (no JSON.parse)", () => {
+    const line = '{"type":"message_update","assistantMessageEvent":{"type":"text_delta","content":[{"type":"text","text":"delta"}]}}';
+    assert.equal(filterPiEvent(line), null);
+  });
+
+  it("returns null for message_start via prefix fast-path (no JSON.parse)", () => {
+    assert.equal(filterPiEvent('{"type":"message_start","extra":"data"}'), null);
+  });
+
+  it("returns null for turn_start via prefix fast-path (no JSON.parse)", () => {
+    assert.equal(filterPiEvent('{"type":"turn_start","extra":"data"}'), null);
+  });
+
+  it("returns null for turn_end via prefix fast-path (no JSON.parse)", () => {
+    assert.equal(filterPiEvent('{"type":"turn_end","extra":"data"}'), null);
+  });
+
+  it("returns null for agent_start via prefix fast-path (no JSON.parse)", () => {
+    assert.equal(filterPiEvent('{"type":"agent_start","extra":"data"}'), null);
+  });
+
+  it("returns null for agent_end via prefix fast-path (no JSON.parse)", () => {
+    assert.equal(filterPiEvent('{"type":"agent_end","extra":"data"}'), null);
+  });
+
+  it("returns null for session via prefix fast-path (no JSON.parse)", () => {
+    assert.equal(filterPiEvent('{"type":"session","extra":"data"}'), null);
+  });
+
+  // Invalid JSON after discard prefix returns null (not text fallback)
+  it("returns null (not text fallback) for discard prefix followed by invalid JSON", () => {
+    // message_update prefix followed by garbage
+    const line = '{"type":"message_update"garbage{not:json}';
+    assert.equal(filterPiEvent(line), null);
+  });
+
+  it("returns null (not text fallback) for turn_start followed by malformed JSON", () => {
+    assert.equal(filterPiEvent('{"type":"turn_start"][broken'), null);
+  });
+
+  // Kept event types are NOT in the discard list — still go through full parse
+  it("keeps message_end assistant via full parse (not in discard list)", () => {
+    const event = cannedMessageEnd("assistant", "Hello from SNIF test", 42);
+    const line = JSON.stringify(event);
+    const result = filterPiEvent(line);
+    assert.notEqual(result, null);
+    assert.equal(typeof result, "object");
+    if (result && typeof result === "object") {
+      assert.equal((result as Record<string, unknown>).type, "message_end");
+    }
+  });
+
+  it("keeps tool_execution_start via full parse (not in discard list)", () => {
+    const event = cannedToolExecutionStart("bash");
+    const line = JSON.stringify(event);
+    const result = filterPiEvent(line);
+    assert.notEqual(result, null);
+    if (result && typeof result === "object") {
+      assert.equal((result as Record<string, unknown>).type, "tool_execution_start");
+    }
+  });
+
+  it("keeps tool_execution_update via full parse (not in discard list)", () => {
+    const event = { type: "tool_execution_update", toolName: "bash", partial: "output" };
+    const line = JSON.stringify(event);
+    const result = filterPiEvent(line);
+    assert.notEqual(result, null);
+    if (result && typeof result === "object") {
+      assert.equal((result as Record<string, unknown>).type, "tool_execution_update");
+    }
+  });
+
+  it("keeps tool_execution_end via full parse (not in discard list)", () => {
+    const event = cannedToolExecutionEnd("bash");
+    const line = JSON.stringify(event);
+    const result = filterPiEvent(line);
+    assert.notEqual(result, null);
+    if (result && typeof result === "object") {
+      assert.equal((result as Record<string, unknown>).type, "tool_execution_end");
+    }
+  });
+
+  // Non-JSON lines still become text fallback (not affected by SNIF)
+  it("returns text fallback for plain non-JSON text (SNIF fast-path does not interfere)", () => {
+    const line = "HEARTBEAT_OK";
+    assert.equal(typeof filterPiEvent(line), "string");
+  });
+
+  // Unknown {"type":"..."} events still go through full parse and are discarded by keep-set
+  it("returns null for unknown event type via full parse + keep-set (not in discard list)", () => {
+    const line = '{"type":"some_unknown_event","data":"value"}';
+    // Should be discarded (not a kept type), but goes through full parse first
+    assert.equal(filterPiEvent(line), null);
+  });
+
+  // Edge: discard prefix is NOT a prefix match if type name differs
+  it("does NOT match prefixes with different type names (e.g., message_updateX)", () => {
+    // message_updateX is not in DISCARD_PREFIXES, so it goes through full parse
+    const line = '{"type":"message_updateX","data":"value"}';
+    // Goes through full parse → unknown type → discarded by keep-set → null
+    assert.equal(filterPiEvent(line), null);
+  });
+
+  // Edge: lines starting with {"type":" but truncating before closing quote
+  it('non-prefix-matching {"type":"... line goes through text fallback', () => {
+    const line = '{"type":"message_update';
+    // Does NOT start with '{"type":"message_update"' (missing closing ") → text fallback
+    assert.equal(typeof filterPiEvent(line), "string");
+    assert.equal(filterPiEvent(line), '{"type":"message_update');
+  });
+});
+
 // ── parsePiOutputStream tests ───────────────────────────────────────
 
 describe("parsePiOutputStream", () => {
@@ -246,7 +374,140 @@ describe("parsePiOutputStream", () => {
     assert.ok(result.textFallback!.includes("trailing text"));
   });
 
-  // AC 9: keeps memory bounded regardless of discarded event volume
+  // ── CAPP: tool_execution_update dedup tests ─────────────────────
+
+  it("caps sequential updates for same toolCallId to one (last retained at first position)", async () => {
+    const lines = [
+      JSON.stringify(cannedMessageEnd("assistant", "Start", 10)),
+      JSON.stringify(cannedToolExecutionUpdate("call_1", "chunk 1")),
+      JSON.stringify(cannedToolExecutionUpdate("call_1", "chunk 2")),
+      JSON.stringify(cannedToolExecutionUpdate("call_1", "chunk 3")),
+      JSON.stringify(cannedToolExecutionUpdate("call_1", "chunk 4")),
+      JSON.stringify(cannedToolExecutionUpdate("call_1", "chunk 5 — final")),
+      JSON.stringify(cannedMessageEnd("assistant", "Done", 20)),
+    ];
+
+    const result = await parsePiOutputStream(lines);
+    const updates = result.events.filter((e) => e.type === "tool_execution_update");
+    assert.equal(updates.length, 1, "exactly one update retained");
+    assert.equal(updates[0].toolCallId, "call_1");
+    assert.equal(updates[0].partial, "chunk 5 — final");
+
+    // Position check: the update should be at the same index as the first
+    // one would have been (right after the first message_end).
+    const firstUpdateIdx = result.events.findIndex((e) => e.type === "tool_execution_update");
+    // The first message_end is at index 0, so the update should be at index 1
+    assert.equal(firstUpdateIdx, 1, "update retained at first occurrence position");
+
+    assert.equal(result.assistantText, "Done");
+  });
+
+  it("retains one update per toolCallId when updates are interleaved", async () => {
+    const lines = [
+      JSON.stringify(cannedToolExecutionUpdate("call_1", "a1")),
+      JSON.stringify(cannedToolExecutionUpdate("call_2", "b1")),
+      JSON.stringify(cannedToolExecutionUpdate("call_1", "a2")),
+      JSON.stringify(cannedToolExecutionUpdate("call_2", "b2")),
+      JSON.stringify(cannedToolExecutionUpdate("call_1", "a3 — final a")),
+      JSON.stringify(cannedToolExecutionUpdate("call_2", "b3 — final b")),
+      JSON.stringify(cannedMessageEnd("assistant", "Interleaved", 30)),
+    ];
+
+    const result = await parsePiOutputStream(lines);
+    const updates = result.events.filter((e) => e.type === "tool_execution_update");
+    assert.equal(updates.length, 2, "exactly two updates retained (one per toolCallId)");
+
+    // Ordered by first occurrence: call_1 first, then call_2
+    assert.equal(updates[0].toolCallId, "call_1");
+    assert.equal(updates[0].partial, "a3 — final a");
+    assert.equal(updates[1].toolCallId, "call_2");
+    assert.equal(updates[1].partial, "b3 — final b");
+
+    assert.equal(result.assistantText, "Interleaved");
+  });
+
+  it("shares single slot for updates without toolCallId field", async () => {
+    const lines = [
+      JSON.stringify(cannedToolExecutionUpdate(undefined, "no-id chunk 1")),
+      JSON.stringify(cannedToolExecutionUpdate(undefined, "no-id chunk 2")),
+      JSON.stringify(cannedToolExecutionUpdate(undefined, "no-id chunk 3 — final")),
+      JSON.stringify(cannedMessageEnd("assistant", "No IDs", 15)),
+    ];
+
+    const result = await parsePiOutputStream(lines);
+    const updates = result.events.filter((e) => e.type === "tool_execution_update");
+    assert.equal(updates.length, 1, "exactly one update retained for no-toolCallId");
+    assert.equal(updates[0].partial, "no-id chunk 3 — final");
+    assert.equal(updates[0].toolCallId, undefined, "no toolCallId field present");
+    assert.equal(result.assistantText, "No IDs");
+  });
+
+  it("does not cap tool_execution_start and tool_execution_end events", async () => {
+    const lines = [
+      JSON.stringify(cannedToolExecutionStart("bash")),
+      JSON.stringify(cannedToolExecutionStart("read")),
+      JSON.stringify(cannedToolExecutionStart("write")),
+      JSON.stringify(cannedToolExecutionEnd("bash")),
+      JSON.stringify(cannedToolExecutionEnd("read")),
+      JSON.stringify(cannedToolExecutionEnd("write")),
+      JSON.stringify(cannedMessageEnd("assistant", "All tools", 40)),
+    ];
+
+    const result = await parsePiOutputStream(lines);
+    const starts = result.events.filter((e) => e.type === "tool_execution_start");
+    const ends = result.events.filter((e) => e.type === "tool_execution_end");
+    assert.equal(starts.length, 3, "all start events retained");
+    assert.equal(ends.length, 3, "all end events retained");
+    assert.equal(result.assistantText, "All tools");
+  });
+
+  it("end-to-end: mixed events with bounded updates, correct assistantText", async () => {
+    const lines = [
+      JSON.stringify(cannedToolExecutionStart("bash")),
+      JSON.stringify(cannedToolExecutionUpdate("call_a", "a-chunk-1")),
+      JSON.stringify(cannedToolExecutionUpdate("call_b", "b-chunk-1")),
+      JSON.stringify(cannedToolExecutionUpdate("call_a", "a-chunk-2")),
+      JSON.stringify(cannedToolExecutionEnd("bash")),
+      JSON.stringify(cannedToolExecutionUpdate("call_b", "b-chunk-2")),
+      JSON.stringify(cannedToolExecutionUpdate("call_c", "c-only")),
+      JSON.stringify(cannedToolExecutionStart("read")),
+      JSON.stringify(cannedToolExecutionUpdate("call_a", "a-chunk-3 — final")),
+      JSON.stringify(cannedToolExecutionUpdate("call_b", "b-chunk-3 — final")),
+      JSON.stringify(cannedToolExecutionEnd("read")),
+      JSON.stringify(cannedMessageEnd("assistant", "E2E result", 60)),
+    ];
+
+    const result = await parsePiOutputStream(lines);
+
+    // Assistant text intact
+    assert.equal(result.assistantText, "E2E result");
+
+    // All start/end events retained
+    assert.equal(result.events.filter((e) => e.type === "tool_execution_start").length, 2);
+    assert.equal(result.events.filter((e) => e.type === "tool_execution_end").length, 2);
+
+    // Updates capped: exactly 3 (one per toolCallId: call_a, call_b, call_c)
+    const updates = result.events.filter((e) => e.type === "tool_execution_update");
+    assert.equal(updates.length, 3);
+
+    // Each has the final value
+    const a = updates.find((e) => e.toolCallId === "call_a")!;
+    assert.equal(a.partial, "a-chunk-3 — final");
+    const b = updates.find((e) => e.toolCallId === "call_b")!;
+    assert.equal(b.partial, "b-chunk-3 — final");
+    const c = updates.find((e) => e.toolCallId === "call_c")!;
+    assert.equal(c.partial, "c-only");
+
+    // message_end present
+    assert.ok(result.events.some((e) => e.type === "message_end"));
+
+    // Total events: 2 starts + 2 ends + 3 updates + 1 message_end = 8
+    assert.equal(result.events.length, 8);
+
+    // No text fallback
+    assert.equal(result.textFallback, null);
+  });
+
   it("keeps event array small when processing large volume of discarded events", async () => {
     // Simulate 10000 message_update lines (text_delta) plus one real message_end
     const lines: string[] = [];
