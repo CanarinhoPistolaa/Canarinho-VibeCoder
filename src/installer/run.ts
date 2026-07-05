@@ -47,6 +47,8 @@ export interface RunWorkflowResult {
   status: string;
   stepCount: number;
   workingDirectoryForHarness: string;
+  /** Set when the run row was created but the daemon control plane didn't become reachable in time. */
+  daemonWarning?: string;
 }
 
 /**
@@ -293,32 +295,56 @@ export async function runWorkflow(
   // the first step and the run would loop forever on peek=HAS_WORK / claim=NO_WORK.
   advancePipeline(runId);
 
-  await ensureDaemonControlAvailable();
+  // Once the run row exists and the pipeline is advanced, the run is live.
+  // Subsequent daemon operations may fail transiently (DBLK event-loop
+  // starvation under fleet load) but must NEVER be reported as a launch
+  // failure — the run is already in the DB and the reconciler sweep will
+  // admit it. Capture probe timeouts as warnings; genuine registration
+  // failures (non-2xx, daemon rejected the run) remain fatal.
+  let daemonWarning: string | undefined;
 
-  const registration = await registerRunWithDaemon(runId, 5000);
-  if (!registration || registration.status < 200 || registration.status >= 300) {
-    const message =
-      typeof registration?.body.error === "string"
-        ? registration.body.error
-        : "daemon registration failed";
-    db.prepare(
-      "UPDATE runs SET status = 'failed', scheduling_status = NULL, scheduling_error = ?, updated_at = datetime('now') WHERE id = ?",
-    ).run(message, runId);
-    emitEvent({
-      ts: new Date().toISOString(),
-      event: "run.failed",
-      runId,
-      workflowId,
-      detail: `Registration failed: ${message}`,
-    });
-    scheduleRunCronTeardown(runId);
-    throw new Error(`Failed to register run with daemon: ${message}`);
+  try {
+    await ensureDaemonControlAvailable();
+  } catch (err) {
+    // Any failure to reach the daemon control plane after the run row
+    // is already persisted MUST NOT be reported as a launch failure.
+    // This covers probe timeouts, daemon start failures, and any other
+    // transient daemon-side issue. The reconciler sweep will admit the
+    // run once the daemon recovers.
+    daemonWarning = (err as Error).message;
   }
 
-  // Kick the first dispatch immediately — the first step is already
-  // 'pending', so without a nudge the run would idle until the fallback
-  // dispatch sweep. Fire-and-forget: the sweep is the safety net.
-  nudgeWithDaemon().catch(() => {});
+  if (daemonWarning === undefined) {
+    // Control plane is reachable — register the run and kick first dispatch.
+    const registration = await registerRunWithDaemon(runId, 5000);
+    if (!registration || registration.status < 200 || registration.status >= 300) {
+      const message =
+        typeof registration?.body.error === "string"
+          ? registration.body.error
+          : "daemon registration failed";
+      db.prepare(
+        "UPDATE runs SET status = 'failed', scheduling_status = NULL, scheduling_error = ?, updated_at = datetime('now') WHERE id = ?",
+      ).run(message, runId);
+      emitEvent({
+        ts: new Date().toISOString(),
+        event: "run.failed",
+        runId,
+        workflowId,
+        detail: `Registration failed: ${message}`,
+      });
+      scheduleRunCronTeardown(runId);
+      throw new Error(`Failed to register run with daemon: ${message}`);
+    }
+
+    // Kick the first dispatch immediately — the first step is already
+    // 'pending', so without a nudge the run would idle until the fallback
+    // dispatch sweep. Fire-and-forget: the sweep is the safety net.
+    nudgeWithDaemon().catch(() => {});
+  }
+  // Note: when daemonWarning is set, we intentionally skip registration
+  // and nudge. The run row already exists with scheduling_status=
+  // 'pending_register', and the daemon's reconciler sweep will admit it
+  // when the control plane recovers.
 
   return {
     runId,
@@ -328,6 +354,7 @@ export async function runWorkflow(
     status: "running",
     stepCount: workflow.steps.length,
     workingDirectoryForHarness,
+    daemonWarning,
   };
 }
 

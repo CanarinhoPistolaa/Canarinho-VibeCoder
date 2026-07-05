@@ -667,4 +667,93 @@ describe("runWorkflow", () => {
         "no_relaunch_upon_rugpull should default to 'false' when flag is not set");
     });
   });
+
+  describe("LNCH false failure after run creation (regression)", () => {
+    it("returns daemonWarning when probe times out after run row creation, does not throw", async () => {
+      const workflowId = "test-lnch-probe-timeout";
+      writeMinimalWorkflow(tempHome, workflowId, "direct");
+
+      // Point to a dead control port and set a short probe timeout
+      const deadPort = await reserveRandomPort();
+      const prevControlPort = process.env.TAMANDUA_CONTROL_PORT;
+      const prevProbeOverride = process.env.TAMANDUA_CONTROL_PROBE_TIMEOUT_OVERRIDE;
+      process.env.TAMANDUA_CONTROL_PORT = String(deadPort);
+      process.env.TAMANDUA_CONTROL_PROBE_TIMEOUT_OVERRIDE = "2000";
+
+      let result: Awaited<ReturnType<typeof runWorkflow>>;
+      try {
+        result = await runWorkflow({
+          workflowId,
+          taskTitle: "Test probe timeout after run creation",
+        });
+      } finally {
+        // Clean up the daemon process that startDaemon may have spawned
+        // inside ensureDaemonControlAvailable, and restore env.
+        try {
+          stopDaemon({ homeDir: tempHome });
+          const pid = readPid(getPidFile({ homeDir: tempHome }));
+          if (pid !== null) await waitForPidExit(pid, 5000);
+        } catch {
+          /* best-effort cleanup */
+        }
+        if (prevControlPort !== undefined) {
+          process.env.TAMANDUA_CONTROL_PORT = prevControlPort;
+        } else {
+          delete process.env.TAMANDUA_CONTROL_PORT;
+        }
+        if (prevProbeOverride !== undefined) {
+          process.env.TAMANDUA_CONTROL_PROBE_TIMEOUT_OVERRIDE = prevProbeOverride;
+        } else {
+          delete process.env.TAMANDUA_CONTROL_PROBE_TIMEOUT_OVERRIDE;
+        }
+      }
+
+      // Must not throw — result returned normally
+      assert.ok(result, "expected a result, not an exception");
+      assert.ok(result.runId, "runId should be present");
+      assert.equal(result.status, "running", "status should be 'running'");
+      assert.ok(
+        result.daemonWarning !== undefined,
+        "daemonWarning should be set when probe times out",
+      );
+      assert.ok(
+        result.daemonWarning!.length > 0,
+        "daemonWarning should be a non-empty string",
+      );
+
+      // Verify the run row exists in the DB
+      const { getDb } = await import("../../dist/db.js");
+      const db = getDb();
+      const row = db.prepare(
+        "SELECT id, status, scheduling_status FROM runs WHERE id = ?"
+      ).get(result.runId) as { id: string; status: string; scheduling_status: string | null } | undefined;
+      assert.ok(row, "run row should exist in DB");
+      assert.equal(row!.id, result.runId);
+      assert.equal(row!.status, "running", "run status should be 'running'");
+      // scheduling_status starts as 'pending_register' but the spawned
+      // daemon's reconciler sweep may have already admitted or errored
+      // the run by the time we query. The row merely must exist.
+      assert.ok(
+        row!.scheduling_status === "pending_register" ||
+        row!.scheduling_status === "active" ||
+        row!.scheduling_status === "error",
+        `scheduling_status should be pending_register, active, or error; got ${row!.scheduling_status}`,
+      );
+    });
+
+    it("throws normally when validation fails before run row creation (invalid workflow)", async () => {
+      const workflowId = "test-lnch-nonexistent";
+      // Don't write the workflow — the workflow dir doesn't exist
+      // so loadWorkflowSpec will throw before any run row is created.
+
+      await assert.rejects(
+        runWorkflow({
+          workflowId,
+          taskTitle: "Should fail before run creation",
+        }),
+        /No workflow\.yml found in/,
+        "should reject with workflow-not-found error before run row is inserted",
+      );
+    });
+  });
 });

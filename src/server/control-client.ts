@@ -76,21 +76,37 @@ export async function isDaemonControlReachable(timeoutMs: number = 500): Promise
   return r !== null && r.status === 200;
 }
 
-export async function waitForDaemonControl(timeoutMs: number = 10_000): Promise<boolean> {
+const PROBE_TIMEOUT_OVERRIDE_ENV = "TAMANDUA_CONTROL_PROBE_TIMEOUT_OVERRIDE";
+
+function resolveProbeTimeout(defaultMs: number): number {
+  const override = process.env[PROBE_TIMEOUT_OVERRIDE_ENV];
+  if (override !== undefined) {
+    const parsed = parseInt(override, 10);
+    if (Number.isFinite(parsed) && parsed > 0) return parsed;
+  }
+  return defaultMs;
+}
+
+export async function waitForDaemonControl(timeoutMs: number = 30_000): Promise<boolean> {
+  const effectiveTimeout = resolveProbeTimeout(timeoutMs);
   const startedAt = Date.now();
-  while (Date.now() - startedAt < timeoutMs) {
+  let delay = 100;
+  const maxDelay = 2_000;
+  while (Date.now() - startedAt < effectiveTimeout) {
     if (await isDaemonControlReachable(500)) return true;
-    await new Promise((resolve) => setTimeout(resolve, 100));
+    await new Promise((resolve) => setTimeout(resolve, delay));
+    delay = Math.min(delay * 2, maxDelay);
   }
   return false;
 }
 
-export async function ensureDaemonControlAvailable(timeoutMs: number = 10_000): Promise<void> {
+export async function ensureDaemonControlAvailable(timeoutMs: number = 30_000): Promise<void> {
+  const effectiveTimeout = resolveProbeTimeout(timeoutMs);
   if (await isDaemonControlReachable(500)) return;
 
   await startDaemon(readPort());
 
-  if (!(await waitForDaemonControl(timeoutMs))) {
+  if (!(await waitForDaemonControl(effectiveTimeout))) {
     throw new Error(
       `Tamandua daemon started but control plane did not become reachable on port ${getControlPort()}.`,
     );

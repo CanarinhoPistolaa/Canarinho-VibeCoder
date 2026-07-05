@@ -18,7 +18,7 @@ import { resolveBundledWorkflowDir } from "../installer/paths.js";
 import { getRecentEvents, getRunEvents, readEventsFromCursor, type EventCursorSource, type TamanduaEvent } from "../installer/events.js";
 import { formatLogsTailLines } from "../installer/logs-tail-format.js";
 import { parseLogsSelector, lookupRunIdByNumber } from "./logs-selector.js";
-import { startDaemon, stopDaemon, restartDaemon, getDaemonStatus, isRunning, startMcp, stopMcp, restartMcp, getMcpStatus, isMcpRunning, startControlPlane, stopControlPlane, restartControlPlane, getControlPlaneStatus, isControlPlaneRunning } from "../server/daemonctl.js";
+import { startDaemon, stopDaemon, restartDaemon, getDaemonStatus, isRunning, readPort, startMcp, stopMcp, restartMcp, getMcpStatus, isMcpRunning, startControlPlane, stopControlPlane, restartControlPlane, getControlPlaneStatus, isControlPlaneRunning } from "../server/daemonctl.js";
 import { DEFAULT_MCP_PORT, MCP_ENDPOINT_PATH } from "../server/mcp-server.js";
 import { DEFAULT_CONTROL_PORT } from "../server/control-server.js";
 import { pauseRunWithDaemon, resumeRunWithDaemon, nudgeWithDaemon } from "../server/control-client.js";
@@ -2895,7 +2895,20 @@ async function main() {
       harnessType,
       context: runArgs.context,
     });
-    console.log(`Run: ${result.runId.slice(0, 8)}\nWorkflow: ${result.workflowId}\nTask: ${result.taskTitle}\nStatus: ${result.status}\nHarness CWD: ${result.workingDirectoryForHarness}`);
+    if (result.daemonWarning) {
+      let dashboardLine = "";
+      try {
+        const port = readPort();
+        dashboardLine = `\nDashboard: http://localhost:${port}/`;
+      } catch {
+        // can't read dashboard port
+      }
+      console.log(`Run: ${result.runId.slice(0, 8)}\nWorkflow: ${result.workflowId}\nTask: ${result.taskTitle}\nRun created and admitted — control plane slow to respond.`);
+      console.log(`The run is live and the reconciler sweep will admit it when ready.`);
+      console.log(`Check: tamandua workflow status ${result.runId.slice(0, 8)}${dashboardLine}`);
+    } else {
+      console.log(`Run: ${result.runId.slice(0, 8)}\nWorkflow: ${result.workflowId}\nTask: ${result.taskTitle}\nStatus: ${result.status}\nHarness CWD: ${result.workingDirectoryForHarness}`);
+    }
     return;
   }
 

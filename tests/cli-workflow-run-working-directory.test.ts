@@ -217,4 +217,129 @@ describe("CLI workflow run working-directory-for-harness", () => {
       try { fs.rmSync(env.root, { recursive: true, force: true }); } catch { /* cleanup */ }
     }
   });
+
+  // Regression: LNCH false failure after run creation (Half A).
+  // When the run row is created but the daemon control plane probe
+  // times out, the CLI must exit 0 (success) and print the run ID
+  // — never report a failure or print "Error".
+  it("exits 0 with run-id when probe times out after run creation", async () => {
+    const env = await createTempEnv();
+
+    // Reserve a fresh port and bind a dummy listener to it so the
+    // daemon cannot bind its control plane there. The probe will
+    // always time out because our listener doesn't respond with 200.
+    const { reserveRandomPort } = await import(
+      "./helpers/test-env.ts"
+    );
+    const blockerPort = await reserveRandomPort();
+    // Start a dummy server that accepts but returns 503 — keeps
+    // the port occupied so the daemon cannot bind.
+    const http = await import("node:http");
+    const dummyServer = http.createServer((_req, res) => {
+      res.writeHead(503);
+      res.end("blocked");
+    });
+    await new Promise<void>((resolve, reject) => {
+      dummyServer.listen(blockerPort, "127.0.0.1", resolve);
+      dummyServer.on("error", reject);
+    });
+
+    const probeTimeoutMs = "2000";
+
+    try {
+      const workflowId = "cli-lnch-probe-timeout";
+      writeMinimalWorkflow(env.homeDir, workflowId);
+
+      const result = await runCliToExit(
+        ["workflow", "run", workflowId, "Test LNCH probe timeout"],
+        {
+          HOME: env.homeDir,
+          TAMANDUA_CONTROL_PORT: String(blockerPort),
+          TAMANDUA_CONTROL_PROBE_TIMEOUT_OVERRIDE: probeTimeoutMs,
+        },
+      );
+
+      assert.equal(
+        result.code,
+        0,
+        `expected exit code 0 (success), got ${result.code}\nstdout:\n${result.stdout}\nstderr:\n${result.stderr}`,
+      );
+      assert.match(
+        result.stdout,
+        /Run: [0-9a-f]{8}/i,
+        "output should contain the run ID",
+      );
+      assert.ok(
+        !result.stdout.includes("Error:") &&
+        !result.stdout.includes("failed") &&
+        !result.stdout.includes("failure"),
+        `output must NOT contain failure wording; got:\n${result.stdout}`,
+      );
+      assert.match(
+        result.stdout,
+        /Run created and admitted/,
+        "output should indicate run was created",
+      );
+      assert.match(
+        result.stdout,
+        /tamandua workflow status/,
+        "output should include status command hint",
+      );
+
+      // Verify the run row exists in the DB
+      const dbPath = path.join(env.tamanduaDir, "tamandua.db");
+      const db = new DatabaseSync(dbPath);
+      const row = db
+        .prepare(
+          "SELECT id, status FROM runs ORDER BY created_at DESC LIMIT 1",
+        )
+        .get() as { id: string; status: string } | undefined;
+      db.close();
+      assert.ok(row, "run row should exist in DB");
+      assert.equal(row!.status, "running", "run status should be 'running'");
+    } finally {
+      dummyServer.close();
+      await runCliToExit(["dashboard", "stop"], {
+        HOME: env.homeDir,
+        TAMANDUA_CONTROL_PORT: String(blockerPort),
+      }).catch(() => ({ stdout: "", stderr: "", code: null }));
+      try {
+        fs.rmSync(env.root, { recursive: true, force: true });
+      } catch {
+        /* cleanup */
+      }
+    }
+  });
+
+  it("exits 1 when workflow does not exist (fail before run creation)", async () => {
+    const env = await createTempEnv();
+
+    try {
+      const result = await runCliToExit(
+        ["workflow", "run", "nonexistent-workflow-id", "Should fail"],
+        { HOME: env.homeDir, TAMANDUA_CONTROL_PORT: String(env.controlPort) },
+      );
+
+      assert.equal(
+        result.code,
+        1,
+        `expected exit code 1 for invalid workflow, got ${result.code}`,
+      );
+      // Output should not contain a run ID because no run was created
+      assert.ok(
+        !result.stdout.includes("Run:"),
+        "should not print successful run output for invalid workflow",
+      );
+    } finally {
+      await runCliToExit(["dashboard", "stop"], {
+        HOME: env.homeDir,
+        TAMANDUA_CONTROL_PORT: String(env.controlPort),
+      }).catch(() => ({ stdout: "", stderr: "", code: null }));
+      try {
+        fs.rmSync(env.root, { recursive: true, force: true });
+      } catch {
+        /* cleanup */
+      }
+    }
+  });
 });
