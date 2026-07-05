@@ -18,6 +18,7 @@ import {
   removeRunCrons,
   shutdownAllCrons,
 } from "../../dist/installer/agent-scheduler.js";
+import { getHarnessAdapter } from "../../dist/installer/harness-adapter.js";
 import { getDb } from "../../dist/db.js";
 import type { CronJobInfo } from "../../dist/installer/agent-scheduler.js";
 import type { WorkflowAgent, WorkflowSpec } from "../../dist/installer/types.js";
@@ -425,5 +426,106 @@ describe("createAgentCronJob harnessType from run context", () => {
     assert.ok(_scheduledRunIds().has(runId), "run should be scheduled");
 
     await removeRunCrons(runId);
+  });
+
+  // ── sessionRef capture in HermesHarnessAdapter.runRound ───────────
+
+  it("captures session_id trailer as sessionRef and filters it from output", async () => {
+    const hermesPath = path.join(tempHome, "hermes-mock");
+    makeMockBinary(
+      hermesPath,
+      `echo "some output
+session_id: abc123"`,
+    );
+    process.env.TAMANDUA_HERMES_BINARY = hermesPath;
+
+    const adapter = getHarnessAdapter("hermes");
+    const result = await adapter.runRound("do work", {
+      workdir: tempHome,
+      timeout: 5,
+      env: { TAMANDUA_HERMES_BINARY: hermesPath },
+    });
+
+    assert.equal(result.sessionRef, "abc123");
+    assert.ok(!result.output.includes("session_id"), "output must not contain session_id trailer");
+    assert.ok(result.output.includes("some output"), "output must retain content lines");
+  });
+
+  it("uses LAST session_id line when multiple are present", async () => {
+    const hermesPath = path.join(tempHome, "hermes-mock");
+    makeMockBinary(
+      hermesPath,
+      `echo "session_id: first
+some output
+session_id: last-one"`,
+    );
+    process.env.TAMANDUA_HERMES_BINARY = hermesPath;
+
+    const adapter = getHarnessAdapter("hermes");
+    const result = await adapter.runRound("do work", {
+      workdir: tempHome,
+      timeout: 5,
+      env: { TAMANDUA_HERMES_BINARY: hermesPath },
+    });
+
+    assert.equal(result.sessionRef, "last-one");
+    assert.ok(!result.output.includes("session_id"), "output must not contain any session_id line");
+  });
+
+  it("sessionRef is undefined when no session_id trailer is present", async () => {
+    const hermesPath = path.join(tempHome, "hermes-mock");
+    makeMockBinary(
+      hermesPath,
+      `echo "some output without session id"`,
+    );
+    process.env.TAMANDUA_HERMES_BINARY = hermesPath;
+
+    const adapter = getHarnessAdapter("hermes");
+    const result = await adapter.runRound("do work", {
+      workdir: tempHome,
+      timeout: 5,
+      env: { TAMANDUA_HERMES_BINARY: hermesPath },
+    });
+
+    assert.equal(result.sessionRef, undefined);
+    assert.ok(result.output.includes("some output"), "output retained");
+  });
+
+  it("session_id with extra whitespace is correctly stripped", async () => {
+    const hermesPath = path.join(tempHome, "hermes-mock");
+    makeMockBinary(
+      hermesPath,
+      `echo "some output
+session_id:   abc123  "`,
+    );
+    process.env.TAMANDUA_HERMES_BINARY = hermesPath;
+
+    const adapter = getHarnessAdapter("hermes");
+    const result = await adapter.runRound("do work", {
+      workdir: tempHome,
+      timeout: 5,
+      env: { TAMANDUA_HERMES_BINARY: hermesPath },
+    });
+
+    assert.equal(result.sessionRef, "abc123");
+  });
+
+  it("empty hermes output produces undefined sessionRef", async () => {
+    const hermesPath = path.join(tempHome, "hermes-mock");
+    makeMockBinary(
+      hermesPath,
+      `exit 0`,
+    );
+    process.env.TAMANDUA_HERMES_BINARY = hermesPath;
+
+    const adapter = getHarnessAdapter("hermes");
+    const result = await adapter.runRound("do work", {
+      workdir: tempHome,
+      timeout: 5,
+      env: { TAMANDUA_HERMES_BINARY: hermesPath },
+    });
+
+    assert.equal(result.sessionRef, undefined);
+    assert.equal(result.output, "");
   });
 });

@@ -10,6 +10,7 @@ import { formatPiCommandPreview } from "./pi-command-preview.js";
 import { emitEvent } from "./events.js";
 import { parsePiOutputStream } from "./pi-stream-parser.js";
 import { getHarnessAdapter } from "./harness-adapter.js";
+import { lookupHermesSessionTokens } from "./hermes-usage.js";
 
 // ──────────────────────────────────────────────────────────────────────
 // Run-Scoped Deterministic Dispatch
@@ -1132,6 +1133,24 @@ export async function executeDispatchRound(
     });
 
     await attributeWorkRoundTokenUsage(context, job, outputSummary, metadata);
+
+    // ── Hermes token lookup ──────────────────────────────────────
+    // When the round ran through hermes and a session id was captured,
+    // look up token usage from hermes' own state.db and attribute it
+    // exactly like pi rounds (reuses attributeWorkRoundTokenUsage).
+    if (harnessType === "hermes" && result.sessionRef) {
+      const hermesTokens = await lookupHermesSessionTokens(result.sessionRef);
+      if (hermesTokens !== null && hermesTokens > 0) {
+        const hermesMetadata: WorkRoundMetadata = {
+          assistantOutput: output,
+          tokenUsage: hermesTokens,
+          runId: null,
+          stepId: null,
+          jsonMetadataDetected: false,
+        };
+        await attributeWorkRoundTokenUsage(context, job, outputSummary, hermesMetadata);
+      }
+    }
 
     if (outputSummary.outcome === "work_done") {
       await autoCompleteStepIfRunning(context, metadata);

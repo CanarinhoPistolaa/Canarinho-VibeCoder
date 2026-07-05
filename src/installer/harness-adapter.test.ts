@@ -423,7 +423,7 @@ echo "session_id: 20260518_103004_cdae11"`,
         assert.ok(!result.output.includes("session_id:"));
         assert.ok(result.output.includes("Hello from hermes"));
         assert.ok(result.output.includes("Work completed successfully"));
-        assert.equal(result.sessionRef, undefined);
+        assert.equal(result.sessionRef, "20260518_103004_cdae11");
       } finally {
         if (originalHermesBinary === undefined) {
           delete process.env.TAMANDUA_HERMES_BINARY;

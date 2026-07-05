@@ -47,10 +47,16 @@ describe("SKILL.md Hermes harness documentation", () => {
     );
   });
 
-  it("warns Hermes token accounting is broken", () => {
+  it("documents hermes token accounting reads from state.db", () => {
     assert.ok(
-      skillContent.includes("token accounting is broken"),
-      "SKILL.md must warn that Hermes token accounting is broken"
+      skillContent.includes("state.db") ||
+      skillContent.includes("token usage is read"),
+      "SKILL.md must document that hermes token usage is read from state.db"
+    );
+    assert.ok(
+      skillContent.includes("best-effort") ||
+      skillContent.includes("falls back"),
+      "SKILL.md must document that hermes token accounting is best-effort"
     );
   });
 

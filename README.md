@@ -573,8 +573,9 @@ These flags are **mutually exclusive** — specifying both is an error.
 #### Hermes Support (Alpha)
 
 > **⚠️ Alpha quality.** Hermes harness support is in **alpha** and has known
-> limitations: it is **very slow** compared to pi, and **token accounting is
-> broken** (token usage numbers in runs and the dashboard will be inaccurate).
+> limitations: it is **very slow** compared to pi. Token usage is read from
+> hermes' state.db after each round (best-effort: falls back to 0 tokens with a
+> warning if the hermes schema is unavailable or changed).
 > Use pi (`--pi-as-harness`) for production workflows.
 
 To use a custom Hermes binary path, set the `TAMANDUA_HERMES_BINARY`

@@ -1,0 +1,230 @@
+/**
+ * Unit tests for hermes-usage.ts — lookupHermesSessionTokens.
+ *
+ * All tests use synthetic SQLite fixtures (no real hermes installation).
+ */
+import { describe, it, beforeEach, afterEach } from "node:test";
+import assert from "node:assert/strict";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
+import { DatabaseSync } from "node:sqlite";
+import { lookupHermesSessionTokens } from "../../dist/installer/hermes-usage.js";
+
+function createTempHome(): string {
+  return fs.mkdtempSync(path.join(os.tmpdir(), "tamandua-test-hermes-usage-"));
+}
+
+function seedStateDb(hermesHome: string, rows: Array<Record<string, unknown>>): string {
+  const dbPath = path.join(hermesHome, "state.db");
+  const db = new DatabaseSync(dbPath);
+  db.exec(`
+    CREATE TABLE sessions (
+      id TEXT PRIMARY KEY,
+      input_tokens INTEGER DEFAULT 0,
+      output_tokens INTEGER DEFAULT 0,
+      cache_read_tokens INTEGER DEFAULT 0,
+      cache_write_tokens INTEGER DEFAULT 0,
+      reasoning_tokens INTEGER DEFAULT 0,
+      estimated_cost_usd REAL
+    )
+  `);
+  for (const row of rows) {
+    const keys = Object.keys(row);
+    const placeholders = keys.map(() => "?").join(", ");
+    const values = keys.map((k) => row[k]);
+    db.prepare(`INSERT INTO sessions (${keys.join(", ")}) VALUES (${placeholders})`).run(
+      ...values,
+    );
+  }
+  db.close();
+  return dbPath;
+}
+
+function makeEnv(hermesHome: string): NodeJS.ProcessEnv {
+  // Only pass the HERMES_HOME var; avoid spreading process.env which
+  // triggers the test-isolation guard (TAMANDUA_TEST_GUARD leakage).
+  // The lookupHermesSessionTokens function only reads HERMES_HOME and
+  // os.homedir() — no other env vars are consumed.
+  return { HERMES_HOME: hermesHome };
+}
+
+describe("lookupHermesSessionTokens", () => {
+  let tempDir: string | null = null;
+  let savedHermesHome: string | undefined;
+
+  beforeEach(() => {
+    tempDir = createTempHome();
+    savedHermesHome = process.env.HERMES_HOME;
+  });
+
+  afterEach(() => {
+    if (tempDir) {
+      fs.rmSync(tempDir, { recursive: true, force: true });
+      tempDir = null;
+    }
+    if (savedHermesHome === undefined) {
+      delete process.env.HERMES_HOME;
+    } else {
+      process.env.HERMES_HOME = savedHermesHome;
+    }
+  });
+
+  it("returns total tokens for a valid session", async () => {
+    seedStateDb(tempDir!, [
+      { id: "sess-abc", input_tokens: 100, output_tokens: 200, cache_read_tokens: 50, cache_write_tokens: 25 },
+    ]);
+    const result = await lookupHermesSessionTokens("sess-abc", makeEnv(tempDir!));
+    assert.equal(result, 375);
+  });
+
+  it("excludes reasoning_tokens from the total", async () => {
+    seedStateDb(tempDir!, [
+      { id: "sess-abc", input_tokens: 100, output_tokens: 200, cache_read_tokens: 50, cache_write_tokens: 25, reasoning_tokens: 500 },
+    ]);
+    const result = await lookupHermesSessionTokens("sess-abc", makeEnv(tempDir!));
+    assert.equal(result, 375);
+  });
+
+  it("clamps negative token values to 0", async () => {
+    seedStateDb(tempDir!, [
+      { id: "sess-abc", input_tokens: -10, output_tokens: 200, cache_read_tokens: -5, cache_write_tokens: 25 },
+    ]);
+    const result = await lookupHermesSessionTokens("sess-abc", makeEnv(tempDir!));
+    assert.equal(result, 225);
+  });
+
+  it("handles NULL token columns as 0", async () => {
+    const dbPath = path.join(tempDir!, "state.db");
+    const db = new DatabaseSync(dbPath);
+    db.exec(`
+      CREATE TABLE sessions (
+        id TEXT PRIMARY KEY,
+        input_tokens INTEGER,
+        output_tokens INTEGER,
+        cache_read_tokens INTEGER,
+        cache_write_tokens INTEGER
+      )
+    `);
+    db.prepare("INSERT INTO sessions (id) VALUES (?)").run("sess-null");
+    db.close();
+
+    const result = await lookupHermesSessionTokens("sess-null", makeEnv(tempDir!));
+    assert.equal(result, 0);
+  });
+
+  it("returns null when state.db is missing", async () => {
+    const result = await lookupHermesSessionTokens("sess-abc", makeEnv(tempDir!));
+    assert.equal(result, null);
+  });
+
+  it("returns null when sessions table is missing", async () => {
+    const dbPath = path.join(tempDir!, "state.db");
+    const db = new DatabaseSync(dbPath);
+    db.exec("CREATE TABLE other_table (x int)");
+    db.close();
+
+    const result = await lookupHermesSessionTokens("sess-abc", makeEnv(tempDir!));
+    assert.equal(result, null);
+  });
+
+  it("returns null when a required column is missing (e.g. no cache_write_tokens)", async () => {
+    const dbPath = path.join(tempDir!, "state.db");
+    const db = new DatabaseSync(dbPath);
+    db.exec(`
+      CREATE TABLE sessions (
+        id TEXT PRIMARY KEY,
+        input_tokens INTEGER,
+        output_tokens INTEGER,
+        cache_read_tokens INTEGER
+      )
+    `);
+    db.prepare("INSERT INTO sessions (id, input_tokens, output_tokens, cache_read_tokens) VALUES (?, ?, ?, ?)").run(
+      "sess-abc", 100, 200, 50,
+    );
+    db.close();
+
+    const result = await lookupHermesSessionTokens("sess-abc", makeEnv(tempDir!));
+    assert.equal(result, null);
+  });
+
+  it("returns null when row not found after retries", async () => {
+    seedStateDb(tempDir!, [
+      { id: "other-session", input_tokens: 100, output_tokens: 200, cache_read_tokens: 50, cache_write_tokens: 25 },
+    ]);
+
+    const result = await lookupHermesSessionTokens("sess-missing", makeEnv(tempDir!));
+    assert.equal(result, null);
+  });
+
+  it("never creates the state.db file when missing (read-only)", async () => {
+    const stateDbPath = path.join(tempDir!, "state.db");
+    assert.ok(!fs.existsSync(stateDbPath));
+
+    await lookupHermesSessionTokens("sess-abc", makeEnv(tempDir!));
+
+    // readOnly mode should prevent file creation
+    assert.ok(!fs.existsSync(stateDbPath));
+  });
+
+  it("resolves HERMES_HOME from the env parameter", async () => {
+    seedStateDb(tempDir!, [
+      { id: "sess-env", input_tokens: 10, output_tokens: 20, cache_read_tokens: 5, cache_write_tokens: 3 },
+    ]);
+
+    // Clear process.env.HERMES_HOME so only the parameter is used
+    delete process.env.HERMES_HOME;
+    const result = await lookupHermesSessionTokens("sess-env", { HERMES_HOME: tempDir! });
+    assert.equal(result, 38);
+  });
+
+  it("falls back to process.env.HERMES_HOME when env parameter omits it", async () => {
+    seedStateDb(tempDir!, [
+      { id: "sess-proc", input_tokens: 10, output_tokens: 20, cache_read_tokens: 5, cache_write_tokens: 3 },
+    ]);
+
+    process.env.HERMES_HOME = tempDir!;
+    const result = await lookupHermesSessionTokens("sess-proc", {});
+    assert.equal(result, 38);
+  });
+
+  it("env parameter HERMES_HOME takes precedence over process.env", async () => {
+    const otherDir = createTempHome();
+    seedStateDb(otherDir, [
+      { id: "sess-prec", input_tokens: 10, output_tokens: 10, cache_read_tokens: 0, cache_write_tokens: 0 },
+    ]);
+
+    process.env.HERMES_HOME = "/some/nonexistent/path";
+    const result = await lookupHermesSessionTokens("sess-prec", { HERMES_HOME: otherDir });
+    assert.equal(result, 20);
+
+    fs.rmSync(otherDir, { recursive: true, force: true });
+  });
+
+  it("returns integer total (rounds fractional)", async () => {
+    // SQLite INTEGER can't really be fractional, but encode test intent
+    seedStateDb(tempDir!, [
+      { id: "sess-round", input_tokens: 100, output_tokens: 200, cache_read_tokens: 50, cache_write_tokens: 25 },
+    ]);
+    const result = await lookupHermesSessionTokens("sess-round", makeEnv(tempDir!));
+    assert.equal(result, 375);
+    assert.ok(Number.isInteger(result));
+  });
+
+  it("sums only the four required token columns", async () => {
+    seedStateDb(tempDir!, [
+      { id: "sess-sum", input_tokens: 10, output_tokens: 20, cache_read_tokens: 30, cache_write_tokens: 40 },
+    ]);
+    const result = await lookupHermesSessionTokens("sess-sum", makeEnv(tempDir!));
+    // 10 + 20 + 30 + 40 = 100
+    assert.equal(result, 100);
+  });
+
+  it("works with zero tokens", async () => {
+    seedStateDb(tempDir!, [
+      { id: "sess-zero", input_tokens: 0, output_tokens: 0, cache_read_tokens: 0, cache_write_tokens: 0 },
+    ]);
+    const result = await lookupHermesSessionTokens("sess-zero", makeEnv(tempDir!));
+    assert.equal(result, 0);
+  });
+});

@@ -733,9 +733,10 @@ the default pi harness.
 tamandua workflow run <workflow-id> "<task>" --hermes-as-harness
 ```
 
-> ⚠️ **Hermes support is in alpha.** It is **very slow** compared to pi, and
-> **token accounting is broken** — token counts reported by Hermes runs are
-> inaccurate. Pi is the default and recommended harness for production use.
+> ⚠️ **Hermes support is in alpha.** It is **very slow** compared to pi.
+> Token usage is read from hermes' state.db after each round (best-effort: falls
+> back to 0 tokens with a warning if the hermes schema is unavailable or changed).
+> Pi is the default and recommended harness for production use.
 
 The `--pi-as-harness` flag explicitly selects the pi harness (this is the
 default, so the flag is rarely needed unless a previous run used

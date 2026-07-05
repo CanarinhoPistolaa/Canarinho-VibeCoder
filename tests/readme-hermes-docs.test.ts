@@ -52,11 +52,16 @@ describe("README Hermes harness documentation", () => {
     );
   });
 
-  it("warns Hermes token accounting is broken", () => {
+  it("documents hermes token accounting reads from state.db", () => {
     assert.ok(
-      readmeContent.includes("token accounting is broken") ||
-      readmeContent.includes("token accounting"),
-      "README must warn that Hermes token accounting is broken"
+      readmeContent.includes("state.db") ||
+      readmeContent.includes("token usage is read"),
+      "README must document that hermes token usage is read from state.db"
+    );
+    assert.ok(
+      readmeContent.includes("best-effort") ||
+      readmeContent.includes("falls back"),
+      "README must document that hermes token accounting is best-effort"
     );
   });
 

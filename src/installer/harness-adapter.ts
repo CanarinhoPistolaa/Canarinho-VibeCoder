@@ -534,8 +534,16 @@ class HermesHarnessAdapter implements HarnessAdapter {
     // Filter out session_id lines. Hermes appends a session identifier
     // (e.g. "session_id: 20260518_103004_cdae11") at the end of stdout.
     // Remove it so the scheduler sees clean output.
-    const filteredStdout = rawStdout
-      .split("\n")
+    // Capture the LAST session_id (without prefix) for downstream token
+    // accounting via hermes-usage.ts.
+    const lines = rawStdout.split("\n");
+    const sessionIdLine = lines
+      .filter((line) => /^session_id:\s*\S+/.test(line.trim()))
+      .pop();
+    const sessionRef =
+      sessionIdLine?.trim().replace(/^session_id:\s*/, "") || undefined;
+
+    const filteredStdout = lines
       .filter((line) => !/^session_id:\s*\S+/.test(line.trim()))
       .join("\n")
       .trim();
@@ -556,7 +564,7 @@ class HermesHarnessAdapter implements HarnessAdapter {
       hasStderr: stderrMeta.bytes > 0,
     });
 
-    return { output: filteredStdout };
+    return { output: filteredStdout, sessionRef };
   }
 }
 

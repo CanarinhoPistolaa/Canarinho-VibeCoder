@@ -54,6 +54,7 @@ tests/deterministic-motor-acceptance.test.ts
 tests/e2e-infrastructure.test.ts
 tests/frontend-context.test.ts
 tests/harness-working-directory.test.ts
+tests/hermes-token-attribution.test.ts
 tests/inject-version.test.ts
 tests/install-script-workflows.test.ts
 tests/logs-prefix-expansion.test.ts
