@@ -66,8 +66,8 @@ function ensureMainAgentInList(list: Array<Record<string, unknown>>): void {
 // Pi doesn't have tool profiles like OpenClaw, so these are simplified to
 // role descriptions and timeout values only.
 
-const TIMEOUT_20_MIN = 1200;
-const TIMEOUT_30_MIN = 1800;
+const TIMEOUT_40_MIN = 2400;
+const TIMEOUT_60_MIN = 3600;
 
 interface RolePolicy {
   description: string;
@@ -78,37 +78,37 @@ const ROLE_POLICIES: Record<AgentRole, RolePolicy> = {
   // analysis: read-only code exploration (planner, prioritizer, reviewer, investigator, triager)
   analysis: {
     description: "Read-only code exploration and reasoning — no file modification, web, or browser access",
-    timeoutSeconds: TIMEOUT_30_MIN,
+    timeoutSeconds: TIMEOUT_60_MIN,
   },
 
   // coding: full read/write/exec — the workhorses (developer, fixer, setup)
   coding: {
     description: "Full read/write/exec for implementation work — the primary workhorse role",
-    timeoutSeconds: TIMEOUT_30_MIN,
+    timeoutSeconds: TIMEOUT_60_MIN,
   },
 
   // verification: read + exec but NO write — preserves independent verification integrity
   verification: {
     description: "Read + exec but NO write — independent verification and code review",
-    timeoutSeconds: TIMEOUT_20_MIN,
+    timeoutSeconds: TIMEOUT_40_MIN,
   },
 
   // testing: read + exec + browser/web for E2E, NO write
   testing: {
     description: "Read + exec capability for running tests and E2E validation",
-    timeoutSeconds: TIMEOUT_30_MIN,
+    timeoutSeconds: TIMEOUT_60_MIN,
   },
 
   // pr: just needs read + exec (for `gh pr create`)
   pr: {
     description: "Read + exec only — creates pull requests and manages version control",
-    timeoutSeconds: TIMEOUT_20_MIN,
+    timeoutSeconds: TIMEOUT_40_MIN,
   },
 
   // scanning: read + exec + web (CVE lookups), NO write
   scanning: {
     description: "Read + exec for security scanning and vulnerability analysis",
-    timeoutSeconds: TIMEOUT_20_MIN,
+    timeoutSeconds: TIMEOUT_40_MIN,
   },
 };
 

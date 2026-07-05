@@ -17,36 +17,36 @@ describe("install exports", () => {
       assert.ok(max > 0);
     });
 
-    it("returns the maximum timeout (1800 for 30-min roles)", () => {
+    it("returns the maximum timeout (3600 for 60-min roles)", () => {
       const max = getMaxRoleTimeoutSeconds();
-      // coding, testing roles are 1800; others are 1200
-      assert.equal(max, 1800);
+      // coding, testing, analysis roles are 3600; others are 2400
+      assert.equal(max, 3600);
     });
   });
 
   describe("getRoleTimeoutSeconds", () => {
-    it("returns 1800 for analysis role (30 min)", () => {
-      assert.equal(getRoleTimeoutSeconds("analysis"), 1800);
+    it("returns 3600 for analysis role (60 min)", () => {
+      assert.equal(getRoleTimeoutSeconds("analysis"), 3600);
     });
 
-    it("returns 1800 for coding role (30 min)", () => {
-      assert.equal(getRoleTimeoutSeconds("coding"), 1800);
+    it("returns 3600 for coding role (60 min)", () => {
+      assert.equal(getRoleTimeoutSeconds("coding"), 3600);
     });
 
-    it("returns 1200 for verification role (20 min)", () => {
-      assert.equal(getRoleTimeoutSeconds("verification"), 1200);
+    it("returns 2400 for verification role (40 min)", () => {
+      assert.equal(getRoleTimeoutSeconds("verification"), 2400);
     });
 
-    it("returns 1800 for testing role (30 min)", () => {
-      assert.equal(getRoleTimeoutSeconds("testing"), 1800);
+    it("returns 3600 for testing role (60 min)", () => {
+      assert.equal(getRoleTimeoutSeconds("testing"), 3600);
     });
 
-    it("returns 1200 for pr role (20 min)", () => {
-      assert.equal(getRoleTimeoutSeconds("pr"), 1200);
+    it("returns 2400 for pr role (40 min)", () => {
+      assert.equal(getRoleTimeoutSeconds("pr"), 2400);
     });
 
-    it("returns 1200 for scanning role (20 min)", () => {
-      assert.equal(getRoleTimeoutSeconds("scanning"), 1200);
+    it("returns 2400 for scanning role (40 min)", () => {
+      assert.equal(getRoleTimeoutSeconds("scanning"), 2400);
     });
   });
 
