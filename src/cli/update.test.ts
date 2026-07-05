@@ -24,13 +24,15 @@ describe("update exports", () => {
     });
 
     it("snapshot returns an object with dashboard, mcp, and controlPlane", () => {
+      const prevGuard = process.env.TAMANDUA_TEST_GUARD;
       process.env.TAMANDUA_TEST_GUARD = "0";
       let snap: ReturnType<ReturnType<typeof createDefaultUpdateServices>["snapshot"]>;
       try {
         const services = createDefaultUpdateServices();
         snap = services.snapshot();
       } finally {
-        delete process.env.TAMANDUA_TEST_GUARD;
+        if (prevGuard === undefined) delete process.env.TAMANDUA_TEST_GUARD;
+        else process.env.TAMANDUA_TEST_GUARD = prevGuard;
       }
       assert.ok("dashboard" in snap);
       assert.ok("mcp" in snap);

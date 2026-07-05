@@ -223,3 +223,42 @@ describe("test isolation guard", () => {
     }
   });
 });
+
+describe("test guard disarm protection", () => {
+  it("test files that disable TAMANDUA_TEST_GUARD must save the prior value first", () => {
+    // Regression guard for the disarm bug found 2026-07-05: several tests set
+    // TAMANDUA_TEST_GUARD = "0" and then `delete`d the variable in finally
+    // instead of restoring the previous value ("1" under npm test) — leaving
+    // the isolation guard PERMANENTLY DISARMED for every subsequent test in
+    // that file's process. Any test file that assigns a disabling value must
+    // contain a save-read of process.env.TAMANDUA_TEST_GUARD (inline
+    // `const prev = process.env.TAMANDUA_TEST_GUARD` or a beforeEach hook
+    // capture) so the finally can restore rather than delete.
+    const testFiles = [
+      ...collectTestFiles(path.join(process.cwd(), "tests")),
+      ...collectTestFiles(path.join(process.cwd(), "e2e-tests")),
+      ...collectTestFiles(path.join(process.cwd(), "src")),
+    ];
+
+    const disables = /process\.env\.TAMANDUA_TEST_GUARD\s*=\s*["'](?:0|false|)["']/;
+    const savesPrior = /=\s*process\.env\.TAMANDUA_TEST_GUARD\s*[;,)]/;
+
+    const violations: string[] = [];
+    for (const file of testFiles) {
+      const relative = path.relative(process.cwd(), file);
+      const content = fs.readFileSync(file, "utf-8");
+      if (!disables.test(content)) continue;
+
+      const disableIndex = content.search(disables);
+      const saveIndex = content.search(savesPrior);
+      if (saveIndex === -1 || saveIndex > disableIndex) {
+        violations.push(
+          `${relative}: disables TAMANDUA_TEST_GUARD without first saving the prior value — ` +
+            `restore-by-delete disarms the guard for the rest of the test process`,
+        );
+      }
+    }
+
+    assert.deepEqual(violations, []);
+  });
+});

@@ -30,6 +30,7 @@ import {
   stopControlPlane,
   getControlPlanePidFile,
   getControlPlanePortFile,
+  recordLifecycleEvent,
 } from "../../dist/server/daemonctl.js";
 import { DEFAULT_MCP_PORT } from "../../dist/server/mcp-server.js";
 import { DEFAULT_CONTROL_PORT } from "../../dist/server/control-server.js";
@@ -458,6 +459,7 @@ describe("daemonctl MCP lifecycle", { concurrency: 1 }, () => {
 
   // Verify file path helper exports — these return real HOME paths (path-string-only assertions)
   it("getMcpPidFile() and getMcpPortFile() return paths within .tamandua", () => {
+    const prevGuard = process.env.TAMANDUA_TEST_GUARD;
     process.env.TAMANDUA_TEST_GUARD = "0";
     try {
       const pidFile = getMcpPidFile();
@@ -468,7 +470,8 @@ describe("daemonctl MCP lifecycle", { concurrency: 1 }, () => {
       assert.ok(portFile.includes(".tamandua"));
       assert.ok(portFile.includes("mcp-port"));
     } finally {
-      delete process.env.TAMANDUA_TEST_GUARD;
+      if (prevGuard === undefined) delete process.env.TAMANDUA_TEST_GUARD;
+      else process.env.TAMANDUA_TEST_GUARD = prevGuard;
     }
   });
 });
@@ -497,22 +500,26 @@ describe("daemonctl control plane file paths", () => {
   });
 
   it("getControlPlanePidFile() returns CONTROL_PLANE_PID_FILE", async () => {
+    const prevGuard = process.env.TAMANDUA_TEST_GUARD;
     process.env.TAMANDUA_TEST_GUARD = "0";
     try {
       const { getControlPlanePidFile, CONTROL_PLANE_PID_FILE } = await import("../../dist/server/daemonctl.js");
       assert.equal(getControlPlanePidFile(), CONTROL_PLANE_PID_FILE);
     } finally {
-      delete process.env.TAMANDUA_TEST_GUARD;
+      if (prevGuard === undefined) delete process.env.TAMANDUA_TEST_GUARD;
+      else process.env.TAMANDUA_TEST_GUARD = prevGuard;
     }
   });
 
   it("getControlPlanePortFile() returns CONTROL_PLANE_PORT_FILE", async () => {
+    const prevGuard = process.env.TAMANDUA_TEST_GUARD;
     process.env.TAMANDUA_TEST_GUARD = "0";
     try {
       const { getControlPlanePortFile, CONTROL_PLANE_PORT_FILE } = await import("../../dist/server/daemonctl.js");
       assert.equal(getControlPlanePortFile(), CONTROL_PLANE_PORT_FILE);
     } finally {
-      delete process.env.TAMANDUA_TEST_GUARD;
+      if (prevGuard === undefined) delete process.env.TAMANDUA_TEST_GUARD;
+      else process.env.TAMANDUA_TEST_GUARD = prevGuard;
     }
   });
 
@@ -761,6 +768,14 @@ describe("daemonctl control plane lifecycle", { concurrency: 1 }, () => {
       const stopped = stopControlPlane({ homeDir: tempHome });
       assert.equal(stopped, true);
 
+      // Stop attribution: the stop must leave a breadcrumb in lifecycle.log
+      const lifecyclePath = path.join(tempHome, ".tamandua", "lifecycle.log");
+      assert.ok(fs.existsSync(lifecyclePath), "stopControlPlane should write a lifecycle.log breadcrumb");
+      const breadcrumb = JSON.parse(fs.readFileSync(lifecyclePath, "utf-8").trim().split("\n").at(-1)!);
+      assert.equal(breadcrumb.action, "stop.control-plane");
+      assert.equal(breadcrumb.targetPid, pid);
+      assert.equal(breadcrumb.callerPid, process.pid);
+
       // Verify down
       await waitForHttpDown(`http://127.0.0.1:${customPort}/control/health`);
 
@@ -875,6 +890,72 @@ describe("daemonctl control plane lifecycle", { concurrency: 1 }, () => {
       assert.equal(result, false);
     } finally {
       fs.rmSync(tempHome, { recursive: true, force: true });
+    }
+  });
+});
+
+// ── Lifecycle attribution (stop breadcrumbs) ───────────────────────
+
+describe("recordLifecycleEvent", () => {
+  it("writes a JSON breadcrumb with caller attribution on isolated HOME", () => {
+    const tempHome = fs.mkdtempSync(path.join(os.tmpdir(), "tamandua-lifecycle-"));
+    try {
+      recordLifecycleEvent("stop.daemon", 12345, { homeDir: tempHome });
+
+      const file = path.join(tempHome, ".tamandua", "lifecycle.log");
+      assert.ok(fs.existsSync(file), "lifecycle.log should be created");
+      const entry = JSON.parse(fs.readFileSync(file, "utf-8").trim());
+      assert.equal(entry.action, "stop.daemon");
+      assert.equal(entry.targetPid, 12345);
+      assert.equal(entry.callerPid, process.pid);
+      assert.equal(entry.callerPpid, process.ppid);
+      assert.ok(Array.isArray(entry.callerArgv) && entry.callerArgv.length > 0);
+      assert.ok(typeof entry.ts === "string" && entry.ts.includes("T"));
+    } finally {
+      fs.rmSync(tempHome, { recursive: true, force: true });
+    }
+  });
+
+  it("appends — multiple events accumulate as one JSON line each", () => {
+    const tempHome = fs.mkdtempSync(path.join(os.tmpdir(), "tamandua-lifecycle-"));
+    try {
+      recordLifecycleEvent("stop.mcp", 111, { homeDir: tempHome });
+      recordLifecycleEvent("restart.daemon", 222, { homeDir: tempHome });
+
+      const file = path.join(tempHome, ".tamandua", "lifecycle.log");
+      const lines = fs.readFileSync(file, "utf-8").trim().split("\n");
+      assert.equal(lines.length, 2);
+      assert.equal(JSON.parse(lines[0]).action, "stop.mcp");
+      assert.equal(JSON.parse(lines[1]).action, "restart.daemon");
+      assert.equal(JSON.parse(lines[1]).targetPid, 222);
+    } finally {
+      fs.rmSync(tempHome, { recursive: true, force: true });
+    }
+  });
+
+  it("guard: drops the line without throwing when a guarded process resolves the production path", () => {
+    // Mirror the logger-guard contract: attribution must never break a stop,
+    // and must never write production state from a guarded process.
+    const prevGuard = process.env.TAMANDUA_TEST_GUARD;
+    const prevHome = process.env.HOME;
+    const marker = `guard-drop-probe-${process.pid}-${Date.now()}`;
+    try {
+      process.env.TAMANDUA_TEST_GUARD = "1";
+      process.env.HOME = os.userInfo().homedir; // resolve the REAL state dir
+      assert.doesNotThrow(() => recordLifecycleEvent(marker, 1));
+
+      const prodFile = path.join(os.userInfo().homedir, ".tamandua", "lifecycle.log");
+      if (fs.existsSync(prodFile)) {
+        assert.ok(
+          !fs.readFileSync(prodFile, "utf-8").includes(marker),
+          "guarded process must not write the production lifecycle.log",
+        );
+      }
+    } finally {
+      if (prevGuard === undefined) delete process.env.TAMANDUA_TEST_GUARD;
+      else process.env.TAMANDUA_TEST_GUARD = prevGuard;
+      if (prevHome === undefined) delete process.env.HOME;
+      else process.env.HOME = prevHome;
     }
   });
 });

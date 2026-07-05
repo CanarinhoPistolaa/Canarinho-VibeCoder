@@ -1806,12 +1806,14 @@ describe("formatServiceStatus", () => {
     const { formatServiceStatus } = await import("../../dist/cli/status-format.js");
 
     // Without overrides, uses real daemonctl — suppress guard for path resolution
+    const prevGuard = process.env.TAMANDUA_TEST_GUARD;
     process.env.TAMANDUA_TEST_GUARD = "0";
     let result: string;
     try {
       result = formatServiceStatus();
     } finally {
-      delete process.env.TAMANDUA_TEST_GUARD;
+      if (prevGuard === undefined) delete process.env.TAMANDUA_TEST_GUARD;
+      else process.env.TAMANDUA_TEST_GUARD = prevGuard;
     }
     assert.match(result, /Services/);
     assert.match(result, /Dashboard:/);
@@ -2116,12 +2118,14 @@ describe("formatProcessList", () => {
   it("defaults to real isRunning when no overrides provided (accepts any output)", async () => {
     const { formatProcessList } = await import("../../dist/cli/status-format.js");
     // Without overrides, uses real daemonctl isRunning + ps — suppress guard for path resolution
+    const prevGuard = process.env.TAMANDUA_TEST_GUARD;
     process.env.TAMANDUA_TEST_GUARD = "0";
     let result: string;
     try {
       result = formatProcessList();
     } finally {
-      delete process.env.TAMANDUA_TEST_GUARD;
+      if (prevGuard === undefined) delete process.env.TAMANDUA_TEST_GUARD;
+      else process.env.TAMANDUA_TEST_GUARD = prevGuard;
     }
     assert.match(result, /Running Processes/);
     // Should show something (either daemon down message or process list)

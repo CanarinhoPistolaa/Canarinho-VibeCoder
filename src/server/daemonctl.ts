@@ -22,6 +22,63 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const STARTUP_ERROR_TAIL_LINES = 20;
 const START_LOCK_STALE_MS = 30_000;
 
+// ── Lifecycle attribution ──────────────────────────────────────────
+
+/**
+ * Append a stop-attribution breadcrumb to <state>/lifecycle.log before any
+ * intentional service stop (and on daemon shutdown). Records who is doing
+ * the stopping — this process's pid/argv/cwd plus the parent's cmdline — so
+ * an unexplained daemon death is a one-grep diagnosis instead of a forensic
+ * dead end (2026-07-05: a production daemon SIGTERM at 21:43 could not be
+ * attributed because nothing recorded the sender).
+ *
+ * Best-effort by contract: never throws, and never writes production state
+ * from a guarded process (the line is dropped, mirroring the logger guard).
+ */
+export function recordLifecycleEvent(
+  action: string,
+  targetPid: number | null,
+  opts?: DaemonctlPathOptions,
+): void {
+  try {
+    const file = path.join(getTamanduaDir(opts), "lifecycle.log");
+    if (!opts?.homeDir) {
+      try {
+        assertStatePathIsolation(file, "recordLifecycleEvent()");
+      } catch {
+        return; // guarded process resolving production paths: drop the line
+      }
+    }
+    let parentCmdline = "";
+    try {
+      parentCmdline = fs
+        .readFileSync(`/proc/${process.ppid}/cmdline`, "utf-8")
+        .replaceAll("\0", " ")
+        .trim();
+    } catch {
+      // /proc unavailable (non-Linux) or parent already gone — omit
+    }
+    let callerCwd = "?";
+    try {
+      callerCwd = process.cwd();
+    } catch {}
+    const entry = {
+      ts: new Date().toISOString(),
+      action,
+      targetPid,
+      callerPid: process.pid,
+      callerPpid: process.ppid,
+      callerArgv: process.argv.slice(0, 6),
+      callerCwd,
+      parentCmdline,
+    };
+    fs.mkdirSync(path.dirname(file), { recursive: true });
+    fs.appendFileSync(file, JSON.stringify(entry) + "\n", "utf-8");
+  } catch {
+    // Attribution must never break a stop or a shutdown.
+  }
+}
+
 // ── MCP file paths ─────────────────────────────────────────────────
 
 function defaultTamanduaDir(): string {
@@ -463,6 +520,7 @@ export function stopDaemon(opts?: DaemonctlPathOptions): boolean {
   if (!canSignalPid(status.pid, opts)) return false;
   assertNotSchedulingDaemon(status.pid, "dashboard daemon");
 
+  recordLifecycleEvent("stop.daemon", status.pid, opts);
   try {
     process.kill(status.pid, "SIGTERM");
   } catch {
@@ -492,7 +550,9 @@ export function stopDaemon(opts?: DaemonctlPathOptions): boolean {
 export async function restartDaemon(port?: number, opts?: StartOptions): Promise<{ pid: number; port: number }> {
   const currentPort = port ?? readPort(opts);
 
-  if (isRunning(opts).running) {
+  const runningStatus = isRunning(opts);
+  if (runningStatus.running) {
+    recordLifecycleEvent("restart.daemon", runningStatus.pid ?? null, opts);
     stopDaemon(opts);
     // Brief pause to let the port be released and process fully exit
     await new Promise((resolve) => setTimeout(resolve, 500));
@@ -716,6 +776,7 @@ export function stopMcp(opts?: DaemonctlPathOptions): boolean {
   if (!canSignalPid(status.pid, opts)) return false;
   assertNotSchedulingDaemon(status.pid, "MCP server");
 
+  recordLifecycleEvent("stop.mcp", status.pid, opts);
   try {
     process.kill(status.pid, "SIGTERM");
   } catch {
@@ -1027,6 +1088,7 @@ export function stopControlPlane(opts?: DaemonctlPathOptions): boolean {
   if (!canSignalPid(status.pid, opts)) return false;
   assertNotSchedulingDaemon(status.pid, "control plane");
 
+  recordLifecycleEvent("stop.control-plane", status.pid, opts);
   try {
     process.kill(status.pid, "SIGTERM");
   } catch {

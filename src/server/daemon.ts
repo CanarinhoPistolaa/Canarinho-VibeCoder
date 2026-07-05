@@ -32,6 +32,7 @@ import {
   startReconciler,
 } from "./control-server.js";
 import { shutdownAllCrons } from "../installer/agent-scheduler.js";
+import { recordLifecycleEvent } from "./daemonctl.js";
 import { runVersionCheck } from "../lib/version-check.js";
 
 const PID_FILE = path.join(os.homedir(), ".tamandua", "tamandua.pid");
@@ -187,6 +188,10 @@ async function shutdown(signal: string, exitCode: number): Promise<void> {
   isShuttingDown = true;
 
   console.log(`Tamandua daemon received ${signal}, shutting down...`);
+  // Receipt-side breadcrumb: the daemon cannot know who sent the signal
+  // (that's the sender-side breadcrumb's job), but it records when it died
+  // and what it was, so lifecycle.log tells a complete story.
+  recordLifecycleEvent(`daemon.shutdown.${signal}`, process.pid);
 
   await stopListeners();
   cleanupPidFile();
