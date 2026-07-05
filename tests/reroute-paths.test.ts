@@ -2204,6 +2204,9 @@ describe("RETR: Comprehensive Reroute Paths", () => {
       // The sweeper resets status to pending and bumps retry_count, but does NOT
       // clear claim fields (claim_job_id, claim_pid). Critically, it does NOT set
       // claim_invalidated_by either — this is the C5 contract.
+      // Backdate the claim first: a same-instant updated_at under the sweeper's
+      // strict julianday comparison is a rounding coin-flip (see sibling test).
+      db.prepare("UPDATE steps SET updated_at = datetime('now', '-5 seconds') WHERE id = ?").run(producerRowId);
       const sweeperResult = recoverOrphanedStepsForAgent("producer", runId, 0);
       assert.equal(sweeperResult.recovered, 1, "sweeper should reset the running step");
 
@@ -2243,6 +2246,10 @@ describe("RETR: Comprehensive Reroute Paths", () => {
       // Use max_retries=1: sweeper bumps retry_count to 1 (still ≤ 1 so stays
       // pending), then failStep bumps to 2 > 1 → reroute triggers.
 
+      // Backdate the claim so the step is genuinely stale: the fixture stamps
+      // updated_at with the JS clock and the sweeper compares julianday('now')
+      // with a strict >, so a same-instant timestamp is a rounding coin-flip.
+      db.prepare("UPDATE steps SET updated_at = datetime('now', '-5 seconds') WHERE id = ?").run(consumerRowId);
       const sweeperResult = recoverOrphanedStepsForAgent("consumer", runId, 0);
       assert.equal(sweeperResult.recovered, 1, "sweeper should reset consumer");
 
