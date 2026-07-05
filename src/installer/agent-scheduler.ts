@@ -9,6 +9,7 @@ import { getRoleTimeoutSeconds, inferRole } from "./install.js";
 import { formatPiCommandPreview } from "./pi-command-preview.js";
 import { emitEvent } from "./events.js";
 import { parsePiOutputStream } from "./pi-stream-parser.js";
+import { getHarnessAdapter } from "./harness-adapter.js";
 
 // ──────────────────────────────────────────────────────────────────────
 // Run-Scoped Deterministic Dispatch
@@ -180,30 +181,13 @@ function searchPathForExecutable(name: string): string | null {
   return null;
 }
 
+/**
+ * Thin wrapper around {@link PiHarnessAdapter.findBinary} so existing
+ * imports from this module stay unbroken.
+ */
 export async function findPiBinary(options: FindPiBinaryOptions = {}): Promise<string> {
-  // Prefer explicit env override
-  const envPi = process.env.TAMANDUA_PI_BINARY?.trim();
-  if (envPi) {
-    try {
-      fs.accessSync(envPi, fs.constants.X_OK);
-      return envPi;
-    } catch {
-      throw new Error(`TAMANDUA_PI_BINARY set but not executable: ${envPi}`);
-    }
-  }
-
-  if (options.preferTokenSaver) {
-    const tokenSaver = searchPathForExecutable("pi-token-saver");
-    if (tokenSaver) return tokenSaver;
-    // Not installed (yet) — fall through to normal pi resolution.
-  }
-
-  const pi = searchPathForExecutable("pi");
-  if (pi) return pi;
-
-  throw new Error(
-    "pi binary not found in PATH. Install pi (https://github.com/anthropics/pi) or set TAMANDUA_PI_BINARY."
-  );
+  const adapter = getHarnessAdapter("pi");
+  return adapter.findBinary({ preferTokenSaver: options.preferTokenSaver });
 }
 
 // ── hermes binary discovery ───────────────────────────────────────
@@ -284,355 +268,34 @@ function safeKillPgid(pgid: number, signal: NodeJS.Signals): void {
   }
 }
 
+/**
+ * Thin wrapper around {@link PiHarnessAdapter.runRound} so existing
+ * imports from this module stay unbroken.  The prompt is always the last
+ * argument in `--print` mode invocations.
+ */
 export async function runPi(
   args: string[],
   options: RunPiOptions = {},
 ): Promise<string> {
-  const timeoutMs = (options.timeout ?? 60) * 1000;
-  const piPath = await findPiBinary({ preferTokenSaver: options.preferTokenSaver });
-
-  const childEnv: Record<string, string | undefined> = {
-    ...process.env as Record<string, string | undefined>,
-    ...(options.env ?? {}),
-  };
-
-  const preview = formatPiCommandPreview(piPath, args);
-  const startedAt = Date.now();
-
-  logger.info("pi pre-launch", {
-    commandPreview: preview.commandPreview,
-    argvPreview: preview.argvPreview,
-    redactedIndices: preview.redactedIndices,
-    truncatedIndices: preview.truncatedIndices,
-    promptElided: preview.promptElided,
-    argCount: preview.argCount,
-    timeoutMs,
-    workdir: options.workdir,
-  });
-
-  // Spawn pi in its own process group so termination paths can kill the
-  // whole subtree (pi spawns its own child processes for tools/sessions).
-  const child = spawn(piPath, args, {
-    cwd: options.workdir ?? process.cwd(),
-    env: childEnv,
-    stdio: ["pipe", "pipe", "pipe"],
-    detached: true,
-  });
-
-  const childPid = child.pid;
-  // On Linux, the spawned child becomes its own group leader (pgid === pid)
-  // when detached:true. Fall back to childPid if getpgid is unavailable.
-  const pgid = childPid ?? 0;
-
-  if (childPid && options.onSpawn) {
-    try {
-      options.onSpawn({ pid: childPid, pgid });
-    } catch (err) {
-      logger.warn("pi onSpawn callback threw", { error: String(err) });
-    }
-  }
-
-  logger.info("pi launched", {
-    pid: childPid ?? null,
-    pgid,
-    timeoutMs,
-    workdir: options.workdir,
-  });
-
-  // End stdin immediately — pi --print waits for stdin EOF before responding
-  child.stdin?.end();
-
-  // Collect stderr (bounded)
-  let stderrPieces: string[] = [];
-  let stderrBytes = 0;
-  const MAX_STDERR_BYTES = 10 * 1024 * 1024; // 10MB cap for stderr
-  child.stderr?.on("data", (chunk: Buffer) => {
-    const str = chunk.toString("utf-8");
-    if (stderrBytes + Buffer.byteLength(str, "utf-8") <= MAX_STDERR_BYTES) {
-      stderrPieces.push(str);
-      stderrBytes += Buffer.byteLength(str, "utf-8");
-    }
-  });
-
-  // Stream stdout through readline → parsePiOutputStream.
-  const rl = createInterface({ input: child.stdout!, crlfDelay: Infinity });
-  const parseResultPromise = parsePiOutputStream(rl);
-
-  // Wait for child exit. Apply timeout guard.
-  await new Promise<void>((resolve, reject) => {
-    let settled = false;
-    const timer = setTimeout(() => {
-      if (settled) return;
-      settled = true;
-      // Terminate the whole process group: SIGTERM, then SIGKILL after 5s.
-      if (pgid) {
-        safeKillPgid(pgid, "SIGTERM");
-        setTimeout(() => safeKillPgid(pgid, "SIGKILL"), 5000).unref();
-      } else {
-        try { child.kill("SIGKILL"); } catch { /* best effort */ }
-      }
-      reject(new Error(`pi timed out after ${timeoutMs}ms`));
-    }, timeoutMs);
-
-    child.on("error", (err) => {
-      if (settled) return;
-      settled = true;
-      clearTimeout(timer);
-      reject(err);
-    });
-    child.on("close", (code, signal) => {
-      clearTimeout(timer);
-      if (settled) return;
-      settled = true;
-      if (code === 0 || code === null) {
-        resolve();
-      } else {
-        const failureDurationMs = Date.now() - startedAt;
-        const failureStderr = stderrPieces.join("");
-        const failureStderrMeta = buildStreamLogMetadata(failureStderr);
-        logger.error("pi execution failed", {
-          pid: childPid ?? null,
-          pgid,
-          exitCode: code,
-          signal,
-          durationMs: failureDurationMs,
-          stderrBytes: failureStderrMeta.bytes,
-          stderrPreview: failureStderrMeta.preview,
-          stderrTruncated: failureStderrMeta.truncated,
-        });
-        const stderrSuffix = failureStderr ? `\nstderr: ${failureStderr}` : "";
-        reject(new Error(`pi failed: exited with code ${code}${signal ? ` (signal ${signal})` : ""}${stderrSuffix}`));
-      }
-    });
-  });
-
-  // Wait for stdout parsing to finish (it will complete once stdout closes)
-  const parseResult = await parseResultPromise;
-
-  const durationMs = Date.now() - startedAt;
-  const stderrOut = stderrPieces.join("");
-  const stderrMeta = buildStreamLogMetadata(stderrOut);
-
-  if (stderrMeta.preview) {
-    logger.warn("pi stderr", {
-      pid: childPid ?? null,
-      stderrBytes: stderrMeta.bytes,
-      stderrPreview: stderrMeta.preview,
-      stderrTruncated: stderrMeta.truncated,
-    });
-  }
-
-  // Reconstruct filtered stdout from parsed events for backwards compatibility.
-  const filteredLines: string[] = [];
-  if (parseResult.textFallback !== null) {
-    filteredLines.push(parseResult.textFallback);
-  }
-  for (const event of parseResult.events) {
-    filteredLines.push(JSON.stringify(event));
-  }
-  if (parseResult.assistantText.length > 0) {
-    filteredLines.push(parseResult.assistantText);
-  }
-  const filteredStdout = filteredLines.join("\n");
-  const stdoutMeta = buildStreamLogMetadata(filteredStdout);
-
-  logger.info("pi completed", {
-    pid: childPid ?? null,
-    pgid,
-    durationMs,
-    exitCode: child.exitCode,
-    signal: child.signalCode,
-    stdoutBytes: stdoutMeta.bytes,
-    stdoutPreview: stdoutMeta.preview,
-    stdoutTruncated: stdoutMeta.truncated,
-    stderrBytes: stderrMeta.bytes,
-    hasStderr: stderrMeta.bytes > 0,
-  });
-
-  return filteredStdout.trim();
+  const prompt = args.length > 0 ? args[args.length - 1] : "";
+  const adapter = getHarnessAdapter("pi");
+  const result = await adapter.runRound(prompt, options);
+  return result.output;
 }
 
 // ── Hermes execution ──────────────────────────────────────────────
 
+/**
+ * Thin wrapper around {@link HermesHarnessAdapter.runRound} so existing
+ * imports from this module stay unbroken.
+ */
 export async function runHermes(
   prompt: string,
   options: RunPiOptions = {},
 ): Promise<string> {
-  const timeoutMs = (options.timeout ?? 60) * 1000;
-  const hermesPath = await findHermesBinary();
-
-  const childEnv: Record<string, string | undefined> = {
-    ...process.env as Record<string, string | undefined>,
-    ...(options.env ?? {}),
-  };
-
-  const startedAt = Date.now();
-
-  // Hermes single-shot invocation:
-  // -q <prompt> delivers the task in single message mode.
-  // --max-turns 8192 gives the agent plenty of room to complete the work.
-  // --yolo skips permission confirmations (hermes equivalent of pi -y).
-  // -Q suppresses banner/spinner (but NOT session_id).
-  // Keep user config enabled so Hermes uses the configured provider/model.
-  const args = [
-    "chat",
-    "--max-turns", "8192",
-    "--yolo",
-    "-Q",
-    "-q", prompt,
-  ];
-
-  logger.info("hermes pre-launch", {
-    harness: "hermes",
-    hermesPath,
-    promptLength: Buffer.byteLength(prompt, "utf-8"),
-    timeoutMs,
-    workdir: options.workdir,
-  });
-
-  // Spawn hermes in its own process group for clean termination.
-  const child = spawn(hermesPath, args, {
-    cwd: options.workdir ?? process.cwd(),
-    env: childEnv,
-    stdio: ["pipe", "pipe", "pipe"],
-    detached: true,
-  });
-
-  const childPid = child.pid;
-  const pgid = childPid ?? 0;
-
-  if (childPid && options.onSpawn) {
-    try {
-      options.onSpawn({ pid: childPid, pgid });
-    } catch (err) {
-      logger.warn("hermes onSpawn callback threw", { error: String(err) });
-    }
-  }
-
-  logger.info("hermes launched", {
-    harness: "hermes",
-    pid: childPid ?? null,
-    pgid,
-    timeoutMs,
-    workdir: options.workdir,
-  });
-
-  // End stdin immediately — hermes reads from args (-q).
-  child.stdin?.end();
-
-  // Collect stderr (bounded).
-  let stderrPieces: string[] = [];
-  let stderrBytes = 0;
-  const MAX_STDERR_BYTES = 10 * 1024 * 1024;
-  child.stderr?.on("data", (chunk: Buffer) => {
-    const str = chunk.toString("utf-8");
-    if (stderrBytes + Buffer.byteLength(str, "utf-8") <= MAX_STDERR_BYTES) {
-      stderrPieces.push(str);
-      stderrBytes += Buffer.byteLength(str, "utf-8");
-    }
-  });
-
-  // Collect stdout fully (hermes produces plain text, not JSON events).
-  let stdoutPieces: string[] = [];
-  let stdoutBytes = 0;
-  const MAX_STDOUT_BYTES = 10 * 1024 * 1024;
-  child.stdout?.on("data", (chunk: Buffer) => {
-    const str = chunk.toString("utf-8");
-    if (stdoutBytes + Buffer.byteLength(str, "utf-8") <= MAX_STDOUT_BYTES) {
-      stdoutPieces.push(str);
-      stdoutBytes += Buffer.byteLength(str, "utf-8");
-    }
-  });
-
-  // Wait for child exit, with timeout guard.
-  await new Promise<void>((resolve, reject) => {
-    let settled = false;
-    const timer = setTimeout(() => {
-      if (settled) return;
-      settled = true;
-      if (pgid) {
-        safeKillPgid(pgid, "SIGTERM");
-        setTimeout(() => safeKillPgid(pgid, "SIGKILL"), 5000).unref();
-      } else {
-        try { child.kill("SIGKILL"); } catch { /* best effort */ }
-      }
-      reject(new Error(`hermes timed out after ${timeoutMs}ms`));
-    }, timeoutMs);
-
-    child.on("error", (err) => {
-      if (settled) return;
-      settled = true;
-      clearTimeout(timer);
-      reject(err);
-    });
-    child.on("close", (code, signal) => {
-      clearTimeout(timer);
-      if (settled) return;
-      settled = true;
-      if (code === 0 || code === null) {
-        resolve();
-      } else {
-        const failureDurationMs = Date.now() - startedAt;
-        const failureStderr = stderrPieces.join("");
-        const failureStderrMeta = buildStreamLogMetadata(failureStderr);
-        logger.error("hermes execution failed", {
-          harness: "hermes",
-          pid: childPid ?? null,
-          pgid,
-          exitCode: code,
-          signal,
-          durationMs: failureDurationMs,
-          stderrBytes: failureStderrMeta.bytes,
-          stderrPreview: failureStderrMeta.preview,
-          stderrTruncated: failureStderrMeta.truncated,
-        });
-        const stderrSuffix = failureStderr ? `\nstderr: ${failureStderr}` : "";
-        reject(new Error(`hermes failed: exited with code ${code}${signal ? ` (signal ${signal})` : ""}${stderrSuffix}`));
-      }
-    });
-  });
-
-  const durationMs = Date.now() - startedAt;
-  const rawStdout = stdoutPieces.join("");
-  const stderrOut = stderrPieces.join("");
-  const stderrMeta = buildStreamLogMetadata(stderrOut);
-
-  if (stderrMeta.preview) {
-    logger.warn("hermes stderr", {
-      harness: "hermes",
-      pid: childPid ?? null,
-      stderrBytes: stderrMeta.bytes,
-      stderrPreview: stderrMeta.preview,
-      stderrTruncated: stderrMeta.truncated,
-    });
-  }
-
-  // Filter out session_id lines. Hermes appends a session identifier
-  // (e.g. "session_id: 20260518_103004_cdae11") at the end of stdout.
-  // Remove it so the scheduler sees clean output.
-  const filteredStdout = rawStdout
-    .split("\n")
-    .filter((line) => !/^session_id:\s*\S+/.test(line.trim()))
-    .join("\n")
-    .trim();
-
-  const stdoutMeta = buildStreamLogMetadata(filteredStdout);
-
-  logger.info("hermes completed", {
-    harness: "hermes",
-    pid: childPid ?? null,
-    pgid,
-    durationMs,
-    exitCode: child.exitCode,
-    signal: child.signalCode,
-    stdoutBytes: stdoutMeta.bytes,
-    stdoutPreview: stdoutMeta.preview,
-    stdoutTruncated: stdoutMeta.truncated,
-    stderrBytes: stderrMeta.bytes,
-    hasStderr: stderrMeta.bytes > 0,
-  });
-
-  return filteredStdout;
+  const adapter = getHarnessAdapter("hermes");
+  const result = await adapter.runRound(prompt, options);
+  return result.output;
 }
 
 // ── Prompt builders ─────────────────────────────────────────────────
@@ -1432,33 +1095,26 @@ export async function executeDispatchRound(
     };
 
     let output: string;
+    const adapter = getHarnessAdapter(harnessType);
+    // Pre-resolve the binary path so we can pass TAMANDUA_HERMES_BINARY
+    // to the child env for hermes dispatch (the old if/else did this
+    // via findHermesBinary() before calling runHermes).
+    const binaryPath = await adapter.findBinary({ preferTokenSaver });
+    const harnessEnv: Record<string, string> = {
+      TAMANDUA_WORKER_JOB_ID: job.id,
+      TAMANDUA_WORKER_PID: String(process.pid),
+    };
     if (harnessType === "hermes") {
-      const hermesPath = findHermesBinary();
-      output = await runHermes(workPrompt, {
-        timeout,
-        workdir: workingDirectoryForHarness,
-        env: {
-          TAMANDUA_WORKER_JOB_ID: job.id,
-          TAMANDUA_WORKER_PID: String(process.pid),
-          TAMANDUA_HERMES_BINARY: hermesPath,
-        },
-        onSpawn,
-      });
-    } else {
-      output = await runPi(
-        ["--print", "--mode", "json", "--no-session", workPrompt],
-        {
-          timeout,
-          workdir: workingDirectoryForHarness,
-          env: {
-            TAMANDUA_WORKER_JOB_ID: job.id,
-            TAMANDUA_WORKER_PID: String(process.pid),
-          },
-          onSpawn,
-          preferTokenSaver,
-        },
-      );
+      harnessEnv.TAMANDUA_HERMES_BINARY = binaryPath;
     }
+    const result = await adapter.runRound(workPrompt, {
+      timeout,
+      workdir: workingDirectoryForHarness,
+      env: harnessEnv,
+      onSpawn,
+      preferTokenSaver,
+    });
+    output = result.output;
 
     // ── Post-round processing ──────────────────────────────────────
     const metadata = parseWorkRoundMetadata(output);
