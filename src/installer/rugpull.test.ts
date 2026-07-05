@@ -947,7 +947,10 @@ describe("relaunchRunAfterRugpull", () => {
     );
   });
 
-  it("emits run.rugpull_relaunch_failed when runWorkflow throws", async () => {
+  it("emits run.rugpull_relaunch_failed when the daemon rejects registration", async () => {
+    // The remaining runWorkflow throw path (post-LNCH) is a REACHABLE control
+    // plane that rejects registration with a non-2xx. Unreachability no longer
+    // throws — see the pending_register test below.
     const workflowId = "test-relaunch-failure";
     writeWorkflowYml(tempHome, workflowId, "direct");
 
@@ -966,12 +969,29 @@ describe("relaunchRunAfterRugpull", () => {
       no_hurry_save_tokens_mode: "false",
     }, "failed");
 
-    // Make the daemon unreachable so runWorkflow throws
+    // Per-test mock: health probes succeed, registration is rejected.
+    const rejectingServer = http.createServer((req, res) => {
+      if (req.url?.includes("register-run")) {
+        res.writeHead(500, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ error: "registration rejected by test" }));
+      } else {
+        res.writeHead(200, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ ok: true }));
+      }
+    });
+    const rejectingPort = await new Promise<number>((resolve) => {
+      rejectingServer.listen(0, "127.0.0.1", () => {
+        const addr = rejectingServer.address();
+        assert.ok(addr && typeof addr !== "string");
+        resolve(addr.port);
+      });
+    });
+
     const savedPort = process.env.TAMANDUA_CONTROL_PORT;
-    delete process.env.TAMANDUA_CONTROL_PORT;
+    process.env.TAMANDUA_CONTROL_PORT = String(rejectingPort);
     try {
       const result = await relaunchRunAfterRugpull(runId);
-      assert.equal(result.relaunched, false, "should not relaunch when runWorkflow throws");
+      assert.equal(result.relaunched, false, "should not relaunch when the daemon rejects registration");
 
       // Verify failure event was emitted
       const events = readEventsForRun(
@@ -981,9 +1001,63 @@ describe("relaunchRunAfterRugpull", () => {
       const failedEvents = events.filter(
         (e) => e.event === "run.rugpull_relaunch_failed",
       );
-      assert.equal(failedEvents.length, 1, "should emit relaunch_failed event on runWorkflow error");
+      assert.equal(failedEvents.length, 1, "should emit relaunch_failed event on registration rejection");
     } finally {
-      process.env.TAMANDUA_CONTROL_PORT = savedPort;
+      if (savedPort === undefined) {
+        delete process.env.TAMANDUA_CONTROL_PORT;
+      } else {
+        process.env.TAMANDUA_CONTROL_PORT = savedPort;
+      }
+      await new Promise<void>((resolve) => rejectingServer.close(() => resolve()));
+    }
+  });
+
+  it("relaunches with pending_register when the control plane is unreachable (LNCH semantics)", async () => {
+    // Post-LNCH contract: once the replacement run row exists, control-plane
+    // unreachability must NOT fail the relaunch — the run is created,
+    // registration is skipped, and the reconciler admits it later.
+    const workflowId = "test-relaunch-unreachable";
+    writeWorkflowYml(tempHome, workflowId, "direct");
+
+    const { relaunchRunAfterRugpull } = await import(
+      "../../dist/installer/rugpull.js"
+    );
+    const { getDb } = await import("../../dist/db.js");
+    const db = getDb();
+
+    const runId = "run-workflow-unreachable-01";
+    insertRun(db, runId, workflowId, {
+      repo: repoDir,
+      working_directory_for_harness: repoDir,
+      workspace_mode: "direct",
+      harness_type: "pi",
+      no_hurry_save_tokens_mode: "false",
+    }, "failed");
+
+    // Port 1 is unroutable (repo convention). Never DELETE the var to
+    // simulate unreachability — the fallback default port may host a real
+    // production daemon (observed 2026-07-05: this test registered its
+    // relaunch against the live control plane the moment it came up).
+    const savedPort = process.env.TAMANDUA_CONTROL_PORT;
+    process.env.TAMANDUA_CONTROL_PORT = "1";
+    try {
+      const result = await relaunchRunAfterRugpull(runId);
+      assert.equal(result.relaunched, true, "unreachable control plane must not fail the relaunch");
+      assert.ok(result.newRunId, "replacement run id should be returned");
+
+      const replacement = db.prepare(
+        "SELECT workflow_id, status, scheduling_status FROM runs WHERE id = ?",
+      ).get(result.newRunId) as { workflow_id: string; status: string; scheduling_status: string | null } | undefined;
+      assert.ok(replacement, "replacement run row must exist");
+      assert.equal(replacement!.workflow_id, workflowId);
+      assert.equal(replacement!.scheduling_status, "pending_register",
+        "replacement run should await reconciler admission");
+    } finally {
+      if (savedPort === undefined) {
+        delete process.env.TAMANDUA_CONTROL_PORT;
+      } else {
+        process.env.TAMANDUA_CONTROL_PORT = savedPort;
+      }
     }
   });
 
