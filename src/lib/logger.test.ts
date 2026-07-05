@@ -165,23 +165,29 @@ describe("logger", () => {
     }
   });
 
-  it("test-guard: throws TEST ISOLATION VIOLATION when guard is active and path resolves into real state dir", () => {
+  it("test-guard: drops the line without throwing when guard is active and path resolves into real state dir", () => {
     // Simulate a test process that forgot to set TAMANDUA_STATE_DIR and
     // os.homedir() returns the real user home → log path is real ~/.tamandua/tamandua.log.
+    // The guard must PROTECT the production log (no write) but must NOT throw:
+    // production timers (sweeps, cron teardowns) fire after tests restore env,
+    // and a throwing logger turns every late write into an unhandledRejection.
     const prevGuard = process.env.TAMANDUA_TEST_GUARD;
     const prevStateDir = process.env.TAMANDUA_STATE_DIR;
     try {
       process.env.TAMANDUA_TEST_GUARD = "1";
       // Point TAMANDUA_STATE_DIR into the real state dir to trigger the guard.
-      // This matches the scenario where HOME is the real home and TAMANDUA_STATE_DIR is unset:
-      // getLogDir() → os.homedir()/.tamandua → real ~/.tamandua.
       const realStateRoot = path.join(os.userInfo().homedir, ".tamandua");
-      process.env.TAMANDUA_STATE_DIR = path.join(realStateRoot, "leaked-from-test");
+      const leakedDir = path.join(realStateRoot, "leaked-from-test");
+      process.env.TAMANDUA_STATE_DIR = leakedDir;
 
-      assert.throws(
+      assert.doesNotThrow(
         () => logger.info("should be blocked by guard"),
-        /TEST ISOLATION VIOLATION/,
-        "guard must throw when log path resolves into real state dir",
+        "guard must not throw from the logger — it drops the line instead",
+      );
+      // The blocked write must not have created/written the leaked log file.
+      assert.ok(
+        !fs.existsSync(path.join(leakedDir, "tamandua.log")),
+        "guard must prevent the write into the real state dir",
       );
     } finally {
       process.env.TAMANDUA_TEST_GUARD = prevGuard;
@@ -189,9 +195,10 @@ describe("logger", () => {
     }
   });
 
-  it("test-guard: guard checks os.userInfo().homedir, not os.homedir() (HOME-spoof resistance)", () => {
+  it("test-guard: blocks writes using os.userInfo().homedir, not os.homedir() (HOME-spoof resistance)", () => {
     // Set HOME to a temp dir (spoof) but TAMANDUA_STATE_DIR to the real state dir.
-    // The guard must still detect the violation because it uses os.userInfo().homedir.
+    // The guard must still detect the violation (via os.userInfo().homedir) and
+    // silently drop the write.
     const prevGuard = process.env.TAMANDUA_TEST_GUARD;
     const prevStateDir = process.env.TAMANDUA_STATE_DIR;
     const prevHome = process.env.HOME;
@@ -199,12 +206,16 @@ describe("logger", () => {
       process.env.TAMANDUA_TEST_GUARD = "1";
       process.env.HOME = path.join(os.tmpdir(), "spoofed-home-" + Date.now());
       const realStateRoot = path.join(os.userInfo().homedir, ".tamandua");
-      process.env.TAMANDUA_STATE_DIR = path.join(realStateRoot, "spoofed-leak");
+      const spoofDir = path.join(realStateRoot, "spoofed-leak");
+      process.env.TAMANDUA_STATE_DIR = spoofDir;
 
-      assert.throws(
+      assert.doesNotThrow(
         () => logger.info("should be blocked even with spoofed HOME"),
-        /TEST ISOLATION VIOLATION/,
-        "guard must use os.userInfo().homedir, not os.homedir()",
+        "guard must use os.userInfo().homedir and drop the line without throwing",
+      );
+      assert.ok(
+        !fs.existsSync(path.join(spoofDir, "tamandua.log")),
+        "guard must prevent the write even with spoofed HOME",
       );
     } finally {
       process.env.TAMANDUA_TEST_GUARD = prevGuard;

@@ -43,8 +43,24 @@ function formatTimestamp(): string {
   return new Date().toISOString().replace("T", " ").slice(0, 19);
 }
 
+let isolationViolationReported = false;
+
 function writeLine(level: LogLevel, message: string, extra?: Record<string, unknown>): void {
-  assertStatePathIsolation(getLogFile(), "logger");
+  try {
+    assertStatePathIsolation(getLogFile(), "logger");
+  } catch (err) {
+    // Guard tripped: a guarded process resolved the production log path.
+    // Drop the line — the production log must never be polluted — but do
+    // not throw: logging must never take down execution, and production
+    // timers (sweeps, cron teardowns) routinely fire after a test has
+    // ended and restored its env, which would otherwise turn every late
+    // write into an unhandledRejection that fails the whole test file.
+    if (!isolationViolationReported) {
+      isolationViolationReported = true;
+      process.stderr.write(`[logger] ${String(err instanceof Error ? err.message : err)} — log line dropped (reported once)\n`);
+    }
+    return;
+  }
   try {
     ensureDir();
     rotateIfNeeded();
