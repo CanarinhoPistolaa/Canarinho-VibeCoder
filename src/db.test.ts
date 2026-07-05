@@ -359,8 +359,21 @@ describe("getDbPath", () => {
 
 describe("getSystemTokenSpend", () => {
   let startingSpend: number;
+  let tempHome: string;
+  let origHome: string | undefined;
+  let origDbPath: string | undefined;
 
   before(() => {
+    // Isolate into a temp HOME — this suite mutates tamandua_stats and must
+    // never touch the real DB (it used to zero the production token counter
+    // before the isolation guard existed; the file was invisible to npm test
+    // until the find-based lanes picked it up).
+    tempHome = mkdtempSync(path.join(os.tmpdir(), "tamandua-db-token-test-"));
+    origHome = process.env.HOME;
+    origDbPath = process.env.TAMANDUA_DB_PATH;
+    process.env.HOME = tempHome;
+    delete process.env.TAMANDUA_DB_PATH;
+
     // Reset tamandua_stats to a known baseline
     const db = getDb();
     db.prepare("UPDATE tamandua_stats SET system_tokens_spent = 0 WHERE id = 1").run();
@@ -384,6 +397,20 @@ describe("getSystemTokenSpend", () => {
     incrementSystemTokenSpend(25);
     const result = getSystemTokenSpend();
     assert.equal(result, 175);
+  });
+
+  after(() => {
+    if (origHome !== undefined) {
+      process.env.HOME = origHome;
+    } else {
+      delete process.env.HOME;
+    }
+    if (origDbPath !== undefined) {
+      process.env.TAMANDUA_DB_PATH = origDbPath;
+    } else {
+      delete process.env.TAMANDUA_DB_PATH;
+    }
+    rmSync(tempHome, { recursive: true, force: true });
   });
 });
 
