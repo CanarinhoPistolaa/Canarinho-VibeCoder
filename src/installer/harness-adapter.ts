@@ -147,7 +147,7 @@ class PiHarnessAdapter implements HarnessAdapter {
     prompt: string,
     options?: RunHarnessOptions,
   ): Promise<HarnessRoundResult> {
-    const timeoutMs = ((options?.timeout) ?? 60) * 1000;
+    const timeoutMs = ((options?.timeout) ?? 600) * 1000;
     const piPath = await this.findBinary({
       preferTokenSaver: options?.preferTokenSaver,
     });
@@ -364,7 +364,7 @@ class HermesHarnessAdapter implements HarnessAdapter {
     prompt: string,
     options?: RunHarnessOptions,
   ): Promise<HarnessRoundResult> {
-    const timeoutMs = ((options?.timeout) ?? 60) * 1000;
+    const timeoutMs = ((options?.timeout) ?? 600) * 1000;
     const hermesPath = await this.findBinary();
 
     const childEnv: Record<string, string | undefined> = {

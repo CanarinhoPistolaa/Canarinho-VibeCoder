@@ -296,7 +296,7 @@ Options:
 - `--command <cmd>` — override the configured command for this run
 - `--metric-regex <regex>` — override metric parser for this run
 - `--checks-command <cmd>` — override or provide correctness checks
-- `--timeout-seconds <n>` — command timeout (default: 1800)
+- `--timeout-seconds <n>` — command timeout (default: 3600)
 
 Example:
 

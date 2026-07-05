@@ -200,7 +200,7 @@ type CommandResult = {
 };
 
 const DEFAULT_MAX_OUTPUT_BYTES = 12000;
-const DEFAULT_TIMEOUT_MS = 30 * 60 * 1000;
+const DEFAULT_TIMEOUT_MS = 60 * 60 * 1000;
 
 export const PROTECTED_AUTORESEARCH_FILE_NAMES = new Set([
   "autoresearch.config.json",
@@ -925,7 +925,7 @@ export function parseAgentFields(text: string): { status: string; changes: strin
   return { status, changes, hypothesis, learned, nextFocus };
 }
 
-async function runPiAgent(cwd: string, prompt: string, timeoutMs = 300_000): Promise<{ success: boolean; stdout: string; stderr: string; hypothesis?: string; learned?: string; nextFocus?: string }> {
+async function runPiAgent(cwd: string, prompt: string, timeoutMs = 600_000): Promise<{ success: boolean; stdout: string; stderr: string; hypothesis?: string; learned?: string; nextFocus?: string }> {
   return new Promise((resolve) => {
     const piCmd = process.env.TAMANDUA_PI_BINARY || "pi";
     const args = ["--print", "--no-session", "--mode", "json", prompt];

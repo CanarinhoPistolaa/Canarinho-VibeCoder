@@ -1452,7 +1452,7 @@ Options:
   --command <cmd>           Override the configured command for this run
   --metric-regex <regex>    Override metric parser for this run
   --checks-command <cmd>    Override or provide correctness checks
-  --timeout-seconds <n>     Command timeout (default: 1800)
+  --timeout-seconds <n>     Command timeout (default: 3600)
 
 Examples:
   tamandua autoresearch run-experiment
