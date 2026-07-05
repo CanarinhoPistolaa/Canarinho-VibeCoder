@@ -588,3 +588,264 @@ describe("run-all-lanes.sh", () => {
     }
   });
 });
+
+describe("prll-verify.sh", () => {
+  const VERIFY_SCRIPT = path.join(REPO_ROOT, "scripts", "prll-verify.sh");
+
+  function copyVerifyScripts(tmpDir) {
+    const scriptsDir = path.join(tmpDir, "scripts");
+    fs.mkdirSync(scriptsDir, { recursive: true });
+    // Copy all orchestration scripts needed by verify
+    fs.copyFileSync(VERIFY_SCRIPT, path.join(scriptsDir, "prll-verify.sh"));
+    fs.copyFileSync(
+      path.join(REPO_ROOT, "scripts", "run-all-lanes.sh"),
+      path.join(scriptsDir, "run-all-lanes.sh"),
+    );
+    fs.copyFileSync(SERIAL_SCRIPT, path.join(scriptsDir, "run-serial-tests.sh"));
+    fs.copyFileSync(PARALLEL_SCRIPT, path.join(scriptsDir, "run-parallel-tests.sh"));
+  }
+
+  function passTestContent() {
+    return 'import { describe, it } from "node:test";\n' +
+           'import assert from "node:assert/strict";\n' +
+           'describe("dummy", () => {\n' +
+           '  it("passes", () => { assert.equal(1, 1); });\n' +
+           '});\n';
+  }
+
+  function failTestContent() {
+    return 'import { describe, it } from "node:test";\n' +
+           'import assert from "node:assert/strict";\n' +
+           'describe("dummy", () => {\n' +
+           '  it("fails", () => { assert.equal(1, 2); });\n' +
+           '});\n';
+  }
+
+  it("exists and is executable", () => {
+    assert.ok(fs.existsSync(VERIFY_SCRIPT), "scripts/prll-verify.sh must exist");
+    fs.accessSync(VERIFY_SCRIPT, fs.constants.X_OK);
+  });
+
+  it("has valid bash syntax", () => {
+    execSync("bash -n " + JSON.stringify(VERIFY_SCRIPT), { stdio: "pipe" });
+  });
+
+  it("accepts PRLL_RUN_COUNT env override", () => {
+    const content = fs.readFileSync(VERIFY_SCRIPT, "utf-8");
+    assert.ok(
+      content.includes("PRLL_RUN_COUNT"),
+      "prll-verify.sh must reference PRLL_RUN_COUNT",
+    );
+    assert.ok(
+      content.includes("RUN_COUNT"),
+      "prll-verify.sh must reference RUN_COUNT for iteration count",
+    );
+  });
+
+  it("passes through TAMANDUA_REPO_ROOT override", () => {
+    const content = fs.readFileSync(VERIFY_SCRIPT, "utf-8");
+    assert.ok(
+      content.includes("TAMANDUA_REPO_ROOT"),
+      "prll-verify.sh must reference TAMANDUA_REPO_ROOT",
+    );
+  });
+
+  it("runs BEFORE and AFTER with PRLL_RUN_COUNT=1 and both pass", () => {
+    const tmpDir = makeTmpDir();
+    try {
+      copyVerifyScripts(tmpDir);
+
+      // package.json with npm test pointing to run-all-lanes.sh
+      writeText(path.join(tmpDir, "package.json"), JSON.stringify({
+        name: "test",
+        scripts: { test: "bash scripts/run-all-lanes.sh" },
+      }));
+
+      // Create passing test files
+      writeText(path.join(tmpDir, "tests", "serial-files.txt"), "src/serial.test.ts\n");
+      writeText(path.join(tmpDir, "src", "serial.test.ts"), passTestContent());
+      writeText(path.join(tmpDir, "src", "parallel.test.ts"), passTestContent());
+
+      const result = execFileSync("bash", [VERIFY_SCRIPT], {
+        cwd: tmpDir,
+        env: cleanChildEnv({
+          HOME: tmpDir,
+          TAMANDUA_REPO_ROOT: tmpDir,
+          TAMANDUA_TEST_GUARD: "0",
+          PRLL_RUN_COUNT: "1",
+        }),
+        stdio: "pipe",
+        encoding: "utf-8",
+      });
+
+      assert.ok(
+        result.includes("PRLL Verification Run"),
+        "must output verification header",
+      );
+      assert.ok(
+        result.includes("PRLL VERIFICATION REPORT"),
+        "must output verification report",
+      );
+      assert.ok(
+        result.includes("Cost of Serialization"),
+        "must include cost-of-serialization section",
+      );
+      assert.ok(
+        result.includes("Rotating Flake Assessment"),
+        "must include rotating flake assessment",
+      );
+    } finally {
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    }
+  });
+
+  it("reports BEFORE and AFTER wall-clock times", () => {
+    const tmpDir = makeTmpDir();
+    try {
+      copyVerifyScripts(tmpDir);
+
+      writeText(path.join(tmpDir, "package.json"), JSON.stringify({
+        name: "test",
+        scripts: { test: "bash scripts/run-all-lanes.sh" },
+      }));
+      writeText(path.join(tmpDir, "tests", "serial-files.txt"), "src/serial.test.ts\n");
+      writeText(path.join(tmpDir, "src", "serial.test.ts"), passTestContent());
+      writeText(path.join(tmpDir, "src", "parallel.test.ts"), passTestContent());
+
+      const result = execFileSync("bash", [VERIFY_SCRIPT], {
+        cwd: tmpDir,
+        env: cleanChildEnv({
+          HOME: tmpDir,
+          TAMANDUA_REPO_ROOT: tmpDir,
+          TAMANDUA_TEST_GUARD: "0",
+          PRLL_RUN_COUNT: "1",
+        }),
+        stdio: "pipe",
+        encoding: "utf-8",
+      });
+
+      assert.ok(
+        result.includes("BEFORE avg:"),
+        "must report BEFORE average: " + result.slice(0, 1000),
+      );
+      assert.ok(
+        result.includes("AFTER  avg:"),
+        "must report AFTER average: " + result.slice(0, 1000),
+      );
+      assert.ok(
+        result.includes("Delta:"),
+        "must include Delta line: " + result.slice(0, 1000),
+      );
+    } finally {
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    }
+  });
+
+  it("exits 0 when AFTER runs are all clean", () => {
+    const tmpDir = makeTmpDir();
+    try {
+      copyVerifyScripts(tmpDir);
+
+      writeText(path.join(tmpDir, "package.json"), JSON.stringify({
+        name: "test",
+        scripts: { test: "bash scripts/run-all-lanes.sh" },
+      }));
+      writeText(path.join(tmpDir, "tests", "serial-files.txt"), "src/serial.test.ts\n");
+      writeText(path.join(tmpDir, "src", "serial.test.ts"), passTestContent());
+      writeText(path.join(tmpDir, "src", "parallel.test.ts"), passTestContent());
+
+      execFileSync("bash", [VERIFY_SCRIPT], {
+        cwd: tmpDir,
+        env: cleanChildEnv({
+          HOME: tmpDir,
+          TAMANDUA_REPO_ROOT: tmpDir,
+          TAMANDUA_TEST_GUARD: "0",
+          PRLL_RUN_COUNT: "1",
+        }),
+        stdio: "pipe",
+        encoding: "utf-8",
+      });
+      // exits 0 when AFTER is clean
+    } finally {
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    }
+  });
+
+  it("identifies failing tests by name when runs fail", () => {
+    const tmpDir = makeTmpDir();
+    try {
+      copyVerifyScripts(tmpDir);
+
+      writeText(path.join(tmpDir, "package.json"), JSON.stringify({
+        name: "test",
+        scripts: { test: "bash scripts/run-all-lanes.sh" },
+      }));
+      // A failing serial test to trigger failure reporting
+      writeText(path.join(tmpDir, "tests", "serial-files.txt"), "src/broken.test.ts\n");
+      writeText(path.join(tmpDir, "src", "broken.test.ts"), failTestContent());
+      writeText(path.join(tmpDir, "src", "parallel.test.ts"), passTestContent());
+
+      try {
+        execFileSync("bash", [VERIFY_SCRIPT], {
+          cwd: tmpDir,
+          env: cleanChildEnv({
+            HOME: tmpDir,
+            TAMANDUA_REPO_ROOT: tmpDir,
+            TAMANDUA_TEST_GUARD: "0",
+            PRLL_RUN_COUNT: "1",
+          }),
+          stdio: "pipe",
+          encoding: "utf-8",
+        });
+        assert.fail("Should exit non-zero when AFTER has failures");
+      } catch (e) {
+        assert.notEqual(e.status, 0, "exit code must be non-zero on failure");
+        const stdout = e.stdout || "";
+        assert.ok(
+          stdout.includes("AFTER runs had failures") || stdout.includes("Rotating Flake Assessment"),
+          "must report failures: " + stdout.slice(0, 500),
+        );
+      }
+    } finally {
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    }
+  });
+
+  it("outputs Raw logs path for investigation", () => {
+    const tmpDir = makeTmpDir();
+    try {
+      copyVerifyScripts(tmpDir);
+
+      writeText(path.join(tmpDir, "package.json"), JSON.stringify({
+        name: "test",
+        scripts: { test: "bash scripts/run-all-lanes.sh" },
+      }));
+      writeText(path.join(tmpDir, "tests", "serial-files.txt"), "src/serial.test.ts\n");
+      writeText(path.join(tmpDir, "src", "serial.test.ts"), passTestContent());
+      writeText(path.join(tmpDir, "src", "parallel.test.ts"), passTestContent());
+
+      const result = execFileSync("bash", [VERIFY_SCRIPT], {
+        cwd: tmpDir,
+        env: cleanChildEnv({
+          HOME: tmpDir,
+          TAMANDUA_REPO_ROOT: tmpDir,
+          TAMANDUA_TEST_GUARD: "0",
+          PRLL_RUN_COUNT: "1",
+        }),
+        stdio: "pipe",
+        encoding: "utf-8",
+      });
+
+      assert.ok(
+        result.includes("Raw logs"),
+        "must include raw logs path: " + result.slice(0, 1000),
+      );
+      assert.ok(
+        result.includes("/tmp/prll-verify-"),
+        "must reference /tmp/prll-verify- path: " + result.slice(0, 1000),
+      );
+    } finally {
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    }
+  });
+});
