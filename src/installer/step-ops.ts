@@ -1535,7 +1535,7 @@ export function claimStep(agentId: string, runId: string, workerOwnership?: Work
   // Run-scoped claim: concurrent runs of the same workflow + agent never
   // cross-claim because the WHERE clause pins to a specific run_id.
   const step = db.prepare(
-    `SELECT s.id, s.step_id, s.run_id, s.input_template, s.type, s.loop_config, s.step_index, s.retry_count, s.output
+    `SELECT s.id, s.step_id, s.run_id, s.input_template, s.type, s.loop_config, s.step_index, s.retry_count, s.claim_invalidated_by, s.output
      FROM steps s
      JOIN runs r ON r.id = s.run_id
      WHERE s.agent_id = ? AND s.run_id = ? AND s.status = 'pending'
@@ -1557,6 +1557,7 @@ export function claimStep(agentId: string, runId: string, workerOwnership?: Work
     step_index: number;
     retry_count: number;
     output: string | null;
+    claim_invalidated_by: string | null;
   } | undefined;
 
   if (!step) return { found: false };
@@ -1593,12 +1594,17 @@ export function claimStep(agentId: string, runId: string, workerOwnership?: Work
     if (loopConfig?.over === "stories") {
       const claim = db.prepare(
         workerOwnership
-          ? "UPDATE steps SET status = 'running', claim_job_id = ?, claim_pid = ?, claim_pgid = ?, claim_updated_at = datetime('now'), updated_at = datetime('now') WHERE id = ? AND status = 'pending'"
-          : "UPDATE steps SET status = 'running', updated_at = datetime('now') WHERE id = ? AND status = 'pending'"
+          ? "UPDATE steps SET status = 'running', claim_job_id = ?, claim_pid = ?, claim_pgid = ?, claim_invalidated_by = NULL, claim_updated_at = datetime('now'), updated_at = datetime('now') WHERE id = ? AND status = 'pending'"
+          : "UPDATE steps SET status = 'running', claim_invalidated_by = NULL, updated_at = datetime('now') WHERE id = ? AND status = 'pending'"
       ).run(
         ...(workerOwnership ? [workerOwnership.jobId, workerOwnership.pid, workerOwnership.pgid ?? null, step.id] : [step.id])
       );
       if ((claim.changes ?? 0) <= 0) return { found: false };
+
+      // C19a: capture whether this step was rerouted BEFORE the claim
+      // UPDATE clears claim_invalidated_by, so we can detect no-op bounces
+      // in the auto-complete path below (all stories done → no agent runs).
+      const wasRerouted = step.claim_invalidated_by === "reroute";
 
       if (!runHasStories(step.run_id)) {
         const message = "Loop cannot run because planning did not produce STORIES_JSON.";
@@ -1639,7 +1645,25 @@ export function claimStep(agentId: string, runId: string, workerOwnership?: Work
           return { found: false };
         }
 
-        // No pending or failed stories — mark step done and advance
+        // No pending or failed stories — mark step done and advance.
+        // C19a: if this step was rerouted and now auto-completes without
+        // any agent work, emit a step.reroute_noop event so operators can
+        // see the reroute was wasted.
+        if (wasRerouted) {
+          const wfId = getWorkflowId(step.run_id);
+          emitEvent({
+            ts: new Date().toISOString(),
+            event: "step.reroute_noop",
+            runId: step.run_id,
+            workflowId: wfId,
+            stepId: step.step_id,
+            detail: "Rerouted loop step auto-completed without agent work — all stories were already done",
+          });
+          logger.warn("Reroute no-op bounce: loop step auto-completed without agent claim", {
+            runId: step.run_id,
+            stepId: step.step_id,
+          });
+        }
         db.prepare(
           "UPDATE steps SET status = 'done', updated_at = datetime('now') WHERE id = ?"
         ).run(step.id);
@@ -1661,8 +1685,8 @@ export function claimStep(agentId: string, runId: string, workerOwnership?: Work
       }
       db.prepare(
         workerOwnership
-          ? "UPDATE steps SET status = 'running', current_story_id = ?, claim_job_id = ?, claim_pid = ?, claim_pgid = ?, claim_updated_at = datetime('now'), updated_at = datetime('now') WHERE id = ?"
-          : "UPDATE steps SET status = 'running', current_story_id = ?, updated_at = datetime('now') WHERE id = ?"
+          ? "UPDATE steps SET status = 'running', current_story_id = ?, claim_job_id = ?, claim_pid = ?, claim_pgid = ?, claim_invalidated_by = NULL, claim_updated_at = datetime('now'), updated_at = datetime('now') WHERE id = ?"
+          : "UPDATE steps SET status = 'running', current_story_id = ?, claim_invalidated_by = NULL, updated_at = datetime('now') WHERE id = ?"
       ).run(
         ...(workerOwnership ? [nextStory.id, workerOwnership.jobId, workerOwnership.pid, workerOwnership.pgid ?? null, step.id] : [nextStory.id, step.id])
       );
@@ -1747,8 +1771,8 @@ export function claimStep(agentId: string, runId: string, workerOwnership?: Work
   // Single step: existing logic
   const claim = db.prepare(
     workerOwnership
-      ? "UPDATE steps SET status = 'running', claim_job_id = ?, claim_pid = ?, claim_pgid = ?, claim_updated_at = datetime('now'), updated_at = datetime('now') WHERE id = ? AND status = 'pending'"
-      : "UPDATE steps SET status = 'running', updated_at = datetime('now') WHERE id = ? AND status = 'pending'"
+      ? "UPDATE steps SET status = 'running', claim_job_id = ?, claim_pid = ?, claim_pgid = ?, claim_invalidated_by = NULL, claim_updated_at = datetime('now'), updated_at = datetime('now') WHERE id = ? AND status = 'pending'"
+      : "UPDATE steps SET status = 'running', claim_invalidated_by = NULL, updated_at = datetime('now') WHERE id = ? AND status = 'pending'"
   ).run(
     ...(workerOwnership ? [workerOwnership.jobId, workerOwnership.pid, workerOwnership.pgid ?? null, step.id] : [step.id])
   );
@@ -1927,11 +1951,12 @@ function completeStepInternal(stepId: string, output: string): { status: string;
   const db = getDb();
 
   const step = db.prepare(
-    "SELECT id, run_id, step_id, step_index, type, loop_config, current_story_id, expects, input_template, status FROM steps WHERE id = ?"
+    "SELECT id, run_id, step_id, step_index, type, loop_config, current_story_id, expects, input_template, status, claim_invalidated_by, claim_updated_at, updated_at FROM steps WHERE id = ?"
   ).get(stepId) as {
     id: string; run_id: string; step_id: string; step_index: number; type: string;
     loop_config: string | null; current_story_id: string | null; expects: string;
-    input_template: string | null; status: string;
+    input_template: string | null; status: string; claim_invalidated_by: string | null;
+    claim_updated_at: string | null; updated_at: string;
   } | undefined;
 
   if (!step) throw new Error(`Step not found: ${stepId}`);
@@ -1952,6 +1977,37 @@ function completeStepInternal(stepId: string, output: string): { status: string;
   // valid work.
   if (step.status === "done" || step.status === "failed" || step.status === "skipped") {
     return { status: "blocked", detail: `step already ${step.status}` };
+  }
+
+  // Guard: reject stale completions for steps whose claim was deliberately
+  // invalidated by a reroute. The sweeper (recoverOrphanedStepsForAgent,
+  // cleanupAbandonedSteps) clears claim fields but does NOT set
+  // claim_invalidated_by — preserving C5 late-work acceptance. Only
+  // rerouteStep/rerouteStepSync sets this marker, so this guard blocks
+  // completions carrying claim details from before the reroute.
+  //
+  // C19a (no-op bounce detection): if claim_updated_at is NULL, no agent
+  // ever claimed this step after the reroute — the completion is a no-op
+  // bounce. Emit a step.reroute_noop event so operators can see the reroute
+  // was wasted. This is defense-in-depth; the primary detection lives in
+  // claimStep's auto-complete path for loop steps with all stories done.
+  if (step.status === "pending" && step.claim_invalidated_by === "reroute") {
+    if (step.claim_updated_at === null) {
+      const wfId = getWorkflowId(step.run_id);
+      emitEvent({
+        ts: new Date().toISOString(),
+        event: "step.reroute_noop",
+        runId: step.run_id,
+        workflowId: wfId,
+        stepId: step.step_id,
+        detail: "Rerouted producer completed without agent work — no claim after reroute",
+      });
+      logger.warn("Reroute no-op bounce: step completed without agent claim after reroute", {
+        runId: step.run_id,
+        stepId: step.step_id,
+      });
+    }
+    return { status: "blocked", detail: "stale completion blocked — step was rerouted" };
   }
 
   // Validate output against the expects column before accepting the step
@@ -2615,6 +2671,134 @@ async function failStepInternal(stepId: string, error: string): Promise<{ status
 // ══════════════════════════════════════════════════════════════════════
 
 /**
+ * When a reroute targets a loop-over-stories step, parse story IDs (US-\d+)
+ * from the consumer's failure text and reset matching done stories to pending.
+ * If no IDs found, fall back to resetting the most recently updated done story
+ * (mirroring handleVerifyEachCompletion's heuristic).
+ *
+ * Only resets stories with status='done'. Pending/running stories are left
+ * untouched. Story IDs in the failure text that don't exist in the DB are
+ * silently ignored (logged as a warning).
+ *
+ * Writes the consumer failure text into the run's context as verify_feedback
+ * so the developer agent's next claim renders it.
+ */
+function resetStoriesOnReroute(
+  db: ReturnType<typeof getDb>,
+  runId: string,
+  targetStep: { id: string; step_id: string; type: string; loop_config: string | null },
+  failureText: string,
+  workflowId: string | undefined,
+): void {
+  // Only applicable for loop-over-stories steps
+  if (targetStep.type !== "loop") return;
+  if (!targetStep.loop_config) return;
+
+  let loopConfig: LoopConfig;
+  try {
+    loopConfig = JSON.parse(targetStep.loop_config) as LoopConfig;
+  } catch {
+    return; // malformed loop_config, skip
+  }
+  if (loopConfig.over !== "stories") return;
+
+  // Parse US-\d+ story IDs from the failure text
+  const storyIds = failureText.match(/US-\d+/g) ?? [];
+
+  let resetCount = 0;
+
+  if (storyIds.length > 0) {
+    for (const storyId of storyIds) {
+      const story = db.prepare(
+        "SELECT id, story_id, title, status, retry_count, max_retries FROM stories WHERE run_id = ? AND story_id = ?"
+      ).get(runId, storyId) as { id: string; story_id: string; title: string; status: string; retry_count: number; max_retries: number } | undefined;
+
+      if (!story) {
+        logger.warn(`Story ID "${storyId}" in reroute failure text not found in DB`, { runId, workflowId });
+        continue;
+      }
+
+      if (story.status !== "done") {
+        // Don't reset stories that are already pending or running
+        continue;
+      }
+
+      const newRetry = story.retry_count + 1;
+      if (newRetry > story.max_retries) {
+        // Story retry budget exhausted — transition to failed
+        db.prepare(
+          "UPDATE stories SET status = 'failed', retry_count = ?, updated_at = datetime('now') WHERE id = ?"
+        ).run(newRetry, story.id);
+        emitEvent({
+          ts: new Date().toISOString(),
+          event: "story.failed",
+          runId,
+          workflowId,
+          stepId: targetStep.step_id,
+          storyId: story.story_id,
+          storyTitle: story.title,
+          detail: "Reroute — story retries exhausted",
+        });
+        resetCount++;
+        logger.info(`Story ${storyId} transitioned to failed via reroute — retries exhausted (${newRetry}/${story.max_retries})`, { runId, workflowId });
+      } else {
+        db.prepare(
+          "UPDATE stories SET status = 'pending', retry_count = ?, updated_at = datetime('now') WHERE id = ?"
+        ).run(newRetry, story.id);
+        resetCount++;
+        logger.info(`Story ${storyId} reset to pending via reroute (retry ${newRetry})`, { runId, workflowId });
+      }
+    }
+  }
+
+  // Fallback: if no story IDs parsed OR none matched in the DB, use the
+  // handleVerifyEachCompletion heuristic: most recently updated done story.
+  if (resetCount === 0) {
+    const lastDoneStory = db.prepare(
+      "SELECT id, story_id, title, retry_count, max_retries FROM stories WHERE run_id = ? AND status = 'done' ORDER BY updated_at DESC LIMIT 1"
+    ).get(runId) as { id: string; story_id: string; title: string; retry_count: number; max_retries: number } | undefined;
+
+    if (lastDoneStory) {
+      const newRetry = lastDoneStory.retry_count + 1;
+      if (newRetry > lastDoneStory.max_retries) {
+        // Story retry budget exhausted — transition to failed
+        db.prepare(
+          "UPDATE stories SET status = 'failed', retry_count = ?, updated_at = datetime('now') WHERE id = ?"
+        ).run(newRetry, lastDoneStory.id);
+        resetCount++;
+        emitEvent({
+          ts: new Date().toISOString(),
+          event: "story.failed",
+          runId,
+          workflowId,
+          stepId: targetStep.step_id,
+          storyId: lastDoneStory.story_id,
+          storyTitle: lastDoneStory.title,
+          detail: "Reroute — story retries exhausted",
+        });
+        logger.info(
+          `Story ${lastDoneStory.story_id} transitioned to failed via reroute fallback — retries exhausted (${newRetry}/${lastDoneStory.max_retries})`,
+          { runId, workflowId },
+        );
+      } else {
+        db.prepare(
+          "UPDATE stories SET status = 'pending', retry_count = ?, updated_at = datetime('now') WHERE id = ?"
+        ).run(newRetry, lastDoneStory.id);
+        resetCount++;
+        logger.info(
+          `Story ${lastDoneStory.story_id} reset to pending via reroute fallback heuristic (retry ${newRetry})`,
+          { runId, workflowId },
+        );
+      }
+    }
+  }
+
+  // Story reset complete. verify_feedback context is written by the caller
+  // (rerouteStep / rerouteStepSync) after this function returns, so it
+  // can happen unconditionally for loop-targeted reroutes.
+}
+
+/**
  * Attempt to reroute a failing step to an upstream producer step declared
  * via on_fail.retry_step in the workflow spec.
  *
@@ -2622,6 +2806,7 @@ async function failStepInternal(stepId: string, error: string): Promise<{ status
  * workflow. On valid reroute:
  * - Re-pends the producer (status=pending, retry_count UNCHANGED)
  * - Writes retry_feedback into producer output so claimStep surfaces it
+ * - If target is a loop-over-stories step, resets cited stories to pending
  * - Resets consumer to waiting with retry_count=0, increments reroute_count
  * - Leaves intermediate done steps untouched (advancePipeline handles re-pend)
  *
@@ -2650,11 +2835,11 @@ async function rerouteStep(
     { step_id: string; step_index: number; reroute_count: number | null } | undefined;
   if (!consumerStep) return "not_found";
 
-  // Look up the target (producer) step in the same run
+  // Look up the target (producer) step in the same run (include type + loop_config for story reset)
   const targetStep = db.prepare(
-    "SELECT id, step_id, step_index FROM steps WHERE run_id = ? AND step_id = ?"
+    "SELECT id, step_id, step_index, type, loop_config FROM steps WHERE run_id = ? AND step_id = ?"
   ).get(runId, targetStepId) as
-    { id: string; step_id: string; step_index: number } | undefined;
+    { id: string; step_id: string; step_index: number; type: string; loop_config: string | null } | undefined;
 
   // Validate: target must exist and have a lower step_index than consumer
   if (!targetStep) return "invalid_target";
@@ -2692,9 +2877,22 @@ async function rerouteStep(
 
   // (a) Re-pend producer: status=pending, retry_count UNCHANGED.
   //     Write retry_feedback into output so claimStep surfaces it.
+  //     Clear claim ownership and set invalidation marker to prevent
+  //     stale completions from re-completing the producer with old output.
+  //     Also NULL claim_updated_at so the no-op bounce guard (C19a) can
+  //     detect that no agent claimed this step after the reroute.
   db.prepare(
-    "UPDATE steps SET status = 'pending', output = ?, updated_at = datetime('now') WHERE id = ?"
+    "UPDATE steps SET status = 'pending', output = ?, claim_job_id = NULL, claim_pid = NULL, claim_pgid = NULL, claim_updated_at = NULL, claim_invalidated_by = 'reroute', updated_at = datetime('now') WHERE id = ?"
   ).run(feedback, targetStep.id);
+
+  // (a.2) Story reset on reroute: when the reroute target is a loop-over-stories step,
+  //        reset the story/stories cited in the consumer's failure text to pending.
+  resetStoriesOnReroute(db, runId, targetStep, error, getWorkflowId(runId));
+
+  // (a.3) Write verify_feedback into run context when reroute target is a
+  //        loop-over-stories step, so the developer agent sees the feedback
+  //        on the next claim (unconditional — even when no stories were reset).
+  writeRerouteFeedbackContext(db, runId, targetStep, error);
 
   // (b) Reset consumer: status=waiting, retry_count=0, increment reroute_count.
   //     Clear output and ownership so it looks like a fresh step.
@@ -2734,6 +2932,49 @@ async function rerouteStep(
 }
 
 /**
+ * Writes verify_feedback and retry_feedback into the run's context JSON
+ * when a reroute targets a loop-over-stories step. The developer agent's
+ * next claim then surfaces this feedback for story remediation.
+ *
+ * Call from rerouteStep / rerouteStepSync after story reset logic, so
+ * verify_feedback is always available even when no stories were reset
+ * (e.g. all cited stories were already pending).
+ */
+function writeRerouteFeedbackContext(
+  db: ReturnType<typeof getDb>,
+  runId: string,
+  targetStep: { type: string; loop_config: string | null },
+  failureText: string,
+): void {
+  if (targetStep.type !== "loop") return;
+  if (!targetStep.loop_config) return;
+
+  let loopConfig: LoopConfig;
+  try {
+    loopConfig = JSON.parse(targetStep.loop_config) as LoopConfig;
+  } catch {
+    return; // malformed loop_config, skip
+  }
+  if (loopConfig.over !== "stories") return;
+
+  const run = db.prepare("SELECT context FROM runs WHERE id = ?").get(runId) as { context: string } | undefined;
+  if (!run) return;
+
+  let context: Record<string, string> = {};
+  try {
+    context = JSON.parse(run.context) as Record<string, string>;
+  } catch {
+    // keep empty context
+  }
+  context["verify_feedback"] = failureText;
+  context["retry_feedback"] = failureText;
+  db.prepare("UPDATE runs SET context = ?, updated_at = datetime('now') WHERE id = ?").run(
+    JSON.stringify(context),
+    runId,
+  );
+}
+
+/**
  * Synchronous variant of rerouteStep. Used in sync contexts (completeStep
  * expects-validation, orphan recovery) where the async workflow spec read is
  * replaced with loadWorkflowSpecSync.
@@ -2757,11 +2998,11 @@ function rerouteStepSync(
     { step_id: string; step_index: number; reroute_count: number | null } | undefined;
   if (!consumerStep) return "not_found";
 
-  // Look up the target (producer) step in the same run
+  // Look up the target (producer) step in the same run (include type + loop_config for story reset)
   const targetStep = db.prepare(
-    "SELECT id, step_id, step_index FROM steps WHERE run_id = ? AND step_id = ?"
+    "SELECT id, step_id, step_index, type, loop_config FROM steps WHERE run_id = ? AND step_id = ?"
   ).get(runId, targetStepId) as
-    { id: string; step_id: string; step_index: number } | undefined;
+    { id: string; step_id: string; step_index: number; type: string; loop_config: string | null } | undefined;
 
   // Validate: target must exist and have a lower step_index than consumer
   if (!targetStep) return "invalid_target";
@@ -2799,9 +3040,21 @@ function rerouteStepSync(
 
   // (a) Re-pend producer: status=pending, retry_count UNCHANGED.
   //     Write retry_feedback into output so claimStep surfaces it.
+  //     Clear claim ownership and set invalidation marker to prevent
+  //     stale completions from re-completing the producer with old output.
+  //     Also NULL claim_updated_at so the no-op bounce guard (C19a) can
+  //     detect that no agent claimed this step after the reroute.
   db.prepare(
-    "UPDATE steps SET status = 'pending', output = ?, updated_at = datetime('now') WHERE id = ?"
+    "UPDATE steps SET status = 'pending', output = ?, claim_job_id = NULL, claim_pid = NULL, claim_pgid = NULL, claim_updated_at = NULL, claim_invalidated_by = 'reroute', updated_at = datetime('now') WHERE id = ?"
   ).run(feedback, targetStep.id);
+
+  // (a.2) Story reset on reroute: when the reroute target is a loop-over-stories step,
+  //        reset the story/stories cited in the consumer's failure text to pending.
+  resetStoriesOnReroute(db, runId, targetStep, error, getWorkflowId(runId));
+
+  // (a.3) Write verify_feedback into run context when reroute target is a
+  //        loop-over-stories step (unconditional — even when no stories were reset).
+  writeRerouteFeedbackContext(db, runId, targetStep, error);
 
   // (b) Reset consumer: status=waiting, retry_count=0, increment reroute_count.
   //     Clear output and ownership so it looks like a fresh step.

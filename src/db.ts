@@ -167,6 +167,15 @@ function migrate(db: DatabaseSync): void {
     db.exec("ALTER TABLE steps ADD COLUMN reroute_count INTEGER DEFAULT 0");
   }
 
+  // ── RETR claim invalidation marker ──
+  // When set to 'reroute', flags that the step's claim was deliberately invalidated
+  // by a reroute (as opposed to a sweeper reset). Used by completeStepInternal to
+  // reject stale completions from the pre-reroute claim while still allowing C5
+  // late-work acceptance for sweeper-reset steps (claim_invalidated_by stays NULL).
+  if (!stepColNames.has("claim_invalidated_by")) {
+    db.exec("ALTER TABLE steps ADD COLUMN claim_invalidated_by TEXT");
+  }
+
   // Indexes for run-scoped scheduling and step claim queries.
   db.exec(
     "CREATE INDEX IF NOT EXISTS idx_steps_agent_run_status ON steps(agent_id, run_id, status)",

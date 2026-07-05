@@ -153,6 +153,54 @@ baseline assertions.
   emits `step.reroute_budget_exhausted`. RETR does NOT fire for loop-step
   story-level exhaustion (`verify_each` territory) or for `finalize_merge`
   (rugpull owns merge-failure recovery).
+
+  **Loop-step story reset:** When the reroute target is a loop-over-stories
+  step (`type='loop'`, `loop_config.over='stories'`), stories cited in the
+  consumer's failure text are reset to `pending` so the developer actually
+  redoes the rejected work. Story IDs are parsed from the failure text via
+  the `/US-\d+/g` regex. Each matching `done` story is reset (`status =
+  'pending'`, `retry_count` incremented, `updated_at` refreshed). If no
+  story IDs are found, the fallback heuristic resets the most recently
+  updated `done` story (mirroring `handleVerifyEachCompletion`'s
+  `lastDoneStory` pattern). Story IDs not present in the database are
+  silently ignored (logged as a warning). Only `done` stories are
+  eligible — `pending` and `running` stories are untouched. The consumer's
+  failure text is written into `runs.context` as `verify_feedback` and
+  `retry_feedback` so the developer's next claim renders the reason for
+  rework. Story `retry_count` is bounded by the story's `max_retries`: if
+  the increment would exhaust the budget, the story transitions to
+  `failed` with a `story.failed` event (the step does NOT fail —
+  `checkLoopContinuation` handles failed stories independently).
+
+  **Claim fencing:** Reroutes deliberately invalidate the producer's
+  claim so stale completions from before the reroute cannot silently
+  re-complete the re-pended step with old output. On reroute, the
+  producer's `claim_job_id`, `claim_pid`, and `claim_pgid` are cleared
+  and `claim_invalidated_by` is set to `'reroute'`. A fresh claim clears
+  `claim_invalidated_by` to `NULL`. The `completeStepInternal` guard
+  rejects completions for steps where `status='pending'` and
+  `claim_invalidated_by='reroute'` (returning `{ status: 'blocked' }`),
+  while sweeper-reset steps (`recoverOrphanedStepsForAgent`,
+  `cleanupAbandonedSteps`) do NOT set `claim_invalidated_by`, so C5
+  late-work acceptance is preserved — the guard checks
+  `claim_invalidated_by`, not `claim_job_id`.
+
+  **No-op bounce detection (C19a):** As a defense-in-depth layer, if a
+  rerouted producer completes without any new agent work round having
+  run since the reroute, a `step.reroute_noop` event is emitted and the
+  completion does not silently consume the reroute budget. This is
+  detected in two layers: (1) In `completeStepInternal`, when a stale
+  completion arrives with `claim_invalidated_by='reroute'` and
+  `claim_updated_at IS NULL` (the `UPDATE` on reroute clears it),
+  `step.reroute_noop` is emitted before the completion is blocked.
+  (2) In `claimStep`'s loop-step auto-complete path (no pending or
+  failed stories → mark done), which never goes through
+  `completeStepInternal`: if the step was rerouted (captured as
+  `wasRerouted` from `claim_invalidated_by === 'reroute'` before the
+  claim UPDATE clears it), `step.reroute_noop` is emitted. The reroute
+  budget is NOT additionally consumed (already incremented on the
+  consumer). These events make silent bounces observable in the event
+  log rather than wasting reroute budget invisibly.
 - **C20 (SJSN — story-ingestion structural validation)** A STORIES_JSON
   payload that parses but does not faithfully represent the planner's story
   list must be REJECTED with an informed retry, never silently accepted.
