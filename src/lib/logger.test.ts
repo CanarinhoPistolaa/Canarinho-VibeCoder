@@ -55,10 +55,46 @@ describe("logger", () => {
     assert.ok(content.includes("ERROR") || content.includes("error"));
   });
 
-  it("logger.debug writes an info-level message", () => {
-    logger.debug("debug msg");
-    const content = fs.readFileSync(logPath, "utf-8");
-    assert.ok(content.includes("debug msg"));
+  it("logger.debug is dropped by default (no TAMANDUA_DEBUG)", () => {
+    const prevDebug = process.env.TAMANDUA_DEBUG;
+    delete process.env.TAMANDUA_DEBUG;
+    try {
+      logger.debug("suppressed debug msg");
+      const content = fs.existsSync(logPath) ? fs.readFileSync(logPath, "utf-8") : "";
+      assert.ok(!content.includes("suppressed debug msg"));
+    } finally {
+      if (prevDebug !== undefined) process.env.TAMANDUA_DEBUG = prevDebug;
+    }
+  });
+
+  it("logger.debug writes a DEBUG line when TAMANDUA_DEBUG=1", () => {
+    const prevDebug = process.env.TAMANDUA_DEBUG;
+    process.env.TAMANDUA_DEBUG = "1";
+    try {
+      logger.debug("enabled debug msg");
+      const content = fs.readFileSync(logPath, "utf-8");
+      const line = content.split("\n").find((l) => l.includes("enabled debug msg"));
+      assert.ok(line, "debug line should be written when TAMANDUA_DEBUG=1");
+      assert.ok(line!.includes("DEBUG"), "line should carry the DEBUG level");
+    } finally {
+      if (prevDebug === undefined) delete process.env.TAMANDUA_DEBUG;
+      else process.env.TAMANDUA_DEBUG = prevDebug;
+    }
+  });
+
+  it("logger.debug treats TAMANDUA_DEBUG=0/false as disabled", () => {
+    const prevDebug = process.env.TAMANDUA_DEBUG;
+    try {
+      for (const off of ["0", "false", ""]) {
+        process.env.TAMANDUA_DEBUG = off;
+        logger.debug(`disabled debug msg ${off}`);
+      }
+      const content = fs.existsSync(logPath) ? fs.readFileSync(logPath, "utf-8") : "";
+      assert.ok(!content.includes("disabled debug msg"));
+    } finally {
+      if (prevDebug === undefined) delete process.env.TAMANDUA_DEBUG;
+      else process.env.TAMANDUA_DEBUG = prevDebug;
+    }
   });
 
   it("formatEntry formats a log entry with runId", () => {

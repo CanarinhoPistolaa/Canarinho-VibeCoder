@@ -192,6 +192,10 @@ function runDispatchRounds(opts: {
     {
       HOME: opts.homeDir,
       TAMANDUA_PI_BINARY: opts.fakePiPath,
+      // The N1 assertion counts "Dispatch round idle" lines as its probe
+      // that each idle round ran; those lines are debug-level and dropped
+      // unless TAMANDUA_DEBUG is set.
+      TAMANDUA_DEBUG: "1",
     },
   );
 }

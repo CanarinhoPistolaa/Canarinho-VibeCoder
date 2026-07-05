@@ -37,7 +37,17 @@ function rotateIfNeeded(): void {
   } catch {}
 }
 
-export type LogLevel = "info" | "warn" | "error";
+export type LogLevel = "debug" | "info" | "warn" | "error";
+
+/**
+ * Debug lines are high-volume diagnostics (e.g. per-agent dispatch rounds
+ * fire several times per second and were filling the 5MB log rotation).
+ * They are dropped unless TAMANDUA_DEBUG is set.
+ */
+function debugLoggingEnabled(): boolean {
+  const v = process.env.TAMANDUA_DEBUG?.trim().toLowerCase();
+  return v !== undefined && v !== "" && v !== "0" && v !== "false";
+}
 
 function formatTimestamp(): string {
   return new Date().toISOString().replace("T", " ").slice(0, 19);
@@ -46,6 +56,7 @@ function formatTimestamp(): string {
 let isolationViolationReported = false;
 
 function writeLine(level: LogLevel, message: string, extra?: Record<string, unknown>): void {
+  if (level === "debug" && !debugLoggingEnabled()) return;
   try {
     assertStatePathIsolation(getLogFile(), "logger");
   } catch (err) {
@@ -84,7 +95,7 @@ export const logger = {
     writeLine("error", message, extra);
   },
   debug(message: string, extra?: Record<string, unknown>) {
-    writeLine("info", message, extra);  // debug = info for compatibility
+    writeLine("debug", message, extra);
   },
 };
 

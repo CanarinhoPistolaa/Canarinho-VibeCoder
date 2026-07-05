@@ -51,14 +51,37 @@ function getEventsFileForSource(source: EventCursorSource): string {
 // ── Event Emission ───────────────────────────────────────────────────
 
 /**
+ * Dispatch-nudge bookkeeping events. Every nudge fans out to all agents of
+ * all running runs, so at steady state these are ~99% of all.jsonl volume
+ * (observed: 464k of 467k events, 92MB) — and the dashboard re-reads that
+ * file on every poll. Dropped unless TAMANDUA_DEBUG_EVENTS is set.
+ */
+const NOISE_EVENTS: ReadonlySet<string> = new Set([
+  "run.nudged",
+  "agent.nudged",
+  "agent.nudge.skipped",
+]);
+
+function isEnvFlagEnabled(value: string | undefined): boolean {
+  const v = value?.trim().toLowerCase();
+  return v !== undefined && v !== "" && v !== "0" && v !== "false";
+}
+
+/**
  * Emit a Tamandua event.
  *
  * Writes:
  * 1. To the run-specific JSONL file (~/.tamandua/events/<runId>.jsonl)
  * 2. To the global JSONL file (~/.tamandua/events/all.jsonl)
  * 3. Fires a webhook if a notify URL is configured for the run (fire-and-forget)
+ *
+ * High-volume nudge bookkeeping events (NOISE_EVENTS) are dropped unless
+ * TAMANDUA_DEBUG_EVENTS is set.
  */
 export function emitEvent(evt: TamanduaEvent): void {
+  if (NOISE_EVENTS.has(evt.event) && !isEnvFlagEnabled(process.env.TAMANDUA_DEBUG_EVENTS)) {
+    return;
+  }
   const line = JSON.stringify(evt) + "\n";
 
   // Ensure events directory exists

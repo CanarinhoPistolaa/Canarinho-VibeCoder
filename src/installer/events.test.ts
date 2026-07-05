@@ -121,6 +121,54 @@ describe("events", () => {
       const content = fs.readFileSync(globalFile, "utf-8");
       assert.ok(content.includes("step.running"));
     });
+
+    it("suppresses nudge noise events by default", () => {
+      const prev = process.env.TAMANDUA_DEBUG_EVENTS;
+      delete process.env.TAMANDUA_DEBUG_EVENTS;
+      try {
+        emitEvent(makeEvent("run-7", "run.nudged"));
+        emitEvent(makeEvent("run-7", "agent.nudged"));
+        emitEvent(makeEvent("run-7", "agent.nudge.skipped"));
+
+        const runFile = path.join(stateDir, "events", "run-7.jsonl");
+        const globalFile = path.join(stateDir, "events", "all.jsonl");
+        assert.ok(!fs.existsSync(runFile), "run file must not be created for noise events");
+        assert.ok(!fs.existsSync(globalFile), "global file must not be created for noise events");
+      } finally {
+        if (prev !== undefined) process.env.TAMANDUA_DEBUG_EVENTS = prev;
+      }
+    });
+
+    it("still writes normal events while noise events are suppressed", () => {
+      const prev = process.env.TAMANDUA_DEBUG_EVENTS;
+      delete process.env.TAMANDUA_DEBUG_EVENTS;
+      try {
+        emitEvent(makeEvent("run-8", "run.nudged"));
+        emitEvent(makeEvent("run-8", "step.completed"));
+
+        const globalFile = path.join(stateDir, "events", "all.jsonl");
+        const content = fs.readFileSync(globalFile, "utf-8");
+        assert.ok(content.includes("step.completed"));
+        assert.ok(!content.includes("run.nudged"));
+      } finally {
+        if (prev !== undefined) process.env.TAMANDUA_DEBUG_EVENTS = prev;
+      }
+    });
+
+    it("writes nudge events when TAMANDUA_DEBUG_EVENTS=1", () => {
+      const prev = process.env.TAMANDUA_DEBUG_EVENTS;
+      process.env.TAMANDUA_DEBUG_EVENTS = "1";
+      try {
+        emitEvent(makeEvent("run-9", "agent.nudged"));
+
+        const globalFile = path.join(stateDir, "events", "all.jsonl");
+        const content = fs.readFileSync(globalFile, "utf-8");
+        assert.ok(content.includes("agent.nudged"));
+      } finally {
+        if (prev === undefined) delete process.env.TAMANDUA_DEBUG_EVENTS;
+        else process.env.TAMANDUA_DEBUG_EVENTS = prev;
+      }
+    });
   });
 
   describe("getRecentEvents", () => {
