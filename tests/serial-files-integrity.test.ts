@@ -72,10 +72,13 @@ function fileCallsDaemonSpawner(filePath: string): boolean {
 }
 
 describe("serial-files.txt integrity", () => {
-  it("serial-files.txt exists and has exactly 62 entries", () => {
+  it("serial-files.txt exists and is non-empty", () => {
+    // Membership is pinned bidirectionally by the classification tests below
+    // (every spawn-capable file listed / every listed file spawn-capable), so
+    // an exact-count assertion would only add churn on every legitimate change.
     assert.ok(fs.existsSync(SERIAL_FILES_PATH), "tests/serial-files.txt must exist");
     const entries = readSerialFile();
-    assert.equal(entries.length, 62, "serial-files.txt must have exactly 62 entries");
+    assert.ok(entries.length > 0, "serial-files.txt must not be empty");
   });
 
   it("every entry is a valid relative path to an existing .test.ts file", () => {

@@ -5,7 +5,8 @@
 # In-process servers (createDashboardServer, createTamanduaMcpServer) are NOT serial candidates.
 # Lines starting with # are comments, empty lines ignored. Sorted alphabetically.
 #
-# 57 files importing node:child_process + 5 daemonctl spawners = 62 serial files.
+# Membership is enforced bidirectionally by tests/serial-classification-guard.test.ts
+# and tests/serial-files-integrity.test.ts.
 src/autoresearch/autoresearch.test.ts
 src/cli/cli.test.ts
 src/cli/wizard-evaluator.test.ts

@@ -227,7 +227,34 @@ npm run build && npm test
 ```
 
 Tests use Node's built-in `node:test` and `node:assert`.
-Tests are safe for parallel execution with `node --test tests/*.test.ts src/**/*.test.ts`.
+
+### Two-lane test suite (PRLL)
+
+`npm test` delegates to `scripts/run-all-lanes.sh`, which runs the suite in
+two lanes; contributors don't need to know about lanes — just run `npm test`:
+
+1. **Serial lane** (`scripts/run-serial-tests.sh`, concurrency 1): test files
+   that spawn OS processes or exercise daemon lifecycle. These carry
+   absolute-deadline assertions that rotate flaky under parallel load, so they
+   run alone. The file list lives in `tests/serial-files.txt`.
+2. **Parallel lane** (`scripts/run-parallel-tests.sh`, default concurrency):
+   every other `*.test.ts` under `src/` and `tests/`, discovered with `find`
+   (the old `src/**/*.test.ts` glob silently skipped top-level files like
+   `src/db.test.ts`; `find` covers everything except `e2e-tests/`).
+
+**Classification rule**: a test file belongs in the serial lane if it
+(a) imports from `node:child_process`, or (b) calls a daemonctl spawner
+(`startDaemon`/`startMcp`/`startControlPlane` and their stop/restart
+counterparts). In-process servers (`createDashboardServer`,
+`createTamanduaMcpServer`) are NOT serial candidates.
+
+If you add a spawn-capable test file without listing it in
+`tests/serial-files.txt`, `tests/serial-classification-guard.test.ts` fails
+with instructions; `tests/serial-files-integrity.test.ts` pins the reverse
+direction (everything listed must be spawn-capable and existing).
+
+Never convert absolute-deadline assertions into polls or retries to fix a
+flake — raise the timeout or move the file to the serial lane.
 
 ### End-to-End Tests
 
