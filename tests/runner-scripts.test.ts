@@ -321,3 +321,270 @@ describe("run-parallel-tests.sh", () => {
     }
   });
 });
+
+describe("run-all-lanes.sh", () => {
+  const ALL_LANES_SCRIPT = path.join(REPO_ROOT, "scripts", "run-all-lanes.sh");
+
+  function setupTempRepo(tmpDir, { serialFiles, parallelFiles }) {
+    copyChildScripts(tmpDir);
+
+    // Create serial-files.txt with entries
+    writeText(path.join(tmpDir, "tests", "serial-files.txt"), serialFiles.join("\n") + "\n");
+
+    // Create each test file
+    for (const [filePath, content] of [...(serialFiles.map(f => [f, passTestContent()])), ...(parallelFiles.map(f => [f, passTestContent()]))]) {
+      writeText(path.join(tmpDir, filePath), content);
+    }
+  }
+
+  function passTestContent() {
+    return 'import { describe, it } from "node:test";\n' +
+           'import assert from "node:assert/strict";\n' +
+           'describe("dummy", () => {\n' +
+           '  it("passes", () => { assert.equal(1, 1); });\n' +
+           '});\n';
+  }
+
+  function failTestContent() {
+    return 'import { describe, it } from "node:test";\n' +
+           'import assert from "node:assert/strict";\n' +
+           'describe("dummy", () => {\n' +
+           '  it("fails", () => { assert.equal(1, 2); });\n' +
+           '});\n';
+  }
+
+  it("exists and is executable", () => {
+    assert.ok(fs.existsSync(ALL_LANES_SCRIPT), "scripts/run-all-lanes.sh must exist");
+    fs.accessSync(ALL_LANES_SCRIPT, fs.constants.X_OK);
+  });
+
+  it("has valid bash syntax", () => {
+    execSync("bash -n " + JSON.stringify(ALL_LANES_SCRIPT), { stdio: "pipe" });
+  });
+
+  it("outputs lane labels for serial and parallel", () => {
+    const tmpDir = makeTmpDir();
+    try {
+      setupTempRepo(tmpDir, {
+        serialFiles: ["src/serial.test.ts"],
+        parallelFiles: ["src/parallel.test.ts"],
+      });
+
+      const result = execFileSync("bash", [ALL_LANES_SCRIPT], {
+        cwd: tmpDir,
+        env: cleanChildEnv({ HOME: tmpDir, TAMANDUA_REPO_ROOT: tmpDir, TAMANDUA_TEST_GUARD: "0" }),
+        stdio: "pipe",
+        encoding: "utf-8",
+      });
+
+      assert.ok(
+        result.includes("SERIAL lane"),
+        "output must label serial lane: " + result.slice(0, 500),
+      );
+      assert.ok(
+        result.includes("PARALLEL lane"),
+        "output must label parallel lane: " + result.slice(0, 500),
+      );
+    } finally {
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    }
+  });
+
+  it("runs serial lane before parallel lane", () => {
+    const tmpDir = makeTmpDir();
+    try {
+      setupTempRepo(tmpDir, {
+        serialFiles: ["src/serial.test.ts"],
+        parallelFiles: ["src/parallel.test.ts"],
+      });
+
+      const result = execFileSync("bash", [ALL_LANES_SCRIPT], {
+        cwd: tmpDir,
+        env: cleanChildEnv({ HOME: tmpDir, TAMANDUA_REPO_ROOT: tmpDir, TAMANDUA_TEST_GUARD: "0" }),
+        stdio: "pipe",
+        encoding: "utf-8",
+      });
+
+      const serialIdx = result.indexOf("SERIAL lane");
+      const parallelIdx = result.indexOf("PARALLEL lane");
+      assert.ok(serialIdx >= 0, "serial lane label must be present");
+      assert.ok(parallelIdx >= 0, "parallel lane label must be present");
+      assert.ok(
+        serialIdx < parallelIdx,
+        "serial lane must appear before parallel lane in output",
+      );
+    } finally {
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    }
+  });
+
+  it("exit 0 when both lanes pass", () => {
+    const tmpDir = makeTmpDir();
+    try {
+      setupTempRepo(tmpDir, {
+        serialFiles: ["src/serial.test.ts"],
+        parallelFiles: ["src/parallel.test.ts"],
+      });
+
+      const result = execFileSync("bash", [ALL_LANES_SCRIPT], {
+        cwd: tmpDir,
+        env: cleanChildEnv({ HOME: tmpDir, TAMANDUA_REPO_ROOT: tmpDir, TAMANDUA_TEST_GUARD: "0" }),
+        stdio: "pipe",
+        encoding: "utf-8",
+      });
+
+      assert.ok(
+        result.includes("Serial lane:   PASSED"),
+        "serial lane should show PASSED in summary",
+      );
+      assert.ok(
+        result.includes("Parallel lane: PASSED"),
+        "parallel lane should show PASSED in summary",
+      );
+    } finally {
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    }
+  });
+
+  function copyChildScripts(tmpDir) {
+    const scriptsDir = path.join(tmpDir, "scripts");
+    fs.mkdirSync(scriptsDir, { recursive: true });
+    fs.copyFileSync(SERIAL_SCRIPT, path.join(scriptsDir, "run-serial-tests.sh"));
+    fs.copyFileSync(PARALLEL_SCRIPT, path.join(scriptsDir, "run-parallel-tests.sh"));
+  }
+
+  it("exit non-zero when serial lane fails, and parallel lane still runs", () => {
+    const tmpDir = makeTmpDir();
+    try {
+      copyChildScripts(tmpDir);
+      writeText(path.join(tmpDir, "tests", "serial-files.txt"), "src/serial-fail.test.ts\n");
+      writeText(path.join(tmpDir, "src", "serial-fail.test.ts"), failTestContent());
+      writeText(path.join(tmpDir, "src", "parallel-ok.test.ts"), passTestContent());
+
+      try {
+        execFileSync("bash", [ALL_LANES_SCRIPT], {
+          cwd: tmpDir,
+          env: cleanChildEnv({ HOME: tmpDir, TAMANDUA_REPO_ROOT: tmpDir, TAMANDUA_TEST_GUARD: "0" }),
+          stdio: "pipe",
+          encoding: "utf-8",
+        });
+        assert.fail("Should have exited non-zero when serial lane fails");
+      } catch (e) {
+        assert.notEqual(e.status, 0, "exit code must be non-zero");
+
+        // Both lanes must have run (no fail-fast)
+        const stdout = e.stdout || "";
+        assert.ok(
+          stdout.includes("SERIAL lane: FAILED"),
+          "serial lane must show FAILED",
+        );
+        assert.ok(
+          stdout.includes("PARALLEL lane"),
+          "parallel lane must have run despite serial failure",
+        );
+      }
+    } finally {
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    }
+  });
+
+  it("exit non-zero when parallel lane fails, and serial lane passed", () => {
+    const tmpDir = makeTmpDir();
+    try {
+      copyChildScripts(tmpDir);
+      writeText(path.join(tmpDir, "tests", "serial-files.txt"), "src/serial-ok.test.ts\n");
+      writeText(path.join(tmpDir, "src", "serial-ok.test.ts"), passTestContent());
+      writeText(path.join(tmpDir, "src", "parallel-fail.test.ts"), failTestContent());
+
+      try {
+        execFileSync("bash", [ALL_LANES_SCRIPT], {
+          cwd: tmpDir,
+          env: cleanChildEnv({ HOME: tmpDir, TAMANDUA_REPO_ROOT: tmpDir, TAMANDUA_TEST_GUARD: "0" }),
+          stdio: "pipe",
+          encoding: "utf-8",
+        });
+        assert.fail("Should have exited non-zero when parallel lane fails");
+      } catch (e) {
+        assert.notEqual(e.status, 0, "exit code must be non-zero");
+
+        const stdout = e.stdout || "";
+        assert.ok(
+          stdout.includes("SERIAL lane: PASSED"),
+          "serial lane must show PASSED",
+        );
+        assert.ok(
+          stdout.includes("PARALLEL lane: FAILED"),
+          "parallel lane must show FAILED",
+        );
+      }
+    } finally {
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    }
+  });
+
+  it("exit non-zero when both lanes fail", () => {
+    const tmpDir = makeTmpDir();
+    try {
+      copyChildScripts(tmpDir);
+      writeText(path.join(tmpDir, "tests", "serial-files.txt"), "src/serial-fail.test.ts\n");
+      writeText(path.join(tmpDir, "src", "serial-fail.test.ts"), failTestContent());
+      writeText(path.join(tmpDir, "src", "parallel-fail.test.ts"), failTestContent());
+
+      try {
+        execFileSync("bash", [ALL_LANES_SCRIPT], {
+          cwd: tmpDir,
+          env: cleanChildEnv({ HOME: tmpDir, TAMANDUA_REPO_ROOT: tmpDir, TAMANDUA_TEST_GUARD: "0" }),
+          stdio: "pipe",
+          encoding: "utf-8",
+        });
+        assert.fail("Should have exited non-zero when both lanes fail");
+      } catch (e) {
+        assert.notEqual(e.status, 0, "exit code must be non-zero");
+
+        const stdout = e.stdout || "";
+        assert.ok(
+          stdout.includes("SERIAL lane: FAILED"),
+          "serial lane must show FAILED",
+        );
+        assert.ok(
+          stdout.includes("PARALLEL lane: FAILED"),
+          "parallel lane must show FAILED",
+        );
+      }
+    } finally {
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    }
+  });
+
+  it("summary section labels both lane results", () => {
+    const tmpDir = makeTmpDir();
+    try {
+      setupTempRepo(tmpDir, {
+        serialFiles: ["src/serial.test.ts"],
+        parallelFiles: ["src/parallel.test.ts"],
+      });
+
+      const result = execFileSync("bash", [ALL_LANES_SCRIPT], {
+        cwd: tmpDir,
+        env: cleanChildEnv({ HOME: tmpDir, TAMANDUA_REPO_ROOT: tmpDir, TAMANDUA_TEST_GUARD: "0" }),
+        stdio: "pipe",
+        encoding: "utf-8",
+      });
+
+      assert.ok(
+        result.includes("PRLL Test Suite Summary"),
+        "output must contain summary header",
+      );
+      assert.ok(
+        result.includes("Serial lane:"),
+        "summary must mention serial lane",
+      );
+      assert.ok(
+        result.includes("Parallel lane:"),
+        "summary must mention parallel lane",
+      );
+    } finally {
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    }
+  });
+});
