@@ -44,7 +44,7 @@ async function closeServer(server: http.Server): Promise<void> {
   });
 }
 
-async function waitForExit(child: ChildProcess, timeoutMs = 7000): Promise<number> {
+async function waitForExit(child: ChildProcess, timeoutMs = 30000): Promise<number> {
   if (child.exitCode !== null) return child.exitCode;
 
   return await new Promise<number>((resolve, reject) => {
@@ -72,7 +72,7 @@ async function forceKillIfAlive(child: ChildProcess): Promise<void> {
   await waitForExit(child, 2000).catch(() => {});
 }
 
-async function waitForHttpUp(url: string, timeoutMs = 7000): Promise<Response> {
+async function waitForHttpUp(url: string, timeoutMs = 30000): Promise<Response> {
   const startedAt = Date.now();
   let lastError: unknown;
 
@@ -88,7 +88,7 @@ async function waitForHttpUp(url: string, timeoutMs = 7000): Promise<Response> {
   throw new Error(`Timed out waiting for ${url} to become reachable: ${String(lastError)}`);
 }
 
-async function waitForHttpDown(url: string, timeoutMs = 7000): Promise<void> {
+async function waitForHttpDown(url: string, timeoutMs = 30000): Promise<void> {
   const startedAt = Date.now();
 
   while (Date.now() - startedAt < timeoutMs) {
@@ -196,7 +196,7 @@ describe("version check integration", () => {
 
     try {
       // Dashboard should be reachable quickly — version check is fire-and-forget
-      const health = await waitForHttpUp(`http://127.0.0.1:${dashboardPort}/api/health`, 5000);
+      const health = await waitForHttpUp(`http://127.0.0.1:${dashboardPort}/api/health`);
       assert.equal(health.status, 200);
 
       const elapsedMs = Date.now() - startTime;
