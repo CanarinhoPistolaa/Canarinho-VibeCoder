@@ -189,6 +189,8 @@ steps:
       HIGH_COUNT: <number>
       DEFERRED: <any issues skipped and why>
       STORIES_JSON: [ ... array of story objects ... ]
+
+      Malformed STORIES_JSON (fused objects, duplicate keys, invalid fields) is auto-rejected and the rejection details appear in RETRY FEEDBACK on retry — read it carefully and fix exactly what it describes.
     expects: "STATUS: done\nregex:^FIX_PLAN:\\s*\\S+\nregex:^CRITICAL_COUNT:\\s*\\d+\nregex:^HIGH_COUNT:\\s*\\d+"
     max_retries: 4
 

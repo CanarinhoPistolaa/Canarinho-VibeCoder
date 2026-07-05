@@ -661,6 +661,24 @@ export function formatCompletedStories(stories: Story[]): string {
 // ══════════════════════════════════════════════════════════════════════
 
 /**
+ * Valid story id format: uppercase prefix followed by hyphen and digits.
+ * Matches US-001 from feature-dev planners and fix-001 from security-audit
+ * prioritizers.
+ */
+const STORIES_JSON_STORY_ID_RE = /^[A-Z]+-\d+$/i;
+
+/**
+ * Known story fields. Any field NOT in this set triggers a warning log
+ * (unknown extra fields are tolerated, not fatal).
+ */
+const KNOWN_STORY_FIELDS = new Set([
+  "id",
+  "title",
+  "description",
+  "acceptanceCriteria",
+]);
+
+/**
  * Count occurrences of `"<key>":` in raw JSON text where the opening quote is
  * a real JSON delimiter, i.e. not escaped inside a string value (an odd run
  * of preceding backslashes means the quote is string content, so prose like
@@ -679,6 +697,135 @@ export function countUnescapedJsonKey(jsonText: string, key: string): number {
     if (backslashes % 2 === 0) count++;
   }
   return count;
+}
+
+/**
+ * Detect ANY duplicate key within the same JSON object by walking the raw
+ * text character by character. Used as the authority for duplicate-key
+ * detection — the countUnescapedJsonKey heuristic catches id-key collapses
+ * but is blind to duplicate NON-id keys (e.g., a story whose "title"
+ * appears twice with different values).
+ *
+ * Returns an array of { key, objectIndex, firstPos, secondPos } where
+ * objectIndex is the zero-based index of the top-level story object (0, 1,
+ * 2, ...). Handles nested objects (acceptanceCriteria arrays), escaped
+ * quotes inside strings, and does not false-positive on keys repeated
+ * across different objects.
+ *
+ * Node stdlib only — no JSON.parse, no new dependencies.
+ */
+export function detectDuplicateKeys(
+  jsonText: string,
+): Array<{ key: string; objectIndex: number; firstPos: number; secondPos: number }> {
+  const duplicates: Array<{ key: string; objectIndex: number; firstPos: number; secondPos: number }> = [];
+
+  // Object stack: one entry per '{' (nested objects). Each entry tracks
+  // keys seen so far in that object plus the story index context.
+  const objStack: Array<{ keys: Map<string, number>; storyIndex: number }> = [];
+
+  let objDepth = 0; // only counts '{' / '}' — arrays and strings are transparent
+  let depth = 0; // all brace / bracket nesting (used for string-awareness safety)
+  let storyCount = 0; // top-level story object counter
+
+  let i = 0;
+  while (i < jsonText.length) {
+    const c = jsonText[i];
+
+    // ── String handling ──
+    if (c === '"') {
+      // Extract the full string value, skipping escaped characters.
+      const strStart = i;
+      let val = '';
+      i++; // skip opening quote
+      while (i < jsonText.length) {
+        const ch = jsonText[i];
+        if (ch === '\\') {
+          i++; // skip the backslash
+          if (i < jsonText.length) {
+            val += jsonText[i]; // escaped char (literal)
+          }
+          i++;
+          continue;
+        }
+        if (ch === '"') break;
+        val += ch;
+        i++;
+      }
+      // i is now at the closing quote (or end of text)
+
+      // Find next non-whitespace char after the closing quote.
+      let next = i + 1;
+      while (next < jsonText.length && /\s/.test(jsonText[next])) next++;
+
+      if (next < jsonText.length && jsonText[next] === ':') {
+        // This is a JSON key.
+        const top = objStack[objStack.length - 1];
+        if (top) {
+          if (top.keys.has(val)) {
+            duplicates.push({
+              key: val,
+              objectIndex: top.storyIndex,
+              firstPos: top.keys.get(val)!,
+              secondPos: strStart,
+            });
+          } else {
+            top.keys.set(val, strStart);
+          }
+        }
+      }
+
+      i++;
+      continue;
+    }
+
+    // ── Brace / bracket tracking ──
+    if (c === '{') {
+      depth++;
+      objDepth++;
+      if (objDepth === 1) {
+        // Top-level object — this is a new story.
+        objStack.push({ keys: new Map(), storyIndex: storyCount++ });
+      } else {
+        // Nested object — inherit story index from the enclosing object.
+        const storyIdx =
+          objStack.length > 0 ? objStack[objStack.length - 1].storyIndex : storyCount;
+        objStack.push({ keys: new Map(), storyIndex: storyIdx });
+      }
+    } else if (c === '}') {
+      depth--;
+      objDepth--;
+      if (objStack.length > 0) objStack.pop();
+    } else if (c === '[') {
+      depth++;
+    } else if (c === ']') {
+      depth--;
+    }
+
+    i++;
+  }
+
+  return duplicates;
+}
+
+/**
+ * Compute (line, column) from a character position in text (1-based).
+ * Exported for testability.
+ */
+export function positionToLineCol(
+  text: string,
+  pos: number,
+): { line: number; col: number } {
+  let line = 1;
+  let col = 1;
+  for (let i = 0; i < pos && i < text.length; i++) {
+    if (text[i] === '\n') {
+      line++;
+      col = 1;
+    } else {
+      col++;
+    }
+  }
+  return { line, col };
 }
 
 /**
@@ -721,11 +868,48 @@ export function parseAndInsertStories(output: string, runId: string): void {
   // per-story check below, and quietly drops all but the final story. Compare
   // raw "id" key occurrences against the parsed story count to catch it.
   const rawIdCount = countUnescapedJsonKey(jsonText, "id");
-  if (rawIdCount > stories.length) {
+  const fusedDetected = rawIdCount > stories.length;
+
+  // SJSN guard: full duplicate-key scanner (authority for non-id duplicates).
+  // The raw-id-count heuristic catches id-key collapses but is blind to
+  // duplicate NON-id keys (e.g. a story whose "title" appears twice with
+  // different values silently keeps the last). The scanner walks the raw
+  // JSON text character-by-character and detects ANY duplicate key within
+  // the same object.
+  const duplicates = detectDuplicateKeys(jsonText);
+
+  if (fusedDetected || duplicates.length > 0) {
+    const parts: string[] = [];
+
+    if (fusedDetected) {
+      parts.push(
+        `STORIES_JSON structural mismatch: the raw JSON contains ${rawIdCount} "id" keys but parsed to only ${stories.length} ${stories.length === 1 ? "story" : "stories"}. ` +
+        `Story objects are likely fused together (missing "},{" separators between stories), so JSON.parse silently discarded every story but the last.`
+      );
+    }
+
+    if (duplicates.length > 0) {
+      for (const dup of duplicates) {
+        const firstLoc = positionToLineCol(jsonText, dup.firstPos);
+        const secondLoc = positionToLineCol(jsonText, dup.secondPos);
+        parts.push(
+          `STORIES_JSON has duplicate key "${dup.key}" in story object at index ${dup.objectIndex} (lines ${firstLoc.line},${secondLoc.line}).`
+        );
+      }
+    }
+
+    parts.push(
+      `Each story must be a separate {...} object separated by },{. See retry feedback for the format contract.`
+    );
+
+    throw new Error(parts.join(" "));
+  }
+
+  // SJSN guard: empty array is a degenerate payload.
+  if (stories.length === 0) {
     throw new Error(
-      `STORIES_JSON structural mismatch: the raw JSON contains ${rawIdCount} "id" keys but parsed to only ${stories.length} ${stories.length === 1 ? "story" : "stories"}. ` +
-      `Story objects are likely fused together (missing "},{" separators between stories), so JSON.parse silently discarded every story but the last. ` +
-      `Re-emit the full STORIES_JSON as an array where each story is its own {...} object: [{"id":"US-001",...},{"id":"US-002",...}]`
+      "STORIES_JSON is present but contains zero stories. " +
+      "The planner must emit at least one story object."
     );
   }
 
@@ -734,13 +918,64 @@ export function parseAndInsertStories(output: string, runId: string): void {
   for (let i = 0; i < stories.length; i++) {
     const s = stories[i];
     const ac = s.acceptanceCriteria ?? s.acceptance_criteria;
-    if (!s.id || !s.title || !s.description || !Array.isArray(ac) || ac.length === 0) {
+
+    // ── Required field presence (existing) ──
+    // Use == null (catches undefined/null) instead of ! (which would also
+    // catch empty strings, hiding the dedicated title/description emptiness
+    // checks below).
+    if (s.id == null || s.title == null || s.description == null || !Array.isArray(ac) || ac.length === 0) {
       throw new Error(`STORIES_JSON story at index ${i} missing required fields (id, title, description, acceptanceCriteria)`);
     }
+
+    // ── Id format: ^[A-Z]+-\d+$ ──
+    if (!STORIES_JSON_STORY_ID_RE.test(String(s.id))) {
+      throw new Error(
+        `STORIES_JSON story at index ${i} has invalid id "${s.id}". ` +
+        `Ids must match pattern UPPERCASE-DIGITS (e.g. US-001, fix-002).`
+      );
+    }
+
+    // ── Duplicate id (existing) ──
     if (seenIds.has(s.id)) {
       throw new Error(`STORIES_JSON has duplicate story id "${s.id}"`);
     }
     seenIds.add(s.id);
+
+    // ── Title non-empty non-whitespace ──
+    if (typeof s.title !== "string" || s.title.trim().length === 0) {
+      throw new Error(
+        `STORIES_JSON story at index ${i} (id "${s.id}") has empty or whitespace-only title. ` +
+        `Title must be a non-empty string.`
+      );
+    }
+
+    // ── Description non-empty non-whitespace ──
+    if (typeof s.description !== "string" || s.description.trim().length === 0) {
+      throw new Error(
+        `STORIES_JSON story at index ${i} (id "${s.id}") has empty or whitespace-only description. ` +
+        `Description must be a non-empty string.`
+      );
+    }
+
+    // ── AcceptanceCriteria: each item non-empty string ──
+    for (let j = 0; j < ac.length; j++) {
+      if (typeof ac[j] !== "string" || ac[j].trim().length === 0) {
+        throw new Error(
+          `STORIES_JSON story at index ${i} (id "${s.id}") has empty or non-string acceptanceCriteria[${j}]. ` +
+          `Each acceptance criteria item must be a non-empty string.`
+        );
+      }
+    }
+
+    // ── Unknown extra fields: warn, not fatal ──
+    for (const key of Object.keys(s)) {
+      if (!KNOWN_STORY_FIELDS.has(key)) {
+        logger.warn(
+          `STORIES_JSON story at index ${i} (id "${s.id}") has unknown field "${key}" — tolerated but unexpected.`,
+          { runId, storyIndex: i, storyId: s.id, field: key },
+        );
+      }
+    }
   }
 
   // Phase 2: all stories valid — insert.

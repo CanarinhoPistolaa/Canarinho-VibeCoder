@@ -128,7 +128,7 @@ describe("dispatch races (motor contract C5)", () => {
       "STATUS: done",
       "MARKER: from-first-completion",
       `STORIES_JSON: ${JSON.stringify([
-        { id: "S1", title: "story", description: "desc", acceptanceCriteria: ["ok"] },
+        { id: "SIM-001", title: "story", description: "desc", acceptanceCriteria: ["ok"] },
       ])}`,
     ].join("\n");
 

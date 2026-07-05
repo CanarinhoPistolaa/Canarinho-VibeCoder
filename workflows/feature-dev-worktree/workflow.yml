@@ -118,6 +118,8 @@ steps:
       The STORIES_JSON line is REQUIRED and MUST be a literal JSON array. Example (illustrative — produce real stories for the actual TASK, not these):
       STORIES_JSON: [{"id":"US-001","title":"Add foo column","description":"...","acceptanceCriteria":["foo exists","tests pass","Typecheck passes"]}]
       Without STORIES_JSON the run cannot proceed; do not summarize stories in prose under CHANGES — only the literal STORIES_JSON line is parsed.
+
+      Malformed STORIES_JSON (fused objects, duplicate keys, invalid fields) is auto-rejected and the rejection details appear in RETRY FEEDBACK on retry — read it carefully and fix exactly what it describes.
     expects: "STATUS: done\nregex:^BRANCH:\\s*\\S+"
     max_retries: 4
 

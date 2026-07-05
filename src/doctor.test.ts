@@ -1427,6 +1427,65 @@ describe("LLM PROMPT ADHERENCE checks (US-002)", () => {
     assert.ok(summary, "Expected summary check even with no expected keys");
     assert.ok(summary!.message.includes("0 keys"), `Summary should show 0 keys, got: ${summary!.message}`);
   });
+
+  it("US-004: STORIES_JSON is excluded from key-emission tracking", async () => {
+    const dbPath = process.env.TAMANDUA_DB_PATH!;
+    // Template with STORIES_JSON as an expected key alongside other keys
+    const template = "Reply with:\nBRANCH: main\nSTORIES_JSON: [...]\nVERIFIED: true\n";
+    seedPromptAdherenceDb(dbPath, Array.from({ length: 5 }, (_, i) => ({
+      id: `sjsn-excl-${i}`,
+      workflowId: "test-workflow",
+      status: "completed",
+      context: { branch: "main", verified: "true" },
+      steps: [{ stepId: "plan", inputTemplate: template }],
+    })));
+
+    const checks = await runLlmPromptAdherenceChecks();
+
+    // STORIES_JSON should NOT appear in any check — it is excluded from tracking
+    const sjsnCheck = checks.find((c: DoctorCheckResult) =>
+      c.message.toUpperCase().includes("STORIES_JSON"));
+    assert.strictEqual(sjsnCheck, undefined,
+      `STORIES_JSON should be excluded from tracking, got: ${JSON.stringify(sjsnCheck)}`);
+
+    // BRANCH should appear at 100% (present in all 5 runs)
+    const branchCheck = checks.find((c: DoctorCheckResult) => c.message.includes("BRANCH"));
+    assert.strictEqual(branchCheck, undefined,
+      "BRANCH at 100% should not appear in per-key checks");
+
+    // VERIFIED also at 100%, should not appear
+    const verifiedCheck = checks.find((c: DoctorCheckResult) => c.message.includes("VERIFIED"));
+    assert.strictEqual(verifiedCheck, undefined,
+      "VERIFIED at 100% should not appear");
+
+    // Summary should count 10 keys (2 keys × 5 runs), not 15
+    const summary = checks.find((c: DoctorCheckResult) => c.name === "Summary");
+    assert.ok(summary, "Expected summary check");
+    assert.ok(summary!.message.includes("10 keys"),
+      `Summary should count 10 keys (BRANCH + VERIFIED × 5 runs), got: ${summary!.message}`);
+    assert.ok(summary!.message.includes("100%"),
+      `Summary should show 100% emission rate, got: ${summary!.message}`);
+  });
+
+  it("US-004: STORIES_JSON exclusion works even when it is the only key", async () => {
+    const dbPath = process.env.TAMANDUA_DB_PATH!;
+    // Template with ONLY STORIES_JSON as expected key
+    const template = "Reply with:\nSTORIES_JSON: [...]\n";
+    seedPromptAdherenceDb(dbPath, Array.from({ length: 5 }, (_, i) => ({
+      id: `sjsn-only-${i}`,
+      workflowId: "test-workflow",
+      status: "completed",
+      context: {},
+      steps: [{ stepId: "plan", inputTemplate: template }],
+    })));
+
+    const checks = await runLlmPromptAdherenceChecks();
+    // Should have summary with 0 keys (all filtered out)
+    const summary = checks.find((c: DoctorCheckResult) => c.name === "Summary");
+    assert.ok(summary, "Expected summary check even with only STORIES_JSON");
+    assert.ok(summary!.message.includes("0 keys"),
+      `Summary should show 0 keys when all are STORIES_JSON, got: ${summary!.message}`);
+  });
 });
 
 describe("formatDoctorOutput", () => {
@@ -1569,5 +1628,235 @@ describe("formatDoctorOutput", () => {
       `Should report failures when mixed with warnings. Got: ${output}`);
     assert.ok(!output.includes("All checks passed"),
       `Should not claim all checks passed when failures exist. Got: ${output}`);
+  });
+});
+
+// ── STORIES_JSON rejection check tests (US-005) ───────────────────
+
+/** Seed the global events JSONL with step.retry events for testing. */
+function seedEventsJsonl(stateDir: string, events: Array<{ event: string; runId: string; workflowId?: string; stepId?: string; detail: string }>): void {
+  const eventsDir = path.join(stateDir, "events");
+  fs.mkdirSync(eventsDir, { recursive: true });
+  const eventsFile = path.join(eventsDir, "all.jsonl");
+  const lines = events.map((e) =>
+    JSON.stringify({ ts: new Date().toISOString(), ...e }) + "\n",
+  ).join("");
+  fs.writeFileSync(eventsFile, lines, "utf-8");
+}
+
+function seedEmptyStateDir(stateDir: string): void {
+  const eventsDir = path.join(stateDir, "events");
+  fs.mkdirSync(eventsDir, { recursive: true });
+  fs.writeFileSync(path.join(eventsDir, "all.jsonl"), "", "utf-8");
+}
+
+describe("STORIES_JSON validation rejection check (US-005)", () => {
+  it("no rejections: info status with 'no recent rejections' message", async () => {
+    const homeDir = createTempHome();
+    try {
+      const stateDir = path.join(homeDir, ".tamandua");
+      seedEmptyStateDir(stateDir);
+
+      const groups = await runDoctorChecks({ homeDir });
+      const state = groups.find((g) => g.label === "STATE");
+      assert.ok(state);
+      const check = state!.checks.find((c) => c.name === "STORIES_JSON validation rejections");
+      assert.ok(check, "Expected STORIES_JSON validation rejections check");
+      assert.strictEqual(check!.status, "info",
+        `Should be info when no rejections, got: ${check!.status}`);
+      assert.ok(check!.message.includes("No recent STORIES_JSON"),
+        `Should say no recent rejections, got: ${check!.message}`);
+    } finally {
+      try { fs.rmSync(homeDir, { recursive: true, force: true }); } catch {}
+    }
+  });
+
+  it("rejections found: warn status with count, affected runs, and error categories", async () => {
+    const homeDir = createTempHome();
+    try {
+      const stateDir = path.join(homeDir, ".tamandua");
+      seedEventsJsonl(stateDir, [
+        {
+          event: "step.retry",
+          runId: "run-001",
+          workflowId: "feature-dev-merge-worktree",
+          stepId: "plan",
+          detail: 'STORIES_JSON structural mismatch: the raw JSON contains 7 "id" keys but parsed to only 1 story. Each story must be a separate {...} object separated by },{. Resetting to pending for retry 1/4.',
+        },
+        {
+          event: "step.retry",
+          runId: "run-001",
+          workflowId: "feature-dev-merge-worktree",
+          stepId: "plan",
+          detail: 'STORIES_JSON has duplicate key "title" in story object at index 0 (lines 3,5). Resetting to pending for retry 2/4.',
+        },
+        {
+          event: "step.retry",
+          runId: "run-002",
+          workflowId: "security-audit-merge-worktree",
+          stepId: "prioritizer",
+          detail: "Failed to parse STORIES_JSON: Unexpected token. Resetting to pending for retry 1/4.",
+        },
+        {
+          event: "step.retry",
+          runId: "run-002",
+          workflowId: "security-audit-merge-worktree",
+          stepId: "prioritizer",
+          detail: "STORIES_JSON story at index 0 (id \"fix-001\") has empty or whitespace-only title. Each story title must be non-empty. Resetting to pending for retry 2/4.",
+        },
+      ]);
+
+      const groups = await runDoctorChecks({ homeDir });
+      const state = groups.find((g) => g.label === "STATE");
+      assert.ok(state);
+      const check = state!.checks.find((c) => c.name === "STORIES_JSON validation rejections");
+      assert.ok(check, "Expected STORIES_JSON validation rejections check");
+      assert.strictEqual(check!.status, "warn",
+        `Should be warn when rejections found, got: ${check!.status}`);
+
+      // Check count
+      assert.ok(check!.message.includes("4 STORIES_JSON validation rejections"),
+        `Should mention 4 rejections, got: ${check!.message}`);
+
+      // Check affected runs
+      assert.ok(check!.message.includes("run-001"),
+        `Should mention run-001, got: ${check!.message}`);
+      assert.ok(check!.message.includes("run-002"),
+        `Should mention run-002, got: ${check!.message}`);
+      assert.ok(check!.message.includes("2 runs"),
+        `Should mention 2 runs, got: ${check!.message}`);
+
+      // Check error categories
+      assert.ok(check!.message.includes("structural_mismatch"),
+        `Should include structural_mismatch category, got: ${check!.message}`);
+      assert.ok(check!.message.includes("duplicate_key"),
+        `Should include duplicate_key category, got: ${check!.message}`);
+      assert.ok(check!.message.includes("parse_error"),
+        `Should include parse_error category, got: ${check!.message}`);
+      assert.ok(check!.message.includes("schema_validation"),
+        `Should include schema_validation category, got: ${check!.message}`);
+
+      // Check remedy
+      assert.ok(check!.remedy, "Should have remedy");
+      assert.ok(check!.remedy!.includes("C20"),
+        `Remedy should reference C20, got: ${check!.remedy}`);
+    } finally {
+      try { fs.rmSync(homeDir, { recursive: true, force: true }); } catch {}
+    }
+  });
+
+  it("correctly categorizes each error shape", async () => {
+    const homeDir = createTempHome();
+    try {
+      const stateDir = path.join(homeDir, ".tamandua");
+      seedEventsJsonl(stateDir, [
+        { event: "step.retry", runId: "run-sm", workflowId: "wf", stepId: "plan", detail: 'STORIES_JSON structural mismatch: raw JSON contains 7 "id" keys but parsed to only 1 story. Resetting to pending for retry 1/4.' },
+        { event: "step.retry", runId: "run-dk", workflowId: "wf", stepId: "plan", detail: 'STORIES_JSON has duplicate key "title" in story object at index 0 (lines 3,5). Resetting to pending for retry 1/4.' },
+        { event: "step.retry", runId: "run-pe", workflowId: "wf", stepId: "plan", detail: "Failed to parse STORIES_JSON: Unexpected token at line 1. Resetting to pending for retry 1/4." },
+        { event: "step.retry", runId: "run-pe2", workflowId: "wf", stepId: "plan", detail: "STORIES_JSON must be an array. Resetting to pending for retry 1/4." },
+        { event: "step.retry", runId: "run-sv1", workflowId: "wf", stepId: "plan", detail: 'STORIES_JSON story at index 0 has invalid id "foo". Resetting to pending for retry 1/4.' },
+        { event: "step.retry", runId: "run-sv2", workflowId: "wf", stepId: "plan", detail: 'STORIES_JSON story at index 0 (id "US-001") has empty or whitespace-only title. Resetting to pending for retry 1/4.' },
+        { event: "step.retry", runId: "run-sv3", workflowId: "wf", stepId: "plan", detail: 'STORIES_JSON story at index 0 (id "US-001") has empty or whitespace-only description. Resetting to pending for retry 1/4.' },
+        { event: "step.retry", runId: "run-sv4", workflowId: "wf", stepId: "plan", detail: 'STORIES_JSON story at index 0 (id "US-001") has empty or non-string acceptanceCriteria[0]. Resetting to pending for retry 1/4.' },
+        { event: "step.retry", runId: "run-sv5", workflowId: "wf", stepId: "plan", detail: "STORIES_JSON is present but contains zero stories. Resetting to pending for retry 1/4." },
+        { event: "step.retry", runId: "run-sv6", workflowId: "wf", stepId: "plan", detail: 'STORIES_JSON has duplicate story id "US-001". Resetting to pending for retry 1/4.' },
+        { event: "step.retry", runId: "run-sv7", workflowId: "wf", stepId: "plan", detail: "STORIES_JSON has 25 stories, max is 20. Resetting to pending for retry 1/4." },
+        { event: "step.retry", runId: "run-sv8", workflowId: "wf", stepId: "plan", detail: 'STORIES_JSON story at index 0 missing required fields (id, title, description, acceptanceCriteria). Resetting to pending for retry 1/4.' },
+      ]);
+
+      const groups = await runDoctorChecks({ homeDir });
+      const state = groups.find((g) => g.label === "STATE");
+      assert.ok(state);
+      const check = state!.checks.find((c) => c.name === "STORIES_JSON validation rejections");
+      assert.ok(check, "Expected STORIES_JSON validation rejections check");
+      assert.strictEqual(check!.status, "warn");
+
+      // Check category counts in message
+      assert.ok(check!.message.includes("structural_mismatch=1"),
+        `Expected structural_mismatch=1, got: ${check!.message}`);
+      assert.ok(check!.message.includes("duplicate_key=1"),
+        `Expected duplicate_key=1, got: ${check!.message}`);
+      assert.ok(check!.message.includes("parse_error=2"),
+        `Expected parse_error=2, got: ${check!.message}`);
+      assert.ok(check!.message.includes("schema_validation=8"),
+        `Expected schema_validation=8, got: ${check!.message}`);
+    } finally {
+      try { fs.rmSync(homeDir, { recursive: true, force: true }); } catch {}
+    }
+  });
+
+  it("non-STORIES_JSON step.retry events are not counted", async () => {
+    const homeDir = createTempHome();
+    try {
+      const stateDir = path.join(homeDir, ".tamandua");
+      // Seed with non-STORIES_JSON step.retry events
+      seedEventsJsonl(stateDir, [
+        { event: "step.retry", runId: "run-a", workflowId: "wf", stepId: "dev", detail: "Expects validation failed: BRANCH not found. Resetting to pending for retry 1/4." },
+        { event: "step.retry", runId: "run-b", workflowId: "wf", stepId: "verify", detail: "Output missing STATUS marker. Resetting to pending for retry 1/4." },
+        { event: "run.completed", runId: "run-c", detail: "ok" },
+      ]);
+
+      const groups = await runDoctorChecks({ homeDir });
+      const state = groups.find((g) => g.label === "STATE");
+      assert.ok(state);
+      const check = state!.checks.find((c) => c.name === "STORIES_JSON validation rejections");
+      assert.ok(check, "Expected STORIES_JSON validation rejections check");
+      assert.strictEqual(check!.status, "info",
+        `Should be info when no STORIES_JSON rejections, got: ${check!.status}`);
+      assert.ok(check!.message.includes("No recent STORIES_JSON"),
+        `Should say no recent rejections, got: ${check!.message}`);
+    } finally {
+      try { fs.rmSync(homeDir, { recursive: true, force: true }); } catch {}
+    }
+  });
+
+  it("truncates long run/workflow lists with total count", async () => {
+    const homeDir = createTempHome();
+    try {
+      const stateDir = path.join(homeDir, ".tamandua");
+      // Create rejections across 5 different runs
+      const events: Array<{ event: string; runId: string; workflowId: string; stepId: string; detail: string }> = [];
+      for (let i = 0; i < 5; i++) {
+        events.push({
+          event: "step.retry",
+          runId: `run-${String(i).padStart(3, "0")}`,
+          workflowId: `workflow-${String(i).padStart(3, "0")}`,
+          stepId: "plan",
+          detail: `STORIES_JSON structural mismatch in run-${String(i).padStart(3, "0")}. Resetting to pending for retry 1/4.`,
+        });
+      }
+      seedEventsJsonl(stateDir, events);
+
+      const groups = await runDoctorChecks({ homeDir });
+      const state = groups.find((g) => g.label === "STATE");
+      assert.ok(state);
+      const check = state!.checks.find((c) => c.name === "STORIES_JSON validation rejections");
+      assert.ok(check);
+      assert.strictEqual(check!.status, "warn");
+
+      // Should mention truncation for both runs and workflows
+      assert.ok(check!.message.includes("5 total"),
+        `Should include total count, got: ${check!.message}`);
+      assert.ok(check!.message.includes("5 runs"),
+        `Should mention 5 runs, got: ${check!.message}`);
+    } finally {
+      try { fs.rmSync(homeDir, { recursive: true, force: true }); } catch {}
+    }
+  });
+
+  it("handles missing events file gracefully", async () => {
+    const homeDir = createTempHome();
+    try {
+      // No events directory at all — should not crash
+      const groups = await runDoctorChecks({ homeDir });
+      const state = groups.find((g) => g.label === "STATE");
+      assert.ok(state);
+      const check = state!.checks.find((c) => c.name === "STORIES_JSON validation rejections");
+      assert.ok(check, "Expected STORIES_JSON validation rejections check");
+      assert.strictEqual(check!.status, "info",
+        `Should be info when no events file, got: ${check!.status}`);
+    } finally {
+      try { fs.rmSync(homeDir, { recursive: true, force: true }); } catch {}
+    }
   });
 });

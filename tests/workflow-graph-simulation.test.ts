@@ -147,13 +147,13 @@ const MAX_ROUNDS = 500;
 
 const SIM_STORIES = [
   {
-    id: "S1",
+    id: "SIM-001",
     title: "First simulated story",
     description: "Do the first simulated thing",
     acceptanceCriteria: ["it works"],
   },
   {
-    id: "S2",
+    id: "SIM-002",
     title: "Second simulated story",
     description: "Do the second simulated thing",
     acceptanceCriteria: ["it also works"],

@@ -164,8 +164,21 @@ baseline assertions.
   `parseAndInsertStories` compares unescaped `"id"` key occurrences in the
   raw JSON text against the parsed story count and throws on mismatch;
   validation is two-phase (all stories checked before any insert) so a
-  rejection never leaves partial stories for a retry to duplicate. Any
-  STORIES_JSON validation failure inside `completeStep` re-pends the
+  rejection never leaves partial stories for a retry to duplicate.
+
+  Beyond the heuristic: `detectDuplicateKeys(text)` is the definitive
+  duplicate-key authority — a character-by-character scanner that walks the
+  raw text tracking object depth and reports ANY duplicate key within the
+  same object (including non-id keys like `title` that the id-count
+  heuristic is blind to). The heuristic remains a fast path; the scanner
+  catches fused objects that happen to repeat only non-id keys, and its
+  error messages name the duplicated key plus the story index and line
+  positions so retry feedback is immediately actionable. The doctor's
+  STATE group surfaces recent STORIES_JSON validation rejections (count,
+  run IDs, error categories) from `step.retry` events, making fused-JSON
+  regressions visible without log spelunking.
+
+  Any STORIES_JSON validation failure inside `completeStep` re-pends the
   producing step with the reason as retry feedback, bounded by
   `max_retries`, then fails the run on exhaustion — it must NOT propagate
   as a thrown error (which would crash the completing CLI and leave the

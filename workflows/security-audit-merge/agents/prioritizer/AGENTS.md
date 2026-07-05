@@ -39,6 +39,10 @@ Each story in STORIES_JSON:
 }
 ```
 
+## Malformed output is auto-rejected
+
+Malformed STORIES_JSON (fused objects, duplicate keys, invalid story fields) is auto-rejected with specific feedback in RETRY FEEDBACK on retry. Read RETRY FEEDBACK carefully and fix exactly what it describes.
+
 ## CRITICAL — STATUS Line Requirement
 
 Your output is parsed by an automated scheduler. It looks for **exact markers** to determine step outcome:

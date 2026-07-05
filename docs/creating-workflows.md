@@ -201,10 +201,11 @@ STORIES_JSON: [{"id":"S1","title":"Add login","description":"...","acceptanceCri
 ```
 
 `STORIES_JSON` requirements:
-- Must be a JSON array (the parser walks following lines until it hits another `KEY:` line, so multi-line JSON is fine).
+- Must be a valid JSON array — single-line minified JSON or a contiguous block (the parser walks following lines until it hits another `KEY:` line, so multi-line JSON is fine).
 - **Maximum 20 stories.**
-- Each story must have `id`, `title`, `description`, and a non-empty `acceptanceCriteria` array (`acceptance_criteria` is also accepted).
+- Each story must have `id` (matching `^[A-Z]+-\d+$`), `title` (non-empty, non-whitespace), `description` (non-empty string), and a non-empty `acceptanceCriteria` array of non-empty strings (`acceptance_criteria` is also accepted).
 - Story `id`s must be unique within the array.
+- **Format contract:** one `{...}` object per story, separated by `},{` with no whitespace or newlines between them. Do NOT wrap in code fences or markdown. No comments. No trailing prose after the closing `]`. Malformed payloads (fused objects, duplicate keys, invalid fields) are auto-rejected with specific feedback in the step's next `RETRY FEEDBACK` — the rejection message names the problem (duplicated key, story index, line positions) so the planner can fix it precisely. See `tests/MOTOR-CONTRACT.md` C20 for the full structural validation contract.
 
 ### Key Enforcement Contract
 

@@ -29,6 +29,8 @@ import { runMedicCheck } from "./medic/medic.js";
 import type { MedicFinding } from "./medic/medic.js";
 import { getRunWorktree } from "./installer/worktree-manager.js";
 import { getProcPids, processBelongsToRun } from "./installer/run-cleanup.js";
+import { getRecentEvents } from "./installer/events.js";
+import type { TamanduaEvent } from "./installer/events.js";
 
 // ── Types ──────────────────────────────────────────────────────────
 
@@ -479,6 +481,112 @@ function medicActionToRemedy(action: MedicFinding["action"]): string | undefined
   }
 }
 
+// ── STORIES_JSON rejection helper (US-005) ──────────────────────────
+
+/** Categorize a STORIES_JSON validation error from a step.retry detail field. */
+function categorizeStoriesJsonError(detail: string): string {
+  const d = detail.toLowerCase();
+  if (d.includes("structural mismatch")) return "structural_mismatch";
+  if (d.includes("duplicate key")) return "duplicate_key";
+  if (d.includes("failed to parse stories_json") || d.includes("stories_json must be an array")) return "parse_error";
+  if (d.includes("missing required fields") ||
+      d.includes("invalid id") ||
+      d.includes("empty or whitespace") ||
+      d.includes("zero stories") ||
+      d.includes("duplicate story id") ||
+      d.includes("non-string") ||
+      d.includes("has ") && d.includes("stories, max is")) return "schema_validation";
+  return "unknown";
+}
+
+/**
+ * Surface recent STORIES_JSON validation rejections from step.retry events.
+ *
+ * Queries the global events JSONL file for step.retry events whose detail
+ * field matches C20 error shapes (structural mismatch, duplicate key,
+ * malformed JSON, schema validation failures).
+ *
+ * Categories:
+ *   - structural_mismatch: raw id-key count vs parsed story count mismatch
+ *   - duplicate_key: any duplicate key detected by the scanner
+ *   - parse_error: JSON.parse failure or payload not an array
+ *   - schema_validation: invalid id format, empty title/description, empty AC items, zero stories, duplicate story ids
+ */
+function runStoriesJsonRejectionCheck(opts?: DoctorOpts): DoctorCheckResult {
+  // If an isolated homeDir is provided, point TAMANDUA_STATE_DIR at it
+  // so getRecentEvents() reads from the test-isolated events file.
+  const savedStateDir = process.env.TAMANDUA_STATE_DIR;
+  if (opts?.homeDir) {
+    process.env.TAMANDUA_STATE_DIR = path.join(opts.homeDir, ".tamandua");
+  }
+
+  try {
+    // Read up to 200 recent events; STORIES_JSON rejections are rare so
+    // a generous window catches older regressions without hurting perf.
+    const events = getRecentEvents(200);
+
+    // Filter for step.retry events with STORIES_JSON content in the detail
+    const rejections = events.filter(
+      (e: TamanduaEvent) =>
+        e.event === "step.retry" &&
+        e.detail != null &&
+        e.detail.toLowerCase().includes("stories_json"),
+    );
+
+    if (rejections.length === 0) {
+      return {
+        name: "STORIES_JSON validation rejections",
+        status: "info",
+        message: "No recent STORIES_JSON validation rejections",
+      };
+    }
+
+    // Categorize each rejection
+    const categoryCounts: Record<string, number> = {};
+    const affectedRuns = new Set<string>();
+    const affectedWorkflows = new Set<string>();
+
+    for (const rej of rejections) {
+      const cat = categorizeStoriesJsonError(rej.detail ?? "");
+      categoryCounts[cat] = (categoryCounts[cat] ?? 0) + 1;
+      if (rej.runId) affectedRuns.add(rej.runId);
+      if (rej.workflowId) affectedWorkflows.add(rej.workflowId);
+    }
+
+    const catSummary = Object.entries(categoryCounts)
+      .sort(([, a], [, b]) => b - a)
+      .map(([cat, n]) => `${cat}=${n}`)
+      .join(", ");
+
+    const runSummary =
+      affectedRuns.size <= 3
+        ? Array.from(affectedRuns).join(", ")
+        : `${Array.from(affectedRuns).slice(0, 3).join(", ")}... (${affectedRuns.size} total)`;
+
+    const wfSummary =
+      affectedWorkflows.size <= 3
+        ? Array.from(affectedWorkflows).join(", ")
+        : `${Array.from(affectedWorkflows).slice(0, 3).join(", ")}... (${affectedWorkflows.size} total)`;
+
+    return {
+      name: "STORIES_JSON validation rejections",
+      status: "warn",
+      message:
+        `${rejections.length} STORIES_JSON validation ${rejections.length === 1 ? "rejection" : "rejections"} ` +
+        `across ${affectedRuns.size} ${affectedRuns.size === 1 ? "run" : "runs"} ` +
+        `[${catSummary}] — runs: ${runSummary} — workflows: ${wfSummary}`,
+      remedy: "Check step prompts for malformed STORIES_JSON emission. Review MOTOR-CONTRACT.md C20 for the format contract.",
+    };
+  } finally {
+    // Restore original state dir
+    if (savedStateDir !== undefined) {
+      process.env.TAMANDUA_STATE_DIR = savedStateDir;
+    } else if (opts?.homeDir) {
+      delete process.env.TAMANDUA_STATE_DIR;
+    }
+  }
+}
+
 /**
  * Run STATE checks: database health and run-level anomaly detection.
  *
@@ -548,6 +656,11 @@ async function runStateChecks(opts?: DoctorOpts): Promise<DoctorCheckResult[]> {
         remedy: "Ensure the database is accessible and medic tables exist. Run: tamandua medic check",
       });
     }
+
+    // ── 3. STORIES_JSON validation rejections (US-005) ──
+    // Surfaces recent C20 structural-validation rejections from the events
+    // feed so fused-JSON regressions are visible without log spelunking.
+    results.push(runStoriesJsonRejectionCheck(opts));
 
     return results;
   } finally {
@@ -701,7 +814,13 @@ export async function runLlmPromptAdherenceChecks(opts?: DoctorOpts): Promise<Do
       const wfId = run.workflow_id;
 
       for (const step of steps) {
-        const expectedKeys = parseExpectedKeys(step.input_template);
+        const rawExpectedKeys = parseExpectedKeys(step.input_template);
+        // STORIES_JSON is intentionally skipped by parseOutputKeyValues
+        // (its value is multi-line raw JSON, not key-value pairs), so it
+        // never appears in run context.  Exclude it from key-emission
+        // tracking — the step's output is measured by story count in the
+        // stories table, not by raw text presence in the context blob.
+        const expectedKeys = rawExpectedKeys.filter(k => k !== 'stories_json');
         if (expectedKeys.length === 0) continue;
 
         const wfStats = (stats[wfId] = stats[wfId] ?? {});

@@ -74,6 +74,10 @@ The developer is expected to write unit tests alongside the implementation. The 
 
 Maximum **20 stories** per run. If the task genuinely needs more, the task is too big — suggest splitting the task itself.
 
+## Malformed output is auto-rejected
+
+Malformed STORIES_JSON (fused objects, duplicate keys, invalid story fields) is auto-rejected with specific feedback in RETRY FEEDBACK on retry. Read RETRY FEEDBACK carefully and fix exactly what it describes.
+
 ## CRITICAL — STATUS Line Requirement
 
 Your output is parsed by an automated scheduler. It looks for **exact markers** to determine step outcome:
