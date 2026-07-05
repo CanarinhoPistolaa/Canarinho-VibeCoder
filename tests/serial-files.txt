@@ -5,7 +5,7 @@
 # In-process servers (createDashboardServer, createTamanduaMcpServer) are NOT serial candidates.
 # Lines starting with # are comments, empty lines ignored. Sorted alphabetically.
 #
-# 56 files importing node:child_process + 5 daemonctl spawners = 61 serial files.
+# 57 files importing node:child_process + 5 daemonctl spawners = 62 serial files.
 src/autoresearch/autoresearch.test.ts
 src/cli/cli.test.ts
 src/cli/wizard-evaluator.test.ts
@@ -61,6 +61,7 @@ tests/mcp-lifecycle.test.ts
 tests/reroute-count-column-migration.test.ts
 tests/run-terminal-token-events.test.ts
 tests/run-token-migration.test.ts
+tests/runner-scripts.test.ts
 tests/sample-project-fixture.test.ts
 tests/step-ownership-columns-migration.test.ts
 tests/system-token-spend-migration.test.ts

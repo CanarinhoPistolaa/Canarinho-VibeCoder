@@ -1,0 +1,49 @@
+#!/bin/bash
+# Run parallel-lane tests (all non-serial test files) with default concurrency.
+# Excludes files listed in tests/serial-files.txt and e2e-tests/.
+# Passes through TAMANDUA_TEST_GUARD and TAMANDUA_PI_BINARY env vars.
+# Exit code: 0 on pass, non-zero on any failure.
+set -euo pipefail
+
+# Determine repo root (parent of scripts/ dir)
+REPO_ROOT="${TAMANDUA_REPO_ROOT:-$(cd "$(dirname "$0")/.." && pwd)}"
+cd "$REPO_ROOT"
+
+# Default env vars if not set
+export TAMANDUA_TEST_GUARD="${TAMANDUA_TEST_GUARD:-1}"
+export TAMANDUA_PI_BINARY="${TAMANDUA_PI_BINARY:-/bin/false}"
+
+# Read serial files to exclude
+SERIAL_FILES_LIST="$REPO_ROOT/tests/serial-files.txt"
+declare -A SERIAL_SET
+
+if [ -f "$SERIAL_FILES_LIST" ]; then
+  while IFS= read -r line; do
+    line="${line#"${line%%[![:space:]]*}"}"
+    line="${line%"${line##*[![:space:]]}"}"
+    if [ -z "$line" ] || [[ "$line" == \#* ]]; then
+      continue
+    fi
+    SERIAL_SET["$REPO_ROOT/$line"]=1
+  done < "$SERIAL_FILES_LIST"
+fi
+
+# Find all .test.ts files under src/ and tests/, excluding serial and e2e
+FILES=()
+while IFS= read -r -d '' file; do
+  if [ -n "${SERIAL_SET[$file]+_}" ]; then
+    continue
+  fi
+  if [[ "$file" == */e2e-tests/* ]]; then
+    continue
+  fi
+  FILES+=("$file")
+done < <(find "$REPO_ROOT/src" "$REPO_ROOT/tests" -name '*.test.ts' -print0 2>/dev/null)
+
+if [ ${#FILES[@]} -eq 0 ]; then
+  echo "Error: no parallel test files found" >&2
+  exit 1
+fi
+
+echo "=== Parallel lane: running ${#FILES[@]} test files with default concurrency ==="
+node --test "${FILES[@]}"
