@@ -44,6 +44,15 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const INDEX_HTML = path.join(__dirname, "index.html");
 const KANBAN_HTML = path.join(__dirname, "kanban.html");
 
+// ── Runs List Cache ────────────────────────────────────────────────
+
+let runsCache: { json: string; timestamp: number } | null = null;
+const RUNS_CACHE_TTL_MS = 2000;
+
+export function invalidateRunsCache(): void {
+  runsCache = null;
+}
+
 // ── Helpers ─────────────────────────────────────────────────────────
 
 function jsonResponse(res: http.ServerResponse, data: unknown, status = 200): void {
@@ -164,6 +173,16 @@ function buildAutoresearchExperiments(entries: AutoresearchLogEntry[]) {
 
 function handleListRuns(_req: http.IncomingMessage, res: http.ServerResponse): void {
   try {
+    // Serve from cache if fresh enough
+    if (runsCache !== null && Date.now() - runsCache.timestamp < RUNS_CACHE_TTL_MS) {
+      res.writeHead(200, {
+        "Content-Type": "application/json",
+        "Access-Control-Allow-Origin": "*",
+      });
+      res.end(runsCache.json);
+      return;
+    }
+
     const db = getDb();
 
     const rawRuns = db.prepare(`
@@ -199,6 +218,9 @@ function handleListRuns(_req: http.IncomingMessage, res: http.ServerResponse): v
       }
       return { ...row, no_hurry };
     });
+
+    const responseBody = JSON.stringify({ runs });
+    runsCache = { json: responseBody, timestamp: Date.now() };
 
     jsonResponse(res, { runs });
   } catch (err) {
@@ -648,6 +670,7 @@ async function handlePauseRun(
     }
 
     if (result.status === 200 || result.status === 202) {
+      invalidateRunsCache();
       jsonResponse(res, { paused: true, runId });
       return;
     }
@@ -697,6 +720,7 @@ async function handleResumeRun(
     }
 
     if (result.status === 200 || result.status === 202) {
+      invalidateRunsCache();
       jsonResponse(res, { resumed: true, runId });
       return;
     }
@@ -741,6 +765,7 @@ async function handleCancelRun(
     const result = await stopWorkflow(runId);
 
     if (result.ok) {
+      invalidateRunsCache();
       jsonResponse(res, { canceled: true, runId });
       return;
     }
@@ -770,6 +795,7 @@ async function handleDeleteRun(
     }
 
     const result = await deleteWorkflow(fullRunId, { force });
+    invalidateRunsCache();
     jsonResponse(res, result);
   } catch (err) {
     const message = (err as Error).message;

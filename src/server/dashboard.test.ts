@@ -7,7 +7,7 @@ import { once } from "node:events";
 import http from "node:http";
 import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
-import { createDashboardServer } from "../../dist/server/dashboard.js";
+import { createDashboardServer, invalidateRunsCache } from "../../dist/server/dashboard.js";
 import { type TamanduaEvent } from "../../dist/installer/events.js";
 import { DEFAULT_MCP_PORT } from "../../dist/server/mcp-server.js";
 import { getDb, incrementSystemTokenSpend, getSystemTokenSpend } from "../../dist/db.js";
@@ -24,6 +24,7 @@ function appendGlobalEvent(stateDir: string, evt: TamanduaEvent): void {
 }
 
 async function startDashboard(): Promise<{ server: http.Server; baseUrl: string }> {
+  invalidateRunsCache();
   const server = createDashboardServer(0);
   if (!server.listening) {
     await once(server, "listening");
@@ -3501,6 +3502,606 @@ describe("dashboard AutoResearch session API", () => {
         await stopDashboard(server);
       }
     } finally {
+      if (previousHome === undefined) delete process.env.HOME;
+      else process.env.HOME = previousHome;
+      if (previousDbPath === undefined) delete process.env.TAMANDUA_DB_PATH;
+      else process.env.TAMANDUA_DB_PATH = previousDbPath;
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+});
+
+describe("dashboard /api/runs cache", () => {
+  it("serves cached response within TTL window", async () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "tamandua-dashboard-runs-cache-"));
+    const homeDir = path.join(root, "home");
+    fs.mkdirSync(homeDir, { recursive: true });
+    const dbPath = path.join(homeDir, ".tamandua", "tamandua.db");
+    const previousHome = process.env.HOME;
+    const previousDbPath = process.env.TAMANDUA_DB_PATH;
+    process.env.HOME = homeDir;
+    process.env.TAMANDUA_DB_PATH = dbPath;
+
+    const db = getDb();
+    db.prepare(`
+      INSERT INTO runs (id, run_number, workflow_id, task, status, context, tokens_spent, created_at, updated_at)
+      VALUES ('run-cached-hit', 1, 'wf-1', 'task', 'running', '{}', 0, '2026-01-01', '2026-01-01')
+    `).run();
+
+    const { server, baseUrl } = await startDashboard();
+
+    try {
+      // First request: populates the cache
+      const r1 = await fetch(`${baseUrl}/api/runs`);
+      assert.equal(r1.status, 200);
+      const body1 = await r1.json() as { runs: Array<{ id: string }> };
+      assert.ok(body1.runs.some((r) => r.id === "run-cached-hit"));
+
+      // Insert a new row that would appear if the DB were re-queried
+      db.prepare(`
+        INSERT INTO runs (id, run_number, workflow_id, task, status, context, tokens_spent, created_at, updated_at)
+        VALUES ('run-after-cache', 2, 'wf-1', 'task2', 'running', '{}', 0, '2026-01-02', '2026-01-02')
+      `).run();
+
+      // Second request within TTL: should serve from cache, NOT showing the new row
+      const r2 = await fetch(`${baseUrl}/api/runs`);
+      assert.equal(r2.status, 200);
+      const body2 = await r2.json() as { runs: Array<{ id: string }> };
+      assert.ok(body2.runs.some((r) => r.id === "run-cached-hit"), "cached run still present");
+      // The new row should NOT appear because we're serving from cache
+      assert.equal(
+        body2.runs.some((r) => r.id === "run-after-cache"),
+        false,
+        "new row should not appear when serving from cache"
+      );
+    } finally {
+      await stopDashboard(server);
+      if (previousHome === undefined) delete process.env.HOME;
+      else process.env.HOME = previousHome;
+      if (previousDbPath === undefined) delete process.env.TAMANDUA_DB_PATH;
+      else process.env.TAMANDUA_DB_PATH = previousDbPath;
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it("queries fresh from DB after cache invalidation", async () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "tamandua-dashboard-runs-cache-"));
+    const homeDir = path.join(root, "home");
+    fs.mkdirSync(homeDir, { recursive: true });
+    const dbPath = path.join(homeDir, ".tamandua", "tamandua.db");
+    const previousHome = process.env.HOME;
+    const previousDbPath = process.env.TAMANDUA_DB_PATH;
+    process.env.HOME = homeDir;
+    process.env.TAMANDUA_DB_PATH = dbPath;
+
+    const db = getDb();
+    db.prepare(`
+      INSERT INTO runs (id, run_number, workflow_id, task, status, context, tokens_spent, created_at, updated_at)
+      VALUES ('run-inval', 1, 'wf-1', 'task', 'running', '{}', 0, '2026-01-01', '2026-01-01')
+    `).run();
+
+    const { server, baseUrl } = await startDashboard();
+
+    try {
+      // Prime the cache
+      const r1 = await fetch(`${baseUrl}/api/runs`);
+      assert.equal(r1.status, 200);
+
+      // Insert a new row and invalidate
+      db.prepare(`
+        INSERT INTO runs (id, run_number, workflow_id, task, status, context, tokens_spent, created_at, updated_at)
+        VALUES ('run-inval-new', 2, 'wf-1', 'task2', 'running', '{}', 0, '2026-01-02', '2026-01-02')
+      `).run();
+
+      invalidateRunsCache();
+
+      const r2 = await fetch(`${baseUrl}/api/runs`);
+      assert.equal(r2.status, 200);
+      const body2 = await r2.json() as { runs: Array<{ id: string }> };
+      assert.ok(
+        body2.runs.some((r) => r.id === "run-inval-new"),
+        "new row should appear after invalidation"
+      );
+    } finally {
+      await stopDashboard(server);
+      if (previousHome === undefined) delete process.env.HOME;
+      else process.env.HOME = previousHome;
+      if (previousDbPath === undefined) delete process.env.TAMANDUA_DB_PATH;
+      else process.env.TAMANDUA_DB_PATH = previousDbPath;
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it("cache invalidation on successful cancel causes fresh /api/runs results", async () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "tamandua-dashboard-runs-cache-"));
+    const homeDir = path.join(root, "home");
+    fs.mkdirSync(homeDir, { recursive: true });
+    const dbPath = path.join(homeDir, ".tamandua", "tamandua.db");
+    const previousHome = process.env.HOME;
+    const previousDbPath = process.env.TAMANDUA_DB_PATH;
+    process.env.HOME = homeDir;
+    process.env.TAMANDUA_DB_PATH = dbPath;
+
+    const db = getDb();
+    const runId = "run-cancel-cache";
+    db.prepare(`
+      INSERT INTO runs (id, run_number, workflow_id, task, status, context, tokens_spent, created_at, updated_at)
+      VALUES (?, 1, 'wf-1', 'task', 'running', '{}', 0, '2026-01-01', '2026-01-01')
+    `).run(runId);
+
+    const { server, baseUrl } = await startDashboard();
+
+    try {
+      // Prime the cache
+      const r1 = await fetch(`${baseUrl}/api/runs`);
+      assert.equal(r1.status, 200);
+
+      const cancelResponse = await fetch(`${baseUrl}/api/runs/${runId}/cancel`, { method: "POST" });
+      assert.equal(cancelResponse.status, 200);
+
+      // After cancel, a fresh GET /api/runs should reflect the canceled status
+      const r2 = await fetch(`${baseUrl}/api/runs`);
+      assert.equal(r2.status, 200);
+      const body2 = await r2.json() as { runs: Array<{ id: string; status: string }> };
+      const runAfter = body2.runs.find((r) => r.id === runId);
+      assert.ok(runAfter, "run should still appear in list");
+      assert.equal(runAfter.status, "canceled", "status should reflect cancel after invalidation");
+    } finally {
+      await stopDashboard(server);
+      if (previousHome === undefined) delete process.env.HOME;
+      else process.env.HOME = previousHome;
+      if (previousDbPath === undefined) delete process.env.TAMANDUA_DB_PATH;
+      else process.env.TAMANDUA_DB_PATH = previousDbPath;
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it("cache invalidation on successful delete removes run from /api/runs", async () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "tamandua-dashboard-runs-cache-"));
+    const homeDir = path.join(root, "home");
+    fs.mkdirSync(homeDir, { recursive: true });
+    const dbPath = path.join(homeDir, ".tamandua", "tamandua.db");
+    const previousHome = process.env.HOME;
+    const previousDbPath = process.env.TAMANDUA_DB_PATH;
+    process.env.HOME = homeDir;
+    process.env.TAMANDUA_DB_PATH = dbPath;
+
+    const db = getDb();
+    const runId = "run-delete-cache";
+    db.prepare(`
+      INSERT INTO runs (id, run_number, workflow_id, task, status, context, tokens_spent, created_at, updated_at)
+      VALUES (?, 1, 'wf-1', 'task', 'completed', '{}', 0, '2026-01-01', '2026-01-01')
+    `).run(runId);
+
+    const { server, baseUrl } = await startDashboard();
+
+    try {
+      // Prime the cache
+      const r1 = await fetch(`${baseUrl}/api/runs`);
+      assert.equal(r1.status, 200);
+
+      // Delete the run
+      const deleteResponse = await fetch(`${baseUrl}/api/runs/${runId}?force=true`, { method: "DELETE" });
+      assert.equal(deleteResponse.status, 200);
+
+      // After delete, cache was invalidated, so a fresh GET /api/runs should not show the deleted run
+      const r2 = await fetch(`${baseUrl}/api/runs`);
+      assert.equal(r2.status, 200);
+      const body2 = await r2.json() as { runs: Array<{ id: string }> };
+      assert.equal(
+        body2.runs.some((r) => r.id === runId),
+        false,
+        "deleted run should not appear in list after invalidation"
+      );
+    } finally {
+      await stopDashboard(server);
+      if (previousHome === undefined) delete process.env.HOME;
+      else process.env.HOME = previousHome;
+      if (previousDbPath === undefined) delete process.env.TAMANDUA_DB_PATH;
+      else process.env.TAMANDUA_DB_PATH = previousDbPath;
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it("cached responses are byte-identical across hits", async () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "tamandua-dashboard-runs-cache-"));
+    const homeDir = path.join(root, "home");
+    fs.mkdirSync(homeDir, { recursive: true });
+    const dbPath = path.join(homeDir, ".tamandua", "tamandua.db");
+    const previousHome = process.env.HOME;
+    const previousDbPath = process.env.TAMANDUA_DB_PATH;
+    process.env.HOME = homeDir;
+    process.env.TAMANDUA_DB_PATH = dbPath;
+
+    const db = getDb();
+    db.prepare(`
+      INSERT INTO runs (id, run_number, workflow_id, task, status, context, tokens_spent, created_at, updated_at)
+      VALUES ('run-stable', 1, 'wf-1', 'task', 'running', '{}', 0, '2026-01-01', '2026-01-01')
+    `).run();
+
+    const { server, baseUrl } = await startDashboard();
+
+    try {
+      const r1 = await fetch(`${baseUrl}/api/runs`);
+      assert.equal(r1.status, 200);
+      const text1 = await r1.text();
+
+      const r2 = await fetch(`${baseUrl}/api/runs`);
+      assert.equal(r2.status, 200);
+      const text2 = await r2.text();
+
+      assert.equal(text1, text2, "cached responses should be byte-identical");
+    } finally {
+      await stopDashboard(server);
+      if (previousHome === undefined) delete process.env.HOME;
+      else process.env.HOME = previousHome;
+      if (previousDbPath === undefined) delete process.env.TAMANDUA_DB_PATH;
+      else process.env.TAMANDUA_DB_PATH = previousDbPath;
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it("/api/runs/:id detail endpoint is NOT cached", async () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "tamandua-dashboard-runs-cache-"));
+    const homeDir = path.join(root, "home");
+    fs.mkdirSync(homeDir, { recursive: true });
+    const dbPath = path.join(homeDir, ".tamandua", "tamandua.db");
+    const previousHome = process.env.HOME;
+    const previousDbPath = process.env.TAMANDUA_DB_PATH;
+    process.env.HOME = homeDir;
+    process.env.TAMANDUA_DB_PATH = dbPath;
+
+    const db = getDb();
+    const runId = "run-detail-uncached";
+    db.prepare(`
+      INSERT INTO runs (id, run_number, workflow_id, task, status, context, tokens_spent, created_at, updated_at)
+      VALUES (?, 1, 'wf-1', 'task', 'running', '{}', 0, '2026-01-01', '2026-01-01')
+    `).run(runId);
+
+    const { server, baseUrl } = await startDashboard();
+
+    try {
+      const r1 = await fetch(`${baseUrl}/api/runs/${runId}`);
+      assert.equal(r1.status, 200);
+      const body1 = await r1.json() as { run: { status: string } };
+      assert.equal(body1.run.status, "running");
+
+      db.prepare("UPDATE runs SET status = 'canceled' WHERE id = ?").run(runId);
+
+      const r2 = await fetch(`${baseUrl}/api/runs/${runId}`);
+      assert.equal(r2.status, 200);
+      const body2 = await r2.json() as { run: { status: string } };
+      assert.equal(body2.run.status, "canceled", "detail endpoint should always query fresh");
+    } finally {
+      await stopDashboard(server);
+      if (previousHome === undefined) delete process.env.HOME;
+      else process.env.HOME = previousHome;
+      if (previousDbPath === undefined) delete process.env.TAMANDUA_DB_PATH;
+      else process.env.TAMANDUA_DB_PATH = previousDbPath;
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it("invalidateRunsCache is idempotent", () => {
+    invalidateRunsCache();
+    invalidateRunsCache();
+    assert.ok(true, "double invalidateRunsCache should not throw");
+  });
+
+  it("empty runs list is correctly cached", async () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "tamandua-dashboard-runs-cache-"));
+    const homeDir = path.join(root, "home");
+    fs.mkdirSync(homeDir, { recursive: true });
+    const dbPath = path.join(homeDir, ".tamandua", "tamandua.db");
+    const previousHome = process.env.HOME;
+    const previousDbPath = process.env.TAMANDUA_DB_PATH;
+    process.env.HOME = homeDir;
+    process.env.TAMANDUA_DB_PATH = dbPath;
+
+    // No runs inserted
+    const { server, baseUrl } = await startDashboard();
+
+    try {
+      const r1 = await fetch(`${baseUrl}/api/runs`);
+      assert.equal(r1.status, 200);
+      const body1 = await r1.json() as { runs: Array<unknown> };
+      assert.ok(Array.isArray(body1.runs));
+      assert.equal(body1.runs.length, 0);
+
+      // Cached empty response
+      const r2 = await fetch(`${baseUrl}/api/runs`);
+      assert.equal(r2.status, 200);
+      const body2 = await r2.json() as { runs: Array<unknown> };
+      assert.ok(Array.isArray(body2.runs));
+      assert.equal(body2.runs.length, 0);
+    } finally {
+      await stopDashboard(server);
+      if (previousHome === undefined) delete process.env.HOME;
+      else process.env.HOME = previousHome;
+      if (previousDbPath === undefined) delete process.env.TAMANDUA_DB_PATH;
+      else process.env.TAMANDUA_DB_PATH = previousDbPath;
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  // US-002: Error path tests — cache must NOT be invalidated on failed mutations
+
+  it("cancel 404 error path does NOT invalidate runs cache", async () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "tamandua-dashboard-runs-cache-"));
+    const homeDir = path.join(root, "home");
+    fs.mkdirSync(homeDir, { recursive: true });
+    const dbPath = path.join(homeDir, ".tamandua", "tamandua.db");
+    const previousHome = process.env.HOME;
+    const previousDbPath = process.env.TAMANDUA_DB_PATH;
+    process.env.HOME = homeDir;
+    process.env.TAMANDUA_DB_PATH = dbPath;
+
+    const db = getDb();
+    db.prepare(`
+      INSERT INTO runs (id, run_number, workflow_id, task, status, context, tokens_spent, created_at, updated_at)
+      VALUES ('run-err404-cancel', 1, 'wf-1', 'task', 'running', '{}', 0, '2026-01-01', '2026-01-01')
+    `).run();
+
+    const { server, baseUrl } = await startDashboard();
+
+    try {
+      // Prime the cache
+      const r1 = await fetch(`${baseUrl}/api/runs`);
+      assert.equal(r1.status, 200);
+      const body1 = await r1.json() as { runs: Array<{ id: string }> };
+      assert.equal(body1.runs.length, 1);
+
+      // POST cancel to a nonexistent run → 404, cache must NOT be invalidated
+      const cancel404 = await fetch(`${baseUrl}/api/runs/nonexistent-run-id/cancel`, { method: "POST" });
+      assert.equal(cancel404.status, 404);
+
+      // Subsequent GET /api/runs should still serve from cache (one run, not zero)
+      const r2 = await fetch(`${baseUrl}/api/runs`);
+      assert.equal(r2.status, 200);
+      const body2 = await r2.json() as { runs: Array<{ id: string }> };
+      assert.equal(body2.runs.length, 1, "cache should still be valid after 404 cancel");
+      assert.ok(body2.runs.some((r) => r.id === "run-err404-cancel"));
+    } finally {
+      await stopDashboard(server);
+      if (previousHome === undefined) delete process.env.HOME;
+      else process.env.HOME = previousHome;
+      if (previousDbPath === undefined) delete process.env.TAMANDUA_DB_PATH;
+      else process.env.TAMANDUA_DB_PATH = previousDbPath;
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it("cancel 409 error path does NOT invalidate runs cache", async () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "tamandua-dashboard-runs-cache-"));
+    const homeDir = path.join(root, "home");
+    fs.mkdirSync(homeDir, { recursive: true });
+    const dbPath = path.join(homeDir, ".tamandua", "tamandua.db");
+    const previousHome = process.env.HOME;
+    const previousDbPath = process.env.TAMANDUA_DB_PATH;
+    process.env.HOME = homeDir;
+    process.env.TAMANDUA_DB_PATH = dbPath;
+
+    const db = getDb();
+    const runId = "run-err409-cancel";
+    db.prepare(`
+      INSERT INTO runs (id, run_number, workflow_id, task, status, context, tokens_spent, created_at, updated_at)
+      VALUES (?, 1, 'wf-1', 'task', 'done', '{}', 0, '2026-01-01', '2026-01-01')
+    `).run(runId);
+
+    const { server, baseUrl } = await startDashboard();
+
+    try {
+      // Prime the cache
+      const r1 = await fetch(`${baseUrl}/api/runs`);
+      assert.equal(r1.status, 200);
+      const body1 = await r1.json() as { runs: Array<{ id: string }> };
+      assert.equal(body1.runs.length, 1);
+
+      // Cancel a done run → 409 (cannot cancel done runs), cache must NOT be invalidated
+      const cancel409 = await fetch(`${baseUrl}/api/runs/${runId}/cancel`, { method: "POST" });
+      assert.equal(cancel409.status, 409);
+
+      // Subsequent GET /api/runs should still serve from cache
+      const r2 = await fetch(`${baseUrl}/api/runs`);
+      assert.equal(r2.status, 200);
+      const body2 = await r2.json() as { runs: Array<{ id: string }> };
+      assert.equal(body2.runs.length, 1, "cache should still be valid after 409 cancel");
+    } finally {
+      await stopDashboard(server);
+      if (previousHome === undefined) delete process.env.HOME;
+      else process.env.HOME = previousHome;
+      if (previousDbPath === undefined) delete process.env.TAMANDUA_DB_PATH;
+      else process.env.TAMANDUA_DB_PATH = previousDbPath;
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it("delete 404 error path does NOT invalidate runs cache", async () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "tamandua-dashboard-runs-cache-"));
+    const homeDir = path.join(root, "home");
+    fs.mkdirSync(homeDir, { recursive: true });
+    const dbPath = path.join(homeDir, ".tamandua", "tamandua.db");
+    const previousHome = process.env.HOME;
+    const previousDbPath = process.env.TAMANDUA_DB_PATH;
+    process.env.HOME = homeDir;
+    process.env.TAMANDUA_DB_PATH = dbPath;
+
+    const db = getDb();
+    db.prepare(`
+      INSERT INTO runs (id, run_number, workflow_id, task, status, context, tokens_spent, created_at, updated_at)
+      VALUES ('run-err404-delete', 1, 'wf-1', 'task', 'completed', '{}', 0, '2026-01-01', '2026-01-01')
+    `).run();
+
+    const { server, baseUrl } = await startDashboard();
+
+    try {
+      // Prime the cache
+      const r1 = await fetch(`${baseUrl}/api/runs`);
+      assert.equal(r1.status, 200);
+      const body1 = await r1.json() as { runs: Array<{ id: string }> };
+      assert.equal(body1.runs.length, 1);
+
+      // DELETE nonexistent run → 404, cache must NOT be invalidated
+      const delete404 = await fetch(`${baseUrl}/api/runs/nonexistent-run-id?force=true`, { method: "DELETE" });
+      assert.equal(delete404.status, 404);
+
+      // Subsequent GET /api/runs should still serve from cache
+      const r2 = await fetch(`${baseUrl}/api/runs`);
+      assert.equal(r2.status, 200);
+      const body2 = await r2.json() as { runs: Array<{ id: string }> };
+      assert.equal(body2.runs.length, 1, "cache should still be valid after 404 delete");
+    } finally {
+      await stopDashboard(server);
+      if (previousHome === undefined) delete process.env.HOME;
+      else process.env.HOME = previousHome;
+      if (previousDbPath === undefined) delete process.env.TAMANDUA_DB_PATH;
+      else process.env.TAMANDUA_DB_PATH = previousDbPath;
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it("delete 409 error path does NOT invalidate runs cache", async () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "tamandua-dashboard-runs-cache-"));
+    const homeDir = path.join(root, "home");
+    fs.mkdirSync(homeDir, { recursive: true });
+    const dbPath = path.join(homeDir, ".tamandua", "tamandua.db");
+    const previousHome = process.env.HOME;
+    const previousDbPath = process.env.TAMANDUA_DB_PATH;
+    process.env.HOME = homeDir;
+    process.env.TAMANDUA_DB_PATH = dbPath;
+
+    const db = getDb();
+    const runId = "run-err409-delete";
+    db.prepare(`
+      INSERT INTO runs (id, run_number, workflow_id, task, status, context, tokens_spent, created_at, updated_at)
+      VALUES (?, 1, 'wf-1', 'task', 'running', '{}', 0, '2026-01-01', '2026-01-01')
+    `).run(runId);
+
+    const { server, baseUrl } = await startDashboard();
+
+    try {
+      // Prime the cache
+      const r1 = await fetch(`${baseUrl}/api/runs`);
+      assert.equal(r1.status, 200);
+      const body1 = await r1.json() as { runs: Array<{ id: string }> };
+      assert.equal(body1.runs.length, 1);
+
+      // DELETE without force on a non-completed run → 409, cache must NOT be invalidated
+      const delete409 = await fetch(`${baseUrl}/api/runs/${runId}`, { method: "DELETE" });
+      assert.equal(delete409.status, 409);
+
+      // Subsequent GET /api/runs should still serve from cache
+      const r2 = await fetch(`${baseUrl}/api/runs`);
+      assert.equal(r2.status, 200);
+      const body2 = await r2.json() as { runs: Array<{ id: string }> };
+      assert.equal(body2.runs.length, 1, "cache should still be valid after 409 delete");
+    } finally {
+      await stopDashboard(server);
+      if (previousHome === undefined) delete process.env.HOME;
+      else process.env.HOME = previousHome;
+      if (previousDbPath === undefined) delete process.env.TAMANDUA_DB_PATH;
+      else process.env.TAMANDUA_DB_PATH = previousDbPath;
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  // US-002: Pause and resume invalidation — tested via exported invalidateRunsCache
+  // (these handlers require a daemon for success-path HTTP testing)
+
+  it("pause handler invalidation pattern works via invalidateRunsCache", async () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "tamandua-dashboard-runs-cache-"));
+    const homeDir = path.join(root, "home");
+    fs.mkdirSync(homeDir, { recursive: true });
+    const dbPath = path.join(homeDir, ".tamandua", "tamandua.db");
+    const previousHome = process.env.HOME;
+    const previousDbPath = process.env.TAMANDUA_DB_PATH;
+    process.env.HOME = homeDir;
+    process.env.TAMANDUA_DB_PATH = dbPath;
+
+    const db = getDb();
+    db.prepare(`
+      INSERT INTO runs (id, run_number, workflow_id, task, status, context, tokens_spent, created_at, updated_at)
+      VALUES ('run-pause-pattern', 1, 'wf-1', 'task', 'running', '{}', 0, '2026-01-01', '2026-01-01')
+    `).run();
+
+    const { server, baseUrl } = await startDashboard();
+
+    try {
+      // Prime the cache
+      const r1 = await fetch(`${baseUrl}/api/runs`);
+      assert.equal(r1.status, 200);
+      const body1 = await r1.json() as { runs: Array<{ id: string }> };
+      assert.ok(body1.runs.some((r) => r.id === "run-pause-pattern"));
+
+      // Simulate what handlePauseRun does on success: invalidate cache
+      invalidateRunsCache();
+
+      // Insert a new row to prove fresh query after invalidation
+      db.prepare(`
+        INSERT INTO runs (id, run_number, workflow_id, task, status, context, tokens_spent, created_at, updated_at)
+        VALUES ('run-after-pause-inval', 2, 'wf-1', 'task2', 'running', '{}', 0, '2026-01-02', '2026-01-02')
+      `).run();
+
+      const r2 = await fetch(`${baseUrl}/api/runs`);
+      assert.equal(r2.status, 200);
+      const body2 = await r2.json() as { runs: Array<{ id: string }> };
+      assert.ok(
+        body2.runs.some((r) => r.id === "run-after-pause-inval"),
+        "new row should appear after pause-triggered cache invalidation"
+      );
+    } finally {
+      await stopDashboard(server);
+      if (previousHome === undefined) delete process.env.HOME;
+      else process.env.HOME = previousHome;
+      if (previousDbPath === undefined) delete process.env.TAMANDUA_DB_PATH;
+      else process.env.TAMANDUA_DB_PATH = previousDbPath;
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it("resume handler invalidation pattern works via invalidateRunsCache", async () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "tamandua-dashboard-runs-cache-"));
+    const homeDir = path.join(root, "home");
+    fs.mkdirSync(homeDir, { recursive: true });
+    const dbPath = path.join(homeDir, ".tamandua", "tamandua.db");
+    const previousHome = process.env.HOME;
+    const previousDbPath = process.env.TAMANDUA_DB_PATH;
+    process.env.HOME = homeDir;
+    process.env.TAMANDUA_DB_PATH = dbPath;
+
+    const db = getDb();
+    db.prepare(`
+      INSERT INTO runs (id, run_number, workflow_id, task, status, context, tokens_spent, created_at, updated_at)
+      VALUES ('run-resume-pattern', 1, 'wf-1', 'task', 'paused', '{}', 0, '2026-01-01', '2026-01-01')
+    `).run();
+
+    const { server, baseUrl } = await startDashboard();
+
+    try {
+      // Prime the cache
+      const r1 = await fetch(`${baseUrl}/api/runs`);
+      assert.equal(r1.status, 200);
+      const body1 = await r1.json() as { runs: Array<{ id: string }> };
+      assert.ok(body1.runs.some((r) => r.id === "run-resume-pattern"));
+
+      // Simulate what handleResumeRun does on success: invalidate cache
+      invalidateRunsCache();
+
+      // Insert a new row to prove fresh query after invalidation
+      db.prepare(`
+        INSERT INTO runs (id, run_number, workflow_id, task, status, context, tokens_spent, created_at, updated_at)
+        VALUES ('run-after-resume-inval', 2, 'wf-1', 'task2', 'running', '{}', 0, '2026-01-02', '2026-01-02')
+      `).run();
+
+      const r2 = await fetch(`${baseUrl}/api/runs`);
+      assert.equal(r2.status, 200);
+      const body2 = await r2.json() as { runs: Array<{ id: string }> };
+      assert.ok(
+        body2.runs.some((r) => r.id === "run-after-resume-inval"),
+        "new row should appear after resume-triggered cache invalidation"
+      );
+    } finally {
+      await stopDashboard(server);
       if (previousHome === undefined) delete process.env.HOME;
       else process.env.HOME = previousHome;
       if (previousDbPath === undefined) delete process.env.TAMANDUA_DB_PATH;
