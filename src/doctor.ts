@@ -892,6 +892,28 @@ function hasOwn(obj: Record<string, unknown>, key: string): boolean {
   return Object.prototype.hasOwnProperty.call(obj, key);
 }
 
+/**
+ * Run a check-group runner defensively: a crashing runner becomes a single
+ * failed check instead of taking down the whole doctor. The doctor exists to
+ * diagnose broken states (unopenable DB, corrupt state dir) — those same
+ * states must not crash the diagnosis itself.
+ */
+async function guardedChecks(
+  name: string,
+  fn: () => DoctorCheckResult[] | Promise<DoctorCheckResult[]>,
+): Promise<DoctorCheckResult[]> {
+  try {
+    return await fn();
+  } catch (err) {
+    return [{
+      name,
+      status: "fail",
+      message: `check group crashed: ${err instanceof Error ? err.message : String(err)}`,
+      remedy: "This usually indicates broken tamandua state (DB path, state dir permissions). Inspect the message above and fix the underlying path/state issue.",
+    }];
+  }
+}
+
 export async function runDoctorChecks(opts?: DoctorOpts): Promise<CheckGroup[]> {
   // ENVIRONMENT — wired in US-003
   const environmentChecks = await Promise.all([
@@ -903,20 +925,20 @@ export async function runDoctorChecks(opts?: DoctorOpts): Promise<CheckGroup[]> 
   ]);
 
   // SERVICES — wired in US-004
-  const servicesChecks = await runServicesChecks(opts);
+  const servicesChecks = await guardedChecks("Services checks", () => runServicesChecks(opts));
 
   // STALENESS — wired in US-005
-  const stalenessChecks = await runStalenessCheck(opts);
+  const stalenessChecks = await guardedChecks("Staleness check", () => runStalenessCheck(opts));
 
   // STATE — wired in US-006
-  const stateChecks = await runStateChecks(opts);
+  const stateChecks = await guardedChecks("State checks", () => runStateChecks(opts));
 
   // Process-leak checks — wired in US-004 (report-only, appended after existing STATE checks)
-  const leakChecks = runProcessLeakChecks(opts);
+  const leakChecks = await guardedChecks("Process-leak scan", () => runProcessLeakChecks(opts));
   stateChecks.push(...leakChecks);
 
   // LLM PROMPT ADHERENCE — wired in US-001
-  const adherenceChecks = await runLlmPromptAdherenceChecks(opts);
+  const adherenceChecks = await guardedChecks("LLM prompt adherence", () => runLlmPromptAdherenceChecks(opts));
 
   return [
     { label: "ENVIRONMENT", checks: environmentChecks },
