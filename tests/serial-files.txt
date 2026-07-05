@@ -1,0 +1,69 @@
+# Serial test lane files - classified by process-spawning / deadline-sensitive criteria.
+# Classification rule: a test file belongs here if it (a) directly imports from
+# node:child_process, or (b) calls daemonctl functions that spawn OS processes
+# (startDaemon, startMcp, startControlPlane, and their restart/stop counterparts).
+# In-process servers (createDashboardServer, createTamanduaMcpServer) are NOT serial candidates.
+# Lines starting with # are comments, empty lines ignored. Sorted alphabetically.
+#
+# 56 files importing node:child_process + 5 daemonctl spawners = 61 serial files.
+src/autoresearch/autoresearch.test.ts
+src/cli/cli.test.ts
+src/cli/wizard-evaluator.test.ts
+src/cli/wizard.test.ts
+src/doctor.test.ts
+src/installer/rugpull.test.ts
+src/installer/run-cleanup.test.ts
+src/installer/run-harness.test.ts
+src/installer/run.test.ts
+src/installer/status.test.ts
+src/installer/worktree-manager.test.ts
+src/server/control-client.test.ts
+src/server/control-server-harness-workdir.test.ts
+src/server/control-server.test.ts
+src/server/daemon.test.ts
+src/server/daemonctl-controlplane-restart.test.ts
+src/server/daemonctl-dashboard.test.ts
+src/server/daemonctl-mcp-restart.test.ts
+src/server/daemonctl-restart.test.ts
+src/server/daemonctl-self-stop-guard.test.ts
+src/server/daemonctl.test.ts
+src/server/dashboard.test.ts
+tests/agent-scheduler.test.ts
+tests/claim-invalidated-by-migration.test.ts
+tests/cli-pause-all-resume-all-integration.test.ts
+tests/cli-pause-all-resume-all.test.ts
+tests/cli-pause-command.test.ts
+tests/cli-pause-resume-integration.test.ts
+tests/cli-resume-command.test.ts
+tests/cli-skill-path.test.ts
+tests/cli-status-token-display.test.ts
+tests/cli-version-warning.test.ts
+tests/cli-workflow-install-all.test.ts
+tests/cli-workflow-list-json.test.ts
+tests/cli-workflow-run-working-directory.test.ts
+tests/cli-worktree.test.ts
+tests/control-plane-cli.test.ts
+tests/dashboard-kanban.test.ts
+tests/dashboard-mcp-pause-resume-integration.test.ts
+tests/dashboard-run-token-spend.test.ts
+tests/dashboard-status-mcp.test.ts
+tests/dead-worker-recovery.test.ts
+tests/deterministic-motor-acceptance.test.ts
+tests/e2e-infrastructure.test.ts
+tests/frontend-context.test.ts
+tests/harness-working-directory.test.ts
+tests/inject-version.test.ts
+tests/install-script-workflows.test.ts
+tests/logs-prefix-expansion.test.ts
+tests/logs-tail-command.test.ts
+tests/mcp-cli.test.ts
+tests/mcp-lifecycle.test.ts
+tests/reroute-count-column-migration.test.ts
+tests/run-terminal-token-events.test.ts
+tests/run-token-migration.test.ts
+tests/sample-project-fixture.test.ts
+tests/step-ownership-columns-migration.test.ts
+tests/system-token-spend-migration.test.ts
+tests/token-log-formatting.test.ts
+tests/work-round-persona-prompt.test.ts
+tests/work-round-token-attribution.test.ts
