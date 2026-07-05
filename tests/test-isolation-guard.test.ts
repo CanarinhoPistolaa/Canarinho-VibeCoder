@@ -92,4 +92,39 @@ describe("test isolation guard", () => {
 
     assert.deepEqual(violations, []);
   });
+
+  it("src files that import logger must also import guard coverage (assertStatePathIsolation or testGuardActive)", () => {
+    // Production src/ files that use the logger go through writeLine() which
+    // now has a built-in assertStatePathIsolation guard. This static check
+    // ensures every src/ logger consumer either:
+    //   (a) imports assertStatePathIsolation/testGuardActive from test-guard, OR
+    //   (b) is the logger module itself (which contains the guard).
+    // This prevents regressions where a src/ module writes log data through
+    // getLogPath() directly, bypassing writeLine()'s guard.
+    const srcFiles = collectTestFiles(path.join(process.cwd(), "src"));
+
+    const hasLoggerImport = /from\s+["'].*\/lib\/logger\.js["']/;
+    const hasGuardImport =
+      /from\s+["'].*\/lib\/test-guard\.js["'].*\bassertStatePathIsolation\b/;
+    const hasGuardActiveImport =
+      /from\s+["'].*\/lib\/test-guard\.js["'].*\btestGuardActive\b/;
+    const isLoggerModule = /\/lib\/logger\.test\.ts$/;
+
+    const violations: string[] = [];
+    for (const file of srcFiles) {
+      const relative = path.relative(process.cwd(), file);
+      if (isLoggerModule.test(relative)) continue;
+
+      const content = fs.readFileSync(file, "utf-8");
+      if (!hasLoggerImport.test(content)) continue;
+
+      if (!hasGuardImport.test(content) && !hasGuardActiveImport.test(content)) {
+        violations.push(
+          `${relative}: imports logger without importing assertStatePathIsolation or testGuardActive from test-guard.js`,
+        );
+      }
+    }
+
+    assert.deepEqual(violations, []);
+  });
 });

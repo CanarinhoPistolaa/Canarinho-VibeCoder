@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import os from "node:os";
+import { assertStatePathIsolation } from "./test-guard.js";
 
 const MAX_LOG_SIZE = 5 * 1024 * 1024; // 5MB
 const MAX_ROTATED_FILES = 5;
@@ -43,6 +44,7 @@ function formatTimestamp(): string {
 }
 
 function writeLine(level: LogLevel, message: string, extra?: Record<string, unknown>): void {
+  assertStatePathIsolation(getLogFile(), "logger");
   try {
     ensureDir();
     rotateIfNeeded();
