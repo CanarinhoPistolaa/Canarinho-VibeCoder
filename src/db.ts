@@ -46,6 +46,7 @@ export function getDb(): DatabaseSync {
   _dbPath = dbPath;
   _dbOpenedAt = now;
   _db.exec("PRAGMA journal_mode=WAL");
+  _db.exec("PRAGMA synchronous = NORMAL");
   _db.exec("PRAGMA foreign_keys=ON");
   // Concurrent writers (daemon dispatch rounds, CLI step complete/fail,
   // migrations at process start) briefly contend for the WAL write lock;

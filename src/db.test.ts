@@ -10,6 +10,40 @@ import { DatabaseSync } from "node:sqlite";
 // env/home, we test the migration logic directly with an isolated DB.
 import { getDb, getDbPath, getSystemTokenSpend, incrementSystemTokenSpend, upsertAutoresearchSession, getAutoresearchSessions, getAutoresearchSessionById, deleteAutoresearchSession } from "../dist/db.js";
 
+describe("PRAGMA synchronous", () => {
+  let tempHome: string;
+  let origHome: string | undefined;
+  let origDbPath: string | undefined;
+
+  before(() => {
+    tempHome = mkdtempSync(path.join(os.tmpdir(), "tamandua-db-sync-test-"));
+    origHome = process.env.HOME;
+    origDbPath = process.env.TAMANDUA_DB_PATH;
+    process.env.HOME = tempHome;
+    delete process.env.TAMANDUA_DB_PATH;
+  });
+
+  after(() => {
+    if (origHome) {
+      process.env.HOME = origHome;
+    } else {
+      delete process.env.HOME;
+    }
+    if (origDbPath) {
+      process.env.TAMANDUA_DB_PATH = origDbPath;
+    } else {
+      delete process.env.TAMANDUA_DB_PATH;
+    }
+    rmSync(tempHome, { recursive: true, force: true });
+  });
+
+  it("reports synchronous=NORMAL (1) after getDb() opens a connection", () => {
+    const db = getDb();
+    const row = db.prepare("PRAGMA synchronous").get() as { synchronous: number };
+    assert.equal(row.synchronous, 1, "synchronous should be 1 (NORMAL)");
+  });
+});
+
 describe("run_worktrees table migration", () => {
   let tempHome: string;
   let origHome: string | undefined;
