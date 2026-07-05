@@ -272,6 +272,43 @@ export function checkExpectsAcceptsVariant(
   return false;
 }
 
+// ══════════════════════════════════════════════════════════════════════
+// hasTwoDotBaseComparison — detect two-dot git diff comparisons
+// against a base ref (as opposed to the correct three-dot merge-base diff)
+// ══════════════════════════════════════════════════════════════════════
+
+/**
+ * Detect two-dot git diff comparisons against a base ref.
+ *
+ * Matches patterns like:
+ *   git diff main..{{branch}}
+ *   git diff ..{{branch}}
+ *   git diff {{original_branch}}..{{branch}}
+ *
+ * Does NOT match three-dot patterns like:
+ *   git diff main...{{branch}}
+ *
+ * Background: two-dot diffs compare against the current tip of the base
+ * ref, which can cause false "removal" detection when sibling runs merge
+ * to main mid-flight.  Verifier steps MUST use three-dot (merge-base)
+ * diffs instead.  Merger steps comparing against the current tip for
+ * actual rebase/merge preparation are exempt — two-dot is correct there.
+ */
+export function hasTwoDotBaseComparison(template: string): boolean {
+  const lines = template.split("\n");
+  for (const line of lines) {
+    // Skip lines that don't contain git diff
+    if (!line.includes("git diff")) continue;
+    // Three-dot (...) is the correct merge-base idiom — skip it
+    if (line.includes("...")) continue;
+    // Two-dot pattern with a template variable (e.g. ..{{branch}})
+    if (/\.\.\{\{/.test(line)) {
+      return true;
+    }
+  }
+  return false;
+}
+
 /**
  * Parse a step's `expects` string to extract every key whose output is
  * **enforced** — meaning the step contractually guarantees it will produce

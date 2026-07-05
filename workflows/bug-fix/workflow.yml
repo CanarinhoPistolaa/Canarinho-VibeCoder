@@ -233,7 +233,7 @@ steps:
       5. Verify the regression test would fail without the fix (review the diff logic)
 
       MANDATORY first step:
-      - Run `git diff main..{{branch}} --stat` and `git diff main..{{branch}}`
+      - Run `git diff main...{{branch}} --stat` and `git diff main...{{branch}}`
       - If the diff is empty or only contains trivial changes (version bumps, lockfiles), REJECT immediately
       - Compare the diff against CHANGES claimed above — if they don't match, REJECT
 

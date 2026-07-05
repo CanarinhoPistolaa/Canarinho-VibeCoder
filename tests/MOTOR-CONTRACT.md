@@ -134,6 +134,30 @@ baseline assertions.
   design UNLESS the workflow declares `on_fail.retry_step` (see C19).
   Permanently failed runs are retryable via `tamandua workflow resume` with
   fix-then-restart semantics.
+
+  **Merge-base diff neutralization (C8-rugpull gate integrity):** Verifier
+  steps now diff against the merge-base via three-dot
+  `git diff main...{{branch}}`, not main's current tip. This neutralizes
+  pre-merge base movement: when a sibling run merges to main mid-flight, a
+  two-dot `main..{{branch}}` diff would make every not-yet-merged branch
+  appear to "remove" the sibling's changes, causing verifiers to reject
+  honest work as unclaimed modifications and burn retry budgets
+  deterministically (the branch didn't change, so re-verifying against an
+  unchanged diff produces the same false positive). Three-dot semantics —
+  "what did this branch change since it forked" — are immune to main
+  moving, so sibling merges no longer cause ghost removals. The rugpull
+  detector's narrow `finalize_merge`-only gate (C8-rugpull) therefore
+  stays correct: verifier false positives from base skew are eliminated,
+  and rugpull remains the sole owner of true merge-time conflicts (base
+  branch tip moved during the run, detected at merge time). For worktree
+  runs, this alignment is exact: worktrees are cut from main's tip at
+  launch, so the merge-base equals the `base_branch_sha` recorded in run
+  context. This idiom is enforced by a linter rule in
+  `tests/workflow-contract-lint.test.ts` (via `hasTwoDotBaseComparison()`
+  in `src/installer/workflow-contract.ts`) and documented in
+  `docs/creating-workflows.md` ("Verifier Diff Idiom — Merge-Base
+  Comparison"). Merger/pr steps intentionally use two-dot for actual
+  rebase/merge preparation — the exemption is honored by the linter rule.
 - **C19 (RETR — declarative cross-step retry routing)** When a step declares
   `on_fail.retry_step` and exhausts its local retries, the run does NOT
   immediately fail. Instead the run reroutes to the named upstream producer

@@ -20,6 +20,7 @@
 import { describe, it, before } from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import { loadWorkflowSpec } from "../dist/installer/workflow-spec.js";
 import { resolveBundledWorkflowsDir } from "../dist/installer/paths.js";
@@ -31,6 +32,7 @@ import {
   parseStatusVariants,
   checkExpectsAcceptsVariant,
   CALLER_PROVIDED,
+  hasTwoDotBaseComparison,
 } from "../dist/installer/workflow-contract.js";
 import type { WorkflowSpec } from "../dist/installer/types.js";
 
@@ -750,6 +752,298 @@ describe("regression — no mention-only consumed key in bundled workflows", () 
       [],
       `Found ${violations.length} mention-only consumed key(s). Each must be enforced with regex:^KEY: in the producer's expects:\n${violations.join("\n")}`,
     );
+  });
+});
+
+// ══════════════════════════════════════════════════════════════════════
+// verifier-diff lint rule — two-dot diffs prohibited in verifiers
+// ══════════════════════════════════════════════════════════════════════
+
+describe("verifier-diff lint rule — two-dot diffs prohibited in verifiers", () => {
+  let fullSpecs: Map<string, WorkflowSpec>;
+
+  before(async () => {
+    fullSpecs = await loadAllSpecs();
+  });
+
+  // ── Helper: resolve agent persona file path ──────────────────────
+
+  function resolvePersonaPath(
+    workflowDir: string,
+    agent: WorkflowSpec["agents"][number],
+    fileKey: string,
+  ): string {
+    const filePath = agent.workspace.files[fileKey];
+    if (!filePath) return "";
+    return path.resolve(workflowDir, agent.workspace.baseDir, filePath);
+  }
+
+  // ── Helper: check if an agent is a verifier ──────────────────────
+
+  function isVerifierAgent(agent: WorkflowSpec["agents"][number]): boolean {
+    if (agent.role === "verification") return true;
+    if (agent.id.toLowerCase().includes("verifier")) return true;
+    return false;
+  }
+
+  // ── Helper: find agent by id in a spec ───────────────────────────
+
+  function findAgent(
+    spec: WorkflowSpec,
+    agentId: string,
+  ): WorkflowSpec["agents"][number] | undefined {
+    return spec.agents.find((a) => a.id === agentId);
+  }
+
+  // ── All 23 bundled workflows ─────────────────────────────────────
+
+  it("all 23 bundled workflows have zero verifier two-dot violations", () => {
+    const violations: string[] = [];
+
+    for (const workflowId of workflowIds) {
+      const spec = fullSpecs.get(workflowId)!;
+      const workflowDir = path.join(workflowsDir, workflowId);
+
+      for (const step of spec.steps) {
+        const agent = findAgent(spec, step.agent);
+        if (!agent || !isVerifierAgent(agent)) continue;
+
+        // (a) Check step.input template
+        if (hasTwoDotBaseComparison(step.input)) {
+          const offendingLines = step.input
+            .split("\n")
+            .filter(
+              (l) =>
+                l.includes("git diff") && !l.includes("...") && /\.\.\{\{/.test(l),
+            )
+            .map((l) => l.trim());
+          violations.push(
+            `${workflowId}/${step.id}: step template contains two-dot git diff — ${offendingLines.join("; ")}`,
+          );
+        }
+
+        // (b) Check persona files (AGENTS.md, SOUL.md, IDENTITY.md)
+        const personaFiles = ["AGENTS.md", "SOUL.md", "IDENTITY.md"];
+        for (const fileKey of personaFiles) {
+          const resolved = resolvePersonaPath(workflowDir, agent, fileKey);
+          if (!resolved) continue;
+          try {
+            const content = fs.readFileSync(resolved, "utf-8");
+            if (hasTwoDotBaseComparison(content)) {
+              const offendingLines = content
+                .split("\n")
+                .filter(
+                  (l) =>
+                    l.includes("git diff") &&
+                    !l.includes("...") &&
+                    /\.\.\{\{/.test(l),
+                )
+                .map((l) => l.trim());
+              violations.push(
+                `${workflowId}/${step.id}: persona ${fileKey} contains two-dot git diff — ${offendingLines.join("; ")}`,
+              );
+            }
+          } catch {
+            // File doesn't exist or can't be read — not a violation.
+          }
+        }
+      }
+    }
+
+    assert.deepEqual(
+      violations,
+      [],
+      `Found ${violations.length} verifier two-dot violation(s). Use three-dot (merge-base) diffs instead:\n${violations.join("\n")}`,
+    );
+  });
+
+  // ── hasTwoDotBaseComparison unit tests ───────────────────────────
+
+  it("hasTwoDotBaseComparison detects 'git diff main..{{branch}}' as two-dot", () => {
+    assert.equal(
+      hasTwoDotBaseComparison("git diff main..{{branch}} --stat"),
+      true,
+    );
+  });
+
+  it("hasTwoDotBaseComparison detects 'git diff ..{{branch}}' as two-dot", () => {
+    assert.equal(
+      hasTwoDotBaseComparison("git diff ..{{branch}} --name-only"),
+      true,
+    );
+  });
+
+  it("hasTwoDotBaseComparison detects 'git diff {{original_branch}}..{{branch}}' as two-dot", () => {
+    assert.equal(
+      hasTwoDotBaseComparison(
+        "git diff {{original_branch}}..{{branch}} --stat",
+      ),
+      true,
+    );
+  });
+
+  it("hasTwoDotBaseComparison does NOT detect 'git diff main...{{branch}}' as two-dot", () => {
+    assert.equal(
+      hasTwoDotBaseComparison("git diff main...{{branch}} --stat"),
+      false,
+    );
+  });
+
+  it("hasTwoDotBaseComparison does NOT detect plain git diff without template var", () => {
+    assert.equal(
+      hasTwoDotBaseComparison("git diff main..HEAD"),
+      false,
+    );
+    assert.equal(
+      hasTwoDotBaseComparison("git diff --stat"),
+      false,
+    );
+  });
+
+  it("hasTwoDotBaseComparison returns false for empty string", () => {
+    assert.equal(hasTwoDotBaseComparison(""), false);
+  });
+
+  it("hasTwoDotBaseComparison returns false for content without git diff", () => {
+    assert.equal(
+      hasTwoDotBaseComparison("Run the tests and verify output."),
+      false,
+    );
+  });
+
+  // ── Synthetic workflow tests ─────────────────────────────────────
+
+  const VERIFIER_AGENT = {
+    id: "verifier",
+    name: "Verifier",
+    role: "verification" as const,
+    workspace: { baseDir: ".", files: {} },
+  };
+
+  const MERGER_AGENT = {
+    id: "merger",
+    name: "Merger",
+    role: "coding" as const,
+    workspace: { baseDir: ".", files: {} },
+  };
+
+  it("synthetic: verifier step with two-dot → lint failure", () => {
+    const spec = synthSpec({
+      id: "test-verifier-two-dot",
+      agents: [VERIFIER_AGENT],
+      steps: [
+        {
+          id: "verify",
+          agent: "verifier",
+          input:
+            "Run git diff main..{{branch}} --stat to check changes.\n\nReply with:\nSTATUS: done",
+          expects: "STATUS: done",
+        },
+      ],
+    });
+
+    const agent = spec.agents[0];
+    assert.equal(isVerifierAgent(agent), true, "verifier agent must be detected");
+    assert.equal(
+      hasTwoDotBaseComparison(spec.steps[0].input),
+      true,
+      "two-dot diff must be detected",
+    );
+  });
+
+  it("synthetic: verifier step with three-dot → lint passes", () => {
+    const spec = synthSpec({
+      id: "test-verifier-three-dot",
+      agents: [VERIFIER_AGENT],
+      steps: [
+        {
+          id: "verify",
+          agent: "verifier",
+          input:
+            "Run git diff main...{{branch}} --stat to check changes.\n\nReply with:\nSTATUS: done",
+          expects: "STATUS: done",
+        },
+      ],
+    });
+
+    assert.equal(
+      hasTwoDotBaseComparison(spec.steps[0].input),
+      false,
+      "three-dot diff must NOT be detected as two-dot",
+    );
+  });
+
+  it("synthetic: merger step with two-dot → lint passes (exemption)", () => {
+    const spec = synthSpec({
+      id: "test-merger-two-dot",
+      agents: [MERGER_AGENT],
+      steps: [
+        {
+          id: "merge",
+          agent: "merger",
+          input:
+            "Run git diff {{original_branch}}..{{branch}} to prepare merge.\n\nReply with:\nSTATUS: done",
+          expects: "STATUS: done",
+        },
+      ],
+    });
+
+    const agent = spec.agents[0];
+    assert.equal(
+      isVerifierAgent(agent),
+      false,
+      "merger agent must NOT be detected as verifier",
+    );
+    // The template has two-dot, but since the agent is NOT a verifier,
+    // the lint rule exempts it — no violation should be raised.
+    assert.equal(
+      hasTwoDotBaseComparison(spec.steps[0].input),
+      true,
+      "the template does contain two-dot (but lint exempts it)",
+    );
+  });
+
+  it("synthetic: verifier persona file scan detects two-dot", () => {
+    // Create a temp persona file with two-dot diff instruction
+    const tmpDir = fs.mkdtempSync(
+      path.join(os.tmpdir(), "tamandua-lint-"),
+    );
+    try {
+      const personaPath = path.join(tmpDir, "AGENTS.md");
+      fs.writeFileSync(
+        personaPath,
+        "Run git diff main..{{branch}} to verify changes.\n",
+      );
+      const content = fs.readFileSync(personaPath, "utf-8");
+      assert.equal(
+        hasTwoDotBaseComparison(content),
+        true,
+        "two-dot diff in persona file must be detected",
+      );
+    } finally {
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    }
+  });
+
+  it("synthetic: verifier persona file with three-dot passes", () => {
+    const tmpDir = fs.mkdtempSync(
+      path.join(os.tmpdir(), "tamandua-lint-"),
+    );
+    try {
+      const personaPath = path.join(tmpDir, "AGENTS.md");
+      fs.writeFileSync(
+        personaPath,
+        "Run git diff main...{{branch}} to verify changes.\n",
+      );
+      const content = fs.readFileSync(personaPath, "utf-8");
+      assert.equal(
+        hasTwoDotBaseComparison(content),
+        false,
+        "three-dot diff in persona file must NOT be detected as two-dot",
+      );
+    } finally {
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    }
   });
 });
 
