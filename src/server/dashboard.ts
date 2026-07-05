@@ -21,7 +21,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { getDb, getSystemTokenSpend, getAutoresearchSessions, getAutoresearchSessionById, upsertAutoresearchSession } from "../db.js";
-import { getRecentEvents, getRunEvents, readEventsFromCursor, type EventCursorSource } from "../installer/events.js";
+import { getRecentEvents, getRunEvents, readEventsFromCursor, countRunEvents, type EventCursorSource } from "../installer/events.js";
 import { formatLogsTailLines } from "../installer/logs-tail-format.js";
 import { getMcpStatus } from "./daemonctl.js";
 import { buildKanbanSnapshot, buildKanbanCardDetail } from "./kanban-data.js";
@@ -253,7 +253,9 @@ function handleRunDetail(
       ORDER BY step_index ASC
     `).all(runId);
 
-    const events = getRunEvents(runId);
+    const events = getRunEvents(runId, 200);
+    const totalEvents = countRunEvents(runId);
+    const truncated = totalEvents > events.length;
 
     // Derive failure_reason from existing data (no new DB column)
     let failure_reason: string | null = null;
@@ -282,7 +284,7 @@ function handleRunDetail(
       // context may be malformed
     }
 
-    jsonResponse(res, { run, steps, events, worktree, failure_reason, prompt: (run as { task: string }).task });
+    jsonResponse(res, { run, steps, events, totalEvents, truncated, worktree, failure_reason, prompt: (run as { task: string }).task });
   } catch (err) {
     errorResponse(res, `Failed to get run detail: ${(err as Error).message}`);
   }
@@ -303,7 +305,8 @@ function handleRunKanbanCardDetail(
     }
 
     const db = getDb();
-    const events = getRunEvents(runId);
+    const totalEvents = countRunEvents(runId);
+    const events = getRunEvents(runId, 200);
     const detail = buildKanbanCardDetail(db, runId, cardId, events);
 
     if (!detail) {
@@ -311,7 +314,11 @@ function handleRunKanbanCardDetail(
       return;
     }
 
-    jsonResponse(res, detail);
+    jsonResponse(res, {
+      ...detail,
+      totalEvents,
+      truncated: totalEvents > events.length,
+    });
   } catch (err) {
     errorResponse(res, `Failed to build card detail: ${(err as Error).message}`);
   }

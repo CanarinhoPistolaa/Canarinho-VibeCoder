@@ -10,6 +10,7 @@ import {
   emitEvent,
   getRecentEvents,
   getRunEvents,
+  countRunEvents,
   getEventsPath,
   type TamanduaEvent,
 } from "../../dist/installer/events.js";
@@ -707,6 +708,171 @@ describe("getRunEvents", () => {
 
     const events = getRunEvents(runId);
     assert.deepEqual(events, []);
+  });
+
+  it("returns last N events with limit (tail window)", () => {
+    const runId = "run-tail";
+    const runFile = path.join(stateDir, "events", `${runId}.jsonl`);
+    fs.mkdirSync(path.dirname(runFile), { recursive: true });
+
+    // Write 10 events
+    const lines: string[] = [];
+    for (let i = 0; i < 10; i++) {
+      const evt = makeEvent(runId, `event.${i}`);
+      lines.push(JSON.stringify(evt));
+    }
+    fs.writeFileSync(runFile, lines.join("\n") + "\n", "utf-8");
+
+    const events = getRunEvents(runId, 3);
+    assert.equal(events.length, 3);
+    assert.equal(events[0]!.event, "event.7");
+    assert.equal(events[2]!.event, "event.9");
+  });
+
+  it("returns all events when limit exceeds file size", () => {
+    const runId = "run-tail-overflow";
+    const runFile = path.join(stateDir, "events", `${runId}.jsonl`);
+    fs.mkdirSync(path.dirname(runFile), { recursive: true });
+
+    // Write 10 events
+    const lines: string[] = [];
+    for (let i = 0; i < 10; i++) {
+      const evt = makeEvent(runId, `event.${i}`);
+      lines.push(JSON.stringify(evt));
+    }
+    fs.writeFileSync(runFile, lines.join("\n") + "\n", "utf-8");
+
+    const events = getRunEvents(runId, 100);
+    assert.equal(events.length, 10);
+  });
+
+  it("returns all events when no limit is passed (unchanged behavior)", () => {
+    const runId = "run-nolimit";
+    const runFile = path.join(stateDir, "events", `${runId}.jsonl`);
+    fs.mkdirSync(path.dirname(runFile), { recursive: true });
+
+    const lines: string[] = [];
+    for (let i = 0; i < 5; i++) {
+      const evt = makeEvent(runId, `event.${i}`);
+      lines.push(JSON.stringify(evt));
+    }
+    fs.writeFileSync(runFile, lines.join("\n") + "\n", "utf-8");
+
+    const events = getRunEvents(runId);
+    assert.equal(events.length, 5);
+    assert.equal(events[0]!.event, "event.0");
+    assert.equal(events[4]!.event, "event.4");
+  });
+
+  it("skips malformed JSON lines in tail window", () => {
+    const runId = "run-tail-malformed";
+    const runFile = path.join(stateDir, "events", `${runId}.jsonl`);
+    fs.mkdirSync(path.dirname(runFile), { recursive: true });
+
+    const evt1 = makeEvent(runId, "event.good");
+    const evt2 = makeEvent(runId, "event.also-good");
+    fs.writeFileSync(
+      runFile,
+      `garbage line\n${JSON.stringify(evt1)}\nmore garbage\n${JSON.stringify(evt2)}\n`,
+      "utf-8",
+    );
+
+    const events = getRunEvents(runId, 5);
+    assert.equal(events.length, 2);
+    assert.equal(events[0]!.event, "event.good");
+    assert.equal(events[1]!.event, "event.also-good");
+  });
+
+  it("returns empty array for limit 0", () => {
+    const runId = "run-limit-zero";
+    const runFile = path.join(stateDir, "events", `${runId}.jsonl`);
+    fs.mkdirSync(path.dirname(runFile), { recursive: true });
+
+    const evt = makeEvent(runId, "event.0");
+    fs.writeFileSync(runFile, `${JSON.stringify(evt)}\n`, "utf-8");
+
+    const events = getRunEvents(runId, 0);
+    assert.equal(events.length, 1); // limit 0 falls through to full read
+  });
+});
+
+describe("countRunEvents", () => {
+  let stateDir: string;
+  let originalStateDir: string | undefined;
+
+  beforeEach(() => {
+    originalStateDir = process.env.TAMANDUA_STATE_DIR;
+    stateDir = fs.mkdtempSync(path.join(os.tmpdir(), "tamandua-count-"));
+    process.env.TAMANDUA_STATE_DIR = stateDir;
+  });
+
+  afterEach(() => {
+    if (originalStateDir === undefined) delete process.env.TAMANDUA_STATE_DIR;
+    else process.env.TAMANDUA_STATE_DIR = originalStateDir;
+
+    fs.rmSync(stateDir, { recursive: true, force: true });
+  });
+
+  it("returns 0 for nonexistent file", () => {
+    const count = countRunEvents("nonexistent-run");
+    assert.equal(count, 0);
+  });
+
+  it("returns correct count for populated file", () => {
+    const runId = "run-count";
+    const runFile = path.join(stateDir, "events", `${runId}.jsonl`);
+    fs.mkdirSync(path.dirname(runFile), { recursive: true });
+
+    const lines: string[] = [];
+    for (let i = 0; i < 7; i++) {
+      lines.push(JSON.stringify(makeEvent(runId, `event.${i}`)));
+    }
+    fs.writeFileSync(runFile, lines.join("\n") + "\n", "utf-8");
+
+    const count = countRunEvents(runId);
+    assert.equal(count, 7);
+  });
+
+  it("returns 0 for empty file", () => {
+    const runId = "run-empty";
+    const runFile = path.join(stateDir, "events", `${runId}.jsonl`);
+    fs.mkdirSync(path.dirname(runFile), { recursive: true });
+    fs.writeFileSync(runFile, "", "utf-8");
+
+    const count = countRunEvents(runId);
+    assert.equal(count, 0);
+  });
+
+  it("returns 0 for directory-as-file", () => {
+    const runId = "run-dir";
+    const runFileAsDir = path.join(stateDir, "events", `${runId}.jsonl`);
+    fs.mkdirSync(runFileAsDir, { recursive: true });
+
+    const count = countRunEvents(runId);
+    assert.equal(count, 0);
+  });
+
+  it("skips empty lines in count (whitespace-only lines)", () => {
+    const runId = "run-blank-lines";
+    const runFile = path.join(stateDir, "events", `${runId}.jsonl`);
+    fs.mkdirSync(path.dirname(runFile), { recursive: true });
+
+    fs.writeFileSync(runFile, "\n\n{\"ts\":\"2024-01-01\",\"event\":\"ev\",\"runId\":\"x\"}\n\n\n", "utf-8");
+
+    const count = countRunEvents(runId);
+    assert.equal(count, 1);
+  });
+
+  it("does not JSON-parse — treats malformed lines as valid lines", () => {
+    const runId = "run-nonparse-count";
+    const runFile = path.join(stateDir, "events", `${runId}.jsonl`);
+    fs.mkdirSync(path.dirname(runFile), { recursive: true });
+
+    fs.writeFileSync(runFile, "not json\nneither is this\n{\"ts\":\"a\",\"event\":\"e\",\"runId\":\"r\"}\n", "utf-8");
+
+    const count = countRunEvents(runId);
+    // countRunEvents counts non-empty lines — all 3 are non-empty
+    assert.equal(count, 3);
   });
 });
 

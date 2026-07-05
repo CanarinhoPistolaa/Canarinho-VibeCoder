@@ -4110,3 +4110,251 @@ describe("dashboard /api/runs cache", () => {
     }
   });
 });
+
+describe("dashboard run detail bounded events", () => {
+  function appendRunEvent(stateDir: string, runId: string, evt: TamanduaEvent): void {
+    const filePath = path.join(stateDir, "events", `${runId}.jsonl`);
+    fs.mkdirSync(path.dirname(filePath), { recursive: true });
+    fs.appendFileSync(filePath, `${JSON.stringify(evt)}\n`, "utf-8");
+  }
+
+  it("returns at most 200 events and truncated=true with correct totalEvents for a 500-event run", async () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "tamandua-dashboard-bounded-events-"));
+    const homeDir = path.join(root, "home");
+    const stateDir = path.join(homeDir, ".tamandua");
+    fs.mkdirSync(stateDir, { recursive: true });
+    const dbPath = path.join(stateDir, "tamandua.db");
+    const previousHome = process.env.HOME;
+    const previousDbPath = process.env.TAMANDUA_DB_PATH;
+    const previousStateDir = process.env.TAMANDUA_STATE_DIR;
+    process.env.HOME = homeDir;
+    process.env.TAMANDUA_DB_PATH = dbPath;
+    process.env.TAMANDUA_STATE_DIR = stateDir;
+
+    const runId = "run-500-events";
+
+    // Create 500 events in the per-run file
+    for (let i = 0; i < 500; i++) {
+      appendRunEvent(stateDir, runId, {
+        ts: new Date(Date.UTC(2026, 0, 1, 0, 0, 0, i * 1000)).toISOString(),
+        event: "step.running",
+        runId,
+        agentId: "test_agent",
+        detail: `event ${i}`,
+      });
+    }
+
+    // Insert the run into DB
+    const db = getDb();
+    db.prepare(`
+      INSERT INTO runs (id, run_number, workflow_id, task, status, context, tokens_spent, created_at, updated_at)
+      VALUES (?, 1, 'wf-test', 'test task', 'running', '{}', 0, '2026-01-01', '2026-01-01')
+    `).run(runId);
+
+    const { server, baseUrl } = await startDashboard();
+
+    try {
+      const response = await fetch(`${baseUrl}/api/runs/${runId}`);
+      assert.equal(response.status, 200);
+
+      const body = await response.json() as {
+        totalEvents: number;
+        truncated: boolean;
+        events: TamanduaEvent[];
+        run: unknown;
+        steps: unknown;
+        failure_reason: unknown;
+        prompt: unknown;
+      };
+
+      assert.equal(body.totalEvents, 500, "totalEvents should be 500");
+      assert.equal(body.truncated, true, "truncated should be true");
+      assert.ok(body.events.length <= 200, `events length ${body.events.length} should be <= 200`);
+      // The events should be the most recent ones (last 200)
+      assert.match(body.events[body.events.length - 1].detail ?? "", /event 499/);
+      assert.match(body.events[0].detail ?? "", /event 300/);
+    } finally {
+      await stopDashboard(server);
+      if (previousHome === undefined) delete process.env.HOME;
+      else process.env.HOME = previousHome;
+      if (previousDbPath === undefined) delete process.env.TAMANDUA_DB_PATH;
+      else process.env.TAMANDUA_DB_PATH = previousDbPath;
+      if (previousStateDir === undefined) delete process.env.TAMANDUA_STATE_DIR;
+      else process.env.TAMANDUA_STATE_DIR = previousStateDir;
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it("returns all events and truncated=false with correct totalEvents for a small file (10 events)", async () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "tamandua-dashboard-bounded-events-"));
+    const homeDir = path.join(root, "home");
+    const stateDir = path.join(homeDir, ".tamandua");
+    fs.mkdirSync(stateDir, { recursive: true });
+    const dbPath = path.join(stateDir, "tamandua.db");
+    const previousHome = process.env.HOME;
+    const previousDbPath = process.env.TAMANDUA_DB_PATH;
+    const previousStateDir = process.env.TAMANDUA_STATE_DIR;
+    process.env.HOME = homeDir;
+    process.env.TAMANDUA_DB_PATH = dbPath;
+    process.env.TAMANDUA_STATE_DIR = stateDir;
+
+    const runId = "run-10-events";
+
+    // Create 10 events in the per-run file
+    for (let i = 0; i < 10; i++) {
+      appendRunEvent(stateDir, runId, {
+        ts: new Date(Date.UTC(2026, 0, 1, 0, 0, 0, i * 1000)).toISOString(),
+        event: "step.running",
+        runId,
+        agentId: "test_agent",
+        detail: `event ${i}`,
+      });
+    }
+
+    const db = getDb();
+    db.prepare(`
+      INSERT INTO runs (id, run_number, workflow_id, task, status, context, tokens_spent, created_at, updated_at)
+      VALUES (?, 1, 'wf-test', 'test task', 'running', '{}', 0, '2026-01-01', '2026-01-01')
+    `).run(runId);
+
+    const { server, baseUrl } = await startDashboard();
+
+    try {
+      const response = await fetch(`${baseUrl}/api/runs/${runId}`);
+      assert.equal(response.status, 200);
+
+      const body = await response.json() as {
+        totalEvents: number;
+        truncated: boolean;
+        events: TamanduaEvent[];
+        run: unknown;
+        steps: unknown;
+        failure_reason: unknown;
+        prompt: unknown;
+      };
+
+      assert.equal(body.totalEvents, 10, "totalEvents should be 10");
+      assert.equal(body.truncated, false, "truncated should be false for small file");
+      assert.equal(body.events.length, 10, "all 10 events should be returned");
+    } finally {
+      await stopDashboard(server);
+      if (previousHome === undefined) delete process.env.HOME;
+      else process.env.HOME = previousHome;
+      if (previousDbPath === undefined) delete process.env.TAMANDUA_DB_PATH;
+      else process.env.TAMANDUA_DB_PATH = previousDbPath;
+      if (previousStateDir === undefined) delete process.env.TAMANDUA_STATE_DIR;
+      else process.env.TAMANDUA_STATE_DIR = previousStateDir;
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it("returns totalEvents=0 and truncated=false when run has no events file", async () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "tamandua-dashboard-bounded-events-"));
+    const homeDir = path.join(root, "home");
+    const stateDir = path.join(homeDir, ".tamandua");
+    fs.mkdirSync(stateDir, { recursive: true });
+    const dbPath = path.join(stateDir, "tamandua.db");
+    const previousHome = process.env.HOME;
+    const previousDbPath = process.env.TAMANDUA_DB_PATH;
+    const previousStateDir = process.env.TAMANDUA_STATE_DIR;
+    process.env.HOME = homeDir;
+    process.env.TAMANDUA_DB_PATH = dbPath;
+    process.env.TAMANDUA_STATE_DIR = stateDir;
+
+    const runId = "run-empty-events";
+
+    // Do NOT create any events file for this run
+
+    const db = getDb();
+    db.prepare(`
+      INSERT INTO runs (id, run_number, workflow_id, task, status, context, tokens_spent, created_at, updated_at)
+      VALUES (?, 1, 'wf-test', 'test task', 'running', '{}', 0, '2026-01-01', '2026-01-01')
+    `).run(runId);
+
+    const { server, baseUrl } = await startDashboard();
+
+    try {
+      const response = await fetch(`${baseUrl}/api/runs/${runId}`);
+      assert.equal(response.status, 200);
+
+      const body = await response.json() as {
+        totalEvents: number;
+        truncated: boolean;
+        events: TamanduaEvent[];
+        run: unknown;
+        steps: unknown;
+        failure_reason: unknown;
+        prompt: unknown;
+      };
+
+      assert.equal(body.totalEvents, 0, "totalEvents should be 0 for nonexistent events file");
+      assert.equal(body.truncated, false, "truncated should be false when no events exist");
+      assert.equal(body.events.length, 0, "events array should be empty");
+    } finally {
+      await stopDashboard(server);
+      if (previousHome === undefined) delete process.env.HOME;
+      else process.env.HOME = previousHome;
+      if (previousDbPath === undefined) delete process.env.TAMANDUA_DB_PATH;
+      else process.env.TAMANDUA_DB_PATH = previousDbPath;
+      if (previousStateDir === undefined) delete process.env.TAMANDUA_STATE_DIR;
+      else process.env.TAMANDUA_STATE_DIR = previousStateDir;
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it("existing response fields (run, steps, failure_reason, prompt) are unchanged", async () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "tamandua-dashboard-bounded-events-"));
+    const homeDir = path.join(root, "home");
+    const stateDir = path.join(homeDir, ".tamandua");
+    fs.mkdirSync(stateDir, { recursive: true });
+    const dbPath = path.join(stateDir, "tamandua.db");
+    const previousHome = process.env.HOME;
+    const previousDbPath = process.env.TAMANDUA_DB_PATH;
+    const previousStateDir = process.env.TAMANDUA_STATE_DIR;
+    process.env.HOME = homeDir;
+    process.env.TAMANDUA_DB_PATH = dbPath;
+    process.env.TAMANDUA_STATE_DIR = stateDir;
+
+    const runId = "run-existing-fields";
+
+    appendRunEvent(stateDir, runId, {
+      ts: "2026-01-01T00:00:01.000Z",
+      event: "step.running",
+      runId,
+      agentId: "test_agent",
+      detail: "test event",
+    });
+
+    const db = getDb();
+    db.prepare(`
+      INSERT INTO runs (id, run_number, workflow_id, task, status, context, tokens_spent, created_at, updated_at)
+      VALUES (?, 1, 'wf-test', 'test task', 'failed', '{}', 0, '2026-01-01', '2026-01-01')
+    `).run(runId);
+
+    const { server, baseUrl } = await startDashboard();
+
+    try {
+      const response = await fetch(`${baseUrl}/api/runs/${runId}`);
+      assert.equal(response.status, 200);
+
+      const body = await response.json() as Record<string, unknown>;
+      assert.ok("run" in body, "run field should be present");
+      assert.ok("steps" in body, "steps field should be present");
+      assert.ok("events" in body, "events field should be present");
+      assert.ok("failure_reason" in body, "failure_reason field should be present");
+      assert.ok("prompt" in body, "prompt field should be present");
+      assert.ok("totalEvents" in body, "totalEvents field should be present");
+      assert.ok("truncated" in body, "truncated field should be present");
+      assert.equal(body.prompt, "test task", "prompt should match run.task");
+    } finally {
+      await stopDashboard(server);
+      if (previousHome === undefined) delete process.env.HOME;
+      else process.env.HOME = previousHome;
+      if (previousDbPath === undefined) delete process.env.TAMANDUA_DB_PATH;
+      else process.env.TAMANDUA_DB_PATH = previousDbPath;
+      if (previousStateDir === undefined) delete process.env.TAMANDUA_STATE_DIR;
+      else process.env.TAMANDUA_STATE_DIR = previousStateDir;
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+});

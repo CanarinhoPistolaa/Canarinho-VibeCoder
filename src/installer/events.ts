@@ -293,10 +293,23 @@ export function getRecentEvents(limit = 50): TamanduaEvent[] {
 }
 
 /**
- * Read all events for a specific run.
+ * Read events for a specific run.
+ *
+ * When limit is provided, reads only the last N valid JSON lines from the
+ * per-run events file using an efficient byte-offset scan from end-of-file,
+ * without reading and parsing the entire file.
+ *
+ * When limit is omitted, reads all events (unchanged behaviour).
  */
-export function getRunEvents(runId: string): TamanduaEvent[] {
+export function getRunEvents(runId: string, limit?: number): TamanduaEvent[] {
   const runFile = getEventsFile(runId);
+
+  // Bounded tail-read path
+  if (limit !== undefined && limit > 0) {
+    return tailRunEvents(runFile, limit);
+  }
+
+  // Unbounded full-read path — existing behaviour
   try {
     const content = fs.readFileSync(runFile, "utf-8");
     const lines = content.trim().split("\n").filter(Boolean);
@@ -313,6 +326,99 @@ export function getRunEvents(runId: string): TamanduaEvent[] {
     logger.warn("Failed to read run events", { runId, error: String(err) });
     return [];
   }
+}
+
+/**
+ * Read the last `limit` valid JSON events from a JSONL file using a
+ * byte-offset tail scan.  This avoids parsing the entire file.
+ */
+function tailRunEvents(filePath: string, limit: number): TamanduaEvent[] {
+  let fileBuffer: Buffer;
+  try {
+    fileBuffer = fs.readFileSync(filePath);
+  } catch (err) {
+    const code = (err as NodeJS.ErrnoException)?.code;
+    if (code === "ENOENT") return [];
+    // EISDIR or anything else — return empty
+    return [];
+  }
+
+  if (fileBuffer.length === 0) return [];
+
+  // Scan backwards from EOF to collect at most `limit` complete lines.
+  const lines: string[] = [];
+  let end = fileBuffer.length;
+
+  while (lines.length < limit && end > 0) {
+    // Find the start of the next newline-terminated segment going backwards.
+    let nl = end - 1;
+    while (nl >= 0 && fileBuffer[nl] !== 0x0A) nl--;
+
+    let line: string;
+    if (nl < 0) {
+      // Reached beginning of file — extract the first (non-\n-prefixed) line.
+      line = fileBuffer.toString("utf-8", 0, end).replace(/\r$/, "");
+    } else if (nl + 1 < end) {
+      line = fileBuffer.toString("utf-8", nl + 1, end).replace(/\r$/, "");
+    } else {
+      // Empty line (consecutive newlines) — skip.
+      end = nl;
+      continue;
+    }
+
+    if (line) lines.unshift(line);
+
+    if (nl < 0) break; // exhausted the file
+
+    end = nl;
+  }
+
+  // Parse and filter out malformed lines.
+  const result: TamanduaEvent[] = [];
+  for (const line of lines) {
+    try {
+      const parsed = JSON.parse(line);
+      if (parsed && typeof parsed === "object") {
+        result.push(parsed as TamanduaEvent);
+      }
+    } catch {
+      // Skip malformed lines.
+    }
+  }
+
+  return result;
+}
+
+/**
+ * Fast-count non-empty lines in the per-run events file without JSON-parsing
+ * every line. Returns 0 for nonexistent / empty / directory files.
+ */
+export function countRunEvents(runId: string): number {
+  const runFile = getEventsFile(runId);
+  let stats: fs.Stats;
+  try {
+    stats = fs.statSync(runFile);
+  } catch (err) {
+    const code = (err as NodeJS.ErrnoException)?.code;
+    if (code === "ENOENT") return 0;
+    return 0;
+  }
+
+  // Directory instead of file
+  if (stats.isDirectory()) return 0;
+
+  // Empty file
+  if (stats.size === 0) return 0;
+
+  let content: string;
+  try {
+    content = fs.readFileSync(runFile, "utf-8");
+  } catch {
+    return 0;
+  }
+
+  // Count non-empty lines — the same filter used by getRunEvents (trim + filter Boolean)
+  return content.trim().split("\n").filter(Boolean).length;
 }
 
 /**

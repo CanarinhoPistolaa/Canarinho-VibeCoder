@@ -1,5 +1,10 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
+import { once } from "node:events";
+import http from "node:http";
 import { DatabaseSync } from "node:sqlite";
 
 import type { TamanduaEvent } from "../../dist/installer/events.js";
@@ -9,6 +14,8 @@ import {
   laneAgentSuffix,
   normaliseStatus,
 } from "../../dist/server/kanban-data.js";
+import { createDashboardServer, invalidateRunsCache } from "../../dist/server/dashboard.js";
+import { getDb } from "../../dist/db.js";
 
 function seedDb(): DatabaseSync {
   const db = new DatabaseSync(":memory:");
@@ -555,5 +562,190 @@ describe("kanban-data: buildKanbanCardDetail", () => {
     const detail = buildKanbanCardDetail(db, "r13", "US-001", []);
     assert.ok(detail);
     assert.equal(detail.output, "Step-level output");
+  });
+
+  it("filters events correctly with bounded (limited) events input", () => {
+    const db = seedDb();
+    insertRun(db, "r14", "running");
+    insertStep(db, "r14", "plan", "planner", 0, "done", { input_template: "Plan" });
+
+    // Simulate a scenario where only 5 of 500 total events are passed
+    // (as happens when getRunEvents(runId, 200) is called but we want to
+    //  exercise the extreme case of very few events)
+    const boundedEvents: TamanduaEvent[] = [
+      makeEvent("2025-02-01T10:00:00Z", "step.running", { runId: "r14", stepId: "plan" }),
+      makeEvent("2025-02-01T10:01:00Z", "run.tokens.updated", { runId: "r14", stepId: "plan", tokenDelta: 100, tokensSpent: 100 }),
+      makeEvent("2025-02-01T10:02:00Z", "step.done", { runId: "r14", stepId: "plan" }),
+      makeEvent("2025-02-01T10:02:01Z", "run.tokens.updated", { runId: "r14", stepId: "plan", tokenDelta: 50, tokensSpent: 150 }),
+      // This event is for a different step — should be filtered out
+      makeEvent("2025-02-01T10:03:00Z", "step.running", { runId: "r14", stepId: "verify" }),
+    ];
+
+    const detail = buildKanbanCardDetail(db, "r14", "plan", boundedEvents);
+    assert.ok(detail);
+    // The verify event should be filtered out — only plan events remain
+    assert.equal(detail.events.length, 4);
+    assert.ok(detail.events.every((e) => e.stepId === "plan"));
+    // Tokens still aggregate correctly from the included events
+    assert.ok(detail.tokens);
+    assert.equal(detail.tokens.total, 150);
+  });
+});
+
+// ── Helper for handler-level tests ───────────────────────────────
+
+async function startDashboard(): Promise<{ server: http.Server; baseUrl: string }> {
+  invalidateRunsCache();
+  const server = createDashboardServer(0);
+  if (!server.listening) {
+    await once(server, "listening");
+  }
+  const address = server.address();
+  assert.ok(address && typeof address !== "string");
+  return { server, baseUrl: `http://127.0.0.1:${address.port}` };
+}
+
+async function stopDashboard(server: http.Server): Promise<void> {
+  await new Promise<void>((resolve) => server.close(() => resolve()));
+}
+
+function appendRunEvent(stateDir: string, runId: string, evt: TamanduaEvent): void {
+  const filePath = path.join(stateDir, "events", `${runId}.jsonl`);
+  fs.mkdirSync(path.dirname(filePath), { recursive: true });
+  fs.appendFileSync(filePath, `${JSON.stringify(evt)}\n`, "utf-8");
+}
+
+describe("kanban-data: kanban-card-detail bounded events handler", () => {
+  it("response includes totalEvents and truncated fields", async () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "tamandua-kanban-bounded-"));
+    const homeDir = path.join(root, "home");
+    const stateDir = path.join(homeDir, ".tamandua");
+    fs.mkdirSync(stateDir, { recursive: true });
+    const dbPath = path.join(stateDir, "tamandua.db");
+    const previousHome = process.env.HOME;
+    const previousDbPath = process.env.TAMANDUA_DB_PATH;
+    const previousStateDir = process.env.TAMANDUA_STATE_DIR;
+    process.env.HOME = homeDir;
+    process.env.TAMANDUA_DB_PATH = dbPath;
+    process.env.TAMANDUA_STATE_DIR = stateDir;
+
+    const runId = "run-kanban-bounded";
+
+    // Create 10 events in the per-run file
+    for (let i = 0; i < 10; i++) {
+      appendRunEvent(stateDir, runId, {
+        ts: new Date(Date.UTC(2026, 0, 1, 0, 0, 0, i * 1000)).toISOString(),
+        event: "step.running",
+        runId,
+        stepId: "plan",
+        detail: `event ${i}`,
+      });
+    }
+
+    // Insert run and step into DB
+    const db = getDb();
+    const now = new Date().toISOString();
+    db.prepare(`
+      INSERT INTO runs (id, run_number, workflow_id, task, status, context, tokens_spent, created_at, updated_at)
+      VALUES (?, 1, 'wf-test', 'test task', 'running', '{}', 0, ?, ?)
+    `).run(runId, now, now);
+    db.prepare(`
+      INSERT INTO steps (id, run_id, step_id, agent_id, step_index, input_template, expects, status, type, current_story_id, retry_count, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, '', 'done', 'single', NULL, 0, ?, ?)
+    `).run(`step_${runId}_plan`, runId, "plan", "wf-test_planner", 0, "", now, now);
+
+    const { server, baseUrl } = await startDashboard();
+
+    try {
+      const response = await fetch(`${baseUrl}/api/runs/${runId}/kanban/card-detail?cardId=plan`);
+      assert.equal(response.status, 200);
+
+      const body = await response.json() as {
+        totalEvents: number;
+        truncated: boolean;
+        title: string;
+        events: TamanduaEvent[];
+        [key: string]: unknown;
+      };
+
+      assert.equal(body.totalEvents, 10, "totalEvents should be 10");
+      assert.equal(body.truncated, false, "truncated should be false for small file");
+      // Existing fields still present
+      assert.equal(body.title, "planner step");
+    } finally {
+      await stopDashboard(server);
+      if (previousHome === undefined) delete process.env.HOME;
+      else process.env.HOME = previousHome;
+      if (previousDbPath === undefined) delete process.env.TAMANDUA_DB_PATH;
+      else process.env.TAMANDUA_DB_PATH = previousDbPath;
+      if (previousStateDir === undefined) delete process.env.TAMANDUA_STATE_DIR;
+      else process.env.TAMANDUA_STATE_DIR = previousStateDir;
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it("response has truncated=true when totalEvents > bounded count", async () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "tamandua-kanban-bounded-"));
+    const homeDir = path.join(root, "home");
+    const stateDir = path.join(homeDir, ".tamandua");
+    fs.mkdirSync(stateDir, { recursive: true });
+    const dbPath = path.join(stateDir, "tamandua.db");
+    const previousHome = process.env.HOME;
+    const previousDbPath = process.env.TAMANDUA_DB_PATH;
+    const previousStateDir = process.env.TAMANDUA_STATE_DIR;
+    process.env.HOME = homeDir;
+    process.env.TAMANDUA_DB_PATH = dbPath;
+    process.env.TAMANDUA_STATE_DIR = stateDir;
+
+    const runId = "run-kanban-many";
+
+    // Create 250 events (more than the 200 cap)
+    for (let i = 0; i < 250; i++) {
+      appendRunEvent(stateDir, runId, {
+        ts: new Date(Date.UTC(2026, 0, 1, 0, 0, 0, i * 1000)).toISOString(),
+        event: "step.running",
+        runId,
+        stepId: "plan",
+        detail: `event ${i}`,
+      });
+    }
+
+    const db = getDb();
+    const now = new Date().toISOString();
+    db.prepare(`
+      INSERT INTO runs (id, run_number, workflow_id, task, status, context, tokens_spent, created_at, updated_at)
+      VALUES (?, 1, 'wf-test', 'test task', 'running', '{}', 0, ?, ?)
+    `).run(runId, now, now);
+    db.prepare(`
+      INSERT INTO steps (id, run_id, step_id, agent_id, step_index, input_template, expects, status, type, current_story_id, retry_count, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, '', 'done', 'single', NULL, 0, ?, ?)
+    `).run(`step_${runId}_plan`, runId, "plan", "wf-test_planner", 0, "", now, now);
+
+    const { server, baseUrl } = await startDashboard();
+
+    try {
+      const response = await fetch(`${baseUrl}/api/runs/${runId}/kanban/card-detail?cardId=plan`);
+      assert.equal(response.status, 200);
+
+      const body = await response.json() as {
+        totalEvents: number;
+        truncated: boolean;
+        events: TamanduaEvent[];
+        [key: string]: unknown;
+      };
+
+      assert.equal(body.totalEvents, 250, "totalEvents should be 250");
+      assert.equal(body.truncated, true, "truncated should be true when totalEvents > 200");
+      assert.ok(body.events.length <= 200, `events length ${body.events.length} should be <= 200`);
+    } finally {
+      await stopDashboard(server);
+      if (previousHome === undefined) delete process.env.HOME;
+      else process.env.HOME = previousHome;
+      if (previousDbPath === undefined) delete process.env.TAMANDUA_DB_PATH;
+      else process.env.TAMANDUA_DB_PATH = previousDbPath;
+      if (previousStateDir === undefined) delete process.env.TAMANDUA_STATE_DIR;
+      else process.env.TAMANDUA_STATE_DIR = previousStateDir;
+      fs.rmSync(root, { recursive: true, force: true });
+    }
   });
 });

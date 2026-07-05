@@ -7,7 +7,7 @@ export { provisionAgents } from "./installer/agent-provision.js";
 export { uninstallWorkflow, uninstallAllWorkflows, checkActiveRuns } from "./installer/uninstall.js";
 export { getWorkflowStatus, listRuns, stopWorkflow } from "./installer/status.js";
 export { runWorkflow } from "./installer/run.js";
-export { emitEvent, getRecentEvents, getRunEvents, getEventsPath } from "./installer/events.js";
+export { emitEvent, getRecentEvents, getRunEvents, getEventsPath, countRunEvents } from "./installer/events.js";
 export { ensureCliSymlink, isCliSymlinked, removeCliSymlink } from "./installer/symlink.js";
 
 // Agent scheduler
