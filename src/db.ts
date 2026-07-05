@@ -4,9 +4,7 @@ import os from "node:os";
 import { assertStatePathIsolation } from "./lib/test-guard.js";
 
 let _db: DatabaseSync | null = null;
-let _dbOpenedAt = 0;
 let _dbPath: string | null = null;
-const DB_MAX_AGE_MS = 5000;
 
 // Dynamic import to avoid top-level await issues in non-Node22 environments
 import { DatabaseSync } from "node:sqlite";
@@ -19,9 +17,8 @@ function resolveDbPath(): string {
 }
 
 export function getDb(): DatabaseSync {
-  const now = Date.now();
   const dbPath = resolveDbPath();
-  if (_db && _dbPath === dbPath && (now - _dbOpenedAt) < DB_MAX_AGE_MS) return _db;
+  if (_db && _dbPath === dbPath) return _db;
   if (_db) {
     // Defer the close by one tick: synchronous callers that captured this
     // handle from an earlier getDb() call may still be mid-operation (e.g.
@@ -44,7 +41,6 @@ export function getDb(): DatabaseSync {
   fs.mkdirSync(path.dirname(dbPath), { recursive: true });
   _db = new DatabaseSync(dbPath);
   _dbPath = dbPath;
-  _dbOpenedAt = now;
   _db.exec("PRAGMA journal_mode=WAL");
   _db.exec("PRAGMA synchronous = NORMAL");
   _db.exec("PRAGMA foreign_keys=ON");

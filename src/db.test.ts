@@ -903,6 +903,70 @@ describe("getAutoresearchSessionById", () => {
   });
 });
 
+describe("getDb handle stability", () => {
+  let tempHome: string;
+  let origHome: string | undefined;
+  let origDbPath: string | undefined;
+
+  before(() => {
+    tempHome = mkdtempSync(path.join(os.tmpdir(), "tamandua-db-handle-test-"));
+    origHome = process.env.HOME;
+    origDbPath = process.env.TAMANDUA_DB_PATH;
+    process.env.HOME = tempHome;
+    delete process.env.TAMANDUA_DB_PATH;
+  });
+
+  after(() => {
+    if (origHome) {
+      process.env.HOME = origHome;
+    } else {
+      delete process.env.HOME;
+    }
+    if (origDbPath) {
+      process.env.TAMANDUA_DB_PATH = origDbPath;
+    } else {
+      delete process.env.TAMANDUA_DB_PATH;
+    }
+    rmSync(tempHome, { recursive: true, force: true });
+  });
+
+  it("returns the identical handle for same path across multiple calls", () => {
+    const db1 = getDb();
+    const db2 = getDb();
+    assert.strictEqual(db1, db2, "getDb() should return the same handle on repeated same-path calls");
+  });
+
+  it("returns the identical handle even after time elapses between calls", () => {
+    const db1 = getDb();
+    // Busy-wait to simulate time passing. With the bug (5s TTL), a much
+    // longer wait would trigger rotation; post-fix, any elapsed time is fine.
+    const start = Date.now();
+    while (Date.now() - start < 20) { /* wait */ }
+    const db2 = getDb();
+    assert.strictEqual(db1, db2, "getDb() should return the same handle after time elapses with unchanged path");
+  });
+
+  it("returns a fresh handle when TAMANDUA_DB_PATH changes", () => {
+    const db1 = getDb();
+
+    const newPath = path.join(tempHome, "new-db.sqlite");
+    process.env.TAMANDUA_DB_PATH = newPath;
+
+    const db2 = getDb();
+    assert.notStrictEqual(db1, db2, "getDb() should return a new handle when DB path changes");
+    assert.strictEqual(getDbPath(), newPath, "getDbPath should reflect the new path");
+  });
+
+  it("returns the identical handle when TAMANDUA_DB_PATH is set and unchanged", () => {
+    const customPath = path.join(tempHome, "stable-db.sqlite");
+    process.env.TAMANDUA_DB_PATH = customPath;
+
+    const db1 = getDb();
+    const db2 = getDb();
+    assert.strictEqual(db1, db2, "getDb() should return the same handle when explicit DB path is unchanged");
+  });
+});
+
 describe("deleteAutoresearchSession", () => {
   let tempHome: string;
   let tempSessionDir: string;
