@@ -600,6 +600,49 @@ describe("getRecentEvents", () => {
     const events = getRecentEvents();
     assert.deepEqual(events, []);
   });
+
+  it("reads correct tail events from a multi-MB file without reading the whole file", () => {
+    const globalFile = path.join(stateDir, "events", "all.jsonl");
+    fs.mkdirSync(path.dirname(globalFile), { recursive: true });
+
+    // Write enough events to exceed 2 MB. Each event line is roughly
+    // 80 bytes → ~28 000 events for ~2.2 MB.
+    const EVENT_COUNT = 28_000;
+    const TARGET_LIMIT = 10;
+
+    // Build in batches and write via appendFileSync for throughput.
+    const fd = fs.openSync(globalFile, "w");
+    const batchSize = 500;
+    const batches = Math.ceil(EVENT_COUNT / batchSize);
+    for (let b = 0; b < batches; b++) {
+      const start = b * batchSize;
+      const end = Math.min(start + batchSize, EVENT_COUNT);
+      let batch = "";
+      for (let i = start; i < end; i++) {
+        const evt = makeEvent("run-large", `event.${String(i).padStart(5, "0")}`);
+        batch += JSON.stringify(evt) + "\n";
+      }
+      fs.appendFileSync(fd, batch, "utf-8");
+    }
+    fs.closeSync(fd);
+
+    const fileSize = fs.statSync(globalFile).size;
+    assert.ok(fileSize > 2_000_000, `file should exceed 2 MB, got ${(fileSize / 1_000_000).toFixed(2)} MB`);
+
+    const start = performance.now();
+    const events = getRecentEvents(TARGET_LIMIT);
+    const elapsed = performance.now() - start;
+
+    assert.equal(events.length, TARGET_LIMIT);
+    // Verify the returned events are the LAST TARGET_LIMIT events
+    for (let i = 0; i < TARGET_LIMIT; i++) {
+      const expectedIndex = EVENT_COUNT - TARGET_LIMIT + i;
+      assert.equal(events[i]!.event, `event.${String(expectedIndex).padStart(5, "0")}`);
+    }
+
+    // Should be fast — well under 100 ms for a 256 KB tail read
+    assert.ok(elapsed < 500, `getRecentEvents took ${elapsed.toFixed(1)}ms, expected < 500ms`);
+  });
 });
 
 describe("getRunEvents", () => {

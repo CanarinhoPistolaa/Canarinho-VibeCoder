@@ -121,6 +121,11 @@ export function emitEvent(evt: TamanduaEvent): void {
   });
 }
 
+// ── Tail-window reading constants ───────────────────────────────────
+
+const TAIL_CHUNK_SIZE = 256 * 1024; // 256 KB
+const MAX_TAIL_READ = 4 * 1024 * 1024; // 4 MB
+
 // ── Event Reading ────────────────────────────────────────────────────
 
 /**
@@ -135,9 +140,46 @@ export function readEventsFromCursor(source: EventCursorSource, offset = 0): Eve
   const eventsFile = getEventsFileForSource(source);
   const safeOffset = Math.max(0, Math.floor(offset));
 
-  let fileBuffer: Buffer;
+  let fd: number | undefined;
   try {
-    fileBuffer = fs.readFileSync(eventsFile);
+    fd = fs.openSync(eventsFile, "r");
+    const stat = fs.fstatSync(fd);
+    const fileSize = stat.size;
+
+    const effectiveOffset = safeOffset > fileSize ? 0 : safeOffset;
+    const readLength = fileSize - effectiveOffset;
+
+    if (readLength === 0) return { events: [], nextOffset: effectiveOffset };
+
+    const fileBuffer = Buffer.alloc(readLength);
+    fs.readSync(fd, fileBuffer, 0, readLength, effectiveOffset);
+
+    let cursor = 0;
+    const events: TamanduaEvent[] = [];
+
+    while (cursor < fileBuffer.length) {
+      const newlineIndex = fileBuffer.indexOf(0x0A, cursor);
+      if (newlineIndex === -1) break; // trailing partial line
+
+      const lineBuffer = fileBuffer.subarray(cursor, newlineIndex);
+      cursor = newlineIndex + 1;
+
+      if (lineBuffer.length === 0) continue;
+
+      const line = lineBuffer.toString("utf-8").replace(/\r$/, "");
+      if (!line) continue;
+
+      try {
+        const parsed = JSON.parse(line);
+        if (parsed && typeof parsed === "object") {
+          events.push(parsed as TamanduaEvent);
+        }
+      } catch {
+        // Ignore malformed JSONL rows so later valid events still stream.
+      }
+    }
+
+    return { events, nextOffset: effectiveOffset + cursor };
   } catch (err) {
     const code = (err as NodeJS.ErrnoException)?.code;
     if (code === "ENOENT") return { events: [], nextOffset: 0 };
@@ -148,58 +190,105 @@ export function readEventsFromCursor(source: EventCursorSource, offset = 0): Eve
       error: String(err),
     });
     return { events: [], nextOffset: safeOffset };
+  } finally {
+    if (fd !== undefined) fs.closeSync(fd);
   }
-
-  const startOffset = safeOffset > fileBuffer.length ? 0 : safeOffset;
-  let cursor = startOffset;
-  const events: TamanduaEvent[] = [];
-
-  while (cursor < fileBuffer.length) {
-    const newlineIndex = fileBuffer.indexOf(0x0A, cursor);
-    if (newlineIndex === -1) break; // trailing partial line
-
-    const lineBuffer = fileBuffer.subarray(cursor, newlineIndex);
-    cursor = newlineIndex + 1;
-
-    if (lineBuffer.length === 0) continue;
-
-    const line = lineBuffer.toString("utf-8").replace(/\r$/, "");
-    if (!line) continue;
-
-    try {
-      const parsed = JSON.parse(line);
-      if (parsed && typeof parsed === "object") {
-        events.push(parsed as TamanduaEvent);
-      }
-    } catch {
-      // Ignore malformed JSONL rows so later valid events still stream.
-    }
-  }
-
-  return { events, nextOffset: cursor };
 }
 
 /**
  * Read the most recent N events from the global events file.
+ *
+ * Uses fd-based tail-window reading instead of readFileSync so that
+ * reading the last ~40 events from a 92 MB file takes constant time.
+ * Reads chunks backward from EOF (256 KB at a time) up to a 4 MB cap,
+ * stopping early once enough complete JSONL records have been found.
  */
 export function getRecentEvents(limit = 50): TamanduaEvent[] {
   const globalFile = getGlobalEventsFile();
+  let fd: number | undefined;
   try {
-    const content = fs.readFileSync(globalFile, "utf-8");
-    const lines = content.trim().split("\n").filter(Boolean);
-    const recent = lines.slice(-limit);
-    return recent.map((line) => {
-      try {
-        return JSON.parse(line) as TamanduaEvent;
-      } catch {
-        return null;
+    fd = fs.openSync(globalFile, "r");
+    const stat = fs.fstatSync(fd);
+    const fileSize = stat.size;
+
+    if (fileSize === 0) return [];
+
+    let windowStart = fileSize;
+    let buffer = "";
+    let totalRead = 0;
+
+    // Read backwards in TAIL_CHUNK_SIZE chunks until we have at least
+    // `limit` valid JSONL events, we hit the file start, or we reach
+    // the MAX_TAIL_READ cap.
+    while (totalRead < MAX_TAIL_READ && windowStart > 0) {
+      const readSize = Math.min(TAIL_CHUNK_SIZE, windowStart);
+      windowStart -= readSize;
+
+      const buf = Buffer.alloc(readSize);
+      fs.readSync(fd, buf, 0, readSize, windowStart);
+      buffer = buf.toString("utf-8") + buffer;
+      totalRead += readSize;
+
+      // If the window starts after byte 0 the first line in `buffer`
+      // may be a partial line (we read starting mid-line).  Skip it.
+      let parseStart = 0;
+      if (windowStart > 0) {
+        const firstNewline = buffer.indexOf("\n");
+        if (firstNewline === -1) continue; // still no complete line
+        parseStart = firstNewline + 1;
       }
-    }).filter((e): e is TamanduaEvent => e !== null);
+
+      const parseable = buffer.slice(parseStart);
+      const lines = parseable.split("\n").filter((l) => l.length > 0);
+
+      let validCount = 0;
+      for (const line of lines) {
+        try {
+          const parsed = JSON.parse(line);
+          if (parsed && typeof parsed === "object") validCount++;
+        } catch {
+          // skip malformed lines
+        }
+      }
+
+      if (validCount >= limit) break;
+    }
+
+    // Final parse: skip initial partial line, extract valid events,
+    // and return the last `limit`.
+    let parseStart = 0;
+    if (windowStart > 0) {
+      const firstNewline = buffer.indexOf("\n");
+      if (firstNewline !== -1) parseStart = firstNewline + 1;
+    }
+
+    const eventLines = buffer.slice(parseStart).split("\n").filter((l) => l.length > 0);
+    const events: TamanduaEvent[] = [];
+    for (const line of eventLines) {
+      try {
+        const parsed = JSON.parse(line);
+        if (parsed && typeof parsed === "object") {
+          events.push(parsed as TamanduaEvent);
+        }
+      } catch {
+        // skip malformed lines
+      }
+    }
+
+    return events.slice(-limit);
   } catch (err) {
     const code = (err as NodeJS.ErrnoException)?.code;
     if (code === "ENOENT") return [];
     logger.warn("Failed to read global events", { error: String(err) });
     return [];
+  } finally {
+    if (fd !== undefined) {
+      try {
+        fs.closeSync(fd);
+      } catch {
+        // fd may already be closed
+      }
+    }
   }
 }
 
