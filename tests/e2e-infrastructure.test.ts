@@ -27,8 +27,9 @@ describe("e2e test infrastructure", () => {
   });
 
   it("npm test does not pick up files from e2e-tests/", () => {
-    // npm test runs `node --test tests/*.test.ts src/**/*.test.ts`
-    // Verify that e2e-tests/ files are not part of the glob
+    // PRLL: npm test delegates to scripts/run-all-lanes.sh which orchestrates
+    // serial + parallel lanes. e2e exclusion is enforced in run-parallel-tests.sh
+    // via find + filter, not via npm test globs.
     const pkg = JSON.parse(
       fs.readFileSync(path.join(repoRoot, "package.json"), "utf-8"),
     );
@@ -38,15 +39,31 @@ describe("e2e test infrastructure", () => {
       `npm test command should not include e2e-tests/, got: ${testCmd}`,
     );
 
-    // Also verify the command limits itself to tests/ and src/
-    assert.ok(
-      testCmd.includes("tests/*.test.ts"),
-      "npm test should include tests/*.test.ts",
+    // Verify the orchestrator itself does not reference e2e-tests
+    const allLanes = fs.readFileSync(
+      path.join(repoRoot, "scripts", "run-all-lanes.sh"),
+      "utf-8",
     );
     assert.ok(
-      testCmd.includes("src/**/*.test.ts"),
-      "npm test should include src/**/*.test.ts",
+      !allLanes.includes("e2e-tests"),
+      "run-all-lanes.sh should not reference e2e-tests",
     );
+
+    // Verify run-parallel-tests.sh excludes e2e-tests/ via find + filter
+    const parallelRunner = fs.readFileSync(
+      path.join(repoRoot, "scripts", "run-parallel-tests.sh"),
+      "utf-8",
+    );
+    assert.ok(
+      parallelRunner.includes("e2e-tests"),
+      "run-parallel-tests.sh should reference e2e-tests for exclusion",
+    );
+    assert.ok(
+      parallelRunner.includes("*/e2e-tests/*"),
+      "run-parallel-tests.sh should exclude files under e2e-tests/ directory",
+    );
+    // The serial lane reads from tests/serial-files.txt — e2e files are never
+    // listed there by the classification guard (tests/serial-files-integrity.test.ts).
   });
 
   it("e2e-tests/ is not compiled by tsconfig.json", () => {
