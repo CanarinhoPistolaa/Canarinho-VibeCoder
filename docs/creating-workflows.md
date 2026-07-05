@@ -285,6 +285,39 @@ npm run build && npm test
 
 The contract lint test (`tests/workflow-contract-lint.test.ts`) iterates every bundled workflow and verifies that no step consumes a key that is only mentioned (in Reply-with) but not enforced (in expects) by its upstream producer. The graph simulation (`tests/workflow-graph-simulation.test.ts`) synthesizes output for every `regex:^KEY:` pattern automatically — no hand-maintained candidate list required.
 
+### Verifier Diff Idiom — Merge-Base Comparison
+
+Verification steps MUST compare the branch against its **merge-base** with main — not against main's current tip. Use three-dot `git diff main...{{branch}}`, never two-dot `git diff main..{{branch}}`.
+
+**Why it matters:** Tamandua runs multiple workflows concurrently against the same repo. When a sibling run merges to main mid-flight, two-dot `main..{{branch}}` picks up the new main tip and makes every not-yet-merged branch appear to *remove* the sibling's changes — verifiers reject honest work as "unclaimed modifications" or "hard constraint violations." The verifier then burns its entire retry budget re-running against the same unchanged diff (deterministic failure) and reroutes to a fixer that doesn't know it needs to rebase.
+
+Three-dot `main...{{branch}}` compares against `merge-base(main, branch)` — Git's answer to "what did this branch change since it forked?" — which is immune to main moving during a run. Worktrees are cut from main's tip at launch, so the merge-base equals the `base_branch_sha` recorded in the run context, making the alignment exact.
+
+**Correct (three-dot — verifier usage):**
+
+```yaml
+# In verifier step template or persona AGENTS.md:
+git diff main...{{branch}}              # diff against merge-base
+git diff --name-only main...{{branch}}  # sensitive-file scan
+```
+
+**Wrong (two-dot — DO NOT USE in verifiers):**
+
+```yaml
+git diff main..{{branch}}    # diffs against main's CURRENT tip — base-skew trap
+```
+
+**Exception — mergers and PR steps:** two-dot `{{original_branch}}..{{branch}}` is **correct** for merger/pr agents preparing an actual rebase or merge onto current main. These steps *intentionally* compare against the current tip to detect real merge conflicts. The merger persona's `git log` and `git diff --stat` idioms using two-dot must stay as-is.
+
+**Linter enforcement:** a contract lint rule (`tests/workflow-contract-lint.test.ts`) scans every bundled workflow's verifier step templates and persona files for two-dot diff patterns against a base ref and fails the build if any are detected. Merger/pr agents are exempt. This rule is the regression net — the catalog must pass it to ship. The detection helper `hasTwoDotBaseComparison()` lives in `src/installer/workflow-contract.ts` alongside the existing key-enforcement and STATUS-variant helpers.
+
+**Testing your contract:** after adding a verifier step with the three-dot idiom, run:
+
+```bash
+npm run build && npm test
+./run-all-e2e-tests          # scripted agents must satisfy all regex expects
+```
+
 ## Roles
 
 | Role | Capabilities | Use For | Default timeout |
