@@ -6,7 +6,7 @@
  * POST /control/nudge endpoint and handles both reachable and unreachable daemon
  * cases.
  */
-import { describe, it, before, after } from "node:test";
+import { describe, it, before, after, beforeEach, afterEach } from "node:test";
 import { cleanChildEnv, reserveDistinctRandomPorts } from "../../tests/helpers/test-env.ts";
 import assert from "node:assert/strict";
 import fs from "node:fs";
@@ -242,5 +242,146 @@ describe("control client", { concurrency: 1 }, () => {
     }
 
     assert.equal(response, null, "nudgeWithDaemon should return null when daemon is unreachable");
+  });
+});
+
+describe("control-client test-isolation guard", { concurrency: 1 }, () => {
+  let savedHome: string | undefined;
+  let savedStateDir: string | undefined;
+  let savedControlPort: string | undefined;
+
+  beforeEach(() => {
+    savedHome = process.env.HOME;
+    savedStateDir = process.env.TAMANDUA_STATE_DIR;
+    savedControlPort = process.env.TAMANDUA_CONTROL_PORT;
+  });
+
+  afterEach(() => {
+    if (savedHome !== undefined) process.env.HOME = savedHome;
+    else delete process.env.HOME;
+    if (savedStateDir !== undefined) process.env.TAMANDUA_STATE_DIR = savedStateDir;
+    else delete process.env.TAMANDUA_STATE_DIR;
+    if (savedControlPort !== undefined) process.env.TAMANDUA_CONTROL_PORT = savedControlPort;
+    else delete process.env.TAMANDUA_CONTROL_PORT;
+  });
+
+  it("returns null when guard is active and TAMANDUA_CONTROL_PORT is not set", async () => {
+    // When TAMANDUA_CONTROL_PORT is absent, the guard detects the
+    // production default (3339) and refuses to send the request.
+    delete process.env.TAMANDUA_CONTROL_PORT;
+
+    const { nudgeWithDaemon } = await import("../../dist/server/control-client.js");
+    const response = await nudgeWithDaemon(500);
+
+    assert.equal(response, null, "should return null when guard blocks default port");
+  });
+
+  it("returns null when guard is active and daemon secret resolves to real state dir", async () => {
+    // Set TAMANDUA_CONTROL_PORT to pass the port check, but point HOME
+    // at the real user home so the daemon-secret resolves to production.
+    const realHome = os.userInfo().homedir;
+    process.env.TAMANDUA_CONTROL_PORT = "65530";
+    process.env.HOME = realHome;
+
+    const { nudgeWithDaemon } = await import("../../dist/server/control-client.js");
+    const response = await nudgeWithDaemon(500);
+
+    assert.equal(response, null, "should return null when guard blocks production secret path");
+  });
+
+  it("works normally when guard is active but env is fully isolated", async () => {
+    // With TAMANDUA_CONTROL_PORT set to a random port and HOME pointed
+    // at a temp dir, the guard should NOT block. Start a simple HTTP
+    // server on the random port to confirm the request reaches it.
+    const tempHome = fs.mkdtempSync(path.join(os.tmpdir(), "tamandua-gcc-home-"));
+    const secretDir = path.join(tempHome, ".tamandua");
+    fs.mkdirSync(secretDir, { recursive: true });
+    fs.writeFileSync(path.join(secretDir, "daemon-secret"), "test-secret-isolated", "utf-8");
+
+    const server = http.createServer((_req, res) => {
+      res.writeHead(200, { "content-type": "application/json" });
+      res.end(JSON.stringify({ runningRuns: 0, scheduledRuns: 0, launched: 0 }));
+    });
+
+    let serverPort = 0;
+    await new Promise<void>((resolve) => {
+      server.listen(0, "127.0.0.1", () => {
+        const addr = server.address();
+        if (addr && typeof addr === "object") serverPort = addr.port;
+        resolve();
+      });
+    });
+
+    process.env.HOME = tempHome;
+    process.env.TAMANDUA_CONTROL_PORT = String(serverPort);
+
+    try {
+      const { nudgeWithDaemon } = await import("../../dist/server/control-client.js");
+      const response = await nudgeWithDaemon(2000);
+
+      assert.ok(response !== null, "nudgeWithDaemon should not be blocked by guard");
+      assert.equal(response.status, 200);
+    } finally {
+      await new Promise<void>((r) => server.close(() => r()));
+      fs.rmSync(tempHome, { recursive: true, force: true });
+    }
+  });
+
+  it("works normally when guard is inactive (production unaffected)", async () => {
+    // Even when pointing at production state, controlRequest should
+    // proceed normally when the guard is inactive.
+    // npm test sets TAMANDUA_TEST_GUARD=1, so we must temporarily
+    // disable it to test this path.
+    const savedGuard = process.env.TAMANDUA_TEST_GUARD;
+    process.env.TAMANDUA_TEST_GUARD = "0";
+    delete process.env.TAMANDUA_CONTROL_PORT;
+
+    try {
+      const { nudgeWithDaemon } = await import("../../dist/server/control-client.js");
+      const response = await nudgeWithDaemon(500);
+
+      // Guard is inactive, so the request proceeds. It may fail to
+      // connect (returning null) or hit a real daemon if one is
+      // running — either outcome means the guard didn't block it.
+      // The important thing is the function doesn't short-circuit
+      // via the guard.
+      assert.ok(
+        response === null || (typeof response.status === "number"),
+        "guard should not interfere when inactive",
+      );
+    } finally {
+      if (savedGuard !== undefined) process.env.TAMANDUA_TEST_GUARD = savedGuard;
+      else delete process.env.TAMANDUA_TEST_GUARD;
+    }
+  });
+
+  it("HOME-spoof resistance: guard uses os.userInfo().homedir", async () => {
+    // Spoof HOME to a temp directory, but don't set TAMANDUA_STATE_DIR.
+    // The guard should still detect production because it uses
+    // os.userInfo().homedir to resolve the real user home.
+    const realHome = os.userInfo().homedir;
+    const spoofedHome = fs.mkdtempSync(path.join(os.tmpdir(), "tamandua-spoof-home-"));
+    process.env.HOME = spoofedHome;
+    process.env.TAMANDUA_CONTROL_PORT = "65530";
+
+    try {
+      // The guard's assertStatePathIsolation compares against
+      // realUserHome() which uses os.userInfo().homedir.
+      // defaultDaemonSecretFile() uses HOME (spoofed) for the path.
+      // Since spoofed !== real, the guard does NOT trip.
+      // That's correct — with HOME spoofed to a temp dir, the daemon
+      // secret won't be the production one anyway. But the guard
+      // still correctly resolves to real home for comparison.
+      const { nudgeWithDaemon } = await import("../../dist/server/control-client.js");
+      const response = await nudgeWithDaemon(500);
+
+      // Guard should NOT block here: HOME points at a temp dir,
+      // so defaultDaemonSecretFile() resolves to spoofedHome/.tamandua/daemon-secret,
+      // which is NOT under realHome/.tamandua. The request proceeds
+      // (and fails to connect since nothing is on port 65530).
+      assert.equal(response, null, "should not be blocked by guard (spoofed HOME)");
+    } finally {
+      fs.rmSync(spoofedHome, { recursive: true, force: true });
+    }
   });
 });

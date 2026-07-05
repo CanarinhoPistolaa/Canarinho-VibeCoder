@@ -25,7 +25,7 @@ import os from "node:os";
 import crypto from "node:crypto";
 import { logger } from "../lib/logger.js";
 import { getBuildVersion } from "../lib/version.js";
-import { assertPortIsolation } from "../lib/test-guard.js";
+import { assertPortIsolation, assertStatePathIsolation, testGuardActive } from "../lib/test-guard.js";
 import { getDb } from "../db.js";
 import { emitEvent } from "../installer/events.js";
 import { validateRunHarnessForScheduling } from "../installer/run-harness.js";
@@ -59,6 +59,9 @@ export function getMaxActiveTimers(): number {
 
 /** Race-safe secret creation. The first process to create the file wins. */
 export function ensureDaemonSecret(secretPath: string = defaultDaemonSecretFile()): string {
+  if (testGuardActive()) {
+    assertStatePathIsolation(secretPath, "ensureDaemonSecret()");
+  }
   const dir = path.dirname(secretPath);
   fs.mkdirSync(dir, { recursive: true });
   try {
@@ -90,6 +93,13 @@ export function ensureDaemonSecret(secretPath: string = defaultDaemonSecretFile(
 }
 
 export function readDaemonSecret(secretPath: string = defaultDaemonSecretFile()): string | null {
+  if (testGuardActive()) {
+    try {
+      assertStatePathIsolation(secretPath, "readDaemonSecret()");
+    } catch {
+      return null;
+    }
+  }
   try {
     const value = fs.readFileSync(secretPath, "utf-8").trim();
     return value.length > 0 ? value : null;

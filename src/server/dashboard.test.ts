@@ -9,6 +9,7 @@ import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { createDashboardServer, invalidateRunsCache } from "../../dist/server/dashboard.js";
 import { type TamanduaEvent } from "../../dist/installer/events.js";
+import { assertStatePathIsolation } from "../../dist/lib/test-guard.js";
 import { DEFAULT_MCP_PORT } from "../../dist/server/mcp-server.js";
 import { getDb, incrementSystemTokenSpend, getSystemTokenSpend } from "../../dist/db.js";
 

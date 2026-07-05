@@ -8,6 +8,7 @@ import http from "node:http";
 import { DatabaseSync } from "node:sqlite";
 
 import type { TamanduaEvent } from "../../dist/installer/events.js";
+import { assertStatePathIsolation } from "../../dist/lib/test-guard.js";
 import {
   buildKanbanSnapshot,
   buildKanbanCardDetail,

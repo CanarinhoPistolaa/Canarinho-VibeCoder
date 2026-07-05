@@ -3,6 +3,7 @@ import path from "node:path";
 import os from "node:os";
 import { resolvePiStateDir } from "./paths.js";
 import { logger } from "../lib/logger.js";
+import { assertStatePathIsolation } from "../lib/test-guard.js";
 
 // ── Types ────────────────────────────────────────────────────────────
 
@@ -67,6 +68,8 @@ function isEnvFlagEnabled(value: string | undefined): boolean {
   return v !== undefined && v !== "" && v !== "0" && v !== "false";
 }
 
+let isolationViolationReported = false;
+
 /**
  * Emit a Tamandua event.
  *
@@ -83,6 +86,24 @@ export function emitEvent(evt: TamanduaEvent): void {
     return;
   }
   const line = JSON.stringify(evt) + "\n";
+
+  // Test-isolation guard: refuse to write events into the real production
+  // state dir. Guarded test processes must never pollute production event
+  // files. Follow the logger.ts pattern: catch the guard error, drop the
+  // event silently, report once to stderr, and do NOT throw — event emission
+  // must never crash execution (late timers fire after test env is restored).
+  try {
+    assertStatePathIsolation(getEventsFile(evt.runId), "emitEvent(run)");
+    assertStatePathIsolation(getGlobalEventsFile(), "emitEvent(global)");
+  } catch (err) {
+    if (!isolationViolationReported) {
+      isolationViolationReported = true;
+      process.stderr.write(
+        `[events] ${String(err instanceof Error ? err.message : err)} — event dropped (reported once)\n`,
+      );
+    }
+    return;
+  }
 
   // Ensure events directory exists
   const eventsDir = getEventsDir();

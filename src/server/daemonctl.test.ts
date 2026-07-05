@@ -458,13 +458,18 @@ describe("daemonctl MCP lifecycle", { concurrency: 1 }, () => {
 
   // Verify file path helper exports — these return real HOME paths (path-string-only assertions)
   it("getMcpPidFile() and getMcpPortFile() return paths within .tamandua", () => {
-    const pidFile = getMcpPidFile();
-    const portFile = getMcpPortFile();
+    process.env.TAMANDUA_TEST_GUARD = "0";
+    try {
+      const pidFile = getMcpPidFile();
+      const portFile = getMcpPortFile();
 
-    assert.ok(pidFile.includes(".tamandua"));
-    assert.ok(pidFile.includes("mcp.pid"));
-    assert.ok(portFile.includes(".tamandua"));
-    assert.ok(portFile.includes("mcp-port"));
+      assert.ok(pidFile.includes(".tamandua"));
+      assert.ok(pidFile.includes("mcp.pid"));
+      assert.ok(portFile.includes(".tamandua"));
+      assert.ok(portFile.includes("mcp-port"));
+    } finally {
+      delete process.env.TAMANDUA_TEST_GUARD;
+    }
   });
 });
 
@@ -492,13 +497,23 @@ describe("daemonctl control plane file paths", () => {
   });
 
   it("getControlPlanePidFile() returns CONTROL_PLANE_PID_FILE", async () => {
-    const { getControlPlanePidFile, CONTROL_PLANE_PID_FILE } = await import("../../dist/server/daemonctl.js");
-    assert.equal(getControlPlanePidFile(), CONTROL_PLANE_PID_FILE);
+    process.env.TAMANDUA_TEST_GUARD = "0";
+    try {
+      const { getControlPlanePidFile, CONTROL_PLANE_PID_FILE } = await import("../../dist/server/daemonctl.js");
+      assert.equal(getControlPlanePidFile(), CONTROL_PLANE_PID_FILE);
+    } finally {
+      delete process.env.TAMANDUA_TEST_GUARD;
+    }
   });
 
   it("getControlPlanePortFile() returns CONTROL_PLANE_PORT_FILE", async () => {
-    const { getControlPlanePortFile, CONTROL_PLANE_PORT_FILE } = await import("../../dist/server/daemonctl.js");
-    assert.equal(getControlPlanePortFile(), CONTROL_PLANE_PORT_FILE);
+    process.env.TAMANDUA_TEST_GUARD = "0";
+    try {
+      const { getControlPlanePortFile, CONTROL_PLANE_PORT_FILE } = await import("../../dist/server/daemonctl.js");
+      assert.equal(getControlPlanePortFile(), CONTROL_PLANE_PORT_FILE);
+    } finally {
+      delete process.env.TAMANDUA_TEST_GUARD;
+    }
   });
 
   it("getControlPlaneLogFile() returns CONTROL_PLANE_LOG_FILE", async () => {

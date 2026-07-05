@@ -170,6 +170,107 @@ describe("events", () => {
         else process.env.TAMANDUA_DEBUG_EVENTS = prev;
       }
     });
+
+    describe("test-guard", () => {
+      it("does not fire when TAMANDUA_STATE_DIR isolates into a temp dir (guard active, path isolated)", () => {
+        // The beforeEach already sets TAMANDUA_STATE_DIR to a temp dir.
+        // Set TAMANDUA_TEST_GUARD=1 to activate the guard — it should NOT drop
+        // the event because the resolved events paths are under the temp dir.
+        const prevGuard = process.env.TAMANDUA_TEST_GUARD;
+        process.env.TAMANDUA_TEST_GUARD = "1";
+        try {
+          assert.doesNotThrow(() => {
+            emitEvent(makeEvent("run-isolated", "run.started"));
+          }, "guard must not fire when TAMANDUA_STATE_DIR isolates the events path");
+
+          const globalFile = path.join(stateDir, "events", "all.jsonl");
+          assert.ok(fs.existsSync(globalFile), "event should be written when isolated");
+
+          const content = fs.readFileSync(globalFile, "utf-8");
+          assert.ok(content.includes("run-isolated"), "event content should be written");
+        } finally {
+          process.env.TAMANDUA_TEST_GUARD = prevGuard;
+        }
+      });
+
+      it("drops events without throwing when guard is active and path resolves into real state dir", () => {
+        // Simulate a test process that forgot to set TAMANDUA_STATE_DIR and
+        // os.homedir() returns the real user home → events paths are real
+        // ~/.tamandua/events/. The guard must PROTECT production (no write) but
+        // must NOT throw: production timers fire after tests restore env, and a
+        // throwing emitEvent would turn late writes into unhandled rejections.
+        const prevGuard = process.env.TAMANDUA_TEST_GUARD;
+        // Save and restore the module-scoped isolationViolationReported at the
+        // dist boundary. Since we import from dist, reloading the module per test
+        // is tricky. Instead, test that multiple calls don't throw and that no
+        // events file is created in the real state dir (the guard blocks
+        // mkdirSync).
+        try {
+          process.env.TAMANDUA_TEST_GUARD = "1";
+          // Point TAMANDUA_STATE_DIR into the real state dir to trigger the guard.
+          const realStateRoot = path.join(os.userInfo().homedir, ".tamandua");
+          const leakedDir = path.join(realStateRoot, "should-not-be-created-by-test");
+          process.env.TAMANDUA_STATE_DIR = leakedDir;
+
+          // Clear any state files that might exist from previous runs.
+          try { fs.rmSync(leakedDir, { recursive: true, force: true }); } catch {}
+
+          assert.doesNotThrow(
+            () => {
+              emitEvent(makeEvent("zombie-run-001", "run.started"));
+              emitEvent(makeEvent("run-delete-done", "run.started"));
+              emitEvent(makeEvent("test-workflow", "run.started"));
+            },
+            "guard must not throw from emitEvent — it drops events instead",
+          );
+          // The blocked writes must not have created the leaked events directory.
+          const eventsDir = path.join(leakedDir, "events");
+          assert.ok(
+            !fs.existsSync(eventsDir),
+            "guard must prevent writing events into the real state dir",
+          );
+        } finally {
+          process.env.TAMANDUA_TEST_GUARD = prevGuard;
+          // Restore the isolated stateDir for subsequent tests.
+          process.env.TAMANDUA_STATE_DIR = stateDir;
+        }
+      });
+
+      it("HOME-spoof resistance: guard uses os.userInfo().homedir, not os.homedir()", () => {
+        // Set HOME to a temp dir (spoof) but TAMANDUA_STATE_DIR to the real state dir.
+        // The guard must still detect the violation (via os.userInfo().homedir) and
+        // silently drop the event.
+        const prevGuard = process.env.TAMANDUA_TEST_GUARD;
+        const prevHome = process.env.HOME;
+        try {
+          process.env.TAMANDUA_TEST_GUARD = "1";
+          process.env.HOME = path.join(os.tmpdir(), "spoofed-home-" + Date.now());
+          const realStateRoot = path.join(os.userInfo().homedir, ".tamandua");
+          const spoofDir = path.join(realStateRoot, "spoofed-leak-events");
+          process.env.TAMANDUA_STATE_DIR = spoofDir;
+
+          try { fs.rmSync(spoofDir, { recursive: true, force: true }); } catch {}
+
+          assert.doesNotThrow(
+            () => emitEvent(makeEvent("spoofed-run", "run.started")),
+            "guard must use os.userInfo().homedir and drop the event without throwing",
+          );
+          assert.ok(
+            !fs.existsSync(path.join(spoofDir, "events")),
+            "guard must prevent the write even with spoofed HOME",
+          );
+        } finally {
+          process.env.TAMANDUA_TEST_GUARD = prevGuard;
+          if (prevHome === undefined) {
+            delete process.env.HOME;
+          } else {
+            process.env.HOME = prevHome;
+          }
+          process.env.TAMANDUA_STATE_DIR = stateDir;
+        }
+      });
+
+    });
   });
 
   describe("getRecentEvents", () => {

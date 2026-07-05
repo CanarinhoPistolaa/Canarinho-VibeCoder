@@ -127,4 +127,99 @@ describe("test isolation guard", () => {
 
     assert.deepEqual(violations, []);
   });
+
+  it("src test files that import from events.ts must also import guard coverage", () => {
+    // US-001 added assertStatePathIsolation to emitEvent() in events.ts.
+    // This static check ensures every src/ test file that imports from events.ts
+    // also imports assertStatePathIsolation or testGuardActive from test-guard.js,
+    // demonstrating awareness of the isolation guard.
+    const srcFiles = collectTestFiles(path.join(process.cwd(), "src"));
+
+    const hasEventsImport = /from\s+["'].*\/installer\/events\.js["']/;
+    const hasGuardImport =
+      /\bassertStatePathIsolation\b.*from\s+["'].*\/lib\/test-guard\.js["']/;
+    const hasGuardActiveImport =
+      /\btestGuardActive\b.*from\s+["'].*\/lib\/test-guard\.js["']/;
+    const isEventsModule = /\/installer\/events\.test\.ts$/;
+
+    const violations: string[] = [];
+    for (const file of srcFiles) {
+      const relative = path.relative(process.cwd(), file);
+      if (isEventsModule.test(relative)) continue;
+
+      const content = fs.readFileSync(file, "utf-8");
+      if (!hasEventsImport.test(content)) continue;
+
+      if (!hasGuardImport.test(content) && !hasGuardActiveImport.test(content)) {
+        violations.push(
+          `${relative}: imports from events.ts without importing assertStatePathIsolation or testGuardActive from test-guard.js`,
+        );
+      }
+    }
+
+    assert.deepEqual(violations, []);
+  });
+
+  it("src test files that import from control-client.ts must also import guard coverage", () => {
+    // US-002 added testGuardActive + assertStatePathIsolation to controlRequest()
+    // in control-client.ts. This static check ensures every src/ test file that
+    // imports from control-client.ts also imports the guard.
+    const srcFiles = collectTestFiles(path.join(process.cwd(), "src"));
+
+    const hasControlClientImport = /from\s+["'].*\/server\/control-client\.js["']/;
+    const hasGuardImport =
+      /\bassertStatePathIsolation\b.*from\s+["'].*\/lib\/test-guard\.js["']/;
+    const hasGuardActiveImport =
+      /\btestGuardActive\b.*from\s+["'].*\/lib\/test-guard\.js["']/;
+    const isControlClientModule = /\/server\/control-client\.test\.ts$/;
+
+    const violations: string[] = [];
+    for (const file of srcFiles) {
+      const relative = path.relative(process.cwd(), file);
+      if (isControlClientModule.test(relative)) continue;
+
+      const content = fs.readFileSync(file, "utf-8");
+      if (!hasControlClientImport.test(content)) continue;
+
+      if (!hasGuardImport.test(content) && !hasGuardActiveImport.test(content)) {
+        violations.push(
+          `${relative}: imports from control-client.ts without importing assertStatePathIsolation or testGuardActive from test-guard.js`,
+        );
+      }
+    }
+
+    assert.deepEqual(violations, []);
+  });
+
+  it("daemonctl.ts must import guard coverage", () => {
+    // US-003 added assertStatePathIsolation to daemonctl.ts path resolution,
+    // port read/write, and lifecycle functions. This self-check verifies the
+    // module itself imports the guard.
+    const daemonctlPath = path.join(process.cwd(), "src", "server", "daemonctl.ts");
+    const content = fs.readFileSync(daemonctlPath, "utf-8");
+    const hasGuardImport =
+      /\b(?:assertStatePathIsolation|testGuardActive)\b.*from\s+["'].*\/lib\/test-guard\.js["']/;
+    assert.ok(
+      hasGuardImport.test(content),
+      "daemonctl.ts must import assertStatePathIsolation or testGuardActive from test-guard.js",
+    );
+  });
+
+  it("control-server.ts must import guard coverage when using secret functions", () => {
+    // US-004 added guards to readDaemonSecret() and ensureDaemonSecret() in
+    // control-server.ts. This self-check verifies the module imports the guard
+    // if it uses those secret functions. The module also imports
+    // assertPortIsolation for the port binding guard.
+    const controlServerPath = path.join(process.cwd(), "src", "server", "control-server.ts");
+    const content = fs.readFileSync(controlServerPath, "utf-8");
+    const usesSecretFunctions = /\b(?:readDaemonSecret|ensureDaemonSecret)\b/.test(content);
+    if (usesSecretFunctions) {
+      const hasGuardImport =
+        /\b(?:assertStatePathIsolation|testGuardActive)\b.*from\s+["'].*\/lib\/test-guard\.js["']/;
+      assert.ok(
+        hasGuardImport.test(content),
+        "control-server.ts uses readDaemonSecret/ensureDaemonSecret but does not import assertStatePathIsolation or testGuardActive from test-guard.js",
+      );
+    }
+  });
 });

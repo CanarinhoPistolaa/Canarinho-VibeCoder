@@ -6,6 +6,7 @@ import {
   formatLogsTailLines,
 } from "../../dist/installer/logs-tail-format.js";
 import type { TamanduaEvent } from "../../dist/installer/events.js";
+import { assertStatePathIsolation } from "../../dist/lib/test-guard.js";
 
 function makeEvent(event: string, overrides: Partial<TamanduaEvent> = {}): TamanduaEvent {
   return {

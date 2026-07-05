@@ -1043,6 +1043,112 @@ describe("control-server unit exports", () => {
       assert.equal(readDaemonSecret(secretPath), null);
     });
   });
+
+  // ── US-004: Secret isolation guards ─────────────────────────────
+
+  describe("readDaemonSecret / ensureDaemonSecret isolation guards", () => {
+    let savedGuard: string | undefined;
+    let savedNodeTestContext: string | undefined;
+
+    beforeEach(() => {
+      savedGuard = process.env.TAMANDUA_TEST_GUARD;
+      savedNodeTestContext = process.env.NODE_TEST_CONTEXT;
+      process.env.TAMANDUA_TEST_GUARD = "1";
+    });
+
+    afterEach(() => {
+      if (savedGuard !== undefined) process.env.TAMANDUA_TEST_GUARD = savedGuard;
+      else delete process.env.TAMANDUA_TEST_GUARD;
+      if (savedNodeTestContext !== undefined) process.env.NODE_TEST_CONTEXT = savedNodeTestContext;
+      else delete process.env.NODE_TEST_CONTEXT;
+    });
+
+    it("readDaemonSecret returns null when guard is active and default path resolves to production", () => {
+      process.env.HOME = os.userInfo().homedir;
+      delete process.env.TAMANDUA_STATE_DIR;
+
+      const result = readDaemonSecret();
+      assert.equal(result, null,
+        "readDaemonSecret must return null instead of reading production daemon-secret");
+    });
+
+    it("readDaemonSecret works normally when explicit secretPath is provided (isolated dir)", () => {
+      const tempHome = fs.mkdtempSync(path.join(os.tmpdir(), "tamandua-secret-guard-"));
+      try {
+        process.env.HOME = os.userInfo().homedir; // guard would fire without explicit path
+        delete process.env.TAMANDUA_STATE_DIR;
+
+        const secretPath = path.join(tempHome, ".tamandua", "daemon-secret");
+        fs.mkdirSync(path.dirname(secretPath), { recursive: true });
+        const token = crypto.randomBytes(16).toString("hex");
+        fs.writeFileSync(secretPath, token, "utf-8");
+
+        const result = readDaemonSecret(secretPath);
+        assert.equal(result, token, "should read secret from isolated dir when explicit path is provided");
+      } finally {
+        fs.rmSync(tempHome, { recursive: true, force: true });
+      }
+    });
+
+    it("readDaemonSecret works normally when guard is inactive", () => {
+      process.env.TAMANDUA_TEST_GUARD = "0";
+      delete process.env.NODE_TEST_CONTEXT;
+      process.env.HOME = os.userInfo().homedir;
+      delete process.env.TAMANDUA_STATE_DIR;
+
+      // Guard inactive — should read (or not find) the real secret without throwing.
+      const result = readDaemonSecret();
+      assert.ok(result === null || typeof result === "string",
+        "should return null or a string when guard is inactive");
+    });
+
+    it("ensureDaemonSecret throws when guard is active and default path resolves to production", () => {
+      process.env.HOME = os.userInfo().homedir;
+      delete process.env.TAMANDUA_STATE_DIR;
+
+      assert.throws(
+        () => ensureDaemonSecret(),
+        /TEST ISOLATION VIOLATION/,
+        "ensureDaemonSecret must throw when default path resolves to production state dir",
+      );
+    });
+
+    it("ensureDaemonSecret works normally when explicit secretPath is provided (isolated dir)", () => {
+      const tempHome = fs.mkdtempSync(path.join(os.tmpdir(), "tamandua-secret-guard-"));
+      try {
+        process.env.HOME = os.userInfo().homedir;
+        delete process.env.TAMANDUA_STATE_DIR;
+
+        const secretPath = path.join(tempHome, ".tamandua", "daemon-secret");
+        const token = ensureDaemonSecret(secretPath);
+        assert.ok(token.length > 0, "should create secret in isolated dir when explicit path is provided");
+        assert.ok(fs.existsSync(secretPath), "secret file should exist");
+      } finally {
+        fs.rmSync(tempHome, { recursive: true, force: true });
+      }
+    });
+
+    it("ensureDaemonSecret works normally when guard is inactive", () => {
+      process.env.TAMANDUA_TEST_GUARD = "0";
+      delete process.env.NODE_TEST_CONTEXT;
+      process.env.HOME = os.userInfo().homedir;
+      delete process.env.TAMANDUA_STATE_DIR;
+
+      // Guard inactive — should create/read the real secret without throwing.
+      // We wrap this in a try because the production secret path might be
+      // unavailable or read-only in some test environments.
+      try {
+        const token = ensureDaemonSecret();
+        assert.ok(token.length > 0, "should return a token when guard is inactive");
+      } catch (err) {
+        // Permission errors reading/writing the real secret are acceptable
+        // when guard is inactive — the important thing is it wasn't the guard.
+        if (err instanceof Error && err.message.includes("TEST ISOLATION VIOLATION")) {
+          assert.fail("guard should not fire when inactive");
+        }
+      }
+    });
+  });
 });
 
 // ══════════════════════════════════════════════════════════════════════

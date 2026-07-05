@@ -8,6 +8,7 @@ import { DatabaseSync } from "node:sqlite";
 import { sweepRunProcesses } from "../../dist/installer/run-cleanup.js";
 import type { RunCleanupResult } from "../../dist/installer/run-cleanup.js";
 import { readEventsFromCursor, emitEvent, type TamanduaEvent } from "../../dist/installer/events.js";
+import { assertStatePathIsolation } from "../../dist/lib/test-guard.js";
 
 // ── Helpers ──────────────────────────────────────────────────────────
 

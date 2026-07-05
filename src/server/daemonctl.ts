@@ -15,6 +15,7 @@ import { spawn, type ChildProcess } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { DEFAULT_MCP_PORT, MCP_ENDPOINT_PATH } from "./mcp-server.js";
 import { DEFAULT_CONTROL_PORT } from "./control-server.js";
+import { assertStatePathIsolation } from "../lib/test-guard.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -51,11 +52,19 @@ function getTamanduaDir(opts?: DaemonctlPathOptions): string {
 }
 
 export function getPidFile(opts?: DaemonctlPathOptions): string {
-  return path.join(getTamanduaDir(opts), "tamandua.pid");
+  const filePath = path.join(getTamanduaDir(opts), "tamandua.pid");
+  if (!opts?.homeDir) {
+    assertStatePathIsolation(filePath, "getPidFile()");
+  }
+  return filePath;
 }
 
 export function getPortFile(opts?: DaemonctlPathOptions): string {
-  return path.join(getTamanduaDir(opts), "port");
+  const filePath = path.join(getTamanduaDir(opts), "port");
+  if (!opts?.homeDir) {
+    assertStatePathIsolation(filePath, "getPortFile()");
+  }
+  return filePath;
 }
 
 export function getLogFile(opts?: DaemonctlPathOptions): string {
@@ -67,11 +76,19 @@ function getStartLockFile(opts?: DaemonctlPathOptions): string {
 }
 
 export function getMcpPidFile(opts?: DaemonctlPathOptions): string {
-  return path.join(getTamanduaDir(opts), "mcp.pid");
+  const filePath = path.join(getTamanduaDir(opts), "mcp.pid");
+  if (!opts?.homeDir) {
+    assertStatePathIsolation(filePath, "getMcpPidFile()");
+  }
+  return filePath;
 }
 
 export function getMcpPortFile(opts?: DaemonctlPathOptions): string {
-  return path.join(getTamanduaDir(opts), "mcp-port");
+  const filePath = path.join(getTamanduaDir(opts), "mcp-port");
+  if (!opts?.homeDir) {
+    assertStatePathIsolation(filePath, "getMcpPortFile()");
+  }
+  return filePath;
 }
 
 function getMcpLogFile(opts?: DaemonctlPathOptions): string {
@@ -79,11 +96,19 @@ function getMcpLogFile(opts?: DaemonctlPathOptions): string {
 }
 
 export function getControlPlanePidFile(opts?: DaemonctlPathOptions): string {
-  return path.join(getTamanduaDir(opts), "control-plane.pid");
+  const filePath = path.join(getTamanduaDir(opts), "control-plane.pid");
+  if (!opts?.homeDir) {
+    assertStatePathIsolation(filePath, "getControlPlanePidFile()");
+  }
+  return filePath;
 }
 
 export function getControlPlanePortFile(opts?: DaemonctlPathOptions): string {
-  return path.join(getTamanduaDir(opts), "control-plane-port");
+  const filePath = path.join(getTamanduaDir(opts), "control-plane-port");
+  if (!opts?.homeDir) {
+    assertStatePathIsolation(filePath, "getControlPlanePortFile()");
+  }
+  return filePath;
 }
 
 export function getControlPlaneLogFile(opts?: DaemonctlPathOptions): string {
@@ -104,6 +129,9 @@ export function readLogTail(logPath: string = getLogFile(), lines = STARTUP_ERRO
 // ── Port management ─────────────────────────────────────────────────
 
 export function readPort(opts?: DaemonctlPathOptions): number {
+  if (!opts?.homeDir) {
+    assertStatePathIsolation(getPortFile(opts), "readPort()");
+  }
   try {
     const raw = fs.readFileSync(getPortFile(opts), "utf-8").trim();
     const port = parseInt(raw, 10);
@@ -118,6 +146,9 @@ export function readPort(opts?: DaemonctlPathOptions): number {
 
 export function writePort(port: number, opts?: DaemonctlPathOptions): void {
   const tamanduaDir = getTamanduaDir(opts);
+  if (!opts?.homeDir) {
+    assertStatePathIsolation(tamanduaDir, "writePort()");
+  }
   fs.mkdirSync(tamanduaDir, { recursive: true });
   fs.writeFileSync(getPortFile(opts), String(port), "utf-8");
 }
@@ -260,6 +291,16 @@ async function waitForDaemonPid(
  * Uses PID file and kill(0) for existence check.
  */
 export function isRunning(opts?: DaemonctlPathOptions): { running: true; pid: number } | { running: false } {
+  if (!opts?.homeDir) {
+    try {
+      return checkPidFile(getPidFile(opts));
+    } catch (err) {
+      if (err instanceof Error && err.message.includes("TEST ISOLATION VIOLATION")) {
+        return { running: false };
+      }
+      throw err;
+    }
+  }
   return checkPidFile(getPidFile(opts));
 }
 
@@ -414,6 +455,9 @@ export async function startDaemon(port = 3334, opts?: StartOptions): Promise<{ p
  * Returns true if a daemon was stopped, false if none was running.
  */
 export function stopDaemon(opts?: DaemonctlPathOptions): boolean {
+  if (!opts?.homeDir) {
+    assertStatePathIsolation(getPidFile(opts), "stopDaemon()");
+  }
   const status = isRunning(opts);
   if (!status.running) return false;
   if (!canSignalPid(status.pid, opts)) return false;
@@ -487,6 +531,9 @@ function resolveStandaloneScript(): string {
  * Returns DEFAULT_MCP_PORT (3338) when no port file exists.
  */
 export function readMcpPort(opts?: DaemonctlPathOptions): number {
+  if (!opts?.homeDir) {
+    assertStatePathIsolation(getMcpPortFile(opts), "readMcpPort()");
+  }
   try {
     const raw = fs.readFileSync(getMcpPortFile(opts), "utf-8").trim();
     const port = parseInt(raw, 10);
@@ -504,6 +551,9 @@ export function readMcpPort(opts?: DaemonctlPathOptions): number {
  */
 export function writeMcpPort(port: number, opts?: DaemonctlPathOptions): void {
   const tamanduaDir = getTamanduaDir(opts);
+  if (!opts?.homeDir) {
+    assertStatePathIsolation(tamanduaDir, "writeMcpPort()");
+  }
   fs.mkdirSync(tamanduaDir, { recursive: true });
   fs.writeFileSync(getMcpPortFile(opts), String(port), "utf-8");
 }
@@ -513,6 +563,16 @@ export function writeMcpPort(port: number, opts?: DaemonctlPathOptions): void {
  * Uses the MCP PID file and kill(0) for existence check.
  */
 export function isMcpRunning(opts?: DaemonctlPathOptions): { running: true; pid: number } | { running: false } {
+  if (!opts?.homeDir) {
+    try {
+      return checkPidFile(getMcpPidFile(opts));
+    } catch (err) {
+      if (err instanceof Error && err.message.includes("TEST ISOLATION VIOLATION")) {
+        return { running: false };
+      }
+      throw err;
+    }
+  }
   return checkPidFile(getMcpPidFile(opts));
 }
 
@@ -648,6 +708,9 @@ export async function restartMcp(port?: number, opts?: StartOptions): Promise<{ 
  * Returns true if an MCP server was stopped, false if none was running.
  */
 export function stopMcp(opts?: DaemonctlPathOptions): boolean {
+  if (!opts?.homeDir) {
+    assertStatePathIsolation(getMcpPidFile(opts), "stopMcp()");
+  }
   const status = isMcpRunning(opts);
   if (!status.running) return false;
   if (!canSignalPid(status.pid, opts)) return false;
@@ -796,6 +859,9 @@ async function detectExistingControlPlane(
  * Returns DEFAULT_CONTROL_PORT (3339) when no port file exists.
  */
 export function readControlPlanePort(opts?: DaemonctlPathOptions): number {
+  if (!opts?.homeDir) {
+    assertStatePathIsolation(getControlPlanePortFile(opts), "readControlPlanePort()");
+  }
   try {
     const raw = fs.readFileSync(getControlPlanePortFile(opts), "utf-8").trim();
     const port = parseInt(raw, 10);
@@ -813,6 +879,9 @@ export function readControlPlanePort(opts?: DaemonctlPathOptions): number {
  */
 export function writeControlPlanePort(port: number, opts?: DaemonctlPathOptions): void {
   const tamanduaDir = getTamanduaDir(opts);
+  if (!opts?.homeDir) {
+    assertStatePathIsolation(tamanduaDir, "writeControlPlanePort()");
+  }
   fs.mkdirSync(tamanduaDir, { recursive: true });
   fs.writeFileSync(getControlPlanePortFile(opts), String(port), "utf-8");
 }
@@ -822,6 +891,16 @@ export function writeControlPlanePort(port: number, opts?: DaemonctlPathOptions)
  * Uses the control plane PID file and kill(0) for existence check.
  */
 export function isControlPlaneRunning(opts?: DaemonctlPathOptions): { running: true; pid: number } | { running: false } {
+  if (!opts?.homeDir) {
+    try {
+      return checkPidFile(getControlPlanePidFile(opts));
+    } catch (err) {
+      if (err instanceof Error && err.message.includes("TEST ISOLATION VIOLATION")) {
+        return { running: false };
+      }
+      throw err;
+    }
+  }
   return checkPidFile(getControlPlanePidFile(opts));
 }
 
@@ -940,6 +1019,9 @@ export async function startControlPlane(port?: number, opts?: StartOptions): Pro
  * Returns true if a control plane was stopped, false if none was running.
  */
 export function stopControlPlane(opts?: DaemonctlPathOptions): boolean {
+  if (!opts?.homeDir) {
+    assertStatePathIsolation(getControlPlanePidFile(opts), "stopControlPlane()");
+  }
   const status = isControlPlaneRunning(opts);
   if (!status.running) return false;
   if (!canSignalPid(status.pid, opts)) return false;

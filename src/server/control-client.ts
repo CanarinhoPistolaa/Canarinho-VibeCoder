@@ -9,6 +9,9 @@
  * paths keep working. Production deployments should always run the daemon.
  */
 import http from "node:http";
+import os from "node:os";
+import pathModule from "node:path";
+import { testGuardActive, assertStatePathIsolation } from "../lib/test-guard.js";
 import { getControlPort, readDaemonSecret } from "./control-server.js";
 import { readPort, startDaemon } from "./daemonctl.js";
 
@@ -25,6 +28,27 @@ async function controlRequest(
   body?: Record<string, unknown>,
   timeoutMs: number = DEFAULT_TIMEOUT_MS,
 ): Promise<ControlPlaneResponse | null> {
+  // Test-isolation guard: refuse to send requests to the production
+  // control plane when the test guard is active. The production port
+  // (3339) is indicated by the absence of TAMANDUA_CONTROL_PORT.
+  // The production daemon secret is detected by resolving
+  // ~/.tamandua/daemon-secret against the real user home.
+  if (testGuardActive()) {
+    if (!process.env.TAMANDUA_CONTROL_PORT) {
+      return null;
+    }
+    const defaultSecretPath = pathModule.join(
+      (process.env.HOME?.trim() || os.homedir()),
+      ".tamandua",
+      "daemon-secret",
+    );
+    try {
+      assertStatePathIsolation(defaultSecretPath, "controlRequest(secret)");
+    } catch {
+      return null;
+    }
+  }
+
   const port = getControlPort();
   const secret = readDaemonSecret();
   const payload = body ? JSON.stringify(body) : "";
