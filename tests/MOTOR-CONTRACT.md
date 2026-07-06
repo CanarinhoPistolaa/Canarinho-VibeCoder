@@ -51,6 +51,15 @@ token overhead on real runs (see the historical baselines at the bottom).
 - **C4** `KEY: value` lines in step output are captured into run context and
   resolve `{{placeholders}}` in later step inputs (e.g. `{{branch}}`,
   `{{original_branch}}` seeding for worktrees).
+- **C21 (VBUD — story-scoped verify budget)** Each story in a `verify_each`
+  loop receives a fresh verify-step retry budget: `handleVerifyEachCompletion`
+  (`src/installer/step-ops.ts`) resets the shared verify step's `retry_count`
+  to `0` on every completion — both the done and retry paths. This prevents
+  infrastructure failures on one story (daemon restart, expects flap, verifier
+  timeout) from burning verify retry quota that later stories never earned.
+  Story-level `retry_count` continues to track per-story judgment budget
+  independently — only the shared step's counter is scoped. Pinned by
+  `tests/step-ops.test.ts` (VBUD tests).
 
 ### Dispatch
 
@@ -273,6 +282,18 @@ baseline assertions.
   as a thrown error (which would crash the completing CLI and leave the
   step to the blind abandon sweep). Pinned by
   `tests/stories-json-validation.test.ts`.
+- **C22 (WLST — worker-loss story retry decoupling)** Worker-loss/timeout
+  recoveries for stories use a separate `abandoned_count` budget
+  (`ABANDON_STORY_MAX = 8` in `src/installer/step-ops.ts`), not
+  `retry_count`. Both `recoverOrphanedStepsForAgent` (orphan sweep) and
+  `cleanupAbandonedSteps` (stale-claim sweeper) increment
+  `stories.abandoned_count` instead of `stories.retry_count` for
+  loop-step story-level recoveries. Honest-verdict rejections
+  (`STATUS: retry` in `handleVerifyEachCompletion`) and agent-initiated
+  `step fail` calls continue to use `retry_count` — infrastructure failures
+  and judgment budget are fully decoupled. Pinned by
+  `tests/dead-worker-recovery.test.ts` (WLST story-level tests) and
+  `tests/step-ops.test.ts` (WLST orphan-recovery exhaustion test).
 
 ### Control plane & scheduling lifecycle
 
