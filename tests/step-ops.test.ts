@@ -4050,3 +4050,338 @@ describe("handleVerifyEachCompletion — US-001 VRST investigation (2026-07-05 i
     assert.ok(true, "Non-reproduction documented — basic path is correct");
   });
 });
+
+describe("handleVerifyEachCompletion — US-002 VBUD (story-scoped verify retry budget)", () => {
+  const _savedStateDir = process.env.TAMANDUA_STATE_DIR;
+  const _savedDbPath = process.env.TAMANDUA_DB_PATH;
+  let _testIsolationDir: string;
+
+  before(() => {
+    _testIsolationDir = fs.mkdtempSync(path.join(os.tmpdir(), "tamandua-vbud-test-"));
+    process.env.TAMANDUA_STATE_DIR = _testIsolationDir;
+    process.env.TAMANDUA_DB_PATH = path.join(_testIsolationDir, "tamandua.db");
+  });
+
+  after(() => {
+    if (_savedStateDir === undefined) delete process.env.TAMANDUA_STATE_DIR;
+    else process.env.TAMANDUA_STATE_DIR = _savedStateDir;
+    if (_savedDbPath === undefined) delete process.env.TAMANDUA_DB_PATH;
+    else process.env.TAMANDUA_DB_PATH = _savedDbPath;
+    try { fs.rmSync(_testIsolationDir, { recursive: true, force: true }); } catch { /* best effort */ }
+  });
+
+  function ts(): string {
+    return new Date().toISOString();
+  }
+
+  const VERIFY_EACH_EXPECTS = "regex:^STATUS:\\s*(done|retry)\\s*$";
+
+  // ── VBUD scenario: verify step retry_count accumulates across stories ──
+  //
+  // In the bug (observed in run 52685d72): US-005 burned verify retries through
+  // pure infrastructure (daemon-restart worker kill, expects flap, verifier timeout).
+  // The verify step's retry_count climbed to 3. When US-005 was finally verified,
+  // the verify step was set to 'waiting' but retry_count was NOT reset to 0 — it
+  // stayed at 3. Every later story (US-006..US-011) started verifying at r3,
+  // one blip away from reroute, on a budget no story earned.
+  //
+  // Fix: handleVerifyEachCompletion resets retry_count to 0 on every completion
+  // (both done and retry paths), so each story gets a fresh verify budget.
+
+  it("VBUD done path: verify step retry_count reset to 0 after STATUS: done", async () => {
+    const { getDb } = await import("../dist/db.js");
+    const db = getDb();
+    const runId = crypto.randomUUID();
+    const loopStepId = crypto.randomUUID();
+    const verifyStepId = crypto.randomUUID();
+    const story1Id = crypto.randomUUID();
+    const story2Id = crypto.randomUUID();
+    const now = ts();
+
+    // Need 2+ stories so the loop doesn't end after one verification.
+    // When all stories are done, checkLoopContinuation marks verify step 'done'.
+    // With a pending story remaining, verify step stays 'waiting'.
+    db.prepare(
+      "INSERT INTO runs (id, run_number, workflow_id, task, status, context, tokens_spent, created_at, updated_at) VALUES (?, 1, 'feature-dev-merge-worktree', 'VBUD test', 'running', ?, 0, ?, ?)"
+    ).run(runId, JSON.stringify({ task: "VBUD done path test" }), now, now);
+
+    db.prepare(
+      "INSERT INTO steps (id, run_id, step_id, agent_id, step_index, input_template, expects, status, retry_count, max_retries, type, loop_config, created_at, updated_at) VALUES (?, ?, 'implement', 'fdmw_developer', 3, '{{task}}', '', 'running', 0, 4, 'loop', ?, ?, ?)"
+    ).run(loopStepId, runId, JSON.stringify({ verify_each: true, verify_step: "verify", over: "stories" }), now, now);
+
+    // Verify step starts with retry_count=3 (simulating burn from prior infrastructure failures)
+    db.prepare(
+      "INSERT INTO steps (id, run_id, step_id, agent_id, step_index, input_template, expects, status, retry_count, max_retries, type, created_at, updated_at) VALUES (?, ?, 'verify', 'fdmw_verifier', 4, 'Review implementation', ?, 'running', 3, 4, 'single', ?, ?)"
+    ).run(verifyStepId, runId, VERIFY_EACH_EXPECTS, now, now);
+
+    // US-005: done (this one gets verified)
+    const us005Time = new Date(Date.now() - 5000).toISOString();
+    db.prepare(
+      "INSERT INTO stories (id, run_id, story_index, story_id, title, description, acceptance_criteria, status, retry_count, max_retries, created_at, updated_at) VALUES (?, ?, 0, 'US-005', 'Story five', 'desc', '[]', 'done', 0, 3, ?, ?)"
+    ).run(story1Id, runId, us005Time, us005Time);
+
+    // US-006: pending (keeps the loop alive after US-005 verification)
+    db.prepare(
+      "INSERT INTO stories (id, run_id, story_index, story_id, title, description, acceptance_criteria, status, retry_count, max_retries, created_at, updated_at) VALUES (?, ?, 1, 'US-006', 'Story six', 'desc', '[]', 'pending', 0, 3, ?, ?)"
+    ).run(story2Id, runId, now, now);
+
+    const doneOutput = "STATUS: done\nVERIFIED: all good\nTESTS: passes";
+    completeStep(verifyStepId, doneOutput);
+
+    const verifyStep = db.prepare("SELECT status, retry_count FROM steps WHERE id = ?").get(verifyStepId) as { status: string; retry_count: number };
+    assert.equal(verifyStep.status, "waiting", "verify step should be reset to waiting");
+    assert.equal(verifyStep.retry_count, 0, "verify step retry_count MUST be reset to 0 — next story deserves a fresh budget");
+  });
+
+  it("VBUD retry path: verify step retry_count reset to 0 after honest STATUS: retry", async () => {
+    const { getDb } = await import("../dist/db.js");
+    const db = getDb();
+    const runId = crypto.randomUUID();
+    const loopStepId = crypto.randomUUID();
+    const verifyStepId = crypto.randomUUID();
+    const storyId = crypto.randomUUID();
+    const now = ts();
+
+    db.prepare(
+      "INSERT INTO runs (id, run_number, workflow_id, task, status, context, tokens_spent, created_at, updated_at) VALUES (?, 1, 'feature-dev-merge-worktree', 'VBUD retry test', 'running', ?, 0, ?, ?)"
+    ).run(runId, JSON.stringify({ task: "VBUD retry path test" }), now, now);
+
+    db.prepare(
+      "INSERT INTO steps (id, run_id, step_id, agent_id, step_index, input_template, expects, status, retry_count, max_retries, type, loop_config, created_at, updated_at) VALUES (?, ?, 'implement', 'fdmw_developer', 3, '{{task}}', '', 'running', 0, 4, 'loop', ?, ?, ?)"
+    ).run(loopStepId, runId, JSON.stringify({ verify_each: true, verify_step: "verify", over: "stories" }), now, now);
+
+    // Verify step starts with retry_count=3 (simulating burn from prior infrastructure failures)
+    db.prepare(
+      "INSERT INTO steps (id, run_id, step_id, agent_id, step_index, input_template, expects, status, retry_count, max_retries, type, created_at, updated_at) VALUES (?, ?, 'verify', 'fdmw_verifier', 4, 'Review implementation', ?, 'running', 3, 4, 'single', ?, ?)"
+    ).run(verifyStepId, runId, VERIFY_EACH_EXPECTS, now, now);
+
+    db.prepare(
+      "INSERT INTO stories (id, run_id, story_index, story_id, title, description, acceptance_criteria, status, retry_count, max_retries, created_at, updated_at) VALUES (?, ?, 0, 'US-005', 'Story five', 'desc', '[]', 'done', 0, 3, ?, ?)"
+    ).run(storyId, runId, now, now);
+
+    const retryOutput = "STATUS: retry\nISSUES: Needs more work.\nTESTS: none";
+    completeStep(verifyStepId, retryOutput);
+
+    // Story should be reset to pending with incremented retry_count
+    const story = db.prepare("SELECT status, retry_count FROM stories WHERE id = ?").get(storyId) as { status: string; retry_count: number };
+    assert.equal(story.status, "pending", "story must be reset to pending");
+    assert.equal(story.retry_count, 1, "story retry_count must be 1 (honest retry from dev)");
+
+    // Verify step must be reset with retry_count=0 — fresh budget for retry round
+    const verifyStep = db.prepare("SELECT status, retry_count FROM steps WHERE id = ?").get(verifyStepId) as { status: string; retry_count: number };
+    assert.equal(verifyStep.status, "waiting", "verify step should be reset to waiting");
+    assert.equal(verifyStep.retry_count, 0, "verify step retry_count MUST be reset to 0 — retry round is still within the same story");
+  });
+
+  it("VBUD multi-story no-leak: retry_count does NOT accumulate across stories in the done path", async () => {
+    // Simulate: US-005 verified (status: done), verify step gets retry_count=0.
+    // Then US-006 implement completes, verify step is claimed, verified (status: done).
+    // Verify step MUST have retry_count=0 both times — US-006 does NOT inherit US-005's budget.
+    const { getDb } = await import("../dist/db.js");
+    const db = getDb();
+    const runId = crypto.randomUUID();
+    const loopStepId = crypto.randomUUID();
+    const verifyStepId = crypto.randomUUID();
+    const story1Id = crypto.randomUUID();
+    const story2Id = crypto.randomUUID();
+    const story3Id = crypto.randomUUID();
+    const now = ts();
+
+    // Need 3 stories so the loop keeps going after each verification round.
+    // When all stories are done, checkLoopContinuation marks verify step 'done'.
+    // With a pending story remaining (US-007), the verify step stays 'waiting'.
+    db.prepare(
+      "INSERT INTO runs (id, run_number, workflow_id, task, status, context, tokens_spent, created_at, updated_at) VALUES (?, 1, 'feature-dev-merge-worktree', 'VBUD no-leak test', 'running', ?, 0, ?, ?)"
+    ).run(runId, JSON.stringify({ task: "VBUD no-leak test" }), now, now);
+
+    db.prepare(
+      "INSERT INTO steps (id, run_id, step_id, agent_id, step_index, input_template, expects, status, retry_count, max_retries, type, loop_config, created_at, updated_at) VALUES (?, ?, 'implement', 'fdmw_developer', 3, '{{task}}', '', 'running', 0, 4, 'loop', ?, ?, ?)"
+    ).run(loopStepId, runId, JSON.stringify({ verify_each: true, verify_step: "verify", over: "stories" }), now, now);
+
+    // Verify step starts with retry_count=3 (accumulated from infrastructure failures on previous story)
+    db.prepare(
+      "INSERT INTO steps (id, run_id, step_id, agent_id, step_index, input_template, expects, status, retry_count, max_retries, type, created_at, updated_at) VALUES (?, ?, 'verify', 'fdmw_verifier', 4, 'Review implementation', ?, 'running', 3, 4, 'single', ?, ?)"
+    ).run(verifyStepId, runId, VERIFY_EACH_EXPECTS, now, now);
+
+    // US-005: done (staggered timestamp to avoid ORDER BY ambiguity)
+    const us005Time = new Date(Date.now() - 5000).toISOString();
+    db.prepare(
+      "INSERT INTO stories (id, run_id, story_index, story_id, title, description, acceptance_criteria, status, retry_count, max_retries, created_at, updated_at) VALUES (?, ?, 0, 'US-005', 'Story five', 'desc', '[]', 'done', 0, 3, ?, ?)"
+    ).run(story1Id, runId, us005Time, us005Time);
+
+    // US-006: done (the one being verified next)
+    db.prepare(
+      "INSERT INTO stories (id, run_id, story_index, story_id, title, description, acceptance_criteria, status, retry_count, max_retries, created_at, updated_at) VALUES (?, ?, 1, 'US-006', 'Story six', 'desc', '[]', 'done', 0, 3, ?, ?)"
+    ).run(story2Id, runId, now, now);
+
+    // US-007: pending (keeps the loop alive after US-006 verification)
+    db.prepare(
+      "INSERT INTO stories (id, run_id, story_index, story_id, title, description, acceptance_criteria, status, retry_count, max_retries, created_at, updated_at) VALUES (?, ?, 2, 'US-007', 'Story seven', 'desc', '[]', 'pending', 0, 3, ?, ?)"
+    ).run(story3Id, runId, now, now);
+
+    // Round 1: verify US-005 (resets verify step retry_count to 0)
+    completeStep(verifyStepId, "STATUS: done\nVERIFIED: us-005 ok");
+    let verifyStep = db.prepare("SELECT retry_count, status FROM steps WHERE id = ?").get(verifyStepId) as { retry_count: number; status: string };
+    assert.equal(verifyStep.retry_count, 0, "After US-005 done verdict: retry_count must be 0");
+    assert.equal(verifyStep.status, "waiting", "verify step must be waiting for next story");
+
+    // Simulate: implement completes for US-006, advancePipeline sets verify to pending
+    // We'll manually set verify step to running for the test (it would be claimed by a verifier)
+    db.prepare("UPDATE steps SET status = 'running', updated_at = datetime('now') WHERE id = ?").run(verifyStepId);
+
+    // Round 2: verify US-006 (should also reset retry_count to 0)
+    completeStep(verifyStepId, "STATUS: done\nVERIFIED: us-006 ok");
+    verifyStep = db.prepare("SELECT retry_count, status FROM steps WHERE id = ?").get(verifyStepId) as { retry_count: number; status: string };
+    assert.equal(verifyStep.retry_count, 0, "After US-006 done verdict: retry_count MUST still be 0 — no leak from US-005");
+    assert.equal(verifyStep.status, "waiting", "verify step must be waiting");
+
+    // US-005 should remain done
+    const story1 = db.prepare("SELECT status, retry_count FROM stories WHERE id = ?").get(story1Id) as { status: string; retry_count: number };
+    assert.equal(story1.status, "done", "US-005 must stay done");
+    assert.equal(story1.retry_count, 0, "US-005 retry_count unchanged");
+
+    // US-006 should remain done
+    const story2 = db.prepare("SELECT status, retry_count FROM stories WHERE id = ?").get(story2Id) as { status: string; retry_count: number };
+    assert.equal(story2.status, "done", "US-006 must stay done");
+    assert.equal(story2.retry_count, 0, "US-006 retry_count unchanged");
+  });
+
+  it("VBUD multi-story no-leak: retry_count does NOT accumulate across stories in the retry path", async () => {
+    // Simulate: US-005 retried (STATUS: retry), verify step gets retry_count=0.
+    // Then US-005 retried again (STATUS: retry). Verify step retry_count stays at 0 both times.
+    // The story's own retry_count is what tracks judgment, not the shared verify step.
+    const { getDb } = await import("../dist/db.js");
+    const db = getDb();
+    const runId = crypto.randomUUID();
+    const loopStepId = crypto.randomUUID();
+    const verifyStepId = crypto.randomUUID();
+    const storyId = crypto.randomUUID();
+    const now = ts();
+
+    db.prepare(
+      "INSERT INTO runs (id, run_number, workflow_id, task, status, context, tokens_spent, created_at, updated_at) VALUES (?, 1, 'feature-dev-merge-worktree', 'VBUD retry no-leak', 'running', ?, 0, ?, ?)"
+    ).run(runId, JSON.stringify({ task: "VBUD retry no-leak test" }), now, now);
+
+    db.prepare(
+      "INSERT INTO steps (id, run_id, step_id, agent_id, step_index, input_template, expects, status, retry_count, max_retries, type, loop_config, created_at, updated_at) VALUES (?, ?, 'implement', 'fdmw_developer', 3, '{{task}}', '', 'running', 0, 4, 'loop', ?, ?, ?)"
+    ).run(loopStepId, runId, JSON.stringify({ verify_each: true, verify_step: "verify", over: "stories" }), now, now);
+
+    // Verify step starts with retry_count=3 (accumulated from prior infrastructure failures)
+    db.prepare(
+      "INSERT INTO steps (id, run_id, step_id, agent_id, step_index, input_template, expects, status, retry_count, max_retries, type, created_at, updated_at) VALUES (?, ?, 'verify', 'fdmw_verifier', 4, 'Review implementation', ?, 'running', 3, 4, 'single', ?, ?)"
+    ).run(verifyStepId, runId, VERIFY_EACH_EXPECTS, now, now);
+
+    db.prepare(
+      "INSERT INTO stories (id, run_id, story_index, story_id, title, description, acceptance_criteria, status, retry_count, max_retries, created_at, updated_at) VALUES (?, ?, 0, 'US-005', 'Story five', 'desc', '[]', 'done', 0, 3, ?, ?)"
+    ).run(storyId, runId, now, now);
+
+    // Round 1: verifier retries US-005
+    completeStep(verifyStepId, "STATUS: retry\nISSUES: Round 1 issues.");
+    let verifyStep = db.prepare("SELECT retry_count, status FROM steps WHERE id = ?").get(verifyStepId) as { retry_count: number; status: string };
+    assert.equal(verifyStep.retry_count, 0, "After retry round 1: retry_count must be 0");
+    assert.equal(verifyStep.status, "waiting", "verify step must be waiting");
+
+    // Story retry_count tracks judgment budget
+    let story = db.prepare("SELECT status, retry_count FROM stories WHERE id = ?").get(storyId) as { status: string; retry_count: number };
+    assert.equal(story.status, "pending", "story must be pending after retry 1");
+    assert.equal(story.retry_count, 1, "story retry_count must be 1");
+
+    // Simulate: developer re-implements, advancePipeline sets verify to pending, verifier claims
+    // Set story back to 'done' and verify step back to 'running' for round 2
+    db.prepare("UPDATE stories SET status = 'done', updated_at = datetime('now') WHERE id = ?").run(storyId);
+    db.prepare("UPDATE steps SET status = 'running', updated_at = datetime('now') WHERE id = ?").run(verifyStepId);
+    // Also re-pend loop step so the implementation flow is coherent
+    db.prepare("UPDATE steps SET status = 'running', updated_at = datetime('now') WHERE id = ?").run(loopStepId);
+
+    // Round 2: verifier retries again (same story, second honest rejection)
+    completeStep(verifyStepId, "STATUS: retry\nISSUES: Round 2 issues.");
+    verifyStep = db.prepare("SELECT retry_count, status FROM steps WHERE id = ?").get(verifyStepId) as { retry_count: number; status: string };
+    assert.equal(verifyStep.retry_count, 0, "After retry round 2: retry_count MUST still be 0 — story-scoped, not accumulation");
+
+    // Story retry_count increments each round (this is the judgment budget)
+    story = db.prepare("SELECT status, retry_count FROM stories WHERE id = ?").get(storyId) as { status: string; retry_count: number };
+    assert.equal(story.status, "pending", "story must be pending after retry 2");
+    assert.equal(story.retry_count, 2, "story retry_count must be 2");
+  });
+
+  it("VBUD: max_retries exhaustion still works with fresh per-story budget", async () => {
+    // Story at retry_count=3 (max_retries=3), next retry should fail the story.
+    // The verify step retry_count reset to 0 does NOT affect story-level budget tracking.
+    const { getDb } = await import("../dist/db.js");
+    const db = getDb();
+    const runId = crypto.randomUUID();
+    const loopStepId = crypto.randomUUID();
+    const verifyStepId = crypto.randomUUID();
+    const storyId = crypto.randomUUID();
+    const now = ts();
+
+    db.prepare(
+      "INSERT INTO runs (id, run_number, workflow_id, task, status, context, tokens_spent, created_at, updated_at) VALUES (?, 1, 'feature-dev-merge-worktree', 'VBUD exhaustion test', 'running', ?, 0, ?, ?)"
+    ).run(runId, JSON.stringify({ task: "VBUD exhaustion test" }), now, now);
+
+    db.prepare(
+      "INSERT INTO steps (id, run_id, step_id, agent_id, step_index, input_template, expects, status, retry_count, max_retries, type, loop_config, created_at, updated_at) VALUES (?, ?, 'implement', 'fdmw_developer', 3, '{{task}}', '', 'running', 0, 4, 'loop', ?, ?, ?)"
+    ).run(loopStepId, runId, JSON.stringify({ verify_each: true, verify_step: "verify", over: "stories" }), now, now);
+
+    db.prepare(
+      "INSERT INTO steps (id, run_id, step_id, agent_id, step_index, input_template, expects, status, retry_count, max_retries, type, created_at, updated_at) VALUES (?, ?, 'verify', 'fdmw_verifier', 4, 'Review implementation', ?, 'running', 0, 4, 'single', ?, ?)"
+    ).run(verifyStepId, runId, VERIFY_EACH_EXPECTS, now, now);
+
+    // Story at max_retries (3/3) — one more retry exhausts
+    db.prepare(
+      "INSERT INTO stories (id, run_id, story_index, story_id, title, description, acceptance_criteria, status, retry_count, max_retries, created_at, updated_at) VALUES (?, ?, 0, 'US-005', 'Story five', 'desc', '[]', 'done', 3, 3, ?, ?)"
+    ).run(storyId, runId, now, now);
+
+    const result = completeStep(verifyStepId, "STATUS: retry\nISSUES: Unfixable.");
+
+    // Verify step should be waiting (not failed — it's not the step's fault)
+    const verifyStep = db.prepare("SELECT status, retry_count FROM steps WHERE id = ?").get(verifyStepId) as { status: string; retry_count: number };
+    assert.equal(verifyStep.status, "waiting", "verify step should be waiting (step not at fault)");
+    assert.equal(verifyStep.retry_count, 0, "verify step retry_count reset to 0 even on exhaustion");
+
+    // Story must be failed (retry budget exhausted)
+    const story = db.prepare("SELECT status, retry_count FROM stories WHERE id = ?").get(storyId) as { status: string; retry_count: number };
+    assert.equal(story.status, "failed", "story must be failed on exhaustion");
+    assert.equal(story.retry_count, 4, "story retry_count must be 4 (3 + 1)");
+
+    // Loop step and run must be failed
+    const loopStep = db.prepare("SELECT status FROM steps WHERE id = ?").get(loopStepId) as { status: string };
+    assert.equal(loopStep.status, "failed", "loop step must be failed");
+
+    const run = db.prepare("SELECT status FROM runs WHERE id = ?").get(runId) as { status: string };
+    assert.equal(run.status, "failed", "run must be failed");
+  });
+
+  it("VBUD RRST integration: non-verify_each verify step retry_count behavior is unchanged", async () => {
+    // A non-verify_each (single) verify step should NOT have its retry_count reset
+    // by verify_each machinery. This test ensures the fix does not accidentally
+    // affect verify steps outside of verify_each loops.
+    const { getDb } = await import("../dist/db.js");
+    const db = getDb();
+    const runId = crypto.randomUUID();
+    const now = ts();
+
+    db.prepare(
+      "INSERT INTO runs (id, run_number, workflow_id, task, status, context, tokens_spent, created_at, updated_at) VALUES (?, 1, 'feature-dev-merge-worktree', 'Non-verify_each verify test', 'running', ?, 0, ?, ?)"
+    ).run(runId, JSON.stringify({ task: "Non-verify_each verify test" }), now, now);
+
+    // A regular single verify step (NOT part of verify_each) — type=single, no loop_config
+    const verifyStepId = crypto.randomUUID();
+    db.prepare(
+      "INSERT INTO steps (id, run_id, step_id, agent_id, step_index, input_template, expects, status, retry_count, max_retries, type, created_at, updated_at) VALUES (?, ?, 'verify', 'test_verifier', 2, 'Review', '', 'running', 3, 4, 'single', ?, ?)"
+    ).run(verifyStepId, runId, now, now);
+
+    // Complete the non-verify_each verify step — it does NOT go through handleVerifyEachCompletion
+    // completeStep is imported at the top of the file alongside other step-ops exports.
+    const doneOutput = "STATUS: done\nCHANGES: verified\nTESTS: passed";
+    const result = completeStep(verifyStepId, doneOutput);
+
+    // result may be "completed" (last step) or "advanced" (non-last step) — both are valid
+    assert.ok(result.status === "advanced" || result.status === "completed", `non-verify_each verify completion should advance or complete, got: ${result.status}`);
+
+    // The verify step should be 'done' with retry_count unchanged (3)
+    const verifyStep = db.prepare("SELECT status, retry_count FROM steps WHERE id = ?").get(verifyStepId) as { status: string; retry_count: number };
+    assert.equal(verifyStep.status, "done", "non-verify_each verify step should be done");
+    assert.equal(verifyStep.retry_count, 3, "non-verify_each verify step retry_count must be UNCHANGED — VBUD only affects verify_each loops");
+  });
+});

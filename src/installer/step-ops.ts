@@ -2263,9 +2263,10 @@ function handleVerifyEachCompletion(
   const db = getDb();
   const status = context["status"]?.toLowerCase();
 
-  // Reset verify step to waiting for next use
+  // Reset verify step to waiting for next use, with a fresh retry budget.
+  // Each story gets its own verify retry budget — retry_count is story-scoped.
   db.prepare(
-    "UPDATE steps SET status = 'waiting', output = ?, updated_at = datetime('now') WHERE id = ?"
+    "UPDATE steps SET status = 'waiting', retry_count = 0, output = ?, updated_at = datetime('now') WHERE id = ?"
   ).run(output, verifyStep.id);
 
   if (status !== "retry") {
