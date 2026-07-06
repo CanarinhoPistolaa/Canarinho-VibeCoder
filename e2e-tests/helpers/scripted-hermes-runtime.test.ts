@@ -157,6 +157,15 @@ function readStateDb(dbPath: string): Array<Record<string, unknown>> {
   }
 }
 
+function readInvocations(invocationsPath: string): Array<Record<string, unknown>> {
+  if (!fs.existsSync(invocationsPath)) return [];
+  return fs
+    .readFileSync(invocationsPath, "utf-8")
+    .split(/\r?\n/)
+    .filter(Boolean)
+    .map((line) => JSON.parse(line) as Record<string, unknown>);
+}
+
 function cleanup(tmp: string) {
   try {
     fs.rmSync(tmp, { recursive: true, force: true });
@@ -184,6 +193,7 @@ describe("scripted-hermes-runtime", () => {
         });
 
         const stdout = result.stdout.trim();
+        const stderr = result.stderr.trim();
         assert.ok(stdout.length > 0, `hermes runtime should produce stdout, stderr: ${result.stderr}`);
 
         // Should NOT contain JSON events
@@ -196,19 +206,16 @@ describe("scripted-hermes-runtime", () => {
           "hermes runtime should NOT emit JSON message_end events",
         );
 
-        // The last line should be session_id: <uuid>
-        const lines = stdout.split("\n").filter((l) => l.length > 0);
-        const lastLine = lines[lines.length - 1];
+        // The session_id trailer should be on stderr (real hermes contract)
         assert.ok(
-          /^session_id:\s+[0-9a-f-]{36}$/.test(lastLine.trim()),
-          `last line should be session_id: <uuid>, got: "${lastLine}"`,
+          /^session_id:\s+[0-9a-f-]{36}$/.test(stderr),
+          `stderr should contain session_id: <uuid>, got: "${stderr}"`,
         );
 
-        // STATUS report text should be before the session_id line
-        const textWithoutTrailer = stdout.replace(/session_id:.*$/, "").trim();
+        // STATUS report text should be on stdout (clean, no session_id)
         assert.ok(
-          textWithoutTrailer.includes("STATUS: done"),
-          `output should contain STATUS report before session_id, got: "${textWithoutTrailer}"`,
+          stdout.includes("STATUS: done"),
+          `stdout should contain STATUS report, got: "${stdout}"`,
         );
       } finally {
         cleanup(dirs.tmp);
@@ -230,10 +237,9 @@ describe("scripted-hermes-runtime", () => {
             TAMANDUA_SCRIPTED_BEHAVIORS: dirs.behaviorsPath,
             TAMANDUA_SCRIPTED_STATE: dirs.stateDir,
           });
-          const sessionLine = r.stdout
-            .split("\n")
-            .find((l) => /^session_id:/.test(l.trim()));
-          results.push(sessionLine?.trim().replace(/^session_id:\s*/, "") ?? "");
+          const stderrTrimmed = r.stderr.trim();
+          const match = /^session_id:\s*([0-9a-f-]{36})$/.exec(stderrTrimmed);
+          results.push(match?.[1] ?? "");
         }
 
         const unique = new Set(results);
@@ -272,25 +278,22 @@ describe("scripted-hermes-runtime", () => {
         });
 
         const stdout = result.stdout.trim();
-        const lines = stdout.split("\n").filter((l) => l.length > 0);
+        const stderr = result.stderr.trim();
 
-        const contentLines = lines.filter(
-          (l) => !/^session_id:/.test(l.trim()),
-        );
-        assert.ok(contentLines.length >= 2, `should have multiple content lines, got: ${JSON.stringify(contentLines)}`);
+        assert.ok(stdout.length > 0, `should have stdout content, got: "${stdout}"`);
         assert.ok(
-          contentLines.some((l) => l.includes("REPO:")),
-          "should contain REPO line",
+          stdout.includes("REPO:"),
+          "should contain REPO line on stdout",
         );
         assert.ok(
-          contentLines.some((l) => l.includes("BRANCH:")),
-          "should contain BRANCH line",
+          stdout.includes("BRANCH:"),
+          "should contain BRANCH line on stdout",
         );
 
-        const lastLine = lines[lines.length - 1];
+        // session_id trailer should be on stderr
         assert.ok(
-          /^session_id:/.test(lastLine.trim()),
-          "session_id should be last line",
+          /^session_id:/.test(stderr),
+          `session_id should be on stderr, got: "${stderr}"`,
         );
       } finally {
         cleanup(dirs.tmp);
@@ -403,8 +406,8 @@ describe("scripted-hermes-runtime", () => {
           `should produce STATUS output even without HERMES_HOME, stderr: ${result.stderr}`,
         );
         assert.ok(
-          /session_id:/.test(stdout),
-          "should still emit session_id trailer",
+          /session_id:/.test(result.stderr),
+          "should still emit session_id trailer on stderr",
         );
       } finally {
         cleanup(dirs.tmp);
@@ -434,8 +437,8 @@ describe("scripted-hermes-runtime", () => {
           `should produce STATUS output even with non-writeable HERMES_HOME, stderr: ${result.stderr}`,
         );
         assert.ok(
-          /session_id:/.test(stdout),
-          "should still emit session_id trailer",
+          /session_id:/.test(result.stderr),
+          "should still emit session_id trailer on stderr",
         );
 
         const dbPath = path.join(nonWriteable, "state.db");
@@ -469,8 +472,8 @@ describe("scripted-hermes-runtime", () => {
           `garbage mode should emit scripted garbage text, got: "${stdout}", stderr: ${result.stderr}`,
         );
         assert.ok(
-          /session_id:/.test(stdout),
-          "garbage mode should still emit session_id trailer",
+          /session_id:/.test(result.stderr),
+          "garbage mode should still emit session_id trailer on stderr",
         );
       } finally {
         cleanup(dirs.tmp);
@@ -499,8 +502,8 @@ describe("scripted-hermes-runtime", () => {
           `no-status mode should emit output text, got: "${stdout}", stderr: ${result.stderr}`,
         );
         assert.ok(
-          /session_id:/.test(stdout),
-          "no-status mode should emit session_id trailer",
+          /session_id:/.test(result.stderr),
+          "no-status mode should emit session_id trailer on stderr",
         );
 
         assert.ok(
@@ -536,7 +539,7 @@ describe("scripted-hermes-runtime", () => {
           `die-before-claim should exit with code 3, got status=${result.status} signal=${result.signal}, stderr: ${result.stderr}`,
         );
         assert.ok(
-          !/session_id:/.test(result.stdout.trim()),
+          !/session_id:/.test(result.stderr.trim()),
           "die-before-claim should NOT emit session_id (it dies before claiming)",
         );
       } finally {
@@ -716,14 +719,18 @@ describe("scripted-hermes-runtime", () => {
         });
 
         const stdout = result.stdout.trim();
-        const textWithoutTrailer = stdout.replace(/session_id:.*$/, "").trim();
         assert.ok(
-          textWithoutTrailer.includes("STATUS: failed"),
+          stdout.includes("STATUS: failed"),
           `should emit STATUS: failed, got: "${stdout}", stderr: ${result.stderr}`,
         );
         assert.ok(
-          textWithoutTrailer.includes("intentional test failure"),
+          stdout.includes("intentional test failure"),
           "should emit fail reason",
+        );
+        // session_id should be on stderr
+        assert.ok(
+          /session_id:/.test(result.stderr),
+          "should emit session_id trailer on stderr",
         );
       } finally {
         cleanup(dirs.tmp);
@@ -816,14 +823,18 @@ describe("scripted-hermes-runtime", () => {
         });
 
         const stdout = result.stdout.trim();
-        const textWithoutTrailer = stdout.replace(/session_id:.*$/, "").trim();
         assert.ok(
-          textWithoutTrailer.includes("STATUS: failed"),
-          `should emit STATUS: failed for unscripted agent, got: "${textWithoutTrailer}", stderr: ${result.stderr}`,
+          stdout.includes("STATUS: failed"),
+          `should emit STATUS: failed for unscripted agent, got: "${stdout}", stderr: ${result.stderr}`,
         );
         assert.ok(
-          textWithoutTrailer.includes("no scripted behavior for agent"),
-          `should explain missing behavior, got: "${textWithoutTrailer}"`,
+          stdout.includes("no scripted behavior for agent"),
+          `should explain missing behavior, got: "${stdout}"`,
+        );
+        // session_id should be on stderr
+        assert.ok(
+          /session_id:/.test(result.stderr),
+          "should emit session_id trailer on stderr",
         );
       } finally {
         cleanup(dirs.tmp);
@@ -849,6 +860,53 @@ describe("scripted-hermes-runtime", () => {
         const row = rows[0] as Record<string, unknown>;
         assert.equal(row.input_tokens, 0);
         assert.equal(row.output_tokens, 0);
+      } finally {
+        cleanup(dirs.tmp);
+      }
+    });
+
+    it("reportBeforeEmit with exitCode: exits with configured code after step complete", () => {
+      const dirs = makeTempDirs();
+      try {
+        createMockCli(dirs.tmp);
+        writeBehaviors(dirs.behaviorsPath, {
+          agents: { doer: { reportBeforeEmit: true, exitCode: 130, tokens: 555 } },
+        });
+
+        const result = spawnHermes(dirs.mockCliPath, {
+          HERMES_HOME: dirs.hermesHome,
+          TAMANDUA_SCRIPTED_BEHAVIORS: dirs.behaviorsPath,
+          TAMANDUA_SCRIPTED_STATE: dirs.stateDir,
+        });
+
+        // Exits with the configured exitCode (130 = KeyboardInterrupt)
+        assert.equal(
+          result.status,
+          130,
+          `reportBeforeEmit with exitCode=130 should exit 130, got ${result.status}, stderr: ${result.stderr}`,
+        );
+
+        // session_id trailer is on stderr (US-001 fix)
+        const stderrLines = result.stderr.trim().split(/\r?\n/);
+        const trailerLine = stderrLines[stderrLines.length - 1];
+        const trailerMatch = /^session_id:\s*(\S+)/.exec(trailerLine);
+        assert.ok(trailerMatch, `stderr should end with session_id trailer, got: "${trailerLine}"`);
+
+        // state.db was written (token attribution survives)
+        const rows = readStateDb(path.join(dirs.hermesHome, "state.db"));
+        assert.equal(rows.length, 1, "state.db should have one session row");
+        const row = rows[0] as Record<string, unknown>;
+        assert.ok((row.input_tokens as number) > 0, `input_tokens should be > 0, got ${row.input_tokens}`);
+
+        // Step complete was called before exit
+        const invocations = readInvocations(path.join(dirs.stateDir, "invocations.jsonl"));
+        const resultLog = invocations.find((e) => e.phase === "result");
+        assert.ok(resultLog, "should have result invocation log");
+        assert.equal(resultLog.ok, true);
+        assert.ok(
+          resultLog.note?.includes("reporting step complete before emitting output"),
+          `result note should mention reportBeforeEmit, got: ${resultLog.note}`,
+        );
       } finally {
         cleanup(dirs.tmp);
       }

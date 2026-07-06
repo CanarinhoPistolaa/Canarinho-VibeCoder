@@ -4,7 +4,7 @@ import fs from "node:fs";
 import path from "node:path";
 import type { HarnessType } from "./types.js";
 import { logger } from "../lib/logger.js";
-import { formatPiCommandPreview } from "./pi-command-preview.js";
+import { formatPiCommandPreview, findPromptArgvIndices, formatCommandPreview } from "./pi-command-preview.js";
 import { parsePiOutputStream } from "./pi-stream-parser.js";
 
 // ── Harness round result ───────────────────────────────────────────
@@ -18,6 +18,18 @@ export interface HarnessRoundResult {
    * Placeholder for future use — not populated in this phase.
    */
   sessionRef?: string;
+  /** Exit code of the harness process, or null if killed by signal. */
+  exitCode?: number | null;
+  /** Signal that killed the harness process, or null. */
+  signal?: string | null;
+  /** True when the stdout or stderr stream was truncated due to exceeding the 10MB budget. */
+  truncated?: boolean;
+  /** Redacted command preview string (hermes argv redaction). */
+  commandPreview?: string;
+  /** Indices of redacted prompt arguments in argv. */
+  redactedIndices?: number[];
+  /** True when the command preview had prompt arguments elided. */
+  promptElided?: boolean;
 }
 
 // ── Run options shared across harnesses ────────────────────────────
@@ -390,10 +402,19 @@ class HermesHarnessAdapter implements HarnessAdapter {
       prompt,
     ];
 
+    // Build command preview with redacted -q prompt payload.
+    // Hermes argv: ['chat', '--max-turns', '8192', '--yolo', '-Q', '-q', prompt]
+    // The prompt is at index 6 (after -q).
+    const redactedIndices = findPromptArgvIndices(args, ["-q"]);
+    const preview = formatCommandPreview(hermesPath, args, redactedIndices);
+
     logger.info("hermes pre-launch", {
       harness: "hermes",
       hermesPath,
       promptLength: Buffer.byteLength(prompt, "utf-8"),
+      commandPreview: preview.commandPreview,
+      redactedIndices: preview.redactedIndices,
+      promptElided: preview.promptElided,
       timeoutMs,
       workdir: options?.workdir,
     });
@@ -428,38 +449,118 @@ class HermesHarnessAdapter implements HarnessAdapter {
     // End stdin immediately — hermes reads from args (-q).
     child.stdin?.end();
 
-    // Collect stderr (bounded).
-    let stderrPieces: string[] = [];
-    let stderrBytes = 0;
-    const MAX_STDERR_BYTES = 10 * 1024 * 1024;
+    // Collect stderr and stdout with head+tail window collectors.
+    // Head window: first ~1MB. Tail window: last ~9MB (10MB total budget).
+    // When the stream exceeds 10MB, the middle is discarded and a truncation
+    // marker is inserted. This guarantees the session_id trailer (on stderr)
+    // and final STATUS/verdict lines (on stdout) survive regardless of
+    // total stream size.
+    const HEAD_BYTES = 1 * 1024 * 1024;
+    const TAIL_BYTES = 9 * 1024 * 1024;
+
+    // ── stderr collector ──
+    let stderrHeadChunks: string[] = [];
+    let stderrHeadBytes = 0;
+    let stderrTailChunks: string[] = [];
+    let stderrTailBytes = 0;
+    let stderrTruncated = false;
+    let stderrPhase: "head" | "tail" = "head";
+
     child.stderr?.on("data", (chunk: Buffer) => {
       const str = chunk.toString("utf-8");
-      if (
-        stderrBytes + Buffer.byteLength(str, "utf-8") <=
-        MAX_STDERR_BYTES
-      ) {
-        stderrPieces.push(str);
-        stderrBytes += Buffer.byteLength(str, "utf-8");
+      const strBytes = Buffer.byteLength(str, "utf-8");
+
+      if (stderrPhase === "head" && !stderrTruncated) {
+        stderrHeadChunks.push(str);
+        stderrHeadBytes += strBytes;
+        if (stderrHeadBytes >= HEAD_BYTES) {
+          stderrPhase = "tail";
+        }
+        return;
+      }
+
+      // Phase "tail": collect into sliding tail window
+      stderrTailChunks.push(str);
+      stderrTailBytes += strBytes;
+
+      if (!stderrTruncated && stderrHeadBytes + stderrTailBytes > HEAD_BYTES + TAIL_BYTES) {
+        stderrTruncated = true;
+        // Trim excess from tail to fit within TAIL_BYTES
+        while (stderrTailBytes > TAIL_BYTES && stderrTailChunks.length > 0) {
+          const oldest = stderrTailChunks.shift()!;
+          stderrTailBytes -= Buffer.byteLength(oldest, "utf-8");
+        }
+        logger.warn("hermes stderr truncated", {
+          harness: "hermes",
+          pid: childPid ?? null,
+          headBytes: stderrHeadBytes,
+          tailBytes: stderrTailBytes,
+          totalBudget: HEAD_BYTES + TAIL_BYTES,
+        });
+      } else if (stderrTruncated) {
+        // Maintain ring buffer: drop oldest chunks when exceeding TAIL_BYTES
+        while (stderrTailBytes > TAIL_BYTES && stderrTailChunks.length > 0) {
+          const oldest = stderrTailChunks.shift()!;
+          stderrTailBytes -= Buffer.byteLength(oldest, "utf-8");
+        }
       }
     });
 
-    // Collect stdout fully (hermes produces plain text, not JSON events).
-    let stdoutPieces: string[] = [];
-    let stdoutBytes = 0;
-    const MAX_STDOUT_BYTES = 10 * 1024 * 1024;
+    // ── stdout collector ──
+    let stdoutHeadChunks: string[] = [];
+    let stdoutHeadBytes = 0;
+    let stdoutTailChunks: string[] = [];
+    let stdoutTailBytes = 0;
+    let stdoutTruncated = false;
+    let stdoutPhase: "head" | "tail" = "head";
+
     child.stdout?.on("data", (chunk: Buffer) => {
       const str = chunk.toString("utf-8");
-      if (
-        stdoutBytes + Buffer.byteLength(str, "utf-8") <=
-        MAX_STDOUT_BYTES
-      ) {
-        stdoutPieces.push(str);
-        stdoutBytes += Buffer.byteLength(str, "utf-8");
+      const strBytes = Buffer.byteLength(str, "utf-8");
+
+      if (stdoutPhase === "head" && !stdoutTruncated) {
+        stdoutHeadChunks.push(str);
+        stdoutHeadBytes += strBytes;
+        if (stdoutHeadBytes >= HEAD_BYTES) {
+          stdoutPhase = "tail";
+        }
+        return;
+      }
+
+      // Phase "tail": collect into sliding tail window
+      stdoutTailChunks.push(str);
+      stdoutTailBytes += strBytes;
+
+      if (!stdoutTruncated && stdoutHeadBytes + stdoutTailBytes > HEAD_BYTES + TAIL_BYTES) {
+        stdoutTruncated = true;
+        // Trim excess from tail to fit within TAIL_BYTES
+        while (stdoutTailBytes > TAIL_BYTES && stdoutTailChunks.length > 0) {
+          const oldest = stdoutTailChunks.shift()!;
+          stdoutTailBytes -= Buffer.byteLength(oldest, "utf-8");
+        }
+        logger.warn("hermes stdout truncated", {
+          harness: "hermes",
+          pid: childPid ?? null,
+          headBytes: stdoutHeadBytes,
+          tailBytes: stdoutTailBytes,
+          totalBudget: HEAD_BYTES + TAIL_BYTES,
+        });
+      } else if (stdoutTruncated) {
+        // Maintain ring buffer: drop oldest chunks when exceeding TAIL_BYTES
+        while (stdoutTailBytes > TAIL_BYTES && stdoutTailChunks.length > 0) {
+          const oldest = stdoutTailChunks.shift()!;
+          stdoutTailBytes -= Buffer.byteLength(oldest, "utf-8");
+        }
       }
     });
 
     // Wait for child exit, with timeout guard.
-    await new Promise<void>((resolve, reject) => {
+    // The adapter resolves on ALL outcomes (success, non-zero exit, timeout,
+    // teardown kill) so the scheduler can attribute tokens even when the
+    // harness is killed after step completion.  Only fatal spawn errors
+    // (child.on("error")) still reject — those go to the scheduler's catch
+    // block which can attempt stderr-based sessionRef extraction.
+    const exitInfo = await new Promise<{ code: number | null; signal: NodeJS.Signals | null }>((resolve, reject) => {
       let settled = false;
       const timer = setTimeout(() => {
         if (settled) return;
@@ -474,7 +575,9 @@ class HermesHarnessAdapter implements HarnessAdapter {
             /* best effort */
           }
         }
-        reject(new Error(`hermes timed out after ${timeoutMs}ms`));
+        // Resolve with what we have — the stderr collector may already
+        // contain the session_id trailer when the harness was killed.
+        resolve({ code: null, signal: "SIGTERM" });
       }, timeoutMs);
 
       child.on("error", (err) => {
@@ -487,38 +590,54 @@ class HermesHarnessAdapter implements HarnessAdapter {
         clearTimeout(timer);
         if (settled) return;
         settled = true;
-        if (code === 0 || code === null) {
-          resolve();
-        } else {
-          const failureDurationMs = Date.now() - startedAt;
-          const failureStderr = stderrPieces.join("");
-          const failureStderrMeta = buildStreamLogMetadata(failureStderr);
-          logger.error("hermes execution failed", {
-            harness: "hermes",
-            pid: childPid ?? null,
-            pgid,
-            exitCode: code,
-            signal,
-            durationMs: failureDurationMs,
-            stderrBytes: failureStderrMeta.bytes,
-            stderrPreview: failureStderrMeta.preview,
-            stderrTruncated: failureStderrMeta.truncated,
-          });
-          const stderrSuffix = failureStderr
-            ? `\nstderr: ${failureStderr}`
-            : "";
-          reject(
-            new Error(
-              `hermes failed: exited with code ${code}${signal ? ` (signal ${signal})` : ""}${stderrSuffix}`,
-            ),
-          );
-        }
+        // Always resolve — the scheduler decides what to do with non-zero
+        // exits. Teardown kills (exit 130) and other non-zero outcomes now
+        // flow through the normal post-round path where token attribution
+        // can still capture hermes state.db tokens.
+        resolve({ code, signal: signal as NodeJS.Signals | null });
       });
     });
 
     const durationMs = Date.now() - startedAt;
-    const rawStdout = stdoutPieces.join("");
-    const stderrOut = stderrPieces.join("");
+    const exitCode = exitInfo.code;
+    const exitSignal = exitInfo.signal;
+
+    // Log non-zero exits and signal kills but don't throw — the adapter
+    // always resolves so the scheduler can run post-round processing.
+    if (exitCode !== null && exitCode !== 0) {
+      const failureStderr = stderrTruncated
+        ? stderrHeadChunks.join("") + "\n[…output truncated…]\n" + stderrTailChunks.join("")
+        : stderrHeadChunks.join("") + stderrTailChunks.join("");
+      const failureStderrMeta = buildStreamLogMetadata(failureStderr);
+      logger.error("hermes execution failed", {
+        harness: "hermes",
+        pid: childPid ?? null,
+        pgid,
+        exitCode,
+        signal: exitSignal,
+        durationMs,
+        stderrBytes: failureStderrMeta.bytes,
+        stderrPreview: failureStderrMeta.preview,
+        stderrTruncated: failureStderrMeta.truncated,
+      });
+    } else if (exitSignal) {
+      logger.warn("hermes terminated by signal", {
+        harness: "hermes",
+        pid: childPid ?? null,
+        pgid,
+        signal: exitSignal,
+        durationMs,
+      });
+    }
+    // Assemble stdout/stderr from head+tail windows. When either stream was
+    // truncated, insert an explicit marker between head and tail.
+    const TRUNCATION_MARKER = "\n[…output truncated…]\n";
+    const rawStdout = stdoutTruncated
+      ? stdoutHeadChunks.join("") + TRUNCATION_MARKER + stdoutTailChunks.join("")
+      : stdoutHeadChunks.join("") + stdoutTailChunks.join("");
+    const stderrOut = stderrTruncated
+      ? stderrHeadChunks.join("") + TRUNCATION_MARKER + stderrTailChunks.join("")
+      : stderrHeadChunks.join("") + stderrTailChunks.join("");
     const stderrMeta = buildStreamLogMetadata(stderrOut);
 
     if (stderrMeta.preview) {
@@ -531,20 +650,49 @@ class HermesHarnessAdapter implements HarnessAdapter {
       });
     }
 
-    // Filter out session_id lines. Hermes appends a session identifier
-    // (e.g. "session_id: 20260518_103004_cdae11") at the end of stdout.
-    // Remove it so the scheduler sees clean output.
+    // Extract session_id trailer. Real hermes prints the session identifier
+    // (e.g. "session_id: 20260518_103004_cdae11") to STDERR at session end
+    // (both normal exit and KeyboardInterrupt paths). Scan stderr first
+    // (primary source), then fall back to stdout for backward compatibility.
     // Capture the LAST session_id (without prefix) for downstream token
     // accounting via hermes-usage.ts.
-    const lines = rawStdout.split("\n");
-    const sessionIdLine = lines
-      .filter((line) => /^session_id:\s*\S+/.test(line.trim()))
-      .pop();
-    const sessionRef =
-      sessionIdLine?.trim().replace(/^session_id:\s*/, "") || undefined;
+    const sessionIdRegex = /^session_id:\s*\S+/;
+    const findSessionRef = (text: string): string | undefined => {
+      const linez = text.split("\n");
+      const match = linez.filter((l) => sessionIdRegex.test(l.trim())).pop();
+      return match?.trim().replace(/^session_id:\s*/, "") || undefined;
+    };
+    const sessionRef = findSessionRef(stderrOut) || findSessionRef(rawStdout);
 
-    const filteredStdout = lines
-      .filter((line) => !/^session_id:\s*\S+/.test(line.trim()))
+    // When no session_id trailer is found on either stream, emit a loud
+    // diagnostic warning — operators need to see WHY tokens read 0.
+    // This is non-fatal: the scheduler skips token lookup when sessionRef
+    // is falsy, so the round completes normally.
+    if (!sessionRef) {
+      const jobId = process.env.TAMANDUA_WORKER_JOB_ID;
+      const runIdMatch = jobId?.match(
+        /([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})/,
+      );
+      const runId = runIdMatch ? runIdMatch[1] : undefined;
+      const agentId = jobId && runId
+        ? jobId.slice(jobId.indexOf(runId) + runId.length + 1)
+        : undefined;
+      logger.warn("hermes round completed with no session_id trailer — tokens will read 0", {
+        harness: "hermes",
+        pid: childPid ?? null,
+        runId,
+        jobId,
+        agentId,
+        exitCode,
+        signal: exitSignal,
+        stdoutBytes: Buffer.byteLength(rawStdout, "utf-8"),
+        stderrBytes: Buffer.byteLength(stderrOut, "utf-8"),
+      });
+    }
+
+    const filteredStdout = rawStdout
+      .split("\n")
+      .filter((line) => !sessionIdRegex.test(line.trim()))
       .join("\n")
       .trim();
 
@@ -564,7 +712,28 @@ class HermesHarnessAdapter implements HarnessAdapter {
       hasStderr: stderrMeta.bytes > 0,
     });
 
-    return { output: filteredStdout, sessionRef };
+    const wasTruncated = stdoutTruncated || stderrTruncated;
+    if (wasTruncated) {
+      logger.warn("hermes round output truncated", {
+        harness: "hermes",
+        pid: childPid ?? null,
+        stdoutTruncated,
+        stderrTruncated,
+        stdoutBytes: Buffer.byteLength(rawStdout, "utf-8"),
+        stderrBytes: Buffer.byteLength(stderrOut, "utf-8"),
+      });
+    }
+
+    return {
+      output: filteredStdout,
+      sessionRef,
+      exitCode,
+      signal: exitSignal ?? undefined,
+      truncated: wasTruncated || undefined,
+      commandPreview: preview.commandPreview,
+      redactedIndices: preview.redactedIndices,
+      promptElided: preview.promptElided,
+    };
   }
 }
 

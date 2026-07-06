@@ -75,17 +75,20 @@ function fatal(note) {
 // session_id trailer + state.db row, not via inline JSON events.
 
 /**
- * Write the completed output to stdout followed by a session_id trailer.
- * stdout ← STATUS report plain text
- * stdout ← session_id: <uuid>
+ * Write the completed output to stdout followed by a session_id trailer
+ * on stderr. Real hermes prints the session_id trailer to stderr (verified
+ * in hermes source: cli.py ~line 16064 uses file=sys.stderr).
  *
- * The session_id line MUST be the last line. The harness adapter strips
- * it and captures it as HarnessRoundResult.sessionRef.
+ * stdout ← STATUS report plain text
+ * stderr ← session_id: <uuid>
+ *
+ * The harness adapter extracts sessionRef from stderr and strips
+ * session_id lines from stdout for backward compat.
  */
 function emitOutput(text, sessionId) {
   process.stdout.write(text);
   if (!text.endsWith("\n")) process.stdout.write("\n");
-  process.stdout.write(`session_id: ${sessionId}\n`);
+  process.stderr.write(`session_id: ${sessionId}\n`);
 }
 
 // ── Fake state.db for token accounting ──────────────────────────────
@@ -252,7 +255,7 @@ if (mode === "hang") {
   const sessionId = crypto.randomUUID();
   writeSessionRow(sessionId, tokens);
   process.stdout.write("%%% not plain text — scripted garbage output %%%\ngarbage text\n");
-  process.stdout.write(`session_id: ${sessionId}\n`);
+  process.stderr.write(`session_id: ${sessionId}\n`);
   process.exit(0);
 } else {
   runWorkRound();
@@ -301,6 +304,11 @@ function runWorkRound() {
 
   if (mode === "die-after-claim") {
     logInvocation({ ...work, phase: "result", stepId, ok: false, note: "dying after claim without reporting" });
+    // Write state.db + session_id to stderr so the adapter can attribute
+    // tokens even when the harness is killed after claiming the step.
+    const sessionId = crypto.randomUUID();
+    writeSessionRow(sessionId, tokens);
+    process.stderr.write(`session_id: ${sessionId}\n`);
     process.exit(behavior.exitCode ?? 1);
   }
 
@@ -342,7 +350,10 @@ function runWorkRound() {
     }
     spawnSync("sleep", ["0.3"]);
     emitOutput(outputText, sessionId);
-    process.exit(0);
+    // Support exitCode in reportBeforeEmit mode: real hermes may be killed
+    // (exit 130) after step completion — the adapter still captures stderr
+    // and token attribution survives (see US-002/US-003).
+    process.exit(behavior.exitCode ?? 0);
   }
 
   // Default ordering: emit output THEN report (hermes writes before the

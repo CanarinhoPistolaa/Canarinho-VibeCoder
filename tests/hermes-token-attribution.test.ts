@@ -54,9 +54,11 @@ function seedHermesStateDb(
 
 function createFakeHermes(rootDir: string, sessionId: string): string {
   const binPath = path.join(rootDir, "fake-hermes");
+  // Real hermes prints session_id to stderr, so the fake must match.
+  // The adapter scans stderr first (primary source) then stdout (backward compat).
   fs.writeFileSync(
     binPath,
-    `#!/usr/bin/env bash\ncat << 'HERMES_EOF'\nSTATUS: done\nsession_id: ${sessionId}\nHERMES_EOF\n`,
+    `#!/usr/bin/env bash\necho "STATUS: done"\necho "session_id: ${sessionId}" >&2\n`,
     "utf-8",
   );
   fs.chmodSync(binPath, 0o755);

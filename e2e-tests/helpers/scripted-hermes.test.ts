@@ -318,12 +318,11 @@ describe("createScriptedHermes", () => {
           `should contain STATUS: done, got: "${stdout}"`,
         );
 
-        // Should contain session_id trailer
+        // Should contain session_id trailer on stderr
+        const stderr = result.stderr.trim();
         assert.ok(
-          /^session_id:/.test(
-            stdout.split("\n").reverse()[0]?.trim() ?? "",
-          ),
-          `last line should be session_id trailer, got: "${stdout}"`,
+          /^session_id:/.test(stderr),
+          `stderr should contain session_id trailer, got: "${stderr}"`,
         );
 
         // Should NOT contain JSON events (hermes output is plain text)

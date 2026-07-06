@@ -67,21 +67,38 @@ function collectOptionValueIndices(args: string[]): Set<number> {
   return indices;
 }
 
-function collectPromptIndices(args: string[]): number[] {
+/**
+ * Find indices of argument values that follow the given prompt flags.
+ * Handles both `--flag value` and `--flag=value` forms.
+ * Returns sorted ascending indices suitable for redaction in command previews.
+ */
+export function findPromptArgvIndices(
+  args: string[],
+  promptFlags: string[] = ["-p", "--prompt"],
+): number[] {
   const indices = new Set<number>();
 
   for (let i = 0; i < args.length; i++) {
     const arg = args[i];
-    if ((arg === "-p" || arg === "--prompt") && i + 1 < args.length) {
+    if (promptFlags.includes(arg) && i + 1 < args.length) {
       indices.add(i + 1);
       i += 1;
       continue;
     }
 
-    if (arg.startsWith("--prompt=")) {
-      indices.add(i);
+    for (const flag of promptFlags) {
+      if (flag.startsWith("--") && arg.startsWith(flag + "=")) {
+        indices.add(i);
+        break;
+      }
     }
   }
+
+  return [...indices].sort((a, b) => a - b);
+}
+
+function collectPromptIndices(args: string[]): number[] {
+  const indices = new Set<number>(findPromptArgvIndices(args, ["-p", "--prompt"]));
 
   const hasPrintFlag = args.includes("--print");
   if (!hasPrintFlag) {
@@ -114,22 +131,27 @@ function collectPromptIndices(args: string[]): number[] {
   return [...indices].sort((a, b) => a - b);
 }
 
-export function formatPiCommandPreview(
-  piPath: string,
+/**
+ * Format a command preview with redacted prompt arguments.
+ * Shared between pi and hermes harness adapters.
+ */
+export function formatCommandPreview(
+  binaryPath: string,
   args: string[],
+  redactedIndices: number[],
   options: PiCommandPreviewOptions = {},
 ): PiCommandPreview {
   const promptMarker = options.promptMarker ?? DEFAULT_PROMPT_MARKER;
   const maxArgPreviewLength = options.maxArgPreviewLength ?? DEFAULT_MAX_ARG_PREVIEW_LENGTH;
   const maxCommandPreviewLength = options.maxCommandPreviewLength ?? DEFAULT_MAX_COMMAND_PREVIEW_LENGTH;
 
-  const redactedSet = new Set<number>(collectPromptIndices(args));
+  const redactedSet = new Set<number>(redactedIndices);
   const truncatedIndices: number[] = [];
 
   const argvPreview = args.map((arg, index) => {
     if (redactedSet.has(index)) {
-      if (arg.startsWith("--prompt=")) {
-        return `--prompt=${promptMarker}`;
+      if (arg.startsWith("--") && arg.includes("=")) {
+        return `${arg.split("=")[0]}=${promptMarker}`;
       }
       return promptMarker;
     }
@@ -141,7 +163,7 @@ export function formatPiCommandPreview(
     return shortened.value;
   });
 
-  const commandParts = [piPath, ...argvPreview].map(quoteForPreview);
+  const commandParts = [binaryPath, ...argvPreview].map(quoteForPreview);
   const joinedCommand = commandParts.join(" ");
   const commandPreviewResult = truncate(joinedCommand, maxCommandPreviewLength);
 
@@ -154,4 +176,12 @@ export function formatPiCommandPreview(
     promptElided: redactedSet.size > 0,
     commandTruncated: commandPreviewResult.truncated,
   };
+}
+
+export function formatPiCommandPreview(
+  piPath: string,
+  args: string[],
+  options: PiCommandPreviewOptions = {},
+): PiCommandPreview {
+  return formatCommandPreview(piPath, args, collectPromptIndices(args), options);
 }

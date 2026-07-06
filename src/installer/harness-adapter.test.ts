@@ -11,6 +11,7 @@ import {
   type RunHarnessOptions,
 } from "../../dist/installer/harness-adapter.js";
 
+
 // ── HarnessAdapter interface contract ──────────────────────────────
 
 describe("HarnessAdapter interface", () => {
@@ -494,7 +495,7 @@ echo "session_id: 20260518_103004_cdae11"`,
       }
     });
 
-    it("rejects on timeout with clear error message", async () => {
+    it("resolves on timeout — returns partial output and sessionRef from stderr", async () => {
       const tmpDir = fs.mkdtempSync(
         path.join(os.tmpdir(), "tamandua-test-harness-adapter-hermes-")
       );
@@ -502,6 +503,8 @@ echo "session_id: 20260518_103004_cdae11"`,
       fs.writeFileSync(
         hermesPath,
         `#!/bin/sh
+# Write session_id to stderr before sleeping — the adapter can capture it.
+echo "session_id: 20260518_103004_cdae11" >&2
 sleep 10`,
         { mode: 0o755 }
       );
@@ -510,15 +513,13 @@ sleep 10`,
       process.env.TAMANDUA_HERMES_BINARY = hermesPath;
 
       try {
-        await assert.rejects(
-          () => adapter.runRound("do something", { timeout: 2 }),
-          (err: Error) => {
-            return (
-              err.message.includes("hermes timed out") &&
-              err.message.includes("2000ms")
-            );
-          },
-        );
+        // After US-002 the adapter always resolves — timeout included.
+        // The scheduler runs post-round processing including token attribution.
+        const result = await adapter.runRound("do something", { timeout: 2 });
+        assert.equal(typeof result.output, "string");
+        // SessionRef extracted from stderr even on timeout kill
+        assert.equal(result.sessionRef, "20260518_103004_cdae11");
+        assert.equal(result.signal, "SIGTERM");
       } finally {
         if (originalHermesBinary === undefined) {
           delete process.env.TAMANDUA_HERMES_BINARY;
@@ -529,7 +530,7 @@ sleep 10`,
       }
     });
 
-    it("rejects when hermes exits with non-zero code", async () => {
+    it("resolves on non-zero exit — returns output with exitCode and sessionRef from stderr", async () => {
       const tmpDir = fs.mkdtempSync(
         path.join(os.tmpdir(), "tamandua-test-harness-adapter-hermes-")
       );
@@ -538,6 +539,8 @@ sleep 10`,
         hermesPath,
         `#!/bin/sh
 echo "error output" >&2
+echo "partial work before crash"
+echo "session_id: 20260518_103004_cdae11" >&2
 exit 1`,
         { mode: 0o755 }
       );
@@ -546,15 +549,95 @@ exit 1`,
       process.env.TAMANDUA_HERMES_BINARY = hermesPath;
 
       try {
-        await assert.rejects(
-          () => adapter.runRound("bad task", { timeout: 5 }),
-          (err: Error) => {
-            return (
-              err.message.includes("hermes failed") &&
-              err.message.includes("exited with code 1")
-            );
-          },
-        );
+        // After US-002 the adapter always resolves (non-zero exit included).
+        // The scheduler decides what to do with the exit status.
+        const result = await adapter.runRound("bad task", { timeout: 5 });
+        assert.ok(result.output.includes("partial work before crash"));
+        assert.ok(!result.output.includes("session_id:"));
+        assert.equal(result.sessionRef, "20260518_103004_cdae11");
+        assert.equal(result.exitCode, 1);
+      } finally {
+        if (originalHermesBinary === undefined) {
+          delete process.env.TAMANDUA_HERMES_BINARY;
+        } else {
+          process.env.TAMANDUA_HERMES_BINARY = originalHermesBinary;
+        }
+        fs.rmSync(tmpDir, { recursive: true, force: true });
+      }
+    });
+
+    it("extracts sessionRef from stderr on exit 0 — primary real-hermes path", async () => {
+      const tmpDir = fs.mkdtempSync(
+        path.join(os.tmpdir(), "tamandua-test-harness-adapter-hermes-")
+      );
+      const hermesPath = path.join(tmpDir, "hermes");
+      // Real hermes prints session_id to stderr, not stdout.
+      // Exit 0 is the normal completion path.
+      fs.writeFileSync(
+        hermesPath,
+        `#!/bin/sh
+echo "Work completed successfully"
+echo "STATUS: done"
+echo "session_id: 20260706_stderr_zero" >&2`,
+        { mode: 0o755 }
+      );
+
+      const originalHermesBinary = process.env.TAMANDUA_HERMES_BINARY;
+      process.env.TAMANDUA_HERMES_BINARY = hermesPath;
+
+      try {
+        const result = await adapter.runRound("do something", { timeout: 5 });
+
+        assert.ok(result.output.includes("Work completed successfully"));
+        assert.ok(result.output.includes("STATUS: done"));
+        assert.ok(!result.output.includes("session_id:"));
+        // SessionRef extracted from stderr (primary source)
+        assert.equal(result.sessionRef, "20260706_stderr_zero");
+        // Exit code 0 means clean completion
+        assert.equal(result.exitCode, 0);
+      } finally {
+        if (originalHermesBinary === undefined) {
+          delete process.env.TAMANDUA_HERMES_BINARY;
+        } else {
+          process.env.TAMANDUA_HERMES_BINARY = originalHermesBinary;
+        }
+        fs.rmSync(tmpDir, { recursive: true, force: true });
+      }
+    });
+
+    it("extracts sessionRef from stderr on exit 130 — teardown-kill survival", async () => {
+      const tmpDir = fs.mkdtempSync(
+        path.join(os.tmpdir(), "tamandua-test-harness-adapter-hermes-")
+      );
+      const hermesPath = path.join(tmpDir, "hermes");
+      // Exit 130 is real hermes' KeyboardInterrupt signal (teardown kill).
+      // The adapter must resolve (not reject) and still extract sessionRef
+      // from stderr, just like the real canary failure shape.
+      fs.writeFileSync(
+        hermesPath,
+        `#!/bin/sh
+echo "partial work completed"
+echo "session_id: 20260706_stderr_130" >&2
+echo "hermes interrupted" >&2
+exit 130`,
+        { mode: 0o755 }
+      );
+
+      const originalHermesBinary = process.env.TAMANDUA_HERMES_BINARY;
+      process.env.TAMANDUA_HERMES_BINARY = hermesPath;
+
+      try {
+        // After US-002 the adapter always resolves — exit 130 included.
+        const result = await adapter.runRound("task interrupted mid-round", { timeout: 5 });
+
+        assert.ok(result.output.includes("partial work completed"));
+        assert.ok(!result.output.includes("session_id:"));
+        // SessionRef extracted from stderr despite non-zero exit
+        assert.equal(result.sessionRef, "20260706_stderr_130");
+        // Exit code 130 is the teardown-kill signal
+        assert.equal(result.exitCode, 130);
+        // No signal — the process exited (was not killed externally)
+        assert.equal(result.signal, undefined);
       } finally {
         if (originalHermesBinary === undefined) {
           delete process.env.TAMANDUA_HERMES_BINARY;
@@ -629,6 +712,465 @@ echo "session_id: 20260518_103004_cdae11"`,
           process.env.TAMANDUA_HERMES_BINARY = originalHermesBinary;
         }
         fs.rmSync(tmpDir, { recursive: true, force: true });
+      }
+    });
+
+    it("sets truncated flag and inserts marker when stdout exceeds 10MB budget", async () => {
+      const tmpDir = fs.mkdtempSync(
+        path.join(os.tmpdir(), "tamandua-test-harness-adapter-hermes-")
+      );
+      const hermesPath = path.join(tmpDir, "hermes");
+      // Generate ~11.5MB of stdout to ensure truncation triggers.
+      // The head window is 1MB, tail window is 9MB — total budget 10MB.
+      // 11.5MB means ~1.5MB of middle is discarded.
+      fs.writeFileSync(
+        hermesPath,
+        `#!/bin/sh
+# Write ~11 MB of noise + session_id on stderr
+dd if=/dev/zero bs=1M count=11 2>/dev/null
+echo ""
+echo "session_id: 20260518_trunc_test" >&2`,
+        { mode: 0o755 }
+      );
+
+      const originalHermesBinary = process.env.TAMANDUA_HERMES_BINARY;
+      process.env.TAMANDUA_HERMES_BINARY = hermesPath;
+
+      try {
+        const result = await adapter.runRound("task", { timeout: 10 });
+
+        // Truncation should be flagged
+        assert.equal(result.truncated, true, "truncated flag should be set");
+        // Truncation marker should appear in output
+        assert.ok(
+          result.output.includes("[…output truncated…]"),
+          "truncation marker should be present in stdout",
+        );
+        // Session_id should still be extracted from stderr (even truncated)
+        assert.equal(result.sessionRef, "20260518_trunc_test", "sessionRef should survive stderr truncation");
+        // Output should still have content (head + tail, not empty)
+        assert.ok(result.output.length > 0, "stdout should have content even when truncated");
+      } finally {
+        if (originalHermesBinary === undefined) {
+          delete process.env.TAMANDUA_HERMES_BINARY;
+        } else {
+          process.env.TAMANDUA_HERMES_BINARY = originalHermesBinary;
+        }
+        fs.rmSync(tmpDir, { recursive: true, force: true });
+      }
+    });
+
+    it("not truncated when output is under 10MB budget", async () => {
+      const tmpDir = fs.mkdtempSync(
+        path.join(os.tmpdir(), "tamandua-test-harness-adapter-hermes-")
+      );
+      const hermesPath = path.join(tmpDir, "hermes");
+      // A few hundred bytes — well under 10MB
+      fs.writeFileSync(
+        hermesPath,
+        `#!/bin/sh
+echo "some normal output"
+echo "STATUS: done"
+echo "session_id: 20260518_normal" >&2`,
+        { mode: 0o755 }
+      );
+
+      const originalHermesBinary = process.env.TAMANDUA_HERMES_BINARY;
+      process.env.TAMANDUA_HERMES_BINARY = hermesPath;
+
+      try {
+        const result = await adapter.runRound("task", { timeout: 5 });
+
+        // Should NOT be truncated
+        assert.equal(result.truncated, undefined, "truncated flag should not be set");
+        // Output should have full content
+        assert.ok(result.output.includes("some normal output"));
+        assert.ok(result.output.includes("STATUS: done"));
+        assert.ok(!result.output.includes("[…output truncated…]"));
+        assert.equal(result.sessionRef, "20260518_normal");
+      } finally {
+        if (originalHermesBinary === undefined) {
+          delete process.env.TAMANDUA_HERMES_BINARY;
+        } else {
+          process.env.TAMANDUA_HERMES_BINARY = originalHermesBinary;
+        }
+        fs.rmSync(tmpDir, { recursive: true, force: true });
+      }
+    });
+
+    it("session_id on stderr survives even when stdout is truncated", async () => {
+      const tmpDir = fs.mkdtempSync(
+        path.join(os.tmpdir(), "tamandua-test-harness-adapter-hermes-")
+      );
+      const hermesPath = path.join(tmpDir, "hermes");
+      // Write ~11MB stdout noise, but the session_id is on stderr (which is
+      // tiny). Both streams have independent head+tail windows.
+      fs.writeFileSync(
+        hermesPath,
+        `#!/bin/sh
+dd if=/dev/zero bs=1M count=11 2>/dev/null
+echo "session_id: 20260518_stderr_survives" >&2`,
+        { mode: 0o755 }
+      );
+
+      const originalHermesBinary = process.env.TAMANDUA_HERMES_BINARY;
+      process.env.TAMANDUA_HERMES_BINARY = hermesPath;
+
+      try {
+        const result = await adapter.runRound("task", { timeout: 10 });
+
+        assert.equal(result.truncated, true, "truncated flag should be set (stdout exceeded budget)");
+        assert.ok(result.output.includes("[…output truncated…]"));
+        // stderr is tiny, session_id should be found
+        assert.equal(result.sessionRef, "20260518_stderr_survives");
+      } finally {
+        if (originalHermesBinary === undefined) {
+          delete process.env.TAMANDUA_HERMES_BINARY;
+        } else {
+          process.env.TAMANDUA_HERMES_BINARY = originalHermesBinary;
+        }
+        fs.rmSync(tmpDir, { recursive: true, force: true });
+      }
+    });
+
+    it("truncation preserves session_id on stderr when stderr itself exceeds budget", async () => {
+      const tmpDir = fs.mkdtempSync(
+        path.join(os.tmpdir(), "tamandua-test-harness-adapter-hermes-")
+      );
+      const hermesPath = path.join(tmpDir, "hermes");
+      // Write ~11MB stderr (lines of "A" = 2 bytes each, 5.5M lines) with
+      // session_id at the very END. The session_id must survive in the stderr
+      // tail window despite the middle ~1MB being discarded.
+      fs.writeFileSync(
+        hermesPath,
+        `#!/bin/sh
+# yes outputs "A\\n" repeatedly (2 bytes per line). 5.5M lines = ~11MB.
+(yes A | head -n 5500000; echo "session_id: 20260518_tail_survives") >&2
+echo "stdout is tiny"`,
+        { mode: 0o755 }
+      );
+
+      const originalHermesBinary = process.env.TAMANDUA_HERMES_BINARY;
+      process.env.TAMANDUA_HERMES_BINARY = hermesPath;
+
+      try {
+        const result = await adapter.runRound("task", { timeout: 10 });
+
+        // stderr was truncated, so truncated should be true
+        assert.equal(result.truncated, true, "truncated flag should be set (stderr exceeded budget)");
+        // Session_id must survive in stderr tail window
+        assert.equal(result.sessionRef, "20260518_tail_survives",
+          "sessionRef must be extracted from stderr tail window after truncation");
+        // stdout is normal
+        assert.equal(result.output, "stdout is tiny");
+      } finally {
+        if (originalHermesBinary === undefined) {
+          delete process.env.TAMANDUA_HERMES_BINARY;
+        } else {
+          process.env.TAMANDUA_HERMES_BINARY = originalHermesBinary;
+        }
+        fs.rmSync(tmpDir, { recursive: true, force: true });
+      }
+    });
+
+    it("warns when no session_id trailer found on either stream", async () => {
+      const tmpStateDir = fs.mkdtempSync(
+        path.join(os.tmpdir(), "tamandua-test-adapter-notrailer-")
+      );
+      const savedStateDir = process.env.TAMANDUA_STATE_DIR;
+      const savedJobId = process.env.TAMANDUA_WORKER_JOB_ID;
+      process.env.TAMANDUA_STATE_DIR = tmpStateDir;
+      process.env.TAMANDUA_WORKER_JOB_ID =
+        "tamandua-test-wf-6d379894-4a5e-4dad-92fb-da66e1093e94-devagent";
+
+      const tmpDir = fs.mkdtempSync(
+        path.join(os.tmpdir(), "tamandua-test-harness-adapter-hermes-")
+      );
+      const hermesPath = path.join(tmpDir, "hermes");
+      // No session_id on either stdout or stderr
+      fs.writeFileSync(
+        hermesPath,
+        `#!/bin/sh
+echo "useful output"
+echo "STATUS: done"
+echo "debug info" >&2`,
+        { mode: 0o755 }
+      );
+
+      const originalHermesBinary = process.env.TAMANDUA_HERMES_BINARY;
+      process.env.TAMANDUA_HERMES_BINARY = hermesPath;
+
+      try {
+        const result = await adapter.runRound("do something", { timeout: 5 });
+
+        // Round must complete normally — sessionRef is undefined, not an error
+        assert.equal(result.sessionRef, undefined);
+        assert.ok(result.output.includes("useful output"));
+        assert.ok(result.output.includes("STATUS: done"));
+
+        // The logger warning must be present
+        const logPath = path.join(tmpStateDir, "tamandua.log");
+        const logContent = fs.readFileSync(logPath, "utf-8");
+        assert.ok(
+          logContent.includes("no session_id trailer"),
+          "log must contain missing-trailer warning"
+        );
+        assert.ok(
+          logContent.includes("tokens will read 0"),
+          "log must explain why tokens read 0"
+        );
+        // Context fields
+        assert.ok(
+          logContent.includes("6d379894"),
+          "log context must include runId"
+        );
+        assert.ok(
+          logContent.includes("devagent"),
+          "log context must include agentId"
+        );
+        assert.ok(
+          logContent.includes("stdoutBytes"),
+          "log context must include stdoutBytes"
+        );
+        assert.ok(
+          logContent.includes("stderrBytes"),
+          "log context must include stderrBytes"
+        );
+        assert.ok(
+          logContent.includes("exitCode"),
+          "log context must include exitCode"
+        );
+      } finally {
+        if (savedStateDir === undefined) {
+          delete process.env.TAMANDUA_STATE_DIR;
+        } else {
+          process.env.TAMANDUA_STATE_DIR = savedStateDir;
+        }
+        if (savedJobId === undefined) {
+          delete process.env.TAMANDUA_WORKER_JOB_ID;
+        } else {
+          process.env.TAMANDUA_WORKER_JOB_ID = savedJobId;
+        }
+        if (originalHermesBinary === undefined) {
+          delete process.env.TAMANDUA_HERMES_BINARY;
+        } else {
+          process.env.TAMANDUA_HERMES_BINARY = originalHermesBinary;
+        }
+        fs.rmSync(tmpDir, { recursive: true, force: true });
+        fs.rmSync(tmpStateDir, { recursive: true, force: true });
+      }
+    });
+
+    it("does not warn when session_id is present", async () => {
+      const tmpStateDir = fs.mkdtempSync(
+        path.join(os.tmpdir(), "tamandua-test-adapter-hastrailer-")
+      );
+      const savedStateDir = process.env.TAMANDUA_STATE_DIR;
+      process.env.TAMANDUA_STATE_DIR = tmpStateDir;
+
+      const tmpDir = fs.mkdtempSync(
+        path.join(os.tmpdir(), "tamandua-test-harness-adapter-hermes-")
+      );
+      const hermesPath = path.join(tmpDir, "hermes");
+      fs.writeFileSync(
+        hermesPath,
+        `#!/bin/sh
+echo "useful output"
+echo "session_id: 20260518_103004_cdae11" >&2`,
+        { mode: 0o755 }
+      );
+
+      const originalHermesBinary = process.env.TAMANDUA_HERMES_BINARY;
+      process.env.TAMANDUA_HERMES_BINARY = hermesPath;
+
+      try {
+        const result = await adapter.runRound("do something", { timeout: 5 });
+
+        assert.equal(result.sessionRef, "20260518_103004_cdae11");
+
+        // No missing-trailer warning should appear
+        const logPath = path.join(tmpStateDir, "tamandua.log");
+        const logContent = fs.readFileSync(logPath, "utf-8");
+        assert.ok(
+          !logContent.includes("no session_id trailer"),
+          "log must NOT contain missing-trailer warning when session_id is present"
+        );
+      } finally {
+        if (savedStateDir === undefined) {
+          delete process.env.TAMANDUA_STATE_DIR;
+        } else {
+          process.env.TAMANDUA_STATE_DIR = savedStateDir;
+        }
+        if (originalHermesBinary === undefined) {
+          delete process.env.TAMANDUA_HERMES_BINARY;
+        } else {
+          process.env.TAMANDUA_HERMES_BINARY = originalHermesBinary;
+        }
+        fs.rmSync(tmpDir, { recursive: true, force: true });
+        fs.rmSync(tmpStateDir, { recursive: true, force: true });
+      }
+    });
+
+    it("hermes pre-launch log redacts -q prompt payload with commandPreview parity", async () => {
+      const tmpStateDir = fs.mkdtempSync(
+        path.join(os.tmpdir(), "tamandua-test-adapter-cmdpreview-")
+      );
+      const savedStateDir = process.env.TAMANDUA_STATE_DIR;
+      process.env.TAMANDUA_STATE_DIR = tmpStateDir;
+
+      const tmpDir = fs.mkdtempSync(
+        path.join(os.tmpdir(), "tamandua-test-harness-adapter-hermes-")
+      );
+      const hermesPath = path.join(tmpDir, "hermes");
+      fs.writeFileSync(
+        hermesPath,
+        `#!/bin/sh
+echo "done"
+echo "session_id: 20260518_103004_cdae11" >&2`,
+        { mode: 0o755 }
+      );
+
+      const originalHermesBinary = process.env.TAMANDUA_HERMES_BINARY;
+      process.env.TAMANDUA_HERMES_BINARY = hermesPath;
+
+      const secretPrompt = "VERY_SECRET_HERMES_PROMPT";
+
+      try {
+        const result = await adapter.runRound(secretPrompt, { timeout: 5 });
+
+        assert.equal(result.output, "done");
+        assert.equal(result.sessionRef, "20260518_103004_cdae11");
+
+        // Verify pre-launch log entry via log file
+        const logPath = path.join(tmpStateDir, "tamandua.log");
+        const logContent = fs.readFileSync(logPath, "utf-8");
+        assert.ok(
+          logContent.includes("hermes pre-launch"),
+          "log must contain hermes pre-launch entry"
+        );
+
+        // commandPreview must contain the redaction marker, not the secret
+        assert.ok(
+          logContent.includes("<prompt elided>"),
+          "commandPreview must contain redaction marker"
+        );
+        assert.ok(
+          !logContent.includes(secretPrompt),
+          "log must NOT contain the secret prompt"
+        );
+
+        // promptElided must be true in the log
+        assert.ok(
+          logContent.includes('"promptElided":true'),
+          "log must show promptElided: true"
+        );
+
+        // Result must also carry the fields
+        assert.equal(typeof result.commandPreview, "string", "result.commandPreview must be a string");
+        assert.ok(
+          result.commandPreview!.includes("<prompt elided>"),
+          "result.commandPreview must contain redaction marker"
+        );
+        assert.ok(
+          !result.commandPreview!.includes(secretPrompt),
+          "result.commandPreview must NOT contain the secret prompt"
+        );
+        assert.ok(
+          Array.isArray(result.redactedIndices),
+          "result.redactedIndices must be an array"
+        );
+        assert.ok(
+          result.redactedIndices!.includes(6),
+          "result.redactedIndices must include prompt arg index 6"
+        );
+        assert.equal(
+          result.promptElided,
+          true,
+          "result.promptElided must be true"
+        );
+      } finally {
+        if (savedStateDir === undefined) {
+          delete process.env.TAMANDUA_STATE_DIR;
+        } else {
+          process.env.TAMANDUA_STATE_DIR = savedStateDir;
+        }
+        if (originalHermesBinary === undefined) {
+          delete process.env.TAMANDUA_HERMES_BINARY;
+        } else {
+          process.env.TAMANDUA_HERMES_BINARY = originalHermesBinary;
+        }
+        fs.rmSync(tmpDir, { recursive: true, force: true });
+        fs.rmSync(tmpStateDir, { recursive: true, force: true });
+      }
+    });
+
+    it("hermes pre-launch log shows promptElided: true for empty prompt", async () => {
+      const tmpStateDir = fs.mkdtempSync(
+        path.join(os.tmpdir(), "tamandua-test-adapter-cmdpreview-empty-")
+      );
+      const savedStateDir = process.env.TAMANDUA_STATE_DIR;
+      process.env.TAMANDUA_STATE_DIR = tmpStateDir;
+
+      const tmpDir = fs.mkdtempSync(
+        path.join(os.tmpdir(), "tamandua-test-harness-adapter-hermes-")
+      );
+      const hermesPath = path.join(tmpDir, "hermes");
+      fs.writeFileSync(
+        hermesPath,
+        `#!/bin/sh
+echo "done"
+echo "session_id: 20260518_103004_cdae11" >&2`,
+        { mode: 0o755 }
+      );
+
+      const originalHermesBinary = process.env.TAMANDUA_HERMES_BINARY;
+      process.env.TAMANDUA_HERMES_BINARY = hermesPath;
+
+      try {
+        const result = await adapter.runRound("", { timeout: 5 });
+
+        assert.equal(result.output, "done");
+
+        // Verify pre-launch log
+        const logPath = path.join(tmpStateDir, "tamandua.log");
+        const logContent = fs.readFileSync(logPath, "utf-8");
+        assert.ok(
+          logContent.includes("hermes pre-launch"),
+          "log must contain hermes pre-launch entry"
+        );
+
+        // promptElided should still be true (arg exists at index 6, even if empty)
+        assert.ok(
+          logContent.includes('"promptElided":true'),
+          "log must show promptElided: true even for empty prompt"
+        );
+
+        assert.equal(
+          result.promptElided,
+          true,
+          "result.promptElided must be true"
+        );
+        assert.ok(
+          Array.isArray(result.redactedIndices),
+          "result.redactedIndices must be an array"
+        );
+        assert.ok(
+          result.redactedIndices!.includes(6),
+          "result.redactedIndices must include prompt arg index 6"
+        );
+      } finally {
+        if (savedStateDir === undefined) {
+          delete process.env.TAMANDUA_STATE_DIR;
+        } else {
+          process.env.TAMANDUA_STATE_DIR = savedStateDir;
+        }
+        if (originalHermesBinary === undefined) {
+          delete process.env.TAMANDUA_HERMES_BINARY;
+        } else {
+          process.env.TAMANDUA_HERMES_BINARY = originalHermesBinary;
+        }
+        fs.rmSync(tmpDir, { recursive: true, force: true });
+        fs.rmSync(tmpStateDir, { recursive: true, force: true });
       }
     });
   });

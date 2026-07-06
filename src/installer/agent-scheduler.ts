@@ -978,6 +978,10 @@ export async function executeDispatchRound(
   // resolved from run context alongside the status check below.
   let preferTokenSaver = false;
 
+  // Determine harness type outside the try block so catch handlers can
+  // access it for error-path token attribution.
+  const harnessType = job.harnessType ?? "pi";
+
   try {
     // ── Run-scoped status check ────────────────────────────────────
     // If this run is no longer 'running' (terminal/paused) tear down the
@@ -1087,8 +1091,6 @@ export async function executeDispatchRound(
       agentPersonaInstructions,
     );
 
-    const harnessType = job.harnessType ?? "pi";
-
     logger.info("Work round start", context);
 
     const onSpawn = ({ pid, pgid }: { pid: number; pgid: number }) => {
@@ -1130,6 +1132,8 @@ export async function executeDispatchRound(
       outputTruncated: outputSummary.truncated,
       tokenUsage: metadata.tokenUsage,
       metadataFormat: metadata.jsonMetadataDetected ? "json" : "text",
+      ...(result.exitCode !== undefined ? { exitCode: result.exitCode } : {}),
+      ...(result.signal ? { signal: result.signal } : {}),
     });
 
     await attributeWorkRoundTokenUsage(context, job, outputSummary, metadata);
@@ -1220,6 +1224,40 @@ export async function executeDispatchRound(
           harnessExitError: errorMessage,
           isTimeout,
         });
+      }
+
+      // ── Hermes token lookup on adapter rejection ──────────────
+      // When the hermes adapter could not even resolve (e.g. spawn error),
+      // attempt to extract sessionRef from the error's stderr suffix and
+      // run hermes token attribution if found.
+      if (harnessType === "hermes") {
+        const stderrMatch = errorMessage.match(/\nstderr:\s*(.*)/s);
+        if (stderrMatch) {
+          const stderrText = stderrMatch[1];
+          const sessionIdRegex = /^session_id:\s*(\S+)/m;
+          const sessionMatch = stderrText.match(sessionIdRegex);
+          if (sessionMatch) {
+            const sessionRef = sessionMatch[1];
+            const { lookupHermesSessionTokens } = await import("./hermes-usage.js");
+            const hermesTokens = await lookupHermesSessionTokens(sessionRef);
+            if (hermesTokens !== null && hermesTokens > 0) {
+              const hermesMetadata: WorkRoundMetadata = {
+                assistantOutput: "",
+                tokenUsage: hermesTokens,
+                runId: null,
+                stepId: null,
+                jsonMetadataDetected: false,
+              };
+              const outputSummary = summarizeWorkRoundOutput("");
+              await attributeWorkRoundTokenUsage(context, job, outputSummary, hermesMetadata);
+              logger.info("Hermes token attribution from error-path stderr", {
+                ...context,
+                sessionRef,
+                tokenDelta: hermesTokens,
+              });
+            }
+          }
+        }
       }
     } catch (recoveryErr) {
       logger.error("Orphaned step recovery failed", {

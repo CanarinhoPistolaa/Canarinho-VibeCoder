@@ -630,4 +630,102 @@ describe("scripted-hermes full pipeline (real daemon/scheduler, zero tokens)", {
       }
     },
   );
+
+  // ── Scenario e: teardown-kill token attribution ──
+  // Agent completes step (run becomes terminal), then the harness process
+  // exits with code 130 (simulating real hermes KeyboardInterrupt). Token
+  // attribution must survive — session_id was on stderr, state.db was written,
+  // and US-002 makes the adapter resolve on non-zero exit.
+  it(
+    "do-now: teardown-kill token attribution — agent completes step, harness exits 130, tokens still attributed",
+    { timeout: 120_000 },
+    async () => {
+      let ctx: ScriptedHermesRunContext | undefined;
+      try {
+        ctx = await startHermesScriptedEnvironment("do-now", {
+          agents: {
+            doer: {
+              reportBeforeEmit: true,
+              exitCode: 130,
+              tokens: 555,
+              output: "STATUS: done\nREPORT: teardown-kill after step complete — token attribution should survive",
+            },
+          },
+        });
+        const workdir = path.join(ctx.env.root, "do-now-workdir");
+        fs.mkdirSync(workdir, { recursive: true });
+
+        const runEnv = { ...baseEnv(ctx.env.homeDir, ctx.env.controlPort), ...ctx.scripted.env };
+        const runIdPrefix = await spawnWorkflowRun(
+          [
+            "workflow",
+            "run",
+            "do-now",
+            "Report the current date",
+            "--hermes-as-harness",
+            "--working-directory-for-harness",
+            workdir,
+          ],
+          runEnv,
+        );
+        const runId = resolveFullRunId(runIdPrefix, ctx.env.tamanduaDir);
+
+        const status = await waitForRun(ctx, runId, 90_000);
+        assert.ok(
+          status === "completed" || status === "done",
+          `run should complete despite harness exiting 130, got "${status}"\n${diagnostics(ctx)}`,
+        );
+
+        // ── Token attribution survived the teardown kill ─────────
+        const tokens = await waitForRunTokens(ctx.env.tamanduaDir, runId, 555);
+        assert.equal(
+          tokens,
+          555,
+          `teardown-kill token attribution must survive harness exit 130 — ` +
+            `expected 555 tokens, got ${tokens}. ` +
+            `If this is 0, the adapter didn't capture sessionRef from stderr ` +
+            `or the scheduler didn't attribute tokens on the non-zero exit path.\n` +
+            `${diagnostics(ctx)}`,
+        );
+
+        // ── Step completed normally ──────────────────────────────
+        const steps = dbRows<{ step_id: string; status: string }>(
+          ctx.env.tamanduaDir,
+          "SELECT step_id, status FROM steps WHERE run_id = ? ORDER BY step_index",
+          runId,
+        );
+        assert.equal(steps.length, 1, "do-now should have exactly 1 step");
+        assert.equal(
+          steps[0].status,
+          "done",
+          `step should be done (step complete was called before harness exit 130), got ${steps[0].status}`,
+        );
+
+        // ── Only one work round (no retries despite exit 130) ────
+        const workRounds = ctx.scripted.workInvocations("doer");
+        assert.equal(
+          workRounds.length,
+          1,
+          `doer should have exactly 1 work round (step completed before exit 130), ` +
+            `got ${workRounds.length}\n${diagnostics(ctx)}`,
+        );
+
+        // ── Terminal event exists (token attribution happens
+        // asynchronously after run completion — the event may carry 0
+        // while the DB has the real count; waitForRunTokens covers
+        // attribution correctness).
+        const events = readRunEvents(ctx.env.tamanduaDir, runId);
+        const completed = events.find((e) => e.event === "run.completed");
+        assert.ok(completed, `run.completed event missing; events: ${events.map((e) => e.event).join(", ")}`);
+        assert.equal(typeof completed.tokensSpent, "number", "run.completed should carry tokensSpent field");
+
+        console.log(
+          `[scripted-hermes-e2e teardown-kill] do-now with exitCode 130: ` +
+            `run completed, tokens_spent=${tokens} (attribution survived teardown kill)`,
+        );
+      } finally {
+        await teardown(ctx);
+      }
+    },
+  );
 });

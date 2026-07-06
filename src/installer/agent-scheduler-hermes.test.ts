@@ -142,41 +142,43 @@ echo "session_id: 20260518_103004_cdae11"`,
     assert.ok(lines.length >= 3);
   });
 
-  it("rejects on timeout with clear error message", async () => {
+  it("resolves on timeout instead of rejecting — adapter returns available output", async () => {
     const hermesPath = path.join(tempHome, "hermes");
     makeMockHermes(
       hermesPath,
-      `sleep 10`,
+      // Sleep beyond the 2s timeout, but write session_id to stderr first
+      // so the adapter can still extract it.
+      `echo "session_id: 20260518_103004_cdae11" >&2
+sleep 10`,
     );
 
     process.env.TAMANDUA_HERMES_BINARY = hermesPath;
 
-    await assert.rejects(
-      () => runHermes("do something", { timeout: 2 }),
-      (err: Error) => {
-        return err.message.includes("hermes timed out") &&
-          err.message.includes("2000ms");
-      },
-    );
+    // After US-002 the adapter resolves on timeout (so the scheduler can
+    // attribute tokens).  The output may be empty because the harness was
+    // killed before writing stdout, but sessionRef is on stderr.
+    const output = await runHermes("do something", { timeout: 2 });
+    assert.equal(typeof output, "string", "output should still be a string");
   });
 
-  it("rejects when hermes exits with non-zero code", async () => {
+  it("resolves on non-zero exit — adapter returns output with exitCode/signal in result", async () => {
     const hermesPath = path.join(tempHome, "hermes");
     makeMockHermes(
       hermesPath,
       `echo "error output" >&2
+echo "partial work before crash"
+echo "session_id: 20260518_103004_cdae11" >&2
 exit 1`,
     );
 
     process.env.TAMANDUA_HERMES_BINARY = hermesPath;
 
-    await assert.rejects(
-      () => runHermes("bad task", { timeout: 5 }),
-      (err: Error) => {
-        return err.message.includes("hermes failed") &&
-          err.message.includes("exited with code 1");
-      },
-    );
+    // After US-002 the adapter always resolves (the scheduler decides what
+    // to do with non-zero exits).  The stdout includes partial output,
+    // session_id is on stderr for token attribution.
+    const output = await runHermes("bad task", { timeout: 5 });
+    assert.ok(output.includes("partial work before crash"), "stdout should include partial output");
+    assert.ok(!output.includes("session_id:"), "session_id should be filtered from stdout");
   });
 
   it("works with TAMANDUA_HERMES_BINARY env var", async () => {
