@@ -542,6 +542,7 @@
     };
 
     let logsTailOffset = 0;
+    let logsTailGeneration = 0;
     let latestRuns = [];
     let selectedAutoresearchSessionId = null;
 
@@ -613,11 +614,14 @@
 
     async function fetchLogsTail() {
       try {
-        const res = await fetch(`/api/logs-tail?offset=${logsTailOffset}`);
+        const res = await fetch(`/api/logs-tail?offset=${logsTailOffset}&generation=${logsTailGeneration}`);
         const data = await res.json();
         appendLogsTailLines(data.lines || []);
         if (Number.isFinite(data.nextOffset)) {
           logsTailOffset = data.nextOffset;
+        }
+        if (Number.isFinite(data.generation)) {
+          logsTailGeneration = data.generation;
         }
       } catch (err) {
         console.error("Failed to fetch logs-tail:", err);

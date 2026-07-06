@@ -16,6 +16,7 @@ import { getDb, incrementSystemTokenSpend, getSystemTokenSpend } from "../../dis
 interface LogsTailResponse {
   lines: string[];
   nextOffset: number;
+  generation: number;
 }
 
 function appendGlobalEvent(stateDir: string, evt: TamanduaEvent): void {
@@ -152,7 +153,7 @@ describe("dashboard logs-tail UI", () => {
       const html = await response.text();
       assert.match(html, /<section class="section" id="logs-tail-section">/);
       assert.match(html, /<textarea[\s\S]*id="logs-tail-output"[\s\S]*readonly/);
-      assert.match(html, /fetch\(`\/api\/logs-tail\?offset=\$\{logsTailOffset\}`\)/);
+      assert.match(html, /fetch\(`\/api\/logs-tail\?offset=\$\{logsTailOffset\}&generation=\$\{logsTailGeneration\}`\)/);
       assert.match(html, /appendLogsTailLines\(data\.lines \|\| \[\]\)/);
       assert.match(html, /logsTailOffset = data\.nextOffset/);
       assert.match(html, /output\.scrollTop = output\.scrollHeight/);

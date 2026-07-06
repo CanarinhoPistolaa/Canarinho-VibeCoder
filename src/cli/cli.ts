@@ -130,6 +130,7 @@ async function streamEventSource(source: EventCursorSource, initialLimit: number
   else printEvents(firstBatch);
 
   let cursor = initial.nextOffset;
+  let generation = initial.generation;
   const abort = new AbortController();
   const pollIntervalMs = getLogsTailPollIntervalMs();
   const onSigint = () => abort.abort();
@@ -145,8 +146,9 @@ async function streamEventSource(source: EventCursorSource, initialLimit: number
       }
       if (abort.signal.aborted) break;
 
-      const next = readEventsFromCursor(source, cursor);
+      const next = readEventsFromCursor(source, cursor, generation);
       cursor = next.nextOffset;
+      generation = next.generation;
       if (next.events.length > 0) printEvents(next.events);
     }
   } finally {

@@ -5,6 +5,22 @@ import { resolvePiStateDir } from "./paths.js";
 import { logger } from "../lib/logger.js";
 import { assertStatePathIsolation } from "../lib/test-guard.js";
 
+// ── Rotation constants (global events file) ────────────────────────
+
+/**
+ * Maximum size (20 MB) of the global events file (all.jsonl) before
+ * rotation is triggered. Mirrors the logger.ts rotation pattern:
+ * when emitEvent would push the file past this cap, the file is
+ * rotated to numbered archives.
+ */
+export const MAX_EVENTS_FILE_SIZE = 20 * 1024 * 1024; // 20 MB
+
+/**
+ * Number of rotated archive files to keep (all.jsonl.1 … all.jsonl.N).
+ * When rotation occurs, the oldest archive is deleted before shifting.
+ */
+export const MAX_ROTATED_EVENTS_FILES = 3;
+
 // ── Types ────────────────────────────────────────────────────────────
 
 export interface TamanduaEvent {
@@ -28,6 +44,13 @@ export type EventCursorSource =
 export interface EventCursorReadResult {
   events: TamanduaEvent[];
   nextOffset: number;
+  /**
+   * Monotonic rotation generation counter for the global events file.
+   * Always 0 for run-specific sources.  Callers should store this and
+   * pass it back on the next poll so readEventsFromCursor can detect
+   * rotation (generation mismatch → stale byte offset → safe reset).
+   */
+  generation: number;
 }
 
 // ── Paths ────────────────────────────────────────────────────────────
@@ -44,9 +67,100 @@ function getGlobalEventsFile(): string {
   return path.join(getEventsDir(), "all.jsonl");
 }
 
+function getGenerationFilePath(): string {
+  return path.join(getEventsDir(), "all.jsonl.generation");
+}
+
 function getEventsFileForSource(source: EventCursorSource): string {
   if (source.kind === "global") return getGlobalEventsFile();
   return getEventsFile(source.runId);
+}
+
+// ── Generation tracking ────────────────────────────────────────────
+
+/**
+ * Return the current monotonic rotation generation counter for the
+ * global events file.  Persisted in a companion .generation file
+ * alongside all.jsonl.  Returns 0 when no generation file exists yet.
+ *
+ * Callers can compare a previously-stored generation against the
+ * current value to detect rotation: a mismatch means the cursor's
+ * byte offsets into the old all.jsonl are stale.
+ */
+export function getGlobalEventsGeneration(): number {
+  const genFile = getGenerationFilePath();
+  try {
+    const raw = fs.readFileSync(genFile, "utf-8").trim();
+    const n = Number(raw);
+    return Number.isFinite(n) && n >= 0 ? n : 0;
+  } catch {
+    return 0;
+  }
+}
+
+/**
+ * Increment the generation counter and persist it to the .generation
+ * companion file.  Called internally by rotateGlobalEventsFile.
+ */
+function incrementGeneration(): void {
+  const genFile = getGenerationFilePath();
+  const next = getGlobalEventsGeneration() + 1;
+  fs.mkdirSync(path.dirname(genFile), { recursive: true });
+  fs.writeFileSync(genFile, String(next), "utf-8");
+}
+
+// ── Global events file rotation ─────────────────────────────────────
+
+/**
+ * Rotate the global events file (all.jsonl) when it exceeds
+ * MAX_EVENTS_FILE_SIZE.  Follows the same archive-shifting pattern as
+ * logger.ts rotateIfNeeded:
+ *
+ *   1. Delete the oldest archive (all.jsonl.MAX_ROTATED_EVENTS_FILES)
+ *   2. Shift existing archives: .(N-1) → .N  …  .1 → .2
+ *   3. Rename the current file to all.jsonl.1
+ *   4. Increment the rotation generation counter
+ *
+ * The live file (all.jsonl) is NOT re-created here — the next
+ * emitEvent appendFileSync call will implicitly create it.
+ *
+ * This function is idempotent: if the global file doesn't exist or
+ * is below the cap, it returns without side effects.
+ */
+export function rotateGlobalEventsFile(): void {
+  const globalFile = getGlobalEventsFile();
+  try {
+    const stats = fs.statSync(globalFile);
+    if (stats.size <= MAX_EVENTS_FILE_SIZE) return; // below cap
+  } catch {
+    // File doesn't exist yet — nothing to rotate
+    return;
+  }
+
+  // Delete oldest archive
+  const oldest = `${globalFile}.${MAX_ROTATED_EVENTS_FILES}`;
+  try {
+    fs.unlinkSync(oldest);
+  } catch {
+    // oldest may not exist — fine
+  }
+
+  // Shift archives: .(N-1) → .N, …, .1 → .2
+  for (let i = MAX_ROTATED_EVENTS_FILES - 1; i >= 1; i--) {
+    const src = `${globalFile}.${i}`;
+    const dst = `${globalFile}.${i + 1}`;
+    try {
+      fs.renameSync(src, dst);
+    } catch {
+      // race / missing archive — acceptable
+    }
+  }
+
+  // Rename current → .1
+  fs.renameSync(globalFile, `${globalFile}.1`);
+
+  // Increment the rotation generation so cursor consumers can detect staleness
+  incrementGeneration();
 }
 
 // ── Event Emission ───────────────────────────────────────────────────
@@ -66,6 +180,46 @@ const NOISE_EVENTS: ReadonlySet<string> = new Set([
 function isEnvFlagEnabled(value: string | undefined): boolean {
   const v = value?.trim().toLowerCase();
   return v !== undefined && v !== "" && v !== "0" && v !== "false";
+}
+
+/**
+ * Module-level cached estimate of the global all.jsonl file size (bytes).
+ * Initialised at module load via statSync and incremented on each
+ * successful global append.  When the estimate reaches MAX_EVENTS_FILE_SIZE
+ * rotation is triggered before the next write, and the cache is reset to
+ * include only bytes written to the fresh (post-rotation) live file.
+ *
+ * Using a cache avoids a statSync on every emitEvent call (99% of events
+ * are nudge noise and are dropped before this path, so the check is only
+ * paid for real events).  The estimate may diverge from the true size
+ * after external writes or concurrent processes; that's acceptable — the
+ * rotation check is a size-based guard, not a precision accounting tool.
+ */
+let globalFileSizeEstimate = 0;
+
+// Initialise the size cache at module load so restarted processes pick up
+// an existing all.jsonl file size.
+(function initGlobalFileSizeEstimate(): void {
+  try {
+    const stats = fs.statSync(getGlobalEventsFile());
+    globalFileSizeEstimate = stats.size;
+  } catch {
+    // File doesn't exist yet — keep estimate at 0
+  }
+})();
+
+/**
+ * Rescan the global events file and update the module-level size
+ * estimate.  Useful when the file is written outside emitEvent (e.g.
+ * in tests that pre-seed a large all.jsonl to exercise rotation).
+ */
+export function _refreshSizeEstimate(): void {
+  try {
+    const stats = fs.statSync(getGlobalEventsFile());
+    globalFileSizeEstimate = stats.size;
+  } catch {
+    globalFileSizeEstimate = 0;
+  }
 }
 
 let isolationViolationReported = false;
@@ -121,10 +275,17 @@ export function emitEvent(evt: TamanduaEvent): void {
     });
   }
 
-  // Write to global events file
+  // Write to global events file — rotate after if the file now exceeds the cap
   const globalFile = getGlobalEventsFile();
   try {
     fs.appendFileSync(globalFile, line, "utf-8");
+    globalFileSizeEstimate += Buffer.byteLength(line);
+    if (globalFileSizeEstimate > MAX_EVENTS_FILE_SIZE) {
+      rotateGlobalEventsFile();
+      // After rotation the live file is empty (or will be created by
+      // future appends).  Reset the estimate.
+      globalFileSizeEstimate = 0;
+    }
   } catch (err) {
     logger.warn("Failed to write global event", {
       event: evt.event,
@@ -157,9 +318,26 @@ const MAX_TAIL_READ = 4 * 1024 * 1024; // 4 MB
  * Returns only complete newline-terminated records and the next cursor offset.
  * Malformed JSON lines are skipped safely.
  */
-export function readEventsFromCursor(source: EventCursorSource, offset = 0): EventCursorReadResult {
+export function readEventsFromCursor(
+  source: EventCursorSource,
+  offset = 0,
+  generation?: number,
+): EventCursorReadResult {
   const eventsFile = getEventsFileForSource(source);
-  const safeOffset = Math.max(0, Math.floor(offset));
+
+  // For global source: if the caller's generation is stale (rotation
+  // happened since the cursor was obtained), reset to offset 0 so we read
+  // the new live file from the beginning instead of pointing at bytes in
+  // the old (now-archived) file — which would be at best empty, at worst
+  // silently returning bytes from a different file that reused the inode.
+  const currentGeneration = source.kind === "global"
+    ? getGlobalEventsGeneration()
+    : 0;
+  const isGlobalSource = source.kind === "global";
+  let safeOffset = Math.max(0, Math.floor(offset));
+  if (isGlobalSource && generation !== undefined && generation !== currentGeneration) {
+    safeOffset = 0;
+  }
 
   let fd: number | undefined;
   try {
@@ -170,7 +348,7 @@ export function readEventsFromCursor(source: EventCursorSource, offset = 0): Eve
     const effectiveOffset = safeOffset > fileSize ? 0 : safeOffset;
     const readLength = fileSize - effectiveOffset;
 
-    if (readLength === 0) return { events: [], nextOffset: effectiveOffset };
+    if (readLength === 0) return { events: [], nextOffset: effectiveOffset, generation: currentGeneration };
 
     const fileBuffer = Buffer.alloc(readLength);
     fs.readSync(fd, fileBuffer, 0, readLength, effectiveOffset);
@@ -200,17 +378,17 @@ export function readEventsFromCursor(source: EventCursorSource, offset = 0): Eve
       }
     }
 
-    return { events, nextOffset: effectiveOffset + cursor };
+    return { events, nextOffset: effectiveOffset + cursor, generation: currentGeneration };
   } catch (err) {
     const code = (err as NodeJS.ErrnoException)?.code;
-    if (code === "ENOENT") return { events: [], nextOffset: 0 };
+    if (code === "ENOENT") return { events: [], nextOffset: 0, generation: currentGeneration };
 
     logger.warn("Failed to read event cursor source", {
       source: source.kind,
       runId: source.kind === "run" ? source.runId : undefined,
       error: String(err),
     });
-    return { events: [], nextOffset: safeOffset };
+    return { events: [], nextOffset: safeOffset, generation: currentGeneration };
   } finally {
     if (fd !== undefined) fs.closeSync(fd);
   }

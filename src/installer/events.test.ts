@@ -12,6 +12,11 @@ import {
   getRunEvents,
   countRunEvents,
   getEventsPath,
+  getGlobalEventsGeneration,
+  rotateGlobalEventsFile,
+  MAX_EVENTS_FILE_SIZE,
+  MAX_ROTATED_EVENTS_FILES,
+  _refreshSizeEstimate,
   type TamanduaEvent,
 } from "../../dist/installer/events.js";
 
@@ -490,6 +495,164 @@ describe("events", () => {
       const result = readEventsFromCursor({ kind: "run", runId }, 0);
       assert.equal(result.events.length, 1);
       assert.equal(result.events[0]!.event, "run.started");
+    });
+  });
+
+  describe("cursor rotation safety", () => {
+    function writeLargeGlobalFile(size: number, marker: string): string {
+      const globalFile = path.join(stateDir, "events", "all.jsonl");
+      fs.mkdirSync(path.dirname(globalFile), { recursive: true });
+      const fd = fs.openSync(globalFile, "w");
+      const chunkSize = 512 * 1024; // 512 KB
+      const header = JSON.stringify({ ts: "2026-01-01T00:00:00Z", event: `prefill.${marker}`, runId: "prefill" }) + "\n";
+      const padLen = Math.max(1, chunkSize - Buffer.byteLength(header));
+      const pad = "x".repeat(padLen);
+      const fullChunk = header + pad + "\n";
+
+      let written = 0;
+      while (written < size) {
+        const toWrite = Math.min(Buffer.byteLength(fullChunk), size - written);
+        if (toWrite === Buffer.byteLength(fullChunk)) {
+          fs.appendFileSync(fd, fullChunk, "utf-8");
+          written += toWrite;
+        } else {
+          const partial = header + "x".repeat(Math.max(1, toWrite - Buffer.byteLength(header) - 1)) + "\n";
+          fs.appendFileSync(fd, partial, "utf-8");
+          written += Buffer.byteLength(partial);
+        }
+      }
+      fs.closeSync(fd);
+      return globalFile;
+    }
+
+    it("EventCursorReadResult includes a generation field", () => {
+      // Global source — generation should be 0 initially
+      const globalFile = path.join(stateDir, "events", "all.jsonl");
+      fs.mkdirSync(path.dirname(globalFile), { recursive: true });
+      fs.writeFileSync(globalFile, "", "utf-8");
+
+      const result = readEventsFromCursor({ kind: "global" }, 0);
+      assert.ok("generation" in result, "result must have generation property");
+      assert.equal(result.generation, 0, "initial generation should be 0");
+    });
+
+    it("run-specific cursor returns generation 0", () => {
+      const runId = "run-gen-test";
+      const runFile = path.join(stateDir, "events", `${runId}.jsonl`);
+      fs.mkdirSync(path.dirname(runFile), { recursive: true });
+      fs.writeFileSync(runFile, JSON.stringify(makeEvent(runId, "run.started")) + "\n", "utf-8");
+
+      const result = readEventsFromCursor({ kind: "run", runId }, 0);
+      assert.equal(result.generation, 0, "run-specific source always returns generation 0");
+    });
+
+    it("stale cursor detected after rotation and resets without throwing", () => {
+      // 1. Get a cursor with generation 0
+      const globalFile = path.join(stateDir, "events", "all.jsonl");
+      fs.mkdirSync(path.dirname(globalFile), { recursive: true });
+      fs.writeFileSync(globalFile, JSON.stringify(makeEvent("run-pre", "event.0")) + "\n", "utf-8");
+
+      const beforeRot = readEventsFromCursor({ kind: "global" }, 0);
+      assert.equal(beforeRot.generation, 0);
+      assert.equal(beforeRot.events.length, 1);
+
+      // 2. Trigger rotation (writes past cap → rotates → generation increments)
+      writeLargeGlobalFile(MAX_EVENTS_FILE_SIZE - 50, "seed");
+      _refreshSizeEstimate();
+      emitEvent(makeEvent("run-rot", "rotation.trigger"));
+
+      assert.equal(getGlobalEventsGeneration(), 1, "generation must be 1 after rotation");
+
+      // 3. Now read with the old cursor (generation=0) — should reset to 0 offset
+      const afterRot = readEventsFromCursor({ kind: "global" }, beforeRot.nextOffset, beforeRot.generation);
+      assert.equal(afterRot.generation, 1, "generation should be updated to current");
+      // The reset means we read from the beginning of the new live file.
+      // Since emitEvent just rotated, the live file should be empty (next write creates it).
+      // But if there were post-rotation writes, we'd read them from 0.
+      assert.doesNotThrow(() => {
+        // Result should be well-formed, no errors
+      });
+    });
+
+    it("does not duplicate events after rotation-induced reset", () => {
+      // 1. Write some initial events
+      const globalFile = path.join(stateDir, "events", "all.jsonl");
+      fs.mkdirSync(path.dirname(globalFile), { recursive: true });
+      fs.writeFileSync(globalFile, JSON.stringify(makeEvent("run-dup", "event.0")) + "\n", "utf-8");
+
+      const beforeRot = readEventsFromCursor({ kind: "global" }, 0);
+      assert.equal(beforeRot.events.length, 1);
+
+      // 2. Rotate
+      writeLargeGlobalFile(MAX_EVENTS_FILE_SIZE - 50, "seed");
+      _refreshSizeEstimate();
+      emitEvent(makeEvent("run-dup", "rotation.trigger"));
+
+      // 3. Write a post-rotation event
+      emitEvent(makeEvent("run-dup", "post-rotation"));
+
+      // 4. Read with the stale cursor (generation=0)
+      const afterRot = readEventsFromCursor({ kind: "global" }, beforeRot.nextOffset, beforeRot.generation);
+      assert.equal(afterRot.generation, 1);
+
+      // Should read only the post-rotation event (from the new live file),
+      // NOT the pre-rotation events or the rotation-trigger event
+      const eventIds = afterRot.events.map(e => e.event);
+      assert.ok(!eventIds.includes("event.0"), "should not duplicate pre-rotation event");
+      assert.ok(!eventIds.includes("rotation.trigger"), "should not include rotation trigger event");
+      assert.ok(eventIds.includes("post-rotation"), "should include post-rotation event");
+    });
+
+    it("fresh cursor continues to work identically after rotation", () => {
+      // 1. Rotate
+      writeLargeGlobalFile(MAX_EVENTS_FILE_SIZE - 50, "seed");
+      _refreshSizeEstimate();
+      emitEvent(makeEvent("run-fresh", "rotation.trigger"));
+
+      // 2. Write post-rotation events
+      emitEvent(makeEvent("run-fresh", "event.1"));
+      emitEvent(makeEvent("run-fresh", "event.2"));
+
+      // 3. Read from scratch with no generation (fresh cursor)
+      const fresh = readEventsFromCursor({ kind: "global" }, 0);
+      assert.equal(fresh.generation, 1);
+      const freshEvents = fresh.events.map(e => e.event);
+      assert.ok(freshEvents.includes("event.1"), "fresh cursor sees event.1");
+      assert.ok(freshEvents.includes("event.2"), "fresh cursor sees event.2");
+
+      // 4. Poll again with matching generation — normal incremental read
+      emitEvent(makeEvent("run-fresh", "event.3"));
+      const poll = readEventsFromCursor({ kind: "global" }, fresh.nextOffset, fresh.generation);
+      assert.equal(poll.generation, 1);
+      assert.equal(poll.events.length, 1);
+      assert.equal(poll.events[0]!.event, "event.3");
+    });
+
+    it("run-specific cursor ignores generation mismatch", () => {
+      const runId = "run-ignore-gen";
+      const runFile = path.join(stateDir, "events", `${runId}.jsonl`);
+      fs.mkdirSync(path.dirname(runFile), { recursive: true });
+
+      const evt1 = makeEvent(runId, "event.0");
+      fs.writeFileSync(runFile, JSON.stringify(evt1) + "\n", "utf-8");
+
+      // Read with a bogus generation — run-specific source ignores it
+      const result = readEventsFromCursor({ kind: "run", runId }, 0, 999);
+      assert.equal(result.generation, 0, "run-specific generation always 0");
+      assert.equal(result.events.length, 1);
+      assert.equal(result.events[0]!.event, "event.0");
+    });
+
+    it("no rotation occurs below the cap", () => {
+      // Write a few events well below cap — generation stays 0
+      emitEvent(makeEvent("run-norot", "event.0"));
+      emitEvent(makeEvent("run-norot", "event.1"));
+
+      assert.equal(getGlobalEventsGeneration(), 0);
+
+      const result = readEventsFromCursor({ kind: "global" }, 0);
+      assert.equal(result.generation, 0);
+      assert.equal(result.events.length, 2);
     });
   });
 
@@ -981,5 +1144,556 @@ describe("getEventsPath", () => {
   it("returns the events directory under TAMANDUA_STATE_DIR", () => {
     const p = getEventsPath();
     assert.ok(p.includes("events"));
+  });
+});
+
+describe("emitEvent rotation integration", () => {
+  let stateDir: string;
+  let originalStateDir: string | undefined;
+
+  beforeEach(() => {
+    originalStateDir = process.env.TAMANDUA_STATE_DIR;
+    stateDir = fs.mkdtempSync(path.join(os.tmpdir(), "tamandua-emit-rotate-"));
+    process.env.TAMANDUA_STATE_DIR = stateDir;
+  });
+
+  afterEach(() => {
+    if (originalStateDir === undefined) delete process.env.TAMANDUA_STATE_DIR;
+    else process.env.TAMANDUA_STATE_DIR = originalStateDir;
+    fs.rmSync(stateDir, { recursive: true, force: true });
+  });
+
+  function writeLargeGlobalFile(size: number, marker: string): void {
+    const globalFile = path.join(stateDir, "events", "all.jsonl");
+    fs.mkdirSync(path.dirname(globalFile), { recursive: true });
+    const fd = fs.openSync(globalFile, "w");
+    const chunkSize = 512 * 1024; // 512 KB
+    const header = JSON.stringify({ ts: "2026-01-01T00:00:00Z", event: `prefill.${marker}`, runId: "prefill" }) + "\n";
+    const headerLen = Buffer.byteLength(header);
+    const padLen = Math.max(1, chunkSize - headerLen);
+    const pad = "x".repeat(padLen);
+    const fullChunk = header + pad + "\n";
+
+    let written = 0;
+    while (written < size) {
+      const toWrite = Math.min(Buffer.byteLength(fullChunk), size - written);
+      if (toWrite === Buffer.byteLength(fullChunk)) {
+        fs.appendFileSync(fd, fullChunk, "utf-8");
+        written += toWrite;
+      } else {
+        // Last partial chunk — pad shorter
+        const partial = header + "x".repeat(Math.max(1, toWrite - headerLen - 1)) + "\n";
+        fs.appendFileSync(fd, partial, "utf-8");
+        written += Buffer.byteLength(partial);
+      }
+    }
+    fs.closeSync(fd);
+  }
+
+  function archiveExists(n: number): boolean {
+    return fs.existsSync(path.join(stateDir, "events", `all.jsonl.${n}`));
+  }
+
+  function readArchive(n: number): string {
+    return fs.readFileSync(path.join(stateDir, "events", `all.jsonl.${n}`), "utf-8");
+  }
+
+  it("triggers rotation when emitEvent pushes global file past cap", () => {
+    // Pre-seed the global file very close to the cap so that a single
+    // emitEvent pushes the actual file size past it.
+    const nearCap = MAX_EVENTS_FILE_SIZE - 50;
+    writeLargeGlobalFile(nearCap, "seed");
+
+    // Sync the module-level estimate with the pre-seeded file
+    _refreshSizeEstimate();
+
+    // Emit an event — it is appended, pushing the file past the cap,
+    // then rotateGlobalEventsFile renames the live file to .1 (so the
+    // trigger event lives in the archive, not the live file).
+    const evt = makeEvent("run-rotate-1", "run.started");
+    emitEvent(evt);
+
+    // After rotation the live file is gone (renamed to .1).
+    const globalFile = path.join(stateDir, "events", "all.jsonl");
+    assert.ok(!fs.existsSync(globalFile), "live file should be gone after rotation");
+
+    // Archive .1 should contain the pre-seeded content AND the trigger event
+    assert.ok(archiveExists(1), "archive .1 must exist");
+    const archiveContent = readArchive(1);
+    assert.ok(archiveContent.includes("prefill.seed"), "archive .1 must have pre-seeded content");
+    assert.ok(archiveContent.includes("run-rotate-1"), "archive .1 must have the trigger event");
+
+    // No higher archives on first rotation
+    assert.ok(!archiveExists(2), "archive .2 must not exist on first rotation");
+    assert.ok(!archiveExists(3), "archive .3 must not exist on first rotation");
+
+    // Generation must have incremented
+    assert.equal(getGlobalEventsGeneration(), 1);
+
+    // A subsequent event goes to the fresh live file
+    emitEvent(makeEvent("run-rotate-1", "step.running"));
+    assert.ok(fs.existsSync(globalFile), "live file must exist after post-rotation write");
+    const liveContent = fs.readFileSync(globalFile, "utf-8");
+    assert.ok(liveContent.includes("step.running"), "post-rotation event must be in live file");
+  });
+
+  it("prunes oldest archive when max archives exceeded", () => {
+    // Rotate 4 times to fill all archive slots (MAX_ROTATED_EVENTS_FILES = 3).
+    // Each iteration: pre-seed near cap, emitEvent pushes past → rotates.
+    for (let rot = 0; rot < 4; rot++) {
+      const marker = `rot${rot}`;
+      writeLargeGlobalFile(MAX_EVENTS_FILE_SIZE - 50, marker);
+      _refreshSizeEstimate();
+
+      // This event is appended, then the file rotates (trigger event → archive)
+      emitEvent(makeEvent(`run-rot${rot}`, `rotation.${rot}`));
+    }
+
+    // After 4 rotations, archives .1 .2 .3 should exist
+    assert.ok(archiveExists(1), "archive .1 must exist");
+    assert.ok(archiveExists(2), "archive .2 must exist");
+    assert.ok(archiveExists(3), "archive .3 must exist");
+
+    // The oldest (first rotation's content) should have been pruned:
+    // rot0 is gone, rot1 → .3, rot2 → .2, rot3 → .1
+    // All archive contents include trigger events + pre-seeded content.
+    // Archive .3 should contain rot1 (the oldest surviving)
+    assert.ok(readArchive(3).includes("prefill.rot1"), "archive .3 should have rot1 (oldest kept)");
+
+    // Archive .1 should have the most recent (rot3)
+    assert.ok(readArchive(1).includes("prefill.rot3"), "archive .1 should have rot3 (newest)");
+
+    // rot0 should NOT appear in any archive
+    const allArchives = readArchive(1) + readArchive(2) + readArchive(3);
+    assert.ok(!allArchives.includes("prefill.rot0"), "rot0 must be pruned from all archives");
+
+    // After the 4th rotation the live file is gone (renamed to .1 with
+    // the trigger event).  A subsequent write recreates it.
+    const globalFile = path.join(stateDir, "events", "all.jsonl");
+    assert.ok(!fs.existsSync(globalFile), "live file must be gone after final rotation");
+
+    // A post-rotation event recreates the live file
+    emitEvent(makeEvent("run-after", "run.started"));
+    assert.ok(fs.existsSync(globalFile), "live file must exist after post-rotation write");
+    const liveContent = fs.readFileSync(globalFile, "utf-8");
+    assert.ok(liveContent.includes("run-after"), "post-rotation event must be in live file");
+
+    // Generation should be 4
+    assert.equal(getGlobalEventsGeneration(), 4);
+  });
+
+  it("does not rotate when global file is below the cap", () => {
+    // Write a small file via emitEvent — no rotation should happen
+    emitEvent(makeEvent("run-small", "run.started"));
+    emitEvent(makeEvent("run-small", "step.running"));
+
+    const genBefore = getGlobalEventsGeneration();
+    assert.equal(genBefore, 0, "generation should be 0 (no rotation)");
+
+    const globalFile = path.join(stateDir, "events", "all.jsonl");
+    assert.ok(fs.existsSync(globalFile), "global file must exist");
+    assert.ok(!archiveExists(1), "no archive should exist below cap");
+    assert.ok(!archiveExists(2), "no archive should exist below cap");
+    assert.ok(!archiveExists(3), "no archive should exist below cap");
+  });
+
+  it("events continue writing to live file after rotation", () => {
+    // The trigger event that pushes past the cap is appended first,
+    // then rotation renames the file (trigger event → archive).
+    writeLargeGlobalFile(MAX_EVENTS_FILE_SIZE - 50, "pre");
+    _refreshSizeEstimate();
+    emitEvent(makeEvent("run-post-rot", "rotation.trigger"));
+
+    // Now emit more events — they should all go to the live file
+    emitEvent(makeEvent("run-post-rot", "step.running"));
+    emitEvent(makeEvent("run-post-rot", "step.done"));
+    emitEvent(makeEvent("run-post-rot", "run.completed"));
+
+    const globalFile = path.join(stateDir, "events", "all.jsonl");
+    const liveContent = fs.readFileSync(globalFile, "utf-8");
+    assert.ok(liveContent.includes("step.running"), "live file must have step.running");
+    assert.ok(liveContent.includes("step.done"), "live file must have step.done");
+    assert.ok(liveContent.includes("run.completed"), "live file must have run.completed");
+    // Rotation trigger event should be in the archive, not live file
+    assert.ok(!liveContent.includes("rotation.trigger"), "trigger event must not be in live file");
+  });
+
+  it("per-run event files are uncapped and unaffected by rotation", () => {
+    // Trigger rotation
+    writeLargeGlobalFile(MAX_EVENTS_FILE_SIZE - 50, "pre");
+    _refreshSizeEstimate();
+    emitEvent(makeEvent("run-per-run", "run.started"));
+
+    // Emit many more events for the same run to the per-run file
+    for (let i = 0; i < 100; i++) {
+      emitEvent(makeEvent("run-per-run", `event.${i}`));
+    }
+
+    // Per-run file should have all 101 events (1 trigger + 100 more)
+    const runFile = path.join(stateDir, "events", "run-per-run.jsonl");
+    assert.ok(fs.existsSync(runFile), "per-run file must exist");
+    const runContent = fs.readFileSync(runFile, "utf-8");
+    const runLines = runContent.trim().split("\n").filter(Boolean);
+    assert.equal(runLines.length, 101, "per-run file must have 101 events (uncapped)");
+
+    // Per-run file must NOT be rotated (no .jsonl.1 etc.)
+    assert.ok(
+      !fs.existsSync(path.join(stateDir, "events", "run-per-run.jsonl.1")),
+      "per-run file must not have archive .1",
+    );
+    assert.ok(
+      !fs.existsSync(path.join(stateDir, "events", "run-per-run.jsonl.2")),
+      "per-run file must not have archive .2",
+    );
+
+    // Global file should exist (got rotated then new events appended)
+    const globalFile = path.join(stateDir, "events", "all.jsonl");
+    assert.ok(fs.existsSync(globalFile), "global file must exist");
+  });
+
+  it("rotateGlobalEventsFile is not called when estimate + line is below cap", () => {
+    // Reset stateDir so any previous global file doesn't interfere
+    const globalFile = path.join(stateDir, "events", "all.jsonl");
+    fs.mkdirSync(path.dirname(globalFile), { recursive: true });
+
+    // Write a small file (well below cap) and check that rotation is NOT triggered
+    emitEvent(makeEvent("run-below", "run.started"));
+    emitEvent(makeEvent("run-below", "step.running"));
+
+    // No archives, no generation change
+    assert.ok(!archiveExists(1));
+    assert.ok(!archiveExists(2));
+    assert.ok(!archiveExists(3));
+    assert.equal(getGlobalEventsGeneration(), 0);
+
+    // All events are in the live file
+    const content = fs.readFileSync(globalFile, "utf-8");
+    assert.ok(content.includes("run.started"));
+    assert.ok(content.includes("step.running"));
+  });
+});
+
+describe("rotation infrastructure", () => {
+  let stateDir: string;
+  let originalStateDir: string | undefined;
+
+  beforeEach(() => {
+    originalStateDir = process.env.TAMANDUA_STATE_DIR;
+    stateDir = fs.mkdtempSync(path.join(os.tmpdir(), "tamandua-rotate-"));
+    process.env.TAMANDUA_STATE_DIR = stateDir;
+  });
+
+  afterEach(() => {
+    if (originalStateDir === undefined) delete process.env.TAMANDUA_STATE_DIR;
+    else process.env.TAMANDUA_STATE_DIR = originalStateDir;
+    fs.rmSync(stateDir, { recursive: true, force: true });
+  });
+
+  describe("constants", () => {
+    it("MAX_EVENTS_FILE_SIZE is 20 MB", () => {
+      assert.equal(MAX_EVENTS_FILE_SIZE, 20 * 1024 * 1024);
+    });
+
+    it("MAX_ROTATED_EVENTS_FILES is 3", () => {
+      assert.equal(MAX_ROTATED_EVENTS_FILES, 3);
+    });
+  });
+
+  describe("getGlobalEventsGeneration", () => {
+    it("returns 0 when no generation file exists", () => {
+      assert.equal(getGlobalEventsGeneration(), 0);
+    });
+
+    it("returns persisted generation value", () => {
+      const genFile = path.join(stateDir, "events", "all.jsonl.generation");
+      fs.mkdirSync(path.dirname(genFile), { recursive: true });
+      fs.writeFileSync(genFile, "5", "utf-8");
+      assert.equal(getGlobalEventsGeneration(), 5);
+    });
+
+    it("handles non-numeric generation file gracefully", () => {
+      const genFile = path.join(stateDir, "events", "all.jsonl.generation");
+      fs.mkdirSync(path.dirname(genFile), { recursive: true });
+      fs.writeFileSync(genFile, "not-a-number", "utf-8");
+      assert.equal(getGlobalEventsGeneration(), 0);
+    });
+  });
+
+  describe("rotateGlobalEventsFile", () => {
+    function writeGlobalFile(content: string): void {
+      const globalFile = path.join(stateDir, "events", "all.jsonl");
+      fs.mkdirSync(path.dirname(globalFile), { recursive: true });
+      fs.writeFileSync(globalFile, content, "utf-8");
+    }
+
+    function globalFileSize(): number {
+      const globalFile = path.join(stateDir, "events", "all.jsonl");
+      try {
+        return fs.statSync(globalFile).size;
+      } catch {
+        return 0;
+      }
+    }
+
+    function archiveExists(n: number): boolean {
+      const archive = path.join(stateDir, "events", `all.jsonl.${n}`);
+      return fs.existsSync(archive);
+    }
+
+    function readArchive(n: number): string {
+      const archive = path.join(stateDir, "events", `all.jsonl.${n}`);
+      return fs.readFileSync(archive, "utf-8");
+    }
+
+    it("does nothing when global file does not exist", () => {
+      assert.doesNotThrow(() => rotateGlobalEventsFile());
+      assert.equal(globalFileSize(), 0);
+      assert.equal(getGlobalEventsGeneration(), 0);
+    });
+
+    it("does nothing when file is below the cap", () => {
+      writeGlobalFile("small content\n");
+      const sizeBefore = globalFileSize();
+      assert.ok(sizeBefore < MAX_EVENTS_FILE_SIZE);
+
+      rotateGlobalEventsFile();
+
+      // File should still exist and be unchanged
+      assert.ok(fs.existsSync(path.join(stateDir, "events", "all.jsonl")));
+      assert.equal(globalFileSize(), sizeBefore);
+      assert.equal(getGlobalEventsGeneration(), 0);
+    });
+
+    it("rotates when file exceeds cap with correct archive numbering", () => {
+      // Write a file just over MAX_EVENTS_FILE_SIZE
+      const chunkSize = 1024 * 1024; // 1 MB
+      const chunks = Math.ceil((MAX_EVENTS_FILE_SIZE + 1) / chunkSize);
+      const globalFile = path.join(stateDir, "events", "all.jsonl");
+      fs.mkdirSync(path.dirname(globalFile), { recursive: true });
+      const fd = fs.openSync(globalFile, "w");
+      const pad = "x".repeat(chunkSize - 1); // -1 for newline
+      for (let i = 0; i < chunks; i++) {
+        fs.appendFileSync(fd, `${pad}\n`, "utf-8");
+      }
+      fs.closeSync(fd);
+
+      assert.ok(fs.statSync(globalFile).size > MAX_EVENTS_FILE_SIZE, "file must exceed cap");
+
+      rotateGlobalEventsFile();
+
+      // Live file should be gone (renamed to .1)
+      assert.ok(!fs.existsSync(globalFile), "live file should be renamed to .1");
+
+      // Archive .1 should exist with the old content
+      assert.ok(archiveExists(1), "archive .1 must exist");
+      assert.ok(readArchive(1).length > 0, "archive .1 must have content");
+
+      // No higher archives should exist on first rotation
+      assert.ok(!archiveExists(2), "archive .2 must not exist on first rotation");
+      assert.ok(!archiveExists(3), "archive .3 must not exist on first rotation");
+
+      // Generation must have incremented
+      assert.equal(getGlobalEventsGeneration(), 1);
+    });
+
+    it("shifts and prunes archives correctly across multiple rotations", () => {
+      const globalFile = path.join(stateDir, "events", "all.jsonl");
+      const chunkSize = 1024 * 1024;
+      const pad = "x".repeat(chunkSize - 1);
+      const chunks = Math.ceil((MAX_EVENTS_FILE_SIZE + 1) / chunkSize);
+      fs.mkdirSync(path.dirname(globalFile), { recursive: true });
+
+      // First rotation
+      const fd1 = fs.openSync(globalFile, "w");
+      for (let i = 0; i < chunks; i++) {
+        fs.appendFileSync(fd1, `A${pad}\n`, "utf-8");
+      }
+      fs.closeSync(fd1);
+      rotateGlobalEventsFile();
+      assert.ok(archiveExists(1), "after rot #1: .1 exists");
+      assert.ok(!archiveExists(2), "after rot #1: .2 does not exist");
+      assert.ok(!archiveExists(3), "after rot #1: .3 does not exist");
+      assert.equal(getGlobalEventsGeneration(), 1);
+
+      // Second rotation — write new content to live file
+      const fd2 = fs.openSync(globalFile, "w");
+      for (let i = 0; i < chunks; i++) {
+        fs.appendFileSync(fd2, `B${pad}\n`, "utf-8");
+      }
+      fs.closeSync(fd2);
+      rotateGlobalEventsFile();
+      assert.ok(archiveExists(1), "after rot #2: .1 exists (was B)");
+      assert.ok(archiveExists(2), "after rot #2: .2 exists (was A)");
+      assert.ok(!archiveExists(3), "after rot #2: .3 does not exist");
+      assert.ok(readArchive(1).includes("B"), "archive .1 has B content");
+      assert.ok(readArchive(2).includes("A"), "archive .2 has A content");
+      assert.equal(getGlobalEventsGeneration(), 2);
+
+      // Third rotation
+      const fd3 = fs.openSync(globalFile, "w");
+      for (let i = 0; i < chunks; i++) {
+        fs.appendFileSync(fd3, `C${pad}\n`, "utf-8");
+      }
+      fs.closeSync(fd3);
+      rotateGlobalEventsFile();
+      assert.ok(archiveExists(1), "after rot #3: .1 exists (was C)");
+      assert.ok(archiveExists(2), "after rot #3: .2 exists (was B)");
+      assert.ok(archiveExists(3), "after rot #3: .3 exists (was A)");
+      assert.ok(readArchive(1).includes("C"), "archive .1 has C content");
+      assert.ok(readArchive(2).includes("B"), "archive .2 has B content");
+      assert.ok(readArchive(3).includes("A"), "archive .3 has A content");
+      assert.equal(getGlobalEventsGeneration(), 3);
+
+      // Fourth rotation — oldest (.3) should be pruned
+      const fd4 = fs.openSync(globalFile, "w");
+      for (let i = 0; i < chunks; i++) {
+        fs.appendFileSync(fd4, `D${pad}\n`, "utf-8");
+      }
+      fs.closeSync(fd4);
+      rotateGlobalEventsFile();
+      assert.ok(archiveExists(1), "after rot #4: .1 exists (was D)");
+      assert.ok(archiveExists(2), "after rot #4: .2 exists (was C)");
+      assert.ok(archiveExists(3), "after rot #4: .3 exists (was B)");
+      assert.ok(readArchive(1).includes("D"), "archive .1 has D content");
+      assert.ok(readArchive(2).includes("C"), "archive .2 has C content");
+      assert.ok(readArchive(3).includes("B"), "archive .3 has B content");
+      // Generation keeps incrementing
+      assert.equal(getGlobalEventsGeneration(), 4);
+    });
+
+    it("is idempotent when called twice on the same over-cap file", () => {
+      const globalFile = path.join(stateDir, "events", "all.jsonl");
+      const chunkSize = 1024 * 1024;
+      const chunks = Math.ceil((MAX_EVENTS_FILE_SIZE + 1) / chunkSize);
+      fs.mkdirSync(path.dirname(globalFile), { recursive: true });
+      const fd = fs.openSync(globalFile, "w");
+      const pad = "x".repeat(chunkSize - 1);
+      for (let i = 0; i < chunks; i++) {
+        fs.appendFileSync(fd, `${pad}\n`, "utf-8");
+      }
+      fs.closeSync(fd);
+
+      rotateGlobalEventsFile();
+      assert.equal(getGlobalEventsGeneration(), 1);
+
+      // Second call: live file doesn't exist → returns early (no-op)
+      rotateGlobalEventsFile();
+      assert.equal(getGlobalEventsGeneration(), 1); // unchanged
+    });
+  });
+});
+
+describe("getRecentEvents after rotation", () => {
+  let stateDir: string;
+  let originalStateDir: string | undefined;
+
+  beforeEach(() => {
+    originalStateDir = process.env.TAMANDUA_STATE_DIR;
+    stateDir = fs.mkdtempSync(path.join(os.tmpdir(), "tamandua-recent-rot-"));
+    process.env.TAMANDUA_STATE_DIR = stateDir;
+  });
+
+  afterEach(() => {
+    if (originalStateDir === undefined) delete process.env.TAMANDUA_STATE_DIR;
+    else process.env.TAMANDUA_STATE_DIR = originalStateDir;
+    fs.rmSync(stateDir, { recursive: true, force: true });
+  });
+
+  function writeLargeGlobalFile(size: number, marker: string): void {
+    const globalFile = path.join(stateDir, "events", "all.jsonl");
+    fs.mkdirSync(path.dirname(globalFile), { recursive: true });
+    const fd = fs.openSync(globalFile, "w");
+    const chunkSize = 512 * 1024; // 512 KB
+    const header = JSON.stringify({ ts: "2026-01-01T00:00:00Z", event: `prefill.${marker}`, runId: "prefill" }) + "\n";
+    const headerLen = Buffer.byteLength(header);
+    const padLen = Math.max(1, chunkSize - headerLen);
+    const pad = "x".repeat(padLen);
+    const fullChunk = header + pad + "\n";
+
+    let written = 0;
+    while (written < size) {
+      const toWrite = Math.min(Buffer.byteLength(fullChunk), size - written);
+      if (toWrite === Buffer.byteLength(fullChunk)) {
+        fs.appendFileSync(fd, fullChunk, "utf-8");
+        written += toWrite;
+      } else {
+        const partial = header + "x".repeat(Math.max(1, toWrite - headerLen - 1)) + "\n";
+        fs.appendFileSync(fd, partial, "utf-8");
+        written += Buffer.byteLength(partial);
+      }
+    }
+    fs.closeSync(fd);
+  }
+
+  it("returns only events from the live all.jsonl after rotation (does not span into archives)", () => {
+    // 1. Trigger rotation: pre-seed near cap, then emit an event to push past
+    writeLargeGlobalFile(MAX_EVENTS_FILE_SIZE - 50, "seed");
+    _refreshSizeEstimate();
+
+    // The trigger event will be appended to the pre-seeded file, pushing it
+    // past the cap → rotation → renamed to all.jsonl.1
+    emitEvent(makeEvent("run-rot", "rotation.trigger"));
+
+    assert.equal(getGlobalEventsGeneration(), 1, "generation must increment after rotation");
+
+    // Archive .1 now contains both the pre-seeded content AND the trigger event
+    const archive1 = path.join(stateDir, "events", "all.jsonl.1");
+    assert.ok(fs.existsSync(archive1), "archive .1 must exist");
+    const archiveContent = fs.readFileSync(archive1, "utf-8");
+    assert.ok(archiveContent.includes("rotation.trigger"), "trigger event must be in archive .1");
+
+    // Live file does not exist yet (rotation renamed it)
+    const globalFile = path.join(stateDir, "events", "all.jsonl");
+    assert.ok(!fs.existsSync(globalFile), "live file must not exist immediately after rotation");
+
+    // getRecentEvents on a non-existent live file returns empty
+    const empty = getRecentEvents(50);
+    assert.deepEqual(empty, [], "getRecentEvents returns empty when live file does not exist");
+
+    // 2. Write post-rotation events to the live file
+    emitEvent(makeEvent("run-rot", "post.rot.1"));
+    emitEvent(makeEvent("run-rot", "post.rot.2"));
+    emitEvent(makeEvent("run-rot", "post.rot.3"));
+
+    // 3. getRecentEvents must return ONLY events from the live file
+    const recent = getRecentEvents(50);
+
+    // Must contain the post-rotation events
+    const recentEvents = recent.map(e => e.event);
+    assert.ok(recentEvents.includes("post.rot.1"), "must include post.rot.1");
+    assert.ok(recentEvents.includes("post.rot.2"), "must include post.rot.2");
+    assert.ok(recentEvents.includes("post.rot.3"), "must include post.rot.3");
+
+    // Must NOT contain any event from the archive (the rotation.trigger or prefill.seed)
+    assert.ok(!recentEvents.includes("rotation.trigger"), "must NOT include rotation.trigger from archive");
+
+    // All returned events should have runId "run-rot" (not "prefill" from archive)
+    for (const evt of recent) {
+      assert.notEqual(evt.runId, "prefill", "must not contain prefill events from archive");
+    }
+  });
+
+  it("getRecentEvents respects limit on live file after rotation", () => {
+    // Trigger rotation first
+    writeLargeGlobalFile(MAX_EVENTS_FILE_SIZE - 50, "seed");
+    _refreshSizeEstimate();
+    emitEvent(makeEvent("run-lim", "rotation.trigger"));
+
+    // Write 10 post-rotation events
+    for (let i = 0; i < 10; i++) {
+      emitEvent(makeEvent("run-lim", `post.event.${i}`));
+    }
+
+    // Limit to 3 — should return only the last 3 from the live file
+    const recent = getRecentEvents(3);
+    assert.equal(recent.length, 3);
+
+    const events = recent.map(e => e.event);
+    assert.ok(events.includes("post.event.7"));
+    assert.ok(events.includes("post.event.8"));
+    assert.ok(events.includes("post.event.9"));
+
+    // Must not contain archive events
+    assert.ok(!events.includes("rotation.trigger"), "limit must not include archive events");
   });
 });

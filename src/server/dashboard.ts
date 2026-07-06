@@ -471,16 +471,18 @@ function handleLogsTail(req: http.IncomingMessage, res: http.ServerResponse): vo
     const url = new URL(req.url ?? "/", "http://localhost");
     const offsetParam = parseInt(url.searchParams.get("offset") ?? "0", 10);
     const offset = Number.isFinite(offsetParam) ? offsetParam : 0;
+    const generationParam = parseInt(url.searchParams.get("generation") ?? "", 10);
+    const generation = Number.isFinite(generationParam) ? generationParam : undefined;
     const runId = url.searchParams.get("runId")?.trim();
 
     const source: EventCursorSource = runId
       ? { kind: "run", runId }
       : { kind: "global" };
 
-    const { events, nextOffset } = readEventsFromCursor(source, offset);
+    const { events, nextOffset, generation: newGeneration } = readEventsFromCursor(source, offset, generation);
     const lines = formatLogsTailLines(events);
 
-    jsonResponse(res, { lines, nextOffset });
+    jsonResponse(res, { lines, nextOffset, generation: newGeneration });
   } catch (err) {
     errorResponse(res, `Failed to get logs-tail events: ${(err as Error).message}`);
   }
