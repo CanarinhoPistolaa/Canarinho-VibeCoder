@@ -34,7 +34,7 @@ after(() => {
 //
 // The real-pi integration test SPENDS REAL MODEL TOKENS, so it is opt-in:
 // it only runs when TAMANDUA_REAL_PI_TESTS=1 is set explicitly. npm test
-// pins TAMANDUA_PI_BINARY=/bin/false precisely so no unit test can reach a
+// pins TAMANDUA_PI_BINARY=/usr/bin/false precisely so no unit test can reach a
 // real model; the real e2e tier (./run-real-e2e-canary and friends) covers
 // live pi integration.
 let piAvailable = false;

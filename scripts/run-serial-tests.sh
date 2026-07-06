@@ -11,7 +11,7 @@ cd "$REPO_ROOT"
 
 # Default env vars if not set
 export TAMANDUA_TEST_GUARD="${TAMANDUA_TEST_GUARD:-1}"
-export TAMANDUA_PI_BINARY="${TAMANDUA_PI_BINARY:-/bin/false}"
+export TAMANDUA_PI_BINARY="${TAMANDUA_PI_BINARY:-/usr/bin/false}"
 
 # Read serial files, filtering out comments and empty lines
 SERIAL_FILES_LIST="$REPO_ROOT/tests/serial-files.txt"

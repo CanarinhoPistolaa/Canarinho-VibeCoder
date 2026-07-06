@@ -21,7 +21,7 @@ const BASE_ENV_KEYS = [
   "GIT_CONFIG_GLOBAL",
   "GIT_CONFIG_NOSYSTEM",
   // Harness binary pins pass through so the npm-test-level
-  // TAMANDUA_PI_BINARY=/bin/false safety net reaches spawned daemons and
+  // TAMANDUA_PI_BINARY=/usr/bin/false safety net reaches spawned daemons and
   // scripts. Tiers that need a real or scripted harness set their own
   // value (explicit overrides win over the passthrough).
   "TAMANDUA_PI_BINARY",

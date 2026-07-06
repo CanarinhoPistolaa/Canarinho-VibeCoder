@@ -15,7 +15,7 @@
  *
  * Shares types with scripted-agent.ts so both factories use the same
  * ScriptedAgentConfig shape. The hermes factory also sets:
- *   TAMANDUA_PI_BINARY=/bin/false  (accidental pi spawns fail loudly)
+ *   TAMANDUA_PI_BINARY=/usr/bin/false  (accidental pi spawns fail loudly)
  *   HERMES_HOME=<temp hermes home>  (fake state.db lives here)
  */
 
@@ -89,7 +89,7 @@ export function createScriptedHermes(
     env: {
       TAMANDUA_HERMES_BINARY: binPath,
       HERMES_HOME: hermesHome,
-      TAMANDUA_PI_BINARY: "/bin/false",
+      TAMANDUA_PI_BINARY: "/usr/bin/false",
       TAMANDUA_SCRIPTED_BEHAVIORS: behaviorsPath,
       TAMANDUA_SCRIPTED_STATE: stateDir,
     },

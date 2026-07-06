@@ -9,7 +9,7 @@ REPO_ROOT="${TAMANDUA_REPO_ROOT:-$(cd "$(dirname "$0")/.." && pwd)}"
 cd "$REPO_ROOT"
 
 export TAMANDUA_TEST_GUARD="${TAMANDUA_TEST_GUARD:-1}"
-export TAMANDUA_PI_BINARY="${TAMANDUA_PI_BINARY:-/bin/false}"
+export TAMANDUA_PI_BINARY="${TAMANDUA_PI_BINARY:-/usr/bin/false}"
 
 SERIAL_EXIT=0
 PARALLEL_EXIT=0

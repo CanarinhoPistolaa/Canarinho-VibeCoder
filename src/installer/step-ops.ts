@@ -12,6 +12,7 @@ import { loadWorkflowSpec, loadWorkflowSpecSync } from "./workflow-spec.js";
 import { isFrontendChange } from "../lib/frontend-detect.js";
 import type { LoopConfig, Story, WorkflowStepFailure } from "./types.js";
 import { detectRugpull, relaunchRunAfterRugpull } from "./rugpull.js";
+import { getPgid } from "../lib/proc-info.js";
 
 // ══════════════════════════════════════════════════════════════════════
 // Key-Value Parsing
@@ -1303,24 +1304,16 @@ export function recoverOrphanedStepsForAgent(
 }
 
 /**
- * The calling process's own process-group id (Linux /proc/self/stat).
+ * The calling process's own process-group id (procfs on Linux, `ps` on
+ * macOS — see lib/proc-info.ts).
  *
  * Used by `step claim` to record WorkerOwnership.pgid: the CLI runs as a
  * descendant of the harness process, which the scheduler spawns detached
  * (its own group leader), so the CLI's pgid IS the harness process group.
- * Returns null off-Linux or on parse failure — callers must tolerate it.
+ * Returns null on lookup failure — callers must tolerate it.
  */
 export function getOwnProcessGroupId(): number | null {
-  try {
-    const stat = fs.readFileSync("/proc/self/stat", "utf-8");
-    // Fields after the parenthesized comm (which may contain spaces):
-    // state(0) ppid(1) pgrp(2) ...
-    const afterComm = stat.slice(stat.lastIndexOf(")") + 2);
-    const pgrp = Number(afterComm.split(" ")[2]);
-    return Number.isInteger(pgrp) && pgrp > 0 ? pgrp : null;
-  } catch {
-    return null;
-  }
+  return getPgid(process.pid);
 }
 
 /**

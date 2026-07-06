@@ -4,7 +4,7 @@
  * Tests verify:
  *   1. Factory creates executable wrapper script
  *   2. Returns correct env vars (TAMANDUA_HERMES_BINARY, HERMES_HOME,
- *      TAMANDUA_PI_BINARY=/bin/false, TAMANDUA_SCRIPTED_BEHAVIORS,
+ *      TAMANDUA_PI_BINARY=/usr/bin/false, TAMANDUA_SCRIPTED_BEHAVIORS,
  *      TAMANDUA_SCRIPTED_STATE)
  *   3. Wrapper script invokes the hermes runtime correctly
  *   4. Factory works with same ScriptedAgentConfig shape as createScriptedAgent
@@ -205,8 +205,8 @@ describe("createScriptedHermes", () => {
 
         assert.equal(
           agent.env.TAMANDUA_PI_BINARY,
-          "/bin/false",
-          "TAMANDUA_PI_BINARY should be /bin/false",
+          "/usr/bin/false",
+          "TAMANDUA_PI_BINARY should be /usr/bin/false",
         );
 
         assert.ok(
@@ -632,8 +632,8 @@ describe("createScriptedHermes", () => {
         assert.ok(agent.binPath, "should create with multi-agent config");
         assert.equal(
           agent.env.TAMANDUA_PI_BINARY,
-          "/bin/false",
-          "should still set TAMANDUA_PI_BINARY=/bin/false",
+          "/usr/bin/false",
+          "should still set TAMANDUA_PI_BINARY=/usr/bin/false",
         );
 
         // Behaviors file should reflect full config

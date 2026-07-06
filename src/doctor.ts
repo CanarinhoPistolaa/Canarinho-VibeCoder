@@ -28,7 +28,7 @@ import { getDb } from "./db.js";
 import { runMedicCheck } from "./medic/medic.js";
 import type { MedicFinding } from "./medic/medic.js";
 import { getRunWorktree } from "./installer/worktree-manager.js";
-import { getProcPids, processBelongsToRun } from "./installer/run-cleanup.js";
+import { collectProcessSnapshot, matchRunEvidence } from "./installer/run-cleanup.js";
 import { getRecentEvents } from "./installer/events.js";
 import type { TamanduaEvent } from "./installer/events.js";
 
@@ -685,13 +685,6 @@ async function runStateChecks(opts?: DoctorOpts): Promise<DoctorCheckResult[]> {
 function runProcessLeakChecks(opts?: DoctorOpts): DoctorCheckResult[] {
   const results: DoctorCheckResult[] = [];
 
-  // Check if /proc exists (Linux only) — skip gracefully on non-Linux
-  try {
-    fs.accessSync("/proc", fs.constants.R_OK);
-  } catch {
-    return results;
-  }
-
   const savedDbPath = process.env.TAMANDUA_DB_PATH;
   if (opts?.homeDir) {
     process.env.TAMANDUA_DB_PATH = path.join(opts.homeDir, ".tamandua", "tamandua.db");
@@ -704,6 +697,10 @@ function runProcessLeakChecks(opts?: DoctorOpts): DoctorCheckResult[] {
       .prepare("SELECT id FROM runs WHERE status IN ('completed', 'failed', 'canceled')")
       .all() as { id: string }[];
 
+    // One process-table snapshot for all runs (on macOS a per-pid walk
+    // would spawn two subprocesses per process — see run-cleanup.ts).
+    let snapshot: ReturnType<typeof collectProcessSnapshot> | null = null;
+
     for (const row of rows) {
       const runId = row.id;
 
@@ -713,11 +710,12 @@ function runProcessLeakChecks(opts?: DoctorOpts): DoctorCheckResult[] {
       // Worktree directory may have been removed — skip gracefully
       if (!fs.existsSync(wt.worktreePath)) continue;
 
-      const pids = getProcPids();
-      for (const pid of pids) {
+      snapshot ??= collectProcessSnapshot();
+      for (const entry of snapshot) {
+        const pid = entry.pid;
         if (pid === process.pid) continue;
 
-        const evidence = processBelongsToRun(pid, runId, wt.worktreePath);
+        const evidence = matchRunEvidence(entry.cwd, entry.environ, runId, wt.worktreePath);
         if (evidence) {
           results.push({
             name: "Run-process leak",

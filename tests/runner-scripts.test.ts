@@ -111,13 +111,13 @@ describe("run-serial-tests.sh", () => {
     }
   });
 
-  it("defaults TAMANDUA_PI_BINARY to /bin/false when unset", () => {
+  it("defaults TAMANDUA_PI_BINARY to /usr/bin/false when unset", () => {
     const tmpDir = makeTmpDir();
     try {
       const wrapper = [
         '#!/bin/bash',
         'unset TAMANDUA_PI_BINARY',
-        'export TAMANDUA_PI_BINARY="${TAMANDUA_PI_BINARY:-/bin/false}"',
+        'export TAMANDUA_PI_BINARY="${TAMANDUA_PI_BINARY:-/usr/bin/false}"',
         'echo "PI=$TAMANDUA_PI_BINARY"',
       ].join("\n");
       const wrapperPath = path.join(tmpDir, "test-default-pi.sh");
@@ -128,8 +128,8 @@ describe("run-serial-tests.sh", () => {
         env: { PATH: process.env.PATH },
       });
       assert.ok(
-        result.includes("PI=/bin/false"),
-        "TAMANDUA_PI_BINARY should default to /bin/false. Got: " + result.trim(),
+        result.includes("PI=/usr/bin/false"),
+        "TAMANDUA_PI_BINARY should default to /usr/bin/false. Got: " + result.trim(),
       );
     } finally {
       fs.rmSync(tmpDir, { recursive: true, force: true });

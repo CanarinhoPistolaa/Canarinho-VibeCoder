@@ -16,6 +16,7 @@ import { fileURLToPath } from "node:url";
 import { DEFAULT_MCP_PORT, MCP_ENDPOINT_PATH } from "./mcp-server.js";
 import { DEFAULT_CONTROL_PORT } from "./control-server.js";
 import { assertStatePathIsolation } from "../lib/test-guard.js";
+import { environHasEntry, getCmdline } from "../lib/proc-info.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -49,15 +50,8 @@ export function recordLifecycleEvent(
         return; // guarded process resolving production paths: drop the line
       }
     }
-    let parentCmdline = "";
-    try {
-      parentCmdline = fs
-        .readFileSync(`/proc/${process.ppid}/cmdline`, "utf-8")
-        .replaceAll("\0", " ")
-        .trim();
-    } catch {
-      // /proc unavailable (non-Linux) or parent already gone — omit
-    }
+    // procfs on Linux, `ps` on macOS; "" when the parent is already gone.
+    const parentCmdline = getCmdline(process.ppid);
     let callerCwd = "?";
     try {
       callerCwd = process.cwd();
@@ -243,15 +237,10 @@ function checkPidFile(pidFile: string): { running: true; pid: number } | { runni
 }
 
 function processHomeMatches(pid: number, homeDir: string): boolean {
-  try {
-    const environ = fs.readFileSync(`/proc/${pid}/environ`);
-    for (const entry of environ.toString("utf-8").split("\0")) {
-      if (entry === `HOME=${homeDir}`) return true;
-    }
-  } catch {
-    return false;
-  }
-  return false;
+  // procfs exact-entry match on Linux, `ps -E` token match on macOS.
+  // Refusing on lookup failure is intentional: this guard only ever
+  // loosens into a signal, never out of one.
+  return environHasEntry(pid, "HOME", homeDir);
 }
 
 function canSignalPid(pid: number, opts?: DaemonctlPathOptions): boolean {
@@ -468,7 +457,7 @@ export async function startDaemon(port = 3334, opts?: StartOptions): Promise<{ p
     if (opts?.homeDir) {
       spawnOpts.env = { ...process.env, HOME: opts.homeDir };
     }
-    const child = spawn("node", ["--disable-warning=ExperimentalWarning", daemonScript, String(port)], spawnOpts);
+    const child = spawn(process.execPath, ["--disable-warning=ExperimentalWarning", daemonScript, String(port)], spawnOpts);
 
     if (opts?.keepHandle) {
       // Caller wants the ChildProcess handle for direct cleanup (e.g. tests).
@@ -708,7 +697,7 @@ export async function startMcp(port?: number, opts?: StartOptions): Promise<{ pi
   if (opts?.homeDir) {
     spawnOpts.env = { ...process.env, HOME: opts.homeDir };
   }
-  const child = spawn("node", ["--disable-warning=ExperimentalWarning", standaloneScript, String(mcpPort)], spawnOpts);
+  const child = spawn(process.execPath, ["--disable-warning=ExperimentalWarning", standaloneScript, String(mcpPort)], spawnOpts);
 
   if (opts?.keepHandle) {
     // Caller wants the ChildProcess handle for direct cleanup (e.g. tests).
@@ -1056,7 +1045,7 @@ export async function startControlPlane(port?: number, opts?: StartOptions): Pro
   if (opts?.homeDir) {
     spawnOpts.env = { ...process.env, HOME: opts.homeDir };
   }
-  const child = spawn("node", ["--disable-warning=ExperimentalWarning", standaloneScript, String(cpPort)], spawnOpts);
+  const child = spawn(process.execPath, ["--disable-warning=ExperimentalWarning", standaloneScript, String(cpPort)], spawnOpts);
 
   if (opts?.keepHandle) {
     // Caller wants the ChildProcess handle for direct cleanup (e.g. tests).
