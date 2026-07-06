@@ -3,14 +3,16 @@
  *
  * Linux exposes everything through procfs, which is cheap and exact, so it
  * is always tried first. macOS/BSD have no /proc; there the helpers fall
- * back to `ps` (pgid, cmdline, environment) and `lsof` (cwd). The fallbacks
+ * back to `ps` (pgid, cmdline, elapsed time) and `lsof` (cwd). The fallbacks
  * only see same-user processes — sufficient for every process tamandua
  * manages, since the daemon, harnesses, and CLI all run as the same user.
  *
- * The environment fallback reads `ps -wwEo command=`, where env entries are
- * appended to the command line space-separated. That means exact-entry
- * matching (environHasEntry) requires the value to be whitespace-free —
- * true for tamandua state dirs, temp HOMEs, and worktree paths.
+ * IMPORTANT macOS limitation: the kernel does not let unprivileged callers
+ * read another process's ENVIRONMENT (KERN_PROCARGS2 only yields argv;
+ * `ps -E`/`ps e` print nothing for processes they didn't inherit). So
+ * environ-based evidence (getEnvironText/environHasEntry) is procfs-only
+ * and returns null/false on macOS — callers must rely on cwd and cmdline
+ * evidence there instead.
  */
 import fs from "node:fs";
 import { spawnSync } from "node:child_process";
@@ -38,6 +40,7 @@ function ps(args: string[]): string | null {
     const r = spawnSync("ps", args, {
       encoding: "utf-8",
       stdio: ["ignore", "pipe", "pipe"],
+      maxBuffer: 64 * 1024 * 1024,
     });
     if (r.status === 0 && typeof r.stdout === "string") return r.stdout;
   } catch {
@@ -125,38 +128,29 @@ export function getProcessCwd(pid: number): string | null {
 }
 
 /**
- * Raw environment text of a pid, or null when gone or unreadable.
- *
- * On Linux this is /proc/<pid>/environ verbatim (NUL-separated entries).
- * On macOS it is the `ps -wwEo command=` line: the command followed by
- * space-separated env entries. Both forms support substring evidence
- * matching; for exact entry matching use environHasEntry().
+ * Raw environment text of a pid (NUL-separated entries), or null.
+ * Procfs-only: macOS does not expose other processes' environments to
+ * unprivileged callers, so this returns null there — use cwd/cmdline
+ * evidence instead.
  */
 export function getEnvironText(pid: number): string | null {
-  if (hasProcfs()) {
-    try {
-      const buf = fs.readFileSync(`/proc/${pid}/environ`);
-      return buf.toString("utf-8");
-    } catch {
-      return null;
-    }
+  if (!hasProcfs()) return null;
+  try {
+    const buf = fs.readFileSync(`/proc/${pid}/environ`);
+    return buf.toString("utf-8");
+  } catch {
+    return null;
   }
-  const out = ps(["-wwEo", "command=", "-p", String(pid)]);
-  return out ? out.trim() : null;
 }
 
-/** Exact `NAME=value` membership test against a pid's environment. */
+/**
+ * Exact `NAME=value` membership test against a pid's environment.
+ * Procfs-only (see getEnvironText); always false on macOS.
+ */
 export function environHasEntry(pid: number, name: string, value: string): boolean {
-  const needle = `${name}=${value}`;
-  if (hasProcfs()) {
-    const environ = getEnvironText(pid);
-    if (environ === null) return false;
-    return environ.split("\0").includes(needle);
-  }
-  // ps -E appends env entries space-separated; whitespace-free values only.
   const environ = getEnvironText(pid);
   if (environ === null) return false;
-  return environ.split(/\s+/).includes(needle);
+  return environ.split("\0").includes(`${name}=${value}`);
 }
 
 /** Full command line of a pid ("" unknown). Space-joined on Linux. */
@@ -173,4 +167,24 @@ export function getCmdline(pid: number): string {
   }
   const out = ps(["-ww", "-o", "command=", "-p", String(pid)]);
   return out ? out.trim() : "";
+}
+
+/** Parse a ps etime value ([[dd-]hh:]mm:ss) into seconds. Null on mismatch. */
+export function parseEtimeSeconds(etime: string): number | null {
+  const m = etime.trim().match(/^(?:(\d+)-)?(?:(\d+):)?(\d+):(\d+)$/);
+  if (!m) return null;
+  const [, dd, hh, mm, ss] = m;
+  return (
+    (dd ? Number(dd) * 86400 : 0) +
+    (hh ? Number(hh) * 3600 : 0) +
+    Number(mm) * 60 +
+    Number(ss)
+  );
+}
+
+/** Elapsed wall-clock seconds since the process started. Null when gone. */
+export function getElapsedSeconds(pid: number): number | null {
+  const out = ps(["-o", "etime=", "-p", String(pid)]);
+  if (!out) return null;
+  return parseEtimeSeconds(out);
 }

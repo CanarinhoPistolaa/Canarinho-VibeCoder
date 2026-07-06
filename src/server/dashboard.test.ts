@@ -2558,6 +2558,7 @@ describe("dashboard relaunch integration", () => {
     const previousHome = process.env.HOME;
     const previousDbPath = process.env.TAMANDUA_DB_PATH;
     const previousControlPort = process.env.TAMANDUA_CONTROL_PORT;
+    let mockControl: Awaited<ReturnType<typeof startMockControlServer>> | null = null;
 
     try {
       process.env.HOME = homeDir;
@@ -2570,7 +2571,7 @@ describe("dashboard relaunch integration", () => {
       fs.mkdirSync(workingDir, { recursive: true });
 
       // Set up mock control server
-      const mockControl = await startMockControlServer();
+      mockControl = await startMockControlServer();
       process.env.TAMANDUA_CONTROL_PORT = String(mockControl.port);
 
       // Initialize DB and create a failed run with context
@@ -2622,9 +2623,10 @@ describe("dashboard relaunch integration", () => {
       } finally {
         await stopDashboard(server);
       }
-
-      mockControl.server.close();
     } finally {
+      // Close in the finally: a failed assertion must not leak the listener
+      // (a leaked server handle hangs the whole test-runner child process).
+      mockControl?.server.close();
       if (previousHome === undefined) delete process.env.HOME;
       else process.env.HOME = previousHome;
       if (previousDbPath === undefined) delete process.env.TAMANDUA_DB_PATH;
@@ -2642,6 +2644,7 @@ describe("dashboard relaunch integration", () => {
     const previousHome = process.env.HOME;
     const previousDbPath = process.env.TAMANDUA_DB_PATH;
     const previousControlPort = process.env.TAMANDUA_CONTROL_PORT;
+    let mockControl: Awaited<ReturnType<typeof startMockControlServer>> | null = null;
 
     try {
       process.env.HOME = homeDir;
@@ -2651,7 +2654,7 @@ describe("dashboard relaunch integration", () => {
       const workingDir = path.join(root, "workdir");
       fs.mkdirSync(workingDir, { recursive: true });
 
-      const mockControl = await startMockControlServer();
+      mockControl = await startMockControlServer();
       process.env.TAMANDUA_CONTROL_PORT = String(mockControl.port);
 
       const db = getDb();
@@ -2690,9 +2693,10 @@ describe("dashboard relaunch integration", () => {
       } finally {
         await stopDashboard(server);
       }
-
-      mockControl.server.close();
     } finally {
+      // Close in the finally: a failed assertion must not leak the listener
+      // (a leaked server handle hangs the whole test-runner child process).
+      mockControl?.server.close();
       if (previousHome === undefined) delete process.env.HOME;
       else process.env.HOME = previousHome;
       if (previousDbPath === undefined) delete process.env.TAMANDUA_DB_PATH;
@@ -2710,6 +2714,7 @@ describe("dashboard relaunch integration", () => {
     const previousHome = process.env.HOME;
     const previousDbPath = process.env.TAMANDUA_DB_PATH;
     const previousControlPort = process.env.TAMANDUA_CONTROL_PORT;
+    let mockControl: Awaited<ReturnType<typeof startMockControlServer>> | null = null;
 
     try {
       process.env.HOME = homeDir;
@@ -2725,7 +2730,7 @@ describe("dashboard relaunch integration", () => {
       const originSha = shaResult.stdout.trim();
 
       // Set up mock control server
-      const mockControl = await startMockControlServer();
+      mockControl = await startMockControlServer();
       process.env.TAMANDUA_CONTROL_PORT = String(mockControl.port);
 
       // Initialize DB and create a failed worktree run
@@ -2774,16 +2779,22 @@ describe("dashboard relaunch integration", () => {
         // Parse context to verify workspace settings are preserved
         const newContext = JSON.parse(newRun.context) as Record<string, string>;
         assert.equal(newContext.workspace_mode, "worktree");
-        assert.equal(newContext.worktree_origin_repository, originRepo);
+        // Compare realpaths: the relaunch flow canonicalizes the origin repo,
+        // and on macOS os.tmpdir() is behind the /var → /private/var symlink.
+        assert.equal(
+          fs.realpathSync(newContext.worktree_origin_repository),
+          fs.realpathSync(originRepo),
+        );
         assert.equal(newContext.worktree_origin_ref, "main");
         // worktree_path should be set by runWorkflow
         assert.ok(typeof newContext.worktree_path === "string" && newContext.worktree_path.length > 0);
       } finally {
         await stopDashboard(server);
       }
-
-      mockControl.server.close();
     } finally {
+      // Close in the finally: a failed assertion must not leak the listener
+      // (a leaked server handle hangs the whole test-runner child process).
+      mockControl?.server.close();
       if (previousHome === undefined) delete process.env.HOME;
       else process.env.HOME = previousHome;
       if (previousDbPath === undefined) delete process.env.TAMANDUA_DB_PATH;

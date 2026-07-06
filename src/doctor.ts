@@ -715,7 +715,7 @@ function runProcessLeakChecks(opts?: DoctorOpts): DoctorCheckResult[] {
         const pid = entry.pid;
         if (pid === process.pid) continue;
 
-        const evidence = matchRunEvidence(entry.cwd, entry.environ, runId, wt.worktreePath);
+        const evidence = matchRunEvidence(entry, runId, wt.worktreePath);
         if (evidence) {
           results.push({
             name: "Run-process leak",

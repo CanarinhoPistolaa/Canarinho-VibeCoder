@@ -211,7 +211,12 @@ describe("CLI worktree run arguments", () => {
       db.close();
       assert.ok(row, "expected a run row in DB");
       const context = JSON.parse(row!.context) as Record<string, string>;
-      assert.equal(context.worktree_origin_repository, originRepo);
+      // Compare realpaths: the CLI canonicalizes the origin repo, and on
+      // macOS os.tmpdir() is behind the /var → /private/var symlink.
+      assert.equal(
+        fs.realpathSync(context.worktree_origin_repository),
+        fs.realpathSync(originRepo),
+      );
       assert.equal(context.worktree_origin_ref, "main");
     } finally {
       await runCliToExit(["dashboard", "stop"], cliEnv(env)).catch(() => ({ stdout: "", stderr: "", code: null }));
@@ -241,7 +246,12 @@ describe("CLI worktree run arguments", () => {
       db.close();
       assert.ok(row);
       const context = JSON.parse(row!.context) as Record<string, string>;
-      assert.equal(context.worktree_origin_repository, originRepo);
+      // Compare realpaths: the CLI canonicalizes the origin repo, and on
+      // macOS os.tmpdir() is behind the /var → /private/var symlink.
+      assert.equal(
+        fs.realpathSync(context.worktree_origin_repository),
+        fs.realpathSync(originRepo),
+      );
       assert.equal(context.worktree_origin_ref, "main");
     } finally {
       await runCliToExit(["dashboard", "stop"], cliEnv(env)).catch(() => ({ stdout: "", stderr: "", code: null }));
@@ -269,7 +279,12 @@ describe("CLI worktree run arguments", () => {
       db.close();
       assert.ok(row, "expected a run row in DB");
       const context = JSON.parse(row!.context) as Record<string, string>;
-      assert.equal(context.worktree_origin_repository, originRepo);
+      // Compare realpaths: the CLI canonicalizes the origin repo, and on
+      // macOS os.tmpdir() is behind the /var → /private/var symlink.
+      assert.equal(
+        fs.realpathSync(context.worktree_origin_repository),
+        fs.realpathSync(originRepo),
+      );
       assert.ok(context.worktree_origin_ref, "expected worktree_origin_ref to be defaulted from the origin branch");
     } finally {
       await runCliToExit(["dashboard", "stop"], cliEnv(env)).catch(() => ({ stdout: "", stderr: "", code: null }));

@@ -1,8 +1,10 @@
+import fs from "node:fs";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
 import { logger } from "../lib/logger.js";
 import { emitEvent } from "./events.js";
 import {
+  getCmdline,
   getEnvironText,
   getPgid,
   getProcessCwd,
@@ -31,7 +33,10 @@ export interface SweepOptions {
 export interface ProcessSnapshotEntry {
   pid: number;
   cwd: string | null;
+  /** NUL-separated env text (Linux only — unreadable on macOS). */
   environ: string | null;
+  /** Full command line ("" unknown). Primary evidence channel on macOS. */
+  cmdline: string;
 }
 
 // ── Helpers ──────────────────────────────────────────────────────────
@@ -45,28 +50,47 @@ export function readProcCwd(pid: number): string | null {
 }
 
 /**
- * Environment text of a process (procfs on Linux — NUL-separated; `ps -E`
- * on macOS — space-separated after the command). Null if gone/unreadable.
+ * Environment text of a process (procfs on Linux — NUL-separated).
+ * Always null on macOS: the kernel hides other processes' environments.
  */
 export function readProcEnviron(pid: number): string | null {
   return getEnvironText(pid);
 }
 
 /**
- * Evidence matcher over already-collected cwd/environ observations.
+ * Resolve symlinks when possible (macOS tempdirs live behind the
+ * /var → /private/var symlink); fall back to plain resolution for paths
+ * that no longer exist.
+ */
+function safeRealpath(p: string): string {
+  try {
+    return fs.realpathSync(p);
+  } catch {
+    return path.resolve(p);
+  }
+}
+
+/**
+ * Evidence matcher over already-collected process observations.
  * Returns the evidence string (which check matched), or null if no match.
+ *
+ * Channels (a)–(c) are exact on Linux. On macOS environ is unreadable, so
+ * (b)/(c) never fire there; (a) cwd and (d) cmdline carry the sweep —
+ * harness argv contains the run/agent ids, and run children get their cwd
+ * set inside the worktree.
  */
 export function matchRunEvidence(
-  cwd: string | null,
-  environ: string | null,
+  entry: Pick<ProcessSnapshotEntry, "cwd" | "environ" | "cmdline">,
   runId: string,
   worktreePath: string,
 ): string | null {
-  // (a) cwd resolves to or under worktreePath
+  const { cwd, environ, cmdline } = entry;
+
+  // (a) cwd resolves to or under worktreePath (realpath both sides: lsof
+  // reports canonical paths while callers may hold the symlinked spelling)
   if (cwd) {
-    const resolvedCwd = path.resolve(cwd);
-    const resolvedWorktree = path.resolve(worktreePath);
-    // Check if cwd is under worktreePath (including the path itself)
+    const resolvedCwd = safeRealpath(cwd);
+    const resolvedWorktree = safeRealpath(worktreePath);
     if (resolvedCwd === resolvedWorktree || resolvedCwd.startsWith(resolvedWorktree + path.sep)) {
       return `cwd under worktree: ${cwd}`;
     }
@@ -77,9 +101,7 @@ export function matchRunEvidence(
     return `environ contains worktree path: ${worktreePath}`;
   }
 
-  // (c) environ contains TAMANDUA_WORKER_JOB_ID=... with runId as substring.
-  // Job-id values are NUL- and whitespace-free, so one regex covers both the
-  // NUL-separated procfs form and the space-separated ps -E form.
+  // (c) environ contains TAMANDUA_WORKER_JOB_ID=... with runId as substring
   if (environ) {
     const m = environ.match(/TAMANDUA_WORKER_JOB_ID=([^\0\s]*)/);
     if (m && m[1].includes(runId)) {
@@ -87,19 +109,34 @@ export function matchRunEvidence(
     }
   }
 
+  // (d) command line names the worktree or the run id (run ids are UUIDs,
+  // so a substring hit is unambiguous)
+  if (cmdline) {
+    if (cmdline.includes(worktreePath)) {
+      return `cmdline contains worktree path: ${worktreePath}`;
+    }
+    if (cmdline.includes(runId)) {
+      return `cmdline contains runId: ${runId}`;
+    }
+  }
+
   return null;
 }
 
 /**
- * Check if a process belongs to the run by inspecting its cwd and environ.
- * Returns the evidence string (which check matched), or null if no match.
+ * Check if a process belongs to the run by inspecting its cwd, environ,
+ * and command line. Returns the evidence string, or null if no match.
  */
 export function processBelongsToRun(
   pid: number,
   runId: string,
   worktreePath: string,
 ): string | null {
-  return matchRunEvidence(readProcCwd(pid), readProcEnviron(pid), runId, worktreePath);
+  return matchRunEvidence(
+    { cwd: readProcCwd(pid), environ: readProcEnviron(pid), cmdline: getCmdline(pid) },
+    runId,
+    worktreePath,
+  );
 }
 
 /**
@@ -112,8 +149,8 @@ export function getProcPids(): number[] {
 /**
  * One observation per visible process. On Linux this walks procfs per pid.
  * On macOS per-pid reads would spawn two subprocesses per process, so the
- * whole table is captured with ONE `ps -axwwEo` call (command+environ) and
- * ONE `lsof -d cwd` call (cwd) instead.
+ * whole table is captured with ONE `ps -axwwo` call (argv) and ONE
+ * `lsof -d cwd` call (cwd) instead; environ stays null there (unreadable).
  */
 export function collectProcessSnapshot(): ProcessSnapshotEntry[] {
   if (hasProcfs()) {
@@ -121,12 +158,13 @@ export function collectProcessSnapshot(): ProcessSnapshotEntry[] {
       pid,
       cwd: readProcCwd(pid),
       environ: readProcEnviron(pid),
+      cmdline: getCmdline(pid),
     }));
   }
 
-  const environByPid = new Map<number, string>();
+  const cmdlineByPid = new Map<number, string>();
   try {
-    const r = spawnSync("ps", ["-axwwEo", "pid=,command="], {
+    const r = spawnSync("ps", ["-axwwo", "pid=,command="], {
       encoding: "utf-8",
       stdio: ["ignore", "pipe", "pipe"],
       maxBuffer: 64 * 1024 * 1024,
@@ -134,11 +172,11 @@ export function collectProcessSnapshot(): ProcessSnapshotEntry[] {
     if (r.status === 0 && typeof r.stdout === "string") {
       for (const line of r.stdout.split("\n")) {
         const m = line.match(/^\s*(\d+)\s+(.*)$/);
-        if (m) environByPid.set(Number(m[1]), m[2]);
+        if (m) cmdlineByPid.set(Number(m[1]), m[2]);
       }
     }
   } catch {
-    // ps unavailable — snapshot stays empty for environ.
+    // ps unavailable — snapshot stays empty for cmdline.
   }
 
   const cwdByPid = new Map<number, string>();
@@ -161,11 +199,12 @@ export function collectProcessSnapshot(): ProcessSnapshotEntry[] {
     // lsof unavailable — cwd evidence channel stays empty.
   }
 
-  const pids = new Set<number>([...environByPid.keys(), ...cwdByPid.keys()]);
+  const pids = new Set<number>([...cmdlineByPid.keys(), ...cwdByPid.keys()]);
   return [...pids].map((pid) => ({
     pid,
     cwd: cwdByPid.get(pid) ?? null,
-    environ: environByPid.get(pid) ?? null,
+    environ: null,
+    cmdline: cmdlineByPid.get(pid) ?? "",
   }));
 }
 
@@ -214,7 +253,7 @@ export function sweepRunProcesses(
         const pgid = getPgid(pid);
         if (pgid !== null && excludePgids.has(pgid)) continue;
       }
-      const matchReason = matchRunEvidence(entry.cwd, entry.environ, runId, worktreePath);
+      const matchReason = matchRunEvidence(entry, runId, worktreePath);
       if (matchReason) {
         process.kill(pid, "SIGKILL");
         killedPids.push(pid);

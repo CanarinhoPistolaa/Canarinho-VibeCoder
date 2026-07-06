@@ -16,7 +16,7 @@ import { fileURLToPath } from "node:url";
 import { DEFAULT_MCP_PORT, MCP_ENDPOINT_PATH } from "./mcp-server.js";
 import { DEFAULT_CONTROL_PORT } from "./control-server.js";
 import { assertStatePathIsolation } from "../lib/test-guard.js";
-import { environHasEntry, getCmdline } from "../lib/proc-info.js";
+import { environHasEntry, getCmdline, getElapsedSeconds, hasProcfs } from "../lib/proc-info.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -236,11 +236,43 @@ function checkPidFile(pidFile: string): { running: true; pid: number } | { runni
   }
 }
 
+/** Slack for comparing process age against pidfile age (seconds). */
+const PIDFILE_AGE_SLACK_SECONDS = 120;
+
 function processHomeMatches(pid: number, homeDir: string): boolean {
-  // procfs exact-entry match on Linux, `ps -E` token match on macOS.
-  // Refusing on lookup failure is intentional: this guard only ever
-  // loosens into a signal, never out of one.
-  return environHasEntry(pid, "HOME", homeDir);
+  // Linux: exact HOME= entry match via procfs — the strongest binding.
+  if (hasProcfs()) {
+    return environHasEntry(pid, "HOME", homeDir);
+  }
+
+  // macOS: the kernel hides other processes' environments, so bind the pid
+  // to this homeDir by provenance instead. Refusing on any lookup failure
+  // is intentional — this guard only ever loosens into a signal:
+  //  (1) the pid is recorded in one of this homeDir's service pidfiles,
+  //  (2) its command line is a tamandua service (dist/server/*.js), and
+  //  (3) the process is not younger than its pidfile (minus slack) — a
+  //      reused pid pointing at an unrelated (or production) service would
+  //      have started AFTER the stale pidfile was written.
+  const cmdline = getCmdline(pid);
+  if (!/dist\/server\/(daemon|mcp-standalone|control-standalone)\.js/.test(cmdline)) {
+    return false;
+  }
+  const dir = path.join(homeDir, ".tamandua");
+  for (const name of ["tamandua.pid", "mcp.pid", "control-plane.pid"]) {
+    try {
+      const pidFile = path.join(dir, name);
+      const recorded = parseInt(fs.readFileSync(pidFile, "utf-8").trim(), 10);
+      if (recorded !== pid) continue;
+      const pidfileAgeSeconds = (Date.now() - fs.statSync(pidFile).mtimeMs) / 1000;
+      const elapsed = getElapsedSeconds(pid);
+      if (elapsed !== null && elapsed + PIDFILE_AGE_SLACK_SECONDS >= pidfileAgeSeconds) {
+        return true;
+      }
+    } catch {
+      // Missing/unreadable pidfile — try the next one.
+    }
+  }
+  return false;
 }
 
 function canSignalPid(pid: number, opts?: DaemonctlPathOptions): boolean {

@@ -229,7 +229,13 @@ describe("run-cleanup", () => {
 
   // ── Kill processes with TAMANDUA_WORKER_JOB_ID containing runId ──
 
-  it("kills processes with TAMANDUA_WORKER_JOB_ID containing runId", () => {
+  // Environ-based evidence is procfs-only: the macOS kernel does not let
+  // unprivileged callers read another process's environment, so the env
+  // channels can never fire there (cwd + cmdline evidence carry the sweep).
+  const environUnreadable =
+    process.platform === "darwin" ? "environ evidence is unreadable on macOS" : false;
+
+  it("kills processes with TAMANDUA_WORKER_JOB_ID containing runId", { skip: environUnreadable }, () => {
     // Use a CWD that is NOT under the worktree to isolate the env check
     const unrelatedCwd = path.join(stateDir, "unrelated");
     fs.mkdirSync(unrelatedCwd, { recursive: true });
@@ -265,7 +271,7 @@ describe("run-cleanup", () => {
 
   // ── Kill processes with environ containing worktreePath ──────────
 
-  it("kills processes whose environ contains the worktree path string", () => {
+  it("kills processes whose environ contains the worktree path string", { skip: environUnreadable }, () => {
     const unrelatedCwd = path.join(stateDir, "unrelated-env");
     fs.mkdirSync(unrelatedCwd, { recursive: true });
 
@@ -291,6 +297,44 @@ describe("run-cleanup", () => {
       assert.ok(
         result.evidence[pid]?.includes("environ contains worktree path"),
         `evidence should indicate environ match: ${JSON.stringify(result.evidence[pid])}`,
+      );
+
+      const exited = await waitForExit(child, 2000);
+      assert.ok(exited, "child should have exited after SIGKILL");
+    });
+  });
+
+  // ── Kill processes whose command line names the run ──────────────
+
+  it("kills processes whose command line contains the run id", () => {
+    const unrelatedCwd = path.join(stateDir, "unrelated-cmdline");
+    fs.mkdirSync(unrelatedCwd, { recursive: true });
+
+    // The runId appears only in argv (harness children carry run/agent ids
+    // in their prompt argv) — the primary evidence channel on macOS.
+    const child = spawn(
+      process.execPath,
+      ["-e", "setTimeout(() => {}, 30000)", "marker-test-run-001"],
+      {
+        cwd: unrelatedCwd,
+        env: { PATH: process.env.PATH || "/usr/bin" },
+        stdio: "ignore",
+      },
+    );
+    children.push(child);
+
+    return sleep(200).then(async () => {
+      const pid = child.pid!;
+      assert.ok(isAlive(pid), "child should be alive before sweep");
+
+      const result = sweepRunProcesses("test-run-001", fakeWorktreePath);
+      assert.ok(
+        result.killedPids.includes(pid),
+        `pid ${pid} with runId in argv should be killed: killedPids=${JSON.stringify(result.killedPids)}`,
+      );
+      assert.ok(
+        result.evidence[pid]?.includes("cmdline contains runId"),
+        `evidence should indicate cmdline match: ${JSON.stringify(result.evidence[pid])}`,
       );
 
       const exited = await waitForExit(child, 2000);
