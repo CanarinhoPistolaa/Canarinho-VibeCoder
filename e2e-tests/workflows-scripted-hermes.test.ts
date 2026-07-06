@@ -252,7 +252,7 @@ const bugFixBehaviors: ScriptedAgentConfig = {
       ].join("\n"),
     },
     verifier: {
-      output: ["STATUS: done", "VERIFIED: add() now uses a + b"].join("\n"),
+      output: ["STATUS: done", "VERIFIED: add() now uses a + b", "TESTED_TREE: scripted-hermes-tree"].join("\n"),
     },
     merger: {
       commands: [
