@@ -169,6 +169,38 @@ export function getCmdline(pid: number): string {
   return out ? out.trim() : "";
 }
 
+/**
+ * Whether a process has any file open under `dirPath` (cwd counts too).
+ * Kernel-verified via lsof; realpaths the dir first (macOS tempdirs live
+ * behind the /var → /private/var symlink and lsof reports canonical paths).
+ * Same-user processes only. False on any failure.
+ */
+export function processHasOpenFileUnder(pid: number, dirPath: string): boolean {
+  let realDir: string;
+  try {
+    realDir = fs.realpathSync(dirPath);
+  } catch {
+    return false;
+  }
+  try {
+    const r = spawnSync("lsof", ["-p", String(pid), "-Fn"], {
+      encoding: "utf-8",
+      stdio: ["ignore", "pipe", "pipe"],
+      maxBuffer: 16 * 1024 * 1024,
+    });
+    if (typeof r.stdout === "string") {
+      for (const line of r.stdout.split("\n")) {
+        if (!line.startsWith("n")) continue;
+        const p = line.slice(1);
+        if (p === realDir || p.startsWith(realDir + "/")) return true;
+      }
+    }
+  } catch {
+    // lsof unavailable.
+  }
+  return false;
+}
+
 /** Parse a ps etime value ([[dd-]hh:]mm:ss) into seconds. Null on mismatch. */
 export function parseEtimeSeconds(etime: string): number | null {
   const m = etime.trim().match(/^(?:(\d+)-)?(?:(\d+):)?(\d+):(\d+)$/);

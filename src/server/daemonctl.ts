@@ -16,7 +16,7 @@ import { fileURLToPath } from "node:url";
 import { DEFAULT_MCP_PORT, MCP_ENDPOINT_PATH } from "./mcp-server.js";
 import { DEFAULT_CONTROL_PORT } from "./control-server.js";
 import { assertStatePathIsolation } from "../lib/test-guard.js";
-import { environHasEntry, getCmdline, getElapsedSeconds, hasProcfs } from "../lib/proc-info.js";
+import { environHasEntry, getCmdline, getElapsedSeconds, hasProcfs, processHasOpenFileUnder } from "../lib/proc-info.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -247,12 +247,16 @@ function processHomeMatches(pid: number, homeDir: string): boolean {
 
   // macOS: the kernel hides other processes' environments, so bind the pid
   // to this homeDir by provenance instead. Refusing on any lookup failure
-  // is intentional — this guard only ever loosens into a signal:
-  //  (1) the pid is recorded in one of this homeDir's service pidfiles, and
-  //  (2) the process is not younger than its pidfile (minus slack) — the
+  // is intentional — this guard only ever loosens into a signal. Evidence,
+  // either of:
+  //  (a) the pid is recorded in one of this homeDir's service pidfiles AND
+  //      the process is not younger than its pidfile (minus slack) — the
   //      pidfile is written while the recorded process is alive, so a
   //      reused pid pointing at an unrelated (or production) process would
-  //      have started AFTER the pidfile, i.e. be younger than it.
+  //      have started AFTER the pidfile, i.e. be younger than it; or
+  //  (b) the process holds a file open under this homeDir's .tamandua dir
+  //      (services keep their log fd open for life) — kernel-verified via
+  //      lsof, and covers healthy services whose pidfile was lost.
   const dir = path.join(homeDir, ".tamandua");
   for (const name of ["tamandua.pid", "mcp.pid", "control-plane.pid"]) {
     try {
@@ -268,7 +272,7 @@ function processHomeMatches(pid: number, homeDir: string): boolean {
       // Missing/unreadable pidfile — try the next one.
     }
   }
-  return false;
+  return processHasOpenFileUnder(pid, dir);
 }
 
 function canSignalPid(pid: number, opts?: DaemonctlPathOptions): boolean {
