@@ -1450,3 +1450,37 @@ describe("US-007: just-do-it CLI syntax and behavior validation", () => {
     assert.match(dispatcherAgentsMd, /step fail/);
   });
 });
+
+describe("US-006: VTSC — Verifier persona: run targeted tests, not full suite", () => {
+  const repoRoot = resolve(workflowsDir, "..");
+  const sharedVerifierAgentsMd = resolve(repoRoot, "agents", "shared", "verifier", "AGENTS.md");
+
+  it("shared verifier AGENTS.md contains targeted-test guidance", () => {
+    const content = readFileSync(sharedVerifierAgentsMd, "utf-8");
+    assert.match(content, /Run targeted tests relevant to the current story/);
+    assert.match(content, /the full suite belongs to the test step/);
+    assert.match(content, /Never start a full-suite run you cannot finish/);
+  });
+
+  it("shared verifier AGENTS.md does NOT say 'Run the full test suite'", () => {
+    const content = readFileSync(sharedVerifierAgentsMd, "utf-8");
+    assert.doesNotMatch(content, /Run the full test suite/);
+  });
+
+  it("shared merger AGENTS.md was not altered by VTSC", () => {
+    const mergerAgentsMd = resolve(repoRoot, "agents", "shared", "pr", "AGENTS.md");
+    const content = readFileSync(mergerAgentsMd, "utf-8");
+    assert.doesNotMatch(content, /Run targeted tests relevant to the current story/);
+  });
+
+  it("merge-family workflow YAML contracts unchanged", () => {
+    for (const wfId of workflowIds) {
+      if (!wfId.includes("merge")) continue;
+      const ymlPath = resolve(workflowsDir, wfId, "workflow.yml");
+      if (!existsSync(ymlPath)) continue;
+      const content = readFileSync(ymlPath, "utf-8");
+      // Merge-family YAMLs should NOT contain the verifier-specific persona guidance
+      assert.doesNotMatch(content, /Run targeted tests/);
+    }
+  });
+});

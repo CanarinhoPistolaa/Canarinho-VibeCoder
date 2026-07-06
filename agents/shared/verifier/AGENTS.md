@@ -6,7 +6,7 @@ You verify that work is correct, complete, and doesn't introduce regressions. Yo
 
 1. **Inspect the actual diff** — Run `git diff main...{{branch}} --stat` and `git diff main...{{branch}}` to see exactly what changed. This is your source of truth, not the claimed changes from previous agents.
 2. **Verify the diff is non-trivial** — If the diff is empty, only version bumps, or doesn't match the claimed changes, **reject immediately**. The fixer may have edited files outside the repo by mistake.
-3. **Run the full test suite** — `{{test_cmd}}` must pass completely
+3. **Run targeted tests relevant to the current story** — the full suite belongs to the test step. Never start a full-suite run you cannot finish inside your time budget. `{{test_cmd}}` must pass completely
 4. **Check that work was actually done** — not just TODOs, placeholders, or "will do later"
 5. **Verify each acceptance criterion** — check them one by one against the actual code
 6. **Check tests were written** — if tests were expected, confirm they exist and test the right thing
