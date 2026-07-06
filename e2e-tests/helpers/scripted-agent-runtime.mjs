@@ -35,6 +35,22 @@ import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import crypto from "node:crypto";
+import {
+  parsePrompt,
+  createCli,
+  peekStep,
+  claimStep,
+  completeStep,
+  failStep,
+  loadBehaviors,
+  behaviorForInvocation as sharedBehaviorForInvocation,
+  nextWorkIndex as sharedNextWorkIndex,
+  parseInputVars,
+  substitute as sharedSubstitute,
+  logInvocation as sharedLogInvocation,
+  fatal as sharedFatal,
+  applyBehaviorActions,
+} from "./scripted-agent-runtime-shared.mjs";
 
 const prompt = process.argv[process.argv.length - 1] ?? "";
 const behaviorsPath = process.env.TAMANDUA_SCRIPTED_BEHAVIORS ?? "";
@@ -43,23 +59,11 @@ const stateDir = process.env.TAMANDUA_SCRIPTED_STATE ?? "";
 // ── State-dir logging (test diagnostics) ────────────────────────────
 
 function logInvocation(entry) {
-  if (!stateDir) return;
-  try {
-    fs.mkdirSync(stateDir, { recursive: true });
-    fs.appendFileSync(
-      path.join(stateDir, "invocations.jsonl"),
-      JSON.stringify({ ts: new Date().toISOString(), pid: process.pid, ...entry }) + "\n",
-      "utf-8",
-    );
-  } catch {
-    // never let diagnostics kill the round
-  }
+  sharedLogInvocation(stateDir, entry);
 }
 
 function fatal(note) {
-  logInvocation({ phase: "error", note });
-  process.stderr.write(`scripted-agent: ${note}\n`);
-  process.exit(1);
+  sharedFatal(stateDir, "scripted-agent", note);
 }
 
 // ── pi-shaped JSON event emission ───────────────────────────────────
@@ -107,100 +111,31 @@ function emitMessageEnd(text, totalTokens) {
 // path comes from the `step claim` command line. The work prompt has no
 // peek phase — the dispatch motor peeks in-process before spawning us.
 
-const header = prompt.match(
-  /workflow "([^"]+)", agent "([^"]+)", run "([^"]+)"/,
-);
-if (!header) fatal(`could not parse workflow/agent/run from prompt: ${prompt.slice(0, 200)}`);
-const [, workflowId, agentId, runId] = header;
+const parsed = parsePrompt(prompt);
+if (!parsed) {
+  fatal(`could not parse workflow/agent/run from prompt: ${prompt.slice(0, 200)}`);
+}
+const { workflowId, agentId, runId, cliPath, shortAgent } = parsed;
 
-const cliMatch = prompt.match(/(?:node )?"([^"]+)" step (?:claim|peek)/);
-if (!cliMatch) fatal("could not parse tamandua CLI path from prompt");
-const cliPath = cliMatch[1];
-
-const shortAgent = agentId.startsWith(`${workflowId}_`)
-  ? agentId.slice(workflowId.length + 1)
-  : agentId;
+const cli = createCli(cliPath);
 
 // ── Behaviors config ────────────────────────────────────────────────
 
-let config = { agents: {}, heartbeatTokens: 17, defaultTokens: 111 };
-if (behaviorsPath && fs.existsSync(behaviorsPath)) {
-  config = { ...config, ...JSON.parse(fs.readFileSync(behaviorsPath, "utf-8")) };
-}
+const config = loadBehaviors(behaviorsPath);
 
 function behaviorForInvocation(index) {
-  const entry = config.agents[shortAgent] ?? config.agents[agentId];
-  if (entry === undefined) return undefined;
-  const list = Array.isArray(entry) ? entry : [entry];
-  if (list.length === 0) return undefined;
-  return list[Math.min(index, list.length - 1)];
+  return sharedBehaviorForInvocation(config, agentId, shortAgent, index);
 }
 
 function nextWorkIndex() {
-  const countFile = path.join(stateDir, `${shortAgent}.workcount`);
-  let count = 0;
-  try {
-    count = parseInt(fs.readFileSync(countFile, "utf-8"), 10) || 0;
-  } catch {
-    // first invocation
-  }
-  fs.mkdirSync(stateDir, { recursive: true });
-  fs.writeFileSync(countFile, String(count + 1), "utf-8");
-  return count;
-}
-
-// ── tamandua CLI invocation (inherits daemon env: state dir, DB, ports) ──
-//
-// The prompt's CLI path may be the bin/tamandua shell launcher (exec it
-// directly) or a .js entry point (run it through node). Detect by shebang
-// so this runtime works with either prompt/motor generation.
-const cliIsShellScript = (() => {
-  try {
-    const fd = fs.openSync(cliPath, "r");
-    const buf = Buffer.alloc(2);
-    fs.readSync(fd, buf, 0, 2, 0);
-    fs.closeSync(fd);
-    return buf.toString("utf-8") === "#!";
-  } catch {
-    return false;
-  }
-})();
-
-function cli(args, input) {
-  const [command, baseArgs] = cliIsShellScript
-    ? [cliPath, []]
-    : [process.execPath, [cliPath]];
-  return spawnSync(command, [...baseArgs, ...args], {
-    encoding: "utf-8",
-    cwd: process.cwd(),
-    env: process.env,
-    input,
-    maxBuffer: 16 * 1024 * 1024,
-  });
+  return sharedNextWorkIndex(stateDir, shortAgent);
 }
 
 // ── Placeholder substitution ────────────────────────────────────────
 // {{cwd}} → harness workdir; {{input.KEY}} → "KEY: value" line from step input
 
-function parseInputVars(input) {
-  const vars = {};
-  for (const line of input.split(/\r?\n/)) {
-    const m = line.match(/^([A-Z][A-Z0-9_]*):\s*(.*)$/);
-    if (m) vars[m[1]] = m[2].trim();
-  }
-  return vars;
-}
-
 function substitute(text, inputVars) {
-  return text
-    .replaceAll("{{cwd}}", process.cwd())
-    .replace(/\{\{input\.([A-Za-z0-9_]+)\}\}/g, (_, key) => {
-      const upper = key.toUpperCase();
-      if (!(upper in inputVars)) {
-        throw new Error(`no "${upper}:" line in step input for placeholder {{input.${key}}}`);
-      }
-      return inputVars[upper];
-    });
+  return sharedSubstitute(text, process.cwd(), inputVars);
 }
 
 // ── Main ────────────────────────────────────────────────────────────
@@ -211,7 +146,7 @@ const base = { workflowId, agentId, shortAgent, runId, cwd: process.cwd(), jobId
 // before ever spawning this runtime, so NO_WORK here means a motor bug or a
 // (rare) race with another round. Journal it as "heartbeat" — the scripted
 // e2e asserts this count is ZERO under the deterministic motor (N2).
-const peek = cli(["step", "peek", agentId, "--run-id", runId]);
+const peek = peekStep(cli, agentId, runId);
 const peekOut = `${peek.stdout}\n${peek.stderr}`;
 if (peek.status !== 0) {
   logInvocation({ ...base, phase: "error", note: `step peek exited ${peek.status}: ${peekOut.slice(0, 500)}` });
@@ -238,12 +173,12 @@ const work = { ...base, phase: "work", workIndex, mode };
 if (behavior === undefined) {
   // Work arrived for an agent the test did not script: fail the run fast and
   // loudly instead of letting the e2e test time out.
-  const claim = cli(["step", "claim", agentId, "--run-id", runId]);
+  const claim = claimStep(cli, agentId, runId);
   const claimed = claim.status === 0 ? JSON.parse(claim.stdout.trim()) : null;
   logInvocation({ ...work, note: "no scripted behavior for this agent", stepId: claimed?.stepId ?? null });
   emitMessageEnd(`STATUS: failed\nREASON: no scripted behavior for agent "${shortAgent}"`, tokens);
   if (claimed?.stepId) {
-    cli(["step", "fail", claimed.stepId, `scripted-agent: no behavior configured for agent "${shortAgent}"`]);
+    failStep(cli, claimed.stepId, `scripted-agent: no behavior configured for agent "${shortAgent}"`);
   }
   process.exit(0);
 }
@@ -263,7 +198,7 @@ if (mode === "hang") {
 }
 
 function runWorkRound() {
-  const claim = cli(["step", "claim", agentId, "--run-id", runId]);
+  const claim = claimStep(cli, agentId, runId);
   if (claim.status !== 0) {
     logInvocation({ ...work, phase: "error", note: `step claim exited ${claim.status}: ${claim.stderr.slice(0, 500)}` });
     fatal(`step claim failed (exit ${claim.status})`);
@@ -292,43 +227,18 @@ function runWorkRound() {
     return;
   }
 
-  const failStep = (reason) => {
+  const failThisStep = (reason) => {
     logInvocation({ ...work, phase: "result", stepId, ok: false, note: reason.slice(0, 500) });
     emitToolAttribution(stepId, runId);
     emitMessageEnd(`STATUS: failed\nREASON: ${reason.slice(0, 500)}`, tokens);
-    cli(["step", "fail", stepId, reason.slice(0, 1000)]);
+    failStep(cli, stepId, reason.slice(0, 1000));
     process.exit(0);
   };
 
   try {
-    for (const edit of behavior.edits ?? []) {
-      const filePath = path.resolve(process.cwd(), substitute(edit.file, inputVars));
-      const content = fs.readFileSync(filePath, "utf-8");
-      const find = substitute(edit.find, inputVars);
-      if (!content.includes(find)) {
-        return failStep(`scripted edit: pattern not found in ${edit.file}: ${find}`);
-      }
-      fs.writeFileSync(filePath, content.replaceAll(find, substitute(edit.replace, inputVars)), "utf-8");
-    }
-    for (const write of behavior.writes ?? []) {
-      const filePath = path.resolve(process.cwd(), substitute(write.file, inputVars));
-      fs.mkdirSync(path.dirname(filePath), { recursive: true });
-      fs.writeFileSync(filePath, substitute(write.content, inputVars), "utf-8");
-    }
-    for (const command of behavior.commands ?? []) {
-      const rendered = substitute(command, inputVars);
-      const r = spawnSync("bash", ["-c", rendered], {
-        cwd: process.cwd(),
-        encoding: "utf-8",
-        env: process.env,
-        maxBuffer: 16 * 1024 * 1024,
-      });
-      if (r.status !== 0) {
-        return failStep(`scripted command failed (exit ${r.status}): ${rendered}\n${r.stderr}`);
-      }
-    }
+    applyBehaviorActions(behavior, process.cwd(), inputVars);
   } catch (err) {
-    return failStep(`scripted behavior error: ${err instanceof Error ? err.message : String(err)}`);
+    return failThisStep(`scripted behavior error: ${err instanceof Error ? err.message : String(err)}`);
   }
 
   if (mode === "die-after-claim") {
@@ -353,7 +263,7 @@ function runWorkRound() {
     // (guarded by HARNESS_TEARDOWN_GRACE_MS in the scheduler).
     emitToolAttribution(stepId, runId);
     logInvocation({ ...work, phase: "result", stepId, ok: true, note: "reporting step complete before emitting usage" });
-    const complete = cli(["step", "complete", stepId], outputText);
+    const complete = completeStep(cli, stepId, outputText);
     if (complete.status !== 0) {
       logInvocation({ ...work, phase: "result", stepId, ok: false, note: `step complete exited ${complete.status}: ${complete.stderr.slice(0, 300)}` });
     }
@@ -369,12 +279,12 @@ function runWorkRound() {
 
   if (behavior.stepAction === "fail") {
     logInvocation({ ...work, phase: "result", stepId, ok: false, note: "scripted step fail" });
-    cli(["step", "fail", stepId, behavior.failReason ?? "scripted failure"]);
+    failStep(cli, stepId, behavior.failReason ?? "scripted failure");
     process.exit(0);
   }
 
   logInvocation({ ...work, phase: "result", stepId, ok: true, note: "reporting step complete" });
-  const complete = cli(["step", "complete", stepId], outputText);
+  const complete = completeStep(cli, stepId, outputText);
   if (complete.status !== 0) {
     logInvocation({
       ...work,
