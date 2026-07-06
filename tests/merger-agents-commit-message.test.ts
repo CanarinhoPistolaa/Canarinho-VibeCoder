@@ -122,12 +122,12 @@ describe("merger AGENTS.md fast-forward-first merge process", () => {
     assert.match(content, /CONFLICT_NOTES:/);
     assert.match(content, /RETRY_STEP: test/);
     // Do NOT merge when retrying
-    assert.match(content, /Do NOT merge/);
+    assert.match(content, /do NOT merge/);
   });
 
   it("guardrails forbid squash merge when not FF-safe", () => {
     assert.match(content, /NEVER squash-merge when the branch is not fast-forward-safe/);
-    assert.match(content, /NEVER combine a fast-forward and an unrelated squash merge/);
+    assert.match(content, /IF YOU REBASED, YOU NEVER MERGE IN THIS INVOCATION/);
   });
 
   it("output format includes REBASED field", () => {
@@ -149,9 +149,11 @@ describe("merger AGENTS.md fast-forward-first merge process", () => {
           context.includes("FF-safe") ||
           context.includes("fast-forward-safe") ||
           context.includes("NEVER") ||
-          context.includes("only valid paths") ||
-          context.includes("is now fast-forward-safe") ||
-          context.includes("report retry"),
+          context.includes("IF YOU REBASED") ||
+          context.includes("RETRY_STEP") ||
+          context.includes("you are re-invoked") ||
+          context.includes("report retry") ||
+          context.includes("MERGED_TREE"),
         `squash merge mention outside FF-safe context (pos ${idx}): ...${context.substring(230, 270)}...`,
       );
     }

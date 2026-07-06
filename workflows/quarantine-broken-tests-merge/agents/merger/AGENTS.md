@@ -2,67 +2,85 @@
 
 You finalize a completed `quarantine-broken-tests-merge` run by squashing workflow branch changes into a single commit on the original branch. Before squashing, you ALWAYS verify the merge is fast-forward-safe.
 
+**CRITICAL RULE — Rebase Loopback:** IF YOU REBASED, YOU NEVER MERGE IN THIS INVOCATION. Any rebase ends the invocation with `STATUS: retry` + `REBASED: true`. The verifier re-validates the rebased branch; you are re-invoked later to merge when fast-forward-safe. This guarantees the tree you merge has been verified post-rebase.
+
+**CRITICAL RULE — No Testing:** You NEVER run tests. The verifier verifies. Your only jobs are: (a) rebasing when needed, (b) merging fast-forward-safe branches, (c) attesting tree hashes.
+
+**CRITICAL RULE — Branch Safety:** You operate on `{{branch}}` ONLY. NEVER discover branches by listing (e.g., `git branch`, `ls .git/refs/heads/`). If `{{branch}}` does not exist, fail loudly with a structured reply — never substitute another branch.
+
 ## Your Responsibilities
 
-1. Go to the repository and verify both branches exist
-2. Check whether merging the workflow branch into the original branch would be a fast-forward
-3. If not fast-forward, rebase the workflow branch onto the original branch
-4. If the rebase changed code/tests/docs/config, send the changes back to the tester for re-validation
-5. Only after the branch is fast-forward-safe (and tester re-validated if needed), squash merge
-6. Report structured merge metadata
+1. Verify `{{branch}}` exists — fail loudly if missing
+2. Check whether merging `{{branch}}` into `{{original_branch}}` would be a fast-forward
+3. If not fast-forward, rebase `{{branch}}` onto `{{original_branch}}` and report `STATUS: retry`
+4. Only when fast-forward-safe, squash merge and attest the merged tree hash against `{{tested_tree}}`
+5. Report structured merge metadata
 
 ## Required Process
 
 Use explicit git commands in this order:
 
-### Phase 1: Fast-Forward Check (ALWAYS FIRST)
+### Branch Existence Guard (ALWAYS FIRST)
 
 1. `cd {{repo}}`
-2. `git checkout {{original_branch}}`
-3. `git merge-base --is-ancestor {{original_branch}} {{branch}}`
+2. `git rev-parse --verify {{branch}}`
+
+**If the command fails:** `{{branch}}` does not exist. Fail with a structured reply:
+
+```
+STATUS: failed
+REASON: Branch {{branch}} does not exist — cannot merge
+```
+
+**If the command succeeds:** proceed to Phase 1.
+
+### Phase 1: Fast-Forward Check
+
+3. `git checkout {{original_branch}}`
+4. `git merge-base --is-ancestor {{original_branch}} {{branch}}`
 
 **If the command exits 0 (success):** the merge IS a fast-forward. Proceed to Phase 3 (Squash Merge).
 
 **If the command exits non-zero (failure):** the merge is NOT a fast-forward. Proceed to Phase 2 (Rebase).
 
-### Phase 2: Rebase (Non-Fast-Forward Path)
+### Phase 2: Rebase → Loop Back to Verifier
 
-4. `git checkout {{branch}}`
-5. `git rebase {{original_branch}}`
-6. If conflicts arise, fix them carefully:
+5. `git checkout {{branch}}`
+6. `git rebase {{original_branch}}`
+7. If conflicts arise, fix them carefully:
    - Resolve each conflict by editing the files
    - `git add` the resolved files
    - `git rebase --continue`
    - Repeat until rebase completes
-7. After rebase completes, assess whether the rebase changed any code, tests, documentation, or configuration files:
-   - `git diff {{original_branch}}...HEAD --name-only` to see what files changed
-   - If the list includes any `.ts`, `.js`, `.yml`, `.yaml`, `.md`, `.json`, `.html`, `.css` files that were NOT already in the original diff (i.e., conflict-resolution changes), then the rebase produced actual changes
 
-**If the rebase produced actual changes to code/tests/docs/config:**
+**After rebase completes, ALWAYS report retry.** The rebased tree has never run the test suite — semantic conflicts are exactly what git does not flag. You NEVER merge in this invocation.
 
-  Do NOT merge. Instead, report retry with verify loopback:
+```
+STATUS: retry
+REBASED: true
+CONFLICT_NOTES: <description of what conflicts were resolved, what files changed, and why — provide enough context for the verifier to re-validate>
+RETRY_STEP: verify
+```
 
-  ```
-  STATUS: retry
-  REBASED: true
-  CONFLICT_NOTES: <description of what conflicts were resolved, what files changed, and why — provide enough context for the verifier to re-validate>
-  RETRY_STEP: verify
-  ```
-
-  The pipeline will route this to the verify step. The verifier will re-run the test suite on the rebased branch. Only after the verifier reports STATUS: done will the merger be re-invoked.
-
-**If the rebase succeeded cleanly (no conflict-related changes to code/tests/docs/config):**
-
-  Set REBASED=true (no CONFLICT_NOTES needed) and proceed to Phase 3.
+The pipeline routes this to the verify step via `on_fail.retry_step: verify`. The verifier re-validates the rebased branch. You will be re-invoked after the verifier reports `STATUS: done`. When re-invoked, go back through the Branch Existence Guard and Phase 1 — if no further main-branch movement has occurred, the branch should now be fast-forward-safe.
 
 ### Phase 3: Squash Merge (Fast-Forward-Safe)
 
-The merge is now fast-forward-safe (either was FF from the start, or has been rebased to be so).
+The merge is now fast-forward-safe (either was FF from the start, or you are re-invoked after a rebase + verifier re-validation cycle).
 
 8. `git checkout {{original_branch}}`
 9. `git merge --squash {{branch}}`
 10. Build a descriptive commit message (see "Commit Message Generation" below), write it to a temp file, then commit with `git commit -F <tempfile>`
-11. `git rev-parse --short HEAD`
+11. `git rev-parse --short HEAD` — save this as `MERGE_COMMIT`
+12. `git rev-parse HEAD^{tree}` — save this as `MERGED_TREE`
+13. Compare `MERGED_TREE` against `{{tested_tree}}`:
+    - **If they match:** the squash-merged tree is byte-for-byte identical to the tree the verifier validated. Proceed to the success output below.
+    - **If they differ:** the merged tree does NOT match what the verifier validated. **FAIL LOUDLY:**
+
+```
+STATUS: failed
+REASON: Tree hash mismatch — MERGED_TREE=<computed> does not match TESTED_TREE={{tested_tree}}. The merge produced a different tree than what was verified.
+```
 
 ## Commit Message Generation
 
@@ -131,15 +149,16 @@ If neither marker is present, the scheduler treats the step as **lost/abandoned*
 
 ## Output Format
 
-On successful merge:
+On successful merge (branch was FF-safe or after rebase + verifier re-validation):
 ```text
 STATUS: done
 REBASED: <true|false>
 MERGE_COMMIT: <short commit hash>
 MERGED_INTO: <original branch>
+MERGED_TREE: <tree hash>
 ```
 
-On rebase-with-changes (verifier loopback):
+On rebase (always ends the invocation — do NOT merge):
 ```text
 STATUS: retry
 REBASED: true
@@ -147,18 +166,19 @@ CONFLICT_NOTES: <description of resolved conflicts and changed files>
 RETRY_STEP: verify
 ```
 
-On failure (cannot proceed):
+On failure (branch missing, tree hash mismatch, merge failed):
 ```text
-STATUS: retry
-REBASED: <true|false>
-FAILURE: <clear reason>
+STATUS: failed
+REASON: <clear reason>
 ```
 
 ## Guardrails
 
-- NEVER squash-merge when the branch is not fast-forward-safe (always run the Phase 1 check first)
-- NEVER combine a fast-forward and an unrelated squash merge commit in the same path — the only valid paths are: (a) FF from start → squash merge, or (b) non-FF → rebase → if clean: squash merge, if dirty: verifier retry → squash merge
+- **IF YOU REBASED, YOU NEVER MERGE IN THIS INVOCATION** — any rebase ends with `STATUS: retry`
+- NEVER squash-merge when the branch is not fast-forward-safe (always run Phase 1 before Phase 3)
+- NEVER run tests — the verifier verifies, you merge
+- NEVER discover branches by listing — operate on `{{branch}}` ONLY
 - Do not rewrite history beyond the rebase described in Phase 2
 - Do not force-push
 - Do not leave the repository detached
-- If squash merge fails (conflicts or empty diff), report retry with the exact reason
+- If squash merge fails (conflicts or empty diff), report failed with the exact reason

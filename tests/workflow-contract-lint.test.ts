@@ -637,6 +637,92 @@ describe("linter self-tests — synthetic fixtures", () => {
     );
   });
 
+  // US-008: MRGV — dual-shape expects accepts both STATUS variants
+  it("MRGV dual-shape: regex alternation expects accepts both done and retry", () => {
+    const spec = synthSpec({
+      id: "test-mrgv-dual-shape",
+      steps: [
+        {
+          id: "merger",
+          agent: "agent",
+          input: "Merge.\n\nReply with:\nSTATUS: done\nREBASED: <true|false>\nMERGED_TREE: <sha>",
+          expects: "regex:^STATUS:\\s*(done|retry)\\s*$\nregex:^REBASED:\\s*(true|false)\\s*$",
+        },
+      ],
+    });
+
+    const step = spec.steps[0];
+
+    // The expects must accept both STATUS: done (normal merge) and STATUS: retry (rebase loopback)
+    assert.equal(
+      checkExpectsAcceptsVariant(step.expects, "done"),
+      true,
+      "dual-shape expects must accept STATUS: done",
+    );
+    assert.equal(
+      checkExpectsAcceptsVariant(step.expects, "retry"),
+      true,
+      "dual-shape expects must accept STATUS: retry (rebase loopback)",
+    );
+
+    // The expects must NOT accept unrelated STATUS variants
+    assert.equal(
+      checkExpectsAcceptsVariant(step.expects, "failed"),
+      false,
+      "dual-shape expects must NOT accept STATUS: failed",
+    );
+  });
+
+  // US-008: MRGV — REBASED enforcement prevents blind merge completion
+  it("MRGV rebased-enforcement: REBASED key is enforced by expects", () => {
+    // The expects regex:^REBASED:\s*(true|false)\s*$ enforces REBASED
+    // emission.  parseEnforcedKeys must extract "rebased" as an enforced key,
+    // meaning any downstream step consuming {{rebased}} will be protected
+    // by MISS key-tracking — the merger cannot silently skip the REBASED field.
+    const spec = synthSpec({
+      id: "test-mrgv-rebased-enforced",
+      steps: [
+        {
+          id: "merger",
+          agent: "agent",
+          input: "Merge.\n\nReply with:\nSTATUS: done\nREBASED: false\nMERGED_TREE: <sha>",
+          expects: "regex:^STATUS:\\s*(done|retry)\\s*$\nregex:^REBASED:\\s*(true|false)\\s*$",
+        },
+        {
+          id: "consumer",
+          agent: "agent",
+          input: "Verify REBASED was {{rebased}}. Reply with: STATUS: done",
+          expects: "STATUS: done",
+        },
+      ],
+    });
+
+    // The consumer step consumes {{rebased}} — this must be in provided keys
+    const consumed = collectPlaceholders(spec.steps[1].input);
+    assert.ok(consumed.includes("rebased"), "consumer must consume {{rebased}}");
+
+    const provided = computeProvidedKeys(spec, 1);
+    assert.equal(
+      provided.has("rebased"),
+      true,
+      "REBASED must be in provided keys (enforced by merger expects regex)",
+    );
+
+    // parseEnforcedKeys on the merger expects must extract "rebased"
+    const enforced = parseEnforcedKeys(spec.steps[0].expects);
+    assert.ok(
+      enforced.includes("rebased"),
+      `parseEnforcedKeys must extract "rebased" from merger expects, got: ${enforced.join(", ")}`,
+    );
+
+    // STATUS must NOT be extracted as an enforced data key
+    assert.equal(
+      enforced.includes("status"),
+      false,
+      "STATUS must NOT be extracted as an enforced data key",
+    );
+  });
+
   it("auto-context: key is in AUTO_CONTEXT_KEYS → PASSES", () => {
     const spec = synthSpec({
       id: "test-auto-context",
@@ -1225,6 +1311,95 @@ describe("US-005: expects-must-accept-all-reply-variants invariant", () => {
       violations,
       [],
       `Found ${violations.length} step(s) whose Reply-with STATUS variant is rejected by expects:\n${violations.join("\n")}`,
+    );
+  });
+
+  // US-008: MRGV — merger dual-shape expects accept both done and retry
+  it("merge-step expects regex alternation accepts both done and retry variants", () => {
+    // Load the merger expects from a real merge-family workflow
+    const mergeWorkflows = [
+      "feature-dev-merge",
+      "feature-dev-merge-worktree",
+      "security-audit-merge",
+      "security-audit-merge-worktree",
+      "bug-fix-merge",
+      "bug-fix-merge-worktree",
+      "quarantine-broken-tests-merge",
+      "quarantine-broken-tests-merge-worktree",
+    ];
+
+    for (const wfId of mergeWorkflows) {
+      const spec = fullSpecs.get(wfId);
+      assert.ok(spec, `merge workflow ${wfId} not found`);
+
+      const mergeStep = spec!.steps.find((s) => s.id === "finalize_merge");
+      assert.ok(mergeStep, `${wfId}: finalize_merge step not found`);
+
+      // The new expects must accept both STATUS: done and STATUS: retry
+      assert.equal(
+        checkExpectsAcceptsVariant(mergeStep!.expects, "done"),
+        true,
+        `${wfId}/finalize_merge: expects must accept STATUS: done`,
+      );
+      assert.equal(
+        checkExpectsAcceptsVariant(mergeStep!.expects, "retry"),
+        true,
+        `${wfId}/finalize_merge: expects must accept STATUS: retry`,
+      );
+
+      // The expects must NOT accept unrelated STATUS variants
+      assert.equal(
+        checkExpectsAcceptsVariant(mergeStep!.expects, "failed"),
+        false,
+        `${wfId}/finalize_merge: expects must NOT accept STATUS: failed`,
+      );
+
+      // parseEnforcedKeys must extract "rebased" from REBASED enforcement
+      const enforced = parseEnforcedKeys(mergeStep!.expects);
+      assert.ok(
+        enforced.includes("rebased"),
+        `${wfId}/finalize_merge: parseEnforcedKeys must extract "rebased", got: ${enforced.join(", ")}`,
+      );
+
+      // STATUS must NOT be extracted as an enforced key
+      assert.equal(
+        enforced.includes("status"),
+        false,
+        `${wfId}/finalize_merge: "status" must NOT be in enforced keys`,
+      );
+    }
+  });
+
+  // US-008: parseEnforcedKeys extracts tested_tree from tester/verifier expects
+  it("parseEnforcedKeys extracts tested_tree from TESTED_TREE regex enforcement", () => {
+    // Tester expects: feature-dev-merge test step has regex:^TESTED_TREE:
+    const fdm = fullSpecs.get("feature-dev-merge")!;
+    const testStep = fdm.steps.find((s) => s.id === "test");
+    assert.ok(testStep, "test step not found");
+    const testEnforced = parseEnforcedKeys(testStep!.expects);
+    assert.ok(
+      testEnforced.includes("tested_tree"),
+      `feature-dev-merge/test: parseEnforcedKeys must extract "tested_tree", got: ${testEnforced.join(", ")}`,
+    );
+
+    // Verifier expects: quarantine verify step has regex:^TESTED_TREE:
+    const qm = fullSpecs.get("quarantine-broken-tests-merge")!;
+    const verifyStep = qm.steps.find((s) => s.id === "verify");
+    assert.ok(verifyStep, "verify step not found");
+    const verifyEnforced = parseEnforcedKeys(verifyStep!.expects);
+    assert.ok(
+      verifyEnforced.includes("tested_tree"),
+      `quarantine-broken-tests-merge/verify: parseEnforcedKeys must extract "tested_tree", got: ${verifyEnforced.join(", ")}`,
+    );
+
+    // Bug-fix-merge verify step also has TESTED_TREE regex enforcement
+    const bfm = fullSpecs.get("bug-fix-merge")!;
+    const bfVerifyStep = bfm.steps.find((s) => s.id === "verify");
+    assert.ok(bfVerifyStep, "bug-fix-merge verify step not found");
+    const bfEnforced = parseEnforcedKeys(bfVerifyStep!.expects);
+    assert.ok(
+      bfEnforced.includes("tested_tree"),
+      `bug-fix-merge/verify: parseEnforcedKeys must extract "tested_tree", got: ${bfEnforced.join(", ")}`,
     );
   });
 });

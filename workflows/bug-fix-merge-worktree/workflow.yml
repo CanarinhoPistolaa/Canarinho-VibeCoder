@@ -272,10 +272,15 @@ steps:
 
       IMPORTANT: your step-complete report must use exactly the Reply format below — starting with STATUS: done and including the VERIFIED: line. Do not substitute a generic CHANGES/TESTS report.
 
+      After verification, compute the tree hash of the verified branch tip:
+        TESTED_TREE=$(git rev-parse HEAD^{tree})
+      Include it in your done reply so downstream steps can attest the merged tree matches.
+
       Reply with:
       STATUS: done
       VERIFIED: what was confirmed
-    expects: "STATUS: done\nregex:^VERIFIED:\\s*\\S+"
+      TESTED_TREE: <tree hash>
+    expects: "STATUS: done\nregex:^VERIFIED:\\s*\\S+\nregex:^TESTED_TREE:\\s*\\S+"
     on_fail:
       retry_step: fix
       max_retries: 6
@@ -299,6 +304,7 @@ steps:
       CHANGES: {{changes}}
       REGRESSION_TEST: {{regression_test}}
       VERIFIED: {{verified}}
+      TESTED_TREE: {{tested_tree}}
 
       Follow the Required Process from your AGENTS.md.
 
@@ -320,8 +326,9 @@ steps:
       4. cd {{repo}}
       5. git rebase {{original_branch}}
       6. Fix any conflicts; `git rebase --continue` until complete
-      7. After rebase (clean or with conflict resolution), proceed to Phase 3.
-         Bug-fix-merge has no tester step — the verifier already confirmed the fix.
+      7. After rebase (clean or with conflict resolution), ALWAYS report STATUS: retry + REBASED: true.
+         The rebased tree has not been verified — never merge in this invocation.
+         The verifier will re-validate the rebased branch; you will be re-invoked when FF-safe.
 
       Phase 3 — Squash Merge (Fast-Forward-Safe):
       8. cd {{worktree_origin_repository}}
@@ -340,4 +347,10 @@ steps:
       REBASED: <true|false>
       MERGE_COMMIT: <short commit hash>
       MERGED_INTO: {{original_branch}}
-    expects: "STATUS: done"
+      MERGED_TREE: $(git rev-parse HEAD^{tree})
+    expects: |
+      regex:^STATUS:\s*(done|retry)\s*$
+      regex:^REBASED:\s*(true|false)\s*$
+    on_fail:
+      retry_step: verify
+      max_reroutes: 4

@@ -8,6 +8,7 @@ import assert from "node:assert/strict";
 import {
   parseExpectedKeys,
   parseEnforcedKeys,
+  checkExpectsAcceptsVariant,
   AUTO_CONTEXT_KEYS,
   CALLER_PROVIDED,
 } from "../dist/installer/workflow-contract.js";
@@ -58,6 +59,42 @@ describe("parseExpectedKeys", () => {
     for (const key of parseExpectedKeys(template)) {
       assert.equal(key, key.toLowerCase());
     }
+  });
+
+  // US-008: MRGV — parseExpectedKeys extracts TESTED_TREE from tester templates
+  it("extracts TESTED_TREE from tester Reply-with block", () => {
+    const template = [
+      "Reply with:",
+      "STATUS: done",
+      "RESULTS: What you tested and the outcomes",
+      "TESTED_TREE: $(git rev-parse HEAD^{tree})",
+    ].join("\n");
+    const keys = parseExpectedKeys(template);
+    assert.ok(keys.includes("tested_tree"),
+      `parseExpectedKeys must include "tested_tree", got: ${keys.join(", ")}`);
+    assert.ok(keys.includes("status"), "STATUS must be extracted from Reply-with");
+    assert.ok(keys.includes("results"), "RESULTS must be extracted from Reply-with");
+  });
+
+  // US-008: MRGV — parseExpectedKeys handles merger Reply-with blocks with REBASED and MERGED_TREE
+  it("extracts rebased and merged_tree from merger Reply-with blocks", () => {
+    const template = [
+      "Reply with:",
+      "STATUS: done",
+      "REBASED: <true|false>",
+      "MERGE_COMMIT: <short commit hash>",
+      "MERGED_INTO: {{original_branch}}",
+      "MERGED_TREE: $(git rev-parse HEAD^{tree})",
+    ].join("\n");
+    const keys = parseExpectedKeys(template);
+    assert.ok(keys.includes("rebased"),
+      `parseExpectedKeys must include "rebased", got: ${keys.join(", ")}`);
+    assert.ok(keys.includes("merged_tree"),
+      `parseExpectedKeys must include "merged_tree", got: ${keys.join(", ")}`);
+    assert.ok(keys.includes("merge_commit"),
+      `parseExpectedKeys must include "merge_commit", got: ${keys.join(", ")}`);
+    assert.ok(keys.includes("merged_into"),
+      `parseExpectedKeys must include "merged_into", got: ${keys.join(", ")}`);
   });
 
   it("is re-exported from step-ops.ts for backward compat", async () => {
@@ -156,6 +193,49 @@ describe("parseEnforcedKeys", () => {
     // (consumers deduplicate anyway) but the extraction should capture both forms
     const keys = parseEnforcedKeys(expects);
     assert.ok(keys.includes("branch"));
+  });
+
+  // US-008: MRGV — parseEnforcedKeys with merger multi-line regex expects
+  it("extracts rebased from merger dual-shape expects (regex alternation)", () => {
+    const expects = "regex:^STATUS:\\s*(done|retry)\\s*$\nregex:^REBASED:\\s*(true|false)\\s*$";
+    const keys = parseEnforcedKeys(expects);
+    assert.deepEqual(keys, ["rebased"], "merger expects must extract only 'rebased' (STATUS excluded)");
+  });
+
+  // US-008: MRGV — parseEnforcedKeys with TESTED_TREE regex
+  it("extracts tested_tree from TESTED_TREE regex enforcement", () => {
+    const expects = "STATUS: done\nregex:^TESTED_TREE:\\s*\\S+";
+    const keys = parseEnforcedKeys(expects);
+    assert.ok(keys.includes("tested_tree"), `must extract 'tested_tree', got: ${keys.join(", ")}`);
+    assert.equal(
+      keys.includes("status"),
+      false,
+      "STATUS must not be extracted as a data key",
+    );
+  });
+
+  // US-008: MRGV — parseEnforcedKeys with compound expects (both rebased and tested_tree patterns)
+  it("extracts both rebased and tested_tree from compound expects", () => {
+    const expects = [
+      "regex:^STATUS:\\s*(done|retry)\\s*$",
+      "regex:^REBASED:\\s*(true|false)\\s*$",
+      "regex:^MERGED_TREE:\\s*\\S+",
+    ].join("\n");
+    const keys = parseEnforcedKeys(expects).sort();
+    assert.deepEqual(keys, ["merged_tree", "rebased"].sort(),
+      "must extract both 'rebased' and 'merged_tree' (STATUS excluded)");
+  });
+
+  // US-008: MRGV — checkExpectsAcceptsVariant with merger regex alternation
+  it("checkExpectsAcceptsVariant: merger multi-line expects accepts both done and retry", () => {
+    const expects = "regex:^STATUS:\\s*(done|retry)\\s*$\nregex:^REBASED:\\s*(true|false)\\s*$";
+
+    assert.equal(checkExpectsAcceptsVariant(expects, "done"), true,
+      "merger expects must accept STATUS: done");
+    assert.equal(checkExpectsAcceptsVariant(expects, "retry"), true,
+      "merger expects must accept STATUS: retry (rebase loopback)");
+    assert.equal(checkExpectsAcceptsVariant(expects, "failed"), false,
+      "merger expects must reject STATUS: failed (not a valid merger outcome)");
   });
 });
 

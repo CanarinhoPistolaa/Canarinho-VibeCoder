@@ -158,6 +158,21 @@ baseline assertions.
   `docs/creating-workflows.md` ("Verifier Diff Idiom — Merge-Base
   Comparison"). Merger/pr steps intentionally use two-dot for actual
   rebase/merge preparation — the exemption is honored by the linter rule.
+
+  **RETR-rugpull interaction (rebase-loopback):** When a `finalize_merge`
+  step declares `on_fail.retry_step` (for rebase-loopback — the merger
+  rebases, returns `STATUS: retry`, and hands off to a tester/verifier for
+  post-rebase re-validation), RETR reroute cycles consume the per-step
+  reroute budget (`max_reroutes`) first.  If the budget exhausts after
+  repeated rebase→test→merge cycles fail to converge, the run falls through
+  to normal merge-step failure.  At that point, `detectRugpull`
+  (`src/installer/rugpull.ts`) still owns true merge-conflict recovery — it
+  sees a failed `finalize_merge` with a moved base-branch tip and triggers
+  relaunch.  The two mechanisms coexist without conflict: RETR `retry_step`
+  fires first (per-step reroute budget, rebase-test-merge convergence),
+  rugpull fires after (last-resort, genuine merge conflicts).  Rugpull is
+  never bypassed — a merge failure that exhausts the reroute budget ends
+  the same way any other merge failure does.
 - **C19 (RETR — declarative cross-step retry routing)** When a step declares
   `on_fail.retry_step` and exhausts its local retries, the run does NOT
   immediately fail. Instead the run reroutes to the named upstream producer
@@ -175,8 +190,10 @@ baseline assertions.
   resets to 0 on each reroute; `reroute_count` is the dedicated boundedness
   counter. Each reroute emits a `step.rerouted` event; budget exhaustion
   emits `step.reroute_budget_exhausted`. RETR does NOT fire for loop-step
-  story-level exhaustion (`verify_each` territory) or for `finalize_merge`
-  (rugpull owns merge-failure recovery).
+  story-level exhaustion (`verify_each` territory).  For `finalize_merge`,
+  RETR fires when `on_fail.retry_step` is declared (rebase-loopback);
+  rugpull takes over as the terminal fallback after reroute budget
+  exhaustion (see C8-rugpull RETR-rugpull interaction note).
 
   **Loop-step story reset:** When the reroute target is a loop-over-stories
   step (`type='loop'`, `loop_config.over='stories'`), stories cited in the

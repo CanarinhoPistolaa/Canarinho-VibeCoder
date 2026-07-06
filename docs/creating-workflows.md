@@ -318,6 +318,126 @@ npm run build && npm test
 ./run-all-e2e-tests          # scripted agents must satisfy all regex expects
 ```
 
+### Rebase-Loopback + Tree-Hash Attestation Idiom
+
+Merge steps (`finalize_merge`) can validate post-merge correctness by combining three
+layers: rebase-loopback, expects regex alternation, and tree-hash attestation. Together
+they make post-rebase verification machine-enforced instead of claimed.
+
+**Why it matters:** A conflict-free rebase produces a tree that has never run the test
+suite — semantic conflicts are exactly what git does not flag. Without machine
+enforcement, nothing structurally distinguishes "I ran tests on the post-rebase tree"
+from "tests were green earlier so I said pass." The merger must *never* be the one
+running tests; a separate verifier or tester must re-validate the rebased branch.
+
+**The pattern (three layers):**
+
+1. **Rebase-Loopback (merger persona):** IF YOU REBASED, YOU NEVER MERGE IN THIS
+   INVOCATION. Any rebase ends the merger invocation with `STATUS: retry` +
+   `REBASED: true`, routed via `on_fail.retry_step` to the tester or verifier step.
+   The tester re-validates the rebased branch; the merger is re-invoked, finds the
+   branch fast-forward-safe, and merges without rebasing. If main moved again, the
+   cycle repeats until convergence. Cost: one extra tester/verifier invocation, paid
+   only when a rebase actually happened.
+
+2. **Expects Alternation (workflow.yml):** The merge step's `expects` must accept both
+   merger reply shapes — `STATUS: done` (success) and `STATUS: retry` (rebase
+   loopback) — so neither is rejected by `validateExpects`. Use regex alternation; a
+   bare literal `REBASED: false` would reject the honest retry reply (the RSTY lesson
+   — `validateExpects` is line-by-line, all-lines-must-match, so a literal line would
+   reject the `STATUS: retry` output that lacks it).
+
+   ```yaml
+   # finalize_merge expects — accepts both done and retry verdicts:
+   expects: |
+     regex:^STATUS:\s*(done|retry)\s*$
+     regex:^REBASED:\s*(true|false)\s*$
+   ```
+
+   The `on_fail` block routes retry verdicts to the validation step:
+
+   ```yaml
+   on_fail:
+     retry_step: test        # or verify for workflows without a tester
+     max_reroutes: 4         # cycles allowed for convergence
+   ```
+
+3. **Tree-Hash Attestation:** Squash-merging a fast-forward-safe branch reproduces
+   the branch tip's tree byte-for-byte, so enforce: merged tip tree hash == tree the
+   tester validated. The tester or verifier emits
+   `TESTED_TREE: $(git rev-parse HEAD^{tree})` in its output; this flows into run
+   context as `{{tested_tree}}`. The merger's `done` reply includes a `MERGED_TREE:`
+   line, and the merge step instructions require comparing the post-merge tree against
+   `{{tested_tree}}`. A mismatch means the merger lied about what it merged — fail
+   loudly.
+
+   **Tester/verifier persona (add to Reply with):**
+
+   ```
+   TESTED_TREE: $(git rev-parse HEAD^{tree})
+   ```
+
+   **Tester/verifier expects (enforce emission):**
+
+   ```yaml
+   # test-step or verify-step expects:
+   expects: |
+     STATUS: done
+     regex:^TESTED_TREE:\s*\S+
+   ```
+
+   **Merge-step input (make available to merger):**
+
+   ```yaml
+   input: |
+     ...
+     TESTED_TREE: {{tested_tree}}
+     ...
+   ```
+
+   **Merger persona Phase 3:** after squash merge, compute
+   `git rev-parse HEAD^{tree}`, compare against `{{tested_tree}}`, and fail loudly on
+   mismatch.
+
+   **Merger Reply with:**
+
+   ```
+   MERGED_TREE: $(git rev-parse HEAD^{tree})
+   ```
+
+**Branch safety:** The merger persona must operate on `{{branch}}` ONLY — explicitly
+forbid discovering branches by listing. An alphabetical `feature/*` discovery once
+squash-merged the wrong run's branch (the XBRC incident, proven via reflogs). If
+`{{branch}}` does not exist, the merger must fail loudly with a structured reply,
+never substitute another branch. Add this guard as the first step in the merger's
+Required Process:
+
+```bash
+git rev-parse --verify {{branch}} || exit 1
+```
+
+**RETR-rugpull interaction:** When `finalize_merge` declares `on_fail.retry_step`
+for rebase-loopback, reroute cycles consume the reroute budget first. If the budget
+exhausts, the run still fails at `finalize_merge`, at which point rugpull detection
+(`detectRugpull` in `src/installer/rugpull.ts`) still sees a failed `finalize_merge`
++ moved base branch tip and owns true merge-conflict recovery. Reroute cycles handle
+rebase-test-merge convergence; rugpull is the last-resort recovery for genuine merge
+conflicts. Both mechanisms coexist without conflict.
+
+**Linter enforcement:** The contract lint test
+(`tests/workflow-contract-lint.test.ts`) verifies that every `STATUS` variant offered
+in the merge step's `Reply with:` block is accepted by the `expects` regex, and that
+`REBASED` and `TESTED_TREE` keys are enforced by their upstream producers'
+`expects`.
+
+**Testing your contract:** after wiring the merge step with rebase-loopback and
+attestation, run:
+
+```bash
+npm run build && npm test
+./run-all-e2e-tests          # scripted agents must satisfy all regex expects
+```
+
 ## Roles
 
 | Role | Capabilities | Use For | Default timeout |
@@ -369,7 +489,7 @@ When a reroute fires:
 - `max_reroutes` applies to the consumer's `reroute_count`. When the consumer reaches this budget, the system falls through to normal failure behavior (run fails). Default is `2`.
 - The reroute budget is **separate** from `retry_count`: the producer's `retry_count` never changes across reroutes; the consumer's `retry_count` resets to 0 on each reroute.
 - Rerouting does **NOT** apply to `verify_each` verify steps (those referenced as `verify_step` in a loop's `loop_config`).
-- `finalize_merge` steps should **not** be wired with `retry_step` — the rugpull mechanism owns merge-failure recovery.
+- `finalize_merge` steps **MAY** be wired with `retry_step` for rebase-loopback — reroute cycles consume the reroute budget first; if the budget exhausts and the run still fails at `finalize_merge`, rugpull detection (`detectRugpull` in `src/installer/rugpull.ts`) still owns true merge-conflict recovery. See [Rebase-Loopback + Tree-Hash Attestation Idiom](#rebase-loopback--tree-hash-attestation-idiom) for the full pattern.
 
 **Observability:** Every reroute emits a `step.rerouted` event with `fromStep`, `toStep`, `rerouteCount`, `budget`, and a bounded reason. Budget exhaustion emits `step.reroute_budget_exhausted`. Both are logged with the same structured metadata.
 

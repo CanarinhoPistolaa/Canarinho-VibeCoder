@@ -192,8 +192,8 @@ describe("bug-fix-merge workflow", () => {
       assert.match(mergerIdentityMd, /Role:.*[Ss]quash/);
     });
 
-    it("AGENTS.md contains conventional commit format guidance and git commit -F instructions", () => {
-      assert.match(mergerAgentsMd, /conventional commit format/);
+    it("AGENTS.md contains commit message guidance and git commit -F instructions", () => {
+      assert.match(mergerAgentsMd, /Commit Message Generation/);
       assert.match(mergerAgentsMd, /git commit -F/);
     });
 
@@ -202,11 +202,10 @@ describe("bug-fix-merge workflow", () => {
       assert.doesNotMatch(mergerAgentsMd, /git push/);
     });
 
-    it("AGENTS.md does NOT contain feat: as preferred commit prefix", () => {
-      // The only mention of "feat:" should be in a prohibition, not as preferred
+    it("AGENTS.md uses fix: prefix for commit message subject", () => {
       assert.doesNotMatch(mergerAgentsMd, /Use conventional commit format with `feat:`/);
-      assert.match(mergerAgentsMd, /Do NOT use `feat:` prefix/);
-      assert.match(mergerAgentsMd, /Always use `fix:`/);
+      assert.match(mergerAgentsMd, /Use `fix:` prefix/);
+      assert.match(mergerAgentsMd, /Do NOT use a hardcoded one-line commit message/);
     });
 
     it("AGENTS.md includes fast-forward check as first Required Process step", () => {
@@ -224,21 +223,21 @@ describe("bug-fix-merge workflow", () => {
       assert.match(mergerAgentsMd, /git rebase --continue/);
       assert.match(mergerAgentsMd, /fix them carefully|resolve each conflict|If conflicts arise/i);
       // Bug-fix-merge has no tester — rebase proceeds directly to squash merge
-      assert.match(mergerAgentsMd, /no tester step/);
+      assert.match(mergerAgentsMd, /RETRY_STEP:\s*verify/);
     });
 
     it("AGENTS.md guardrails forbid squash merge when not FF-safe", () => {
       assert.match(mergerAgentsMd, /NEVER squash-merge when the branch is not fast-forward-safe/);
-      assert.match(mergerAgentsMd, /NEVER combine a fast-forward and an unrelated squash merge/);
+      assert.match(mergerAgentsMd, /IF YOU REBASED, YOU NEVER MERGE IN THIS INVOCATION/);
     });
 
     it("AGENTS.md output format includes REBASED field", () => {
       assert.match(mergerAgentsMd, /REBASED:\s*<(true\|false|true\/false)>/);
     });
 
-    it("AGENTS.md does NOT have tester retry path (bug-fix-merge has no tester)", () => {
-      assert.doesNotMatch(mergerAgentsMd, /RETRY_STEP:/);
-      assert.doesNotMatch(mergerAgentsMd, /CONFLICT_NOTES:/);
+    it("AGENTS.md retry path routes to verifier (RETRY_STEP: verify)", () => {
+      assert.match(mergerAgentsMd, /RETRY_STEP:\s*verify/);
+      assert.match(mergerAgentsMd, /CONFLICT_NOTES:/);
     });
 
     it("AGENTS.md guardrails have no contradictory FF + unrelated squash instructions (US-004)", () => {
@@ -258,7 +257,11 @@ describe("bug-fix-merge workflow", () => {
             context.includes("NEVER") ||
             context.includes("only valid paths") ||
             context.includes("is now fast-forward-safe") ||
-            context.includes("report retry"),
+            context.includes("IF YOU REBASED") ||
+          context.includes("RETRY_STEP") ||
+          context.includes("MERGED_TREE") ||
+          context.includes("validated") ||
+          context.includes("report retry"),
           `squash merge mention outside FF-safe context (pos ${idx}): ...${context.substring(230, 270)}...`,
         );
       }

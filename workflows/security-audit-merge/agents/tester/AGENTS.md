@@ -25,6 +25,7 @@ If neither marker is present, the scheduler treats the step as **lost/abandoned*
 ```
 STATUS: done
 RESULTS: All 156 tests pass (14 new regression tests). Build succeeds. App starts and responds to health check.
+TESTED_TREE: $(git rev-parse HEAD^{tree})
 AUDIT_AFTER: npm audit shows 2 moderate vulnerabilities remaining (in dev dependencies, non-exploitable). Down from 8 critical + 12 high.
 ```
 
@@ -34,4 +35,22 @@ STATUS: retry
 FAILURES:
 - 3 tests failing in src/api/users.test.ts (auth middleware changes broke existing tests)
 - Build fails: TypeScript error in src/middleware/csrf.ts:12
+```
+
+## Reply with
+
+After running the test suite, emit the tested tree hash. This hash is the tree of the tip of the branch you tested — it must match the tree the merger produces when squash-merging:
+
+```
+STATUS: done
+RESULTS: test outcomes
+TESTED_TREE: $(git rev-parse HEAD^{tree})
+AUDIT_AFTER: remaining audit issues if any
+```
+
+Or if issues:
+```
+STATUS: retry
+FAILURES:
+- specific failures
 ```

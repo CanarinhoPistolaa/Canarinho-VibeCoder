@@ -232,7 +232,7 @@ const bugFixBehaviors: ScriptedAgentConfig = {
       ].join("\n"),
     },
     verifier: {
-      output: ["STATUS: done", "VERIFIED: add() now uses a + b"].join("\n"),
+      output: ["STATUS: done", "VERIFIED: add() now uses a + b", "TESTED_TREE: scripted-tree"].join("\n"),
     },
     merger: {
       commands: [
@@ -644,7 +644,7 @@ describe("scripted-agent full pipeline (real daemon/scheduler, zero tokens)", { 
               { stepAction: "fail", failReason: "Code quality issues — unnecessary complexity in the expression" },
               { stepAction: "fail", failReason: "Side effects not addressed — edge cases still broken" },
               { stepAction: "fail", failReason: "Fix is semantically wrong — produces incorrect results" },
-              { output: ["STATUS: done", "VERIFIED: add() now uses a + b, regression test passes"].join("\n") },
+              { output: ["STATUS: done", "VERIFIED: add() now uses a + b, regression test passes", "TESTED_TREE: scripted-tree-reroute"].join("\n") },
             ],
             merger: {
               commands: [

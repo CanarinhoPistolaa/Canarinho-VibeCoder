@@ -537,11 +537,11 @@ describe("workflow structure", () => {
     assert.match(content, /STATUS: retry/);
     assert.match(content, /CONFLICT_NOTES:/);
     assert.match(content, /RETRY_STEP: test/);
-    assert.match(content, /Do NOT merge/);
+    assert.match(content, /do NOT merge/);
 
     // Guardrails forbid squash merge when not FF-safe
     assert.match(content, /NEVER squash-merge when the branch is not fast-forward-safe/);
-    assert.match(content, /NEVER combine a fast-forward and an unrelated squash merge/);
+    assert.match(content, /IF YOU REBASED, YOU NEVER MERGE IN THIS INVOCATION/);
 
     // Output format includes REBASED field
     assert.match(content, /REBASED:\s*<(true\|false|true\/false)>/);
@@ -590,25 +590,31 @@ describe("US-004: fast-forward-first merge contradiction prevention and ordering
     it(`${wfId} merger AGENTS.md forbids simultaneous contradictory FF + unrelated squash`, () => {
       const mergerMd = readFileSync(resolve(wfDir(wfId), "agents", "merger", "AGENTS.md"), "utf-8");
 
-      // Guardrail must exist
-      assert.match(mergerMd, /NEVER combine a fast-forward and an unrelated squash merge/);
+      // Guardrail must exist — MRGV rebase-loopback rule supersedes the old
+      // "NEVER combine FF + unrelated squash" guardrail with a structural
+      // guarantee: rebase always ends the invocation, merge only on FF-safe.
+      assert.match(mergerMd, /IF YOU REBASED, YOU NEVER MERGE IN THIS INVOCATION/);
 
       // Every squash-merge mention must be in a FF-safe or guardrails context
       const squashRe = /squash[ -]?merge/gi;
       let match: RegExpExecArray | null;
       while ((match = squashRe.exec(mergerMd)) !== null) {
         const idx = match.index;
-        // Wide window captures distant "NEVER" / "only valid paths"
-        // in the guardrails section which lists valid-path examples.
+        // Wide window captures MRGV context phrases (Phase 3, FF-safe,
+        // guardrails, rebase-loopback, retry path, tree-hash attestation).
         const context = mergerMd.substring(Math.max(0, idx - 250), idx + 250);
         assert.ok(
           context.includes("Phase 3") ||
             context.includes("FF-safe") ||
             context.includes("fast-forward-safe") ||
             context.includes("NEVER") ||
-            context.includes("only valid paths") ||
+            context.includes("IF YOU REBASED") ||
+            context.includes("RETRY_STEP") ||
+            context.includes("you are re-invoked") ||
             context.includes("is now fast-forward-safe") ||
-            context.includes("report retry"),
+            context.includes("report retry") ||
+            context.includes("squash-merged tree") ||
+            context.includes("MERGED_TREE"),
           `${wfId}: squash merge mention outside FF-safe context (pos ${idx}): ...${context.substring(230, 270)}...`,
         );
       }

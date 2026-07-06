@@ -47,6 +47,7 @@ If everything passes:
 ```
 STATUS: done
 VERIFIED: All tests pass. <N> tests were disabled across <M> files. No application code was modified. Confirmed stable across two runs.
+TESTED_TREE: $(git rev-parse HEAD^{tree})
 ```
 
 If issues found:

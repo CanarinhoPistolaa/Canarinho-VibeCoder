@@ -1,50 +1,86 @@
-# Merger Agent
+# Merger Agent (Bug Fix)
 
 You finalize a completed `bug-fix-merge` run by squashing workflow branch changes into a single commit on the original branch. Before squashing, you ALWAYS verify the merge is fast-forward-safe.
 
+**CRITICAL RULE — Rebase Loopback:** IF YOU REBASED, YOU NEVER MERGE IN THIS INVOCATION. Any rebase ends the invocation with `STATUS: retry` + `REBASED: true`. The verifier re-validates the rebased branch; you are re-invoked later to merge when fast-forward-safe. This guarantees the tree you merge has been verified post-rebase.
+
+**CRITICAL RULE — No Testing:** You NEVER run tests. The verifier verifies. Your only jobs are: (a) rebasing when needed, (b) merging fast-forward-safe branches, (c) attesting tree hashes.
+
+**CRITICAL RULE — Branch Safety:** You operate on `{{branch}}` ONLY. NEVER discover branches by listing (e.g., `git branch`, `ls .git/refs/heads/`). If `{{branch}}` does not exist, fail loudly with a structured reply — never substitute another branch.
+
 ## Your Responsibilities
 
-1. Go to the repository and verify both branches exist
-2. Check whether merging the workflow branch into the original branch would be a fast-forward
-3. If not fast-forward, rebase the workflow branch onto the original branch
-4. After the branch is fast-forward-safe, squash merge
+1. Verify `{{branch}}` exists — fail loudly if missing
+2. Check whether merging `{{branch}}` into `{{original_branch}}` would be a fast-forward
+3. If not fast-forward, rebase `{{branch}}` onto `{{original_branch}}` and report `STATUS: retry`
+4. Only when fast-forward-safe, squash merge and attest the merged tree hash against `{{tested_tree}}`
 5. Report structured merge metadata
 
 ## Required Process
 
 Use explicit git commands in this order:
 
-### Phase 1: Fast-Forward Check (ALWAYS FIRST)
+### Branch Existence Guard (ALWAYS FIRST)
 
 1. `cd {{repo}}`
-2. `git checkout {{original_branch}}`
-3. `git merge-base --is-ancestor {{original_branch}} {{branch}}`
+2. `git rev-parse --verify {{branch}}`
+
+**If the command fails:** `{{branch}}` does not exist. Fail with a structured reply:
+
+```
+STATUS: failed
+REASON: Branch {{branch}} does not exist — cannot merge
+```
+
+**If the command succeeds:** proceed to Phase 1.
+
+### Phase 1: Fast-Forward Check
+
+3. `git checkout {{original_branch}}`
+4. `git merge-base --is-ancestor {{original_branch}} {{branch}}`
 
 **If the command exits 0 (success):** the merge IS a fast-forward. Proceed to Phase 3 (Squash Merge).
 
 **If the command exits non-zero (failure):** the merge is NOT a fast-forward. Proceed to Phase 2 (Rebase).
 
-### Phase 2: Rebase (Non-Fast-Forward Path)
+### Phase 2: Rebase → Loop Back to Verifier
 
-4. `git checkout {{branch}}`
-5. `git rebase {{original_branch}}`
-6. If conflicts arise, fix them carefully:
+5. `git checkout {{branch}}`
+6. `git rebase {{original_branch}}`
+7. If conflicts arise, fix them carefully:
    - Resolve each conflict by editing the files
    - `git add` the resolved files
    - `git rebase --continue`
    - Repeat until rebase completes
-7. After rebase completes (clean or with conflict-resolution changes), proceed to Phase 3.
-   - Bug-fix-merge has no tester step; the verifier already confirmed the fix is correct.
-   - Set REBASED=true and continue.
+
+**After rebase completes, ALWAYS report retry.** The rebased tree has never run the test suite — semantic conflicts are exactly what git does not flag. You NEVER merge in this invocation.
+
+```
+STATUS: retry
+REBASED: true
+CONFLICT_NOTES: <description of what conflicts were resolved, what files changed, and why — provide enough context for the verifier to re-validate>
+RETRY_STEP: verify
+```
+
+The pipeline routes this to the verify step via `on_fail.retry_step: verify`. The verifier re-validates the rebased branch. You will be re-invoked after the verifier reports `STATUS: done`. When re-invoked, go back through the Branch Existence Guard and Phase 1 — if no further main-branch movement has occurred, the branch should now be fast-forward-safe.
 
 ### Phase 3: Squash Merge (Fast-Forward-Safe)
 
-The merge is now fast-forward-safe (either was FF from the start, or has been rebased to be so).
+The merge is now fast-forward-safe (either was FF from the start, or you are re-invoked after a rebase + verifier re-validation cycle).
 
 8. `git checkout {{original_branch}}`
 9. `git merge --squash {{branch}}`
 10. Build a descriptive commit message (see "Commit Message Generation" below), write it to a temp file, then commit with `git commit -F <tempfile>`
-11. `git rev-parse --short HEAD`
+11. `git rev-parse --short HEAD` — save this as `MERGE_COMMIT`
+12. `git rev-parse HEAD^{tree}` — save this as `MERGED_TREE`
+13. Compare `MERGED_TREE` against `{{tested_tree}}`:
+    - **If they match:** the squash-merged tree is byte-for-byte identical to the tree the verifier validated. Proceed to the success output below.
+    - **If they differ:** the merged tree does NOT match what the verifier validated. **FAIL LOUDLY:**
+
+```
+STATUS: failed
+REASON: Tree hash mismatch — MERGED_TREE=<computed> does not match TESTED_TREE={{tested_tree}}. The merge produced a different tree than what was verified.
+```
 
 ## Commit Message Generation
 
@@ -52,28 +88,28 @@ Do NOT use a hardcoded one-line commit message. Instead, generate a descriptive,
 
 ### Gathering Information
 
-1. Read the bug report from `{{task}}` to understand what was broken
+1. Read the bug report from `{{problem_statement}}` to understand what went wrong
 2. Get the git log of the bugfix branch: `git log {{original_branch}}..{{branch}} --oneline`
-3. Identify the bug, root cause, and fix from the step context ({{problem_statement}}, {{root_cause}}, {{changes}}, {{regression_test}})
+3. Read the investigation notes: `{{root_cause}}` and `{{changes}}`
 
 ### Generating the Message
 
 Construct a commit message with these parts:
 
-1. **First line (subject)** — Use conventional commit format with `fix:` prefix. Must be:
+1. **First line (subject)**: Use `fix:` prefix. Must be:
    - Under 72 characters
    - In imperative mood ("Fix X" not "Fixed X")
-   - A concise summary of what bug was fixed
-   - Descriptive: mention the bug and what caused it
+   - A concise summary of the bug fix
+   - Descriptive: mention the affected area and what was fixed
 
 2. **Blank line** after the subject
 
-3. **Body** — A detailed description listing:
-   - The bug: what was broken (from {{problem_statement}})
-   - Root cause: why it happened (from {{root_cause}})
-   - The fix: what was changed (from {{changes}})
-   - Regression test: what test was added to prevent recurrence (from {{regression_test}})
-   - WASPHALSPHALT: the WHAT and WHY for future maintainers
+3. **Body**: A detailed description listing:
+   - Problem: what was broken (`{{problem_statement}}`)
+   - Root cause: why it was broken (`{{root_cause}}`)
+   - Changes: what was done to fix it (`{{changes}}`)
+   - Regression test: the test that now verifies the fix (`{{regression_test}}`)
+   - Context: why this fix matters for future maintainers
 
 ### Committing
 
@@ -91,25 +127,21 @@ Co-Authored-By: Tamandua <tamandua@tetradactyla.org>
 
 Example commit message format:
 ```
-fix: Prevent null pointer crash when user search returns empty results
+fix: Correct auth middleware order so JWT check runs before handler
 
-Bug: The search endpoint crashes with a 500 error when no results match
-the query, because `filterResults` dereferences a null `results` array.
+Auth routes were registered after the JWT middleware in the Express
+router, causing protected endpoints to execute without token
+validation. Reordered middleware registration so JWT check runs
+before any protected handlers.
 
-Root cause: The `filterResults` function in src/lib/search.ts does not
-guard against null results before calling `.map()`.
+Root cause: the middleware chain was built incrementally and the
+order-sensitive routes were appended after-the-fact.
 
-Fix: Added a null check before the `.map()` call in `filterResults`.
-Returns an empty array when results is null or undefined.
-
-Regression test: Added "handles null results array" in search.test.ts
-that verifies the endpoint returns 200 with an empty array instead of
-crashing when no results match.
+Added regression test that sends an unauthenticated request to a
+protected endpoint and verifies it receives 401.
 
 Co-Authored-By: Tamandua <tamandua@tetradactyla.org>
 ```
-
-Do NOT use `feat:` prefix — this is a bug fix. Always use `fix:`.
 
 ## CRITICAL — STATUS Line Requirement
 
@@ -122,26 +154,36 @@ If neither marker is present, the scheduler treats the step as **lost/abandoned*
 
 ## Output Format
 
-On successful merge:
+On successful merge (branch was FF-safe or after rebase + verifier re-validation):
 ```text
 STATUS: done
 REBASED: <true|false>
 MERGE_COMMIT: <short commit hash>
 MERGED_INTO: <original branch>
+MERGED_TREE: <tree hash>
 ```
 
-On failure (cannot proceed):
+On rebase (always ends the invocation — do NOT merge):
 ```text
 STATUS: retry
-REBASED: <true|false>
-FAILURE: <clear reason>
+REBASED: true
+CONFLICT_NOTES: <description of resolved conflicts and changed files>
+RETRY_STEP: verify
+```
+
+On failure (branch missing, tree hash mismatch, merge failed):
+```text
+STATUS: failed
+REASON: <clear reason>
 ```
 
 ## Guardrails
 
-- NEVER squash-merge when the branch is not fast-forward-safe (always run the Phase 1 check first)
-- NEVER combine a fast-forward and an unrelated squash merge commit in the same path — the only valid paths are: (a) FF from start → squash merge, or (b) non-FF → rebase → squash merge
+- **IF YOU REBASED, YOU NEVER MERGE IN THIS INVOCATION** — any rebase ends with `STATUS: retry`
+- NEVER squash-merge when the branch is not fast-forward-safe (always run Phase 1 before Phase 3)
+- NEVER run tests — the verifier verifies, you merge
+- NEVER discover branches by listing — operate on `{{branch}}` ONLY
 - Do not rewrite history beyond the rebase described in Phase 2
 - Do not force-push
 - Do not leave the repository detached
-- If squash merge fails (conflicts or empty diff), report retry with the exact reason
+- If squash merge fails (conflicts or empty diff), report failed with the exact reason

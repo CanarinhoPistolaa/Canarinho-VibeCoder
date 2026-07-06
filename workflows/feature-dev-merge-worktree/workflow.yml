@@ -335,7 +335,8 @@ steps:
       Reply with:
       STATUS: done
       RESULTS: What you tested and the outcomes
-    expects: "STATUS: done"
+      TESTED_TREE: $(git rev-parse HEAD^{tree})
+    expects: "STATUS: done\nregex:^TESTED_TREE:\\s*\\S+"
     on_fail:
       retry_step: implement
       max_retries: 4
@@ -355,6 +356,7 @@ steps:
       REPO: {{repo}}
       BRANCH: {{branch}}
       ORIGINAL_BRANCH: {{original_branch}}
+      TESTED_TREE: {{tested_tree}}
       WORKTREE_ORIGIN_REPOSITORY: {{worktree_origin_repository}}
 
       PROGRESS LOG:
@@ -402,7 +404,10 @@ steps:
       REBASED: <true|false>
       MERGE_COMMIT: <short commit hash>
       MERGED_INTO: {{original_branch}}
-    expects: "STATUS: done"
+      MERGED_TREE: $(git rev-parse HEAD^{tree})
+    expects: |
+      regex:^STATUS:\s*(done|retry)\s*$
+      regex:^REBASED:\s*(true|false)\s*$
     on_fail:
       retry_step: test
       max_retries: 4

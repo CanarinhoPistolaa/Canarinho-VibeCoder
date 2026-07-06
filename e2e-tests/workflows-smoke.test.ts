@@ -247,7 +247,8 @@ describe("workflows smoke (state-machine integration)", { concurrency: 1 }, () =
         const testResult = stepComplete(
           testStep.stepId,
           "STATUS: done\n" +
-            "RESULTS: Full test suite passes, integration verified\n",
+            "RESULTS: Full test suite passes, integration verified\n" +
+            "TESTED_TREE: abc123deadbeef\n",
           be(),
         );
         assert.equal(testResult.status, "advanced");
@@ -397,7 +398,8 @@ describe("workflows smoke (state-machine integration)", { concurrency: 1 }, () =
         const verifyResult = stepComplete(
           verify.stepId,
           "STATUS: done\n" +
-            "VERIFIED: Fix correct — add now returns a + b, regression test passes, all tests pass\n",
+            "VERIFIED: Fix correct — add now returns a + b, regression test passes, all tests pass\n" +
+            "TESTED_TREE: scripted-smoke-tree\n",
           be(),
         );
         assert.equal(verifyResult.status, "advanced");

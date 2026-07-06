@@ -173,7 +173,8 @@ steps:
       Reply with:
       STATUS: done
       VERIFIED: What you confirmed
-    expects: "STATUS: done\nregex:^VERIFIED:\\s*\\S+"
+      TESTED_TREE: $(git rev-parse HEAD^{tree})
+    expects: "STATUS: done\nregex:^VERIFIED:\\s*\\S+\nregex:^TESTED_TREE:\\s*\\S+"
     on_fail:
       retry_step: quarantine
       max_retries: 4
@@ -196,6 +197,7 @@ steps:
 
       DISABLED: {{disabled}}
       SUMMARY: {{summary}}
+      TESTED_TREE: {{tested_tree}}
 
       RETRY FEEDBACK (only present if the verifier re-validated a rebased branch — the verifier has confirmed the rebased changes pass; proceed to Phase 3 squash merge):
       {{retry_feedback}}
@@ -231,7 +233,10 @@ steps:
       REBASED: <true|false>
       MERGE_COMMIT: <short commit hash>
       MERGED_INTO: {{original_branch}}
-    expects: "STATUS: done"
+      MERGED_TREE: $(git rev-parse HEAD^{tree})
+    expects: |
+      regex:^STATUS:\s*(done|retry)\s*$
+      regex:^REBASED:\s*(true|false)\s*$
     on_fail:
       retry_step: verify
       max_retries: 4

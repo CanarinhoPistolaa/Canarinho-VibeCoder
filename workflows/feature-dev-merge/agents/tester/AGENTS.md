@@ -52,9 +52,28 @@ If everything passes:
 ```
 STATUS: done
 RESULTS: What you tested and outcomes
+TESTED_TREE: $(git rev-parse HEAD^{tree})
 ```
 
 If issues found:
+```
+STATUS: retry
+FAILURES:
+- Specific failure 1
+- Specific failure 2
+```
+
+## Reply with
+
+After running the test suite, emit the tested tree hash. This hash is the tree of the tip of the branch you tested — it must match the tree the merger produces when squash-merging:
+
+```
+STATUS: done
+RESULTS: What you tested and the outcomes
+TESTED_TREE: $(git rev-parse HEAD^{tree})
+```
+
+Or if issues found:
 ```
 STATUS: retry
 FAILURES:
