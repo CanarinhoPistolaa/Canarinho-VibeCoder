@@ -231,6 +231,7 @@ describe("tamandua workflow resume CLI", { concurrency: 1 }, () => {
     } finally {
       if (daemon && daemon.exitCode === null && daemon.pid) {
         try { process.kill(daemon.pid, "SIGTERM"); } catch { /* ignore */ }
+        await sleep(200);
       }
       fs.rmSync(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
     }
@@ -402,6 +403,7 @@ describe("tamandua workflow resume CLI", { concurrency: 1 }, () => {
     } finally {
       if (daemon && daemon.exitCode === null && daemon.pid) {
         try { process.kill(daemon.pid, "SIGTERM"); } catch { /* ignore */ }
+        await sleep(200);
       }
       fs.rmSync(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
     }

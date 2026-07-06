@@ -2240,6 +2240,65 @@ function completeStepInternal(stepId: string, output: string): { status: string;
     }
   }
 
+  // ── RETRY VERDICT ROUTING ──────────────────────────────────────────
+  // When a non-verify_each step's output passes expects AND parses to a
+  // STATUS: retry verdict, route through retry/on_fail semantics instead of
+  // silently marking the step done.
+  //
+  // This fixes the CATP phantom-success bug (run f7ed5ab7, 2026-07-06)
+  // where finalize_merge replied STATUS: retry / REBASED: true, passed the
+  // merge-family expects (regex:^STATUS:\s*(done|retry)\s*$), and was
+  // silently marked done — zero merge, four stranded commits.
+  //
+  // The verify_each path (handleVerifyEachCompletion) already handles
+  // STATUS: retry correctly for story-level retry/reset, and returns
+  // before reaching this guard. This guard must NOT interfere with it.
+  const verdictStatus = parsed["status"]?.toLowerCase();
+  if (verdictStatus === "retry") {
+    const meta = db.prepare(
+      "SELECT retry_count, max_retries FROM steps WHERE id = ?"
+    ).get(stepId) as { retry_count: number; max_retries: number } | undefined;
+    const newRetry = (meta?.retry_count ?? 0) + 1;
+    const maxRetries = meta?.max_retries ?? 0;
+    const wfId = getWorkflowId(step.run_id);
+
+    if (newRetry > maxRetries) {
+      // ── RETR: check on_fail.retry_step before failing the run ──
+      try {
+        const rerouteResult = rerouteStepSync(step.run_id, step.step_id, step.id, output);
+        if (rerouteResult === "rerouted") {
+          return { status: "rerouted", detail: `STATUS: retry verdict — rerouted to upstream producer via on_fail.retry_step` };
+        }
+        if (rerouteResult === "invalid_target") {
+          const policy = getOnFailPolicySync(step.run_id, step.step_id);
+          logger.error(`Run failed: step "${step.step_id}" returned STATUS: retry, retries exhausted, declares on_fail.retry_step "${policy?.retry_step ?? "?"}" which is not a valid upstream step.`, { runId: step.run_id, stepId: step.step_id });
+        }
+        // budget_exhausted / not_found falls through to normal failure below
+      } catch { /* fall through to normal failure */ }
+
+      db.prepare(
+        "UPDATE steps SET status = 'failed', output = ?, retry_count = ?, updated_at = datetime('now') WHERE id = ?"
+      ).run(output, newRetry, stepId);
+      db.prepare(
+        "UPDATE runs SET status = 'failed', updated_at = datetime('now') WHERE id = ?"
+      ).run(step.run_id);
+      emitEvent({ ts: new Date().toISOString(), event: "step.failed", runId: step.run_id, workflowId: wfId, stepId: step.step_id, detail: `STATUS: retry verdict — retries exhausted (${newRetry}/${maxRetries})` });
+      emitRunTerminalEvent({ event: "run.failed", runId, workflowId: wfId, detail: "STATUS: retry verdict — retries exhausted" });
+      scheduleRunCronTeardown(runId);
+      finalizeDrainingPause(runId);
+      return { status: "failed" };
+    }
+
+    // Retries not exhausted: set step to pending, write full output as retry_feedback
+    db.prepare(
+      "UPDATE steps SET status = 'pending', output = ?, retry_count = ?, updated_at = datetime('now') WHERE id = ?"
+    ).run(output, newRetry, stepId);
+    emitEvent({ ts: new Date().toISOString(), event: "step.retry", runId: step.run_id, workflowId: wfId, stepId: step.step_id, detail: `STATUS: retry verdict (retry ${newRetry}/${maxRetries})` });
+    logger.info(`Step retrying due to STATUS: retry verdict (retry ${newRetry}/${maxRetries})`, { runId: step.run_id, stepId: step.step_id });
+    finalizeDrainingPause(step.run_id);
+    return { status: "retrying", detail: `STATUS: retry verdict (retry ${newRetry}/${maxRetries})` };
+  }
+
   // Single step: mark done and advance
   db.prepare(
     "UPDATE steps SET status = 'done', output = ?, updated_at = datetime('now') WHERE id = ?"

@@ -136,6 +136,29 @@ baseline assertions.
   now only offer the single verdict their expects accepts.  An actual
   expects mismatch (malformed agent output) still triggers `on_fail` wiring
   (`retry_step`, `max_retries`, `on_exhausted`).
+- **C22** **Retry-verdict routing invariant:** an expects-accepted
+  `STATUS: retry` verdict must NEVER silently complete a step. Every step
+  type (single, loop, verify_each) whose expects accepts `STATUS: retry`
+  must route through retry/on_fail semantics: retry with `retry_feedback`
+  until `max_retries`, then reroute per `on_fail.retry_step` or fail the
+  run.  The `verify_each` path (`handleVerifyEachCompletion`) already
+  handles this via story-level retry/reset.  For all other steps,
+  `completeStepInternal` now has a guard after the `verify_each` branch
+  that inspects the parsed `STATUS` key and applies retry/routing
+  uniformly.
+
+  **Rationale — CATP incident (run f7ed5ab7, 2026-07-06 ~02:54):** the
+  merge-family workflow's `finalize_merge` step uses an expects regex that
+  accepts both `STATUS: done` and `STATUS: retry`
+  (`regex:^STATUS:\s*(done|retry)\s*$`).  The merger replied with honest
+  `STATUS: retry / REBASED: true` to trigger rebase-loopback — but
+  `completeStepInternal` only consulted the STATUS verdict for
+  `verify_each` loop steps.  The output passed expects, the step was
+  silently marked `done`, the run phantom-completed, and four verified
+  story commits were stranded on the branch with zero merge.  **Fix:**
+  `completeStepInternal` now checks `parsed["status"]?.toLowerCase() === "retry"`
+  for non-verify_each steps before falling through to the mark-done path.
+  Pinned by `tests/step-ops.test.ts` (RETRY VERDICT ROUTING suite).
 - **C8-rugpull** Rugpull relaunch applies **only** to `finalize_merge` step
   failures in merge workflows (`*-merge`, `*-merge-worktree`) where the base
   branch tip moved since the run started. Mid-pipeline step retry exhaustion,
@@ -171,17 +194,22 @@ baseline assertions.
   **RETR-rugpull interaction (rebase-loopback):** When a `finalize_merge`
   step declares `on_fail.retry_step` (for rebase-loopback — the merger
   rebases, returns `STATUS: retry`, and hands off to a tester/verifier for
-  post-rebase re-validation), RETR reroute cycles consume the per-step
-  reroute budget (`max_reroutes`) first.  If the budget exhausts after
-  repeated rebase→test→merge cycles fail to converge, the run falls through
-  to normal merge-step failure.  At that point, `detectRugpull`
+  post-rebase re-validation), the C22 retry-verdict guard catches the
+  `STATUS: retry` reply first: the step's local `max_retries` budget is
+  consumed on repeated `STATUS: retry` replies (each stores the full
+  verdict + REBASED/CONFLICT_NOTES as `retry_feedback`).  Only after
+  `max_retries` exhaustion does the guard fall through to C19 RETR routing:
+  the `on_fail.retry_step` target is re-pended, consuming the per-step
+  `max_reroutes` budget.  If the reroute budget also exhausts after
+  repeated rebase→test→merge cycles fail to converge, the run falls
+  through to normal merge-step failure.  At that point, `detectRugpull`
   (`src/installer/rugpull.ts`) still owns true merge-conflict recovery — it
   sees a failed `finalize_merge` with a moved base-branch tip and triggers
-  relaunch.  The two mechanisms coexist without conflict: RETR `retry_step`
-  fires first (per-step reroute budget, rebase-test-merge convergence),
-  rugpull fires after (last-resort, genuine merge conflicts).  Rugpull is
-  never bypassed — a merge failure that exhausts the reroute budget ends
-  the same way any other merge failure does.
+  relaunch.  The three mechanisms coexist without conflict: C22 retry
+  verdict (local `max_retries`), C19 RETR `retry_step` (per-step
+  `max_reroutes`), and C8-rugpull (last-resort, genuine merge conflicts).
+  Rugpull is never bypassed — a merge failure that exhausts both budgets
+  ends the same way any other merge failure does.
 - **C19 (RETR — declarative cross-step retry routing)** When a step declares
   `on_fail.retry_step` and exhausts its local retries, the run does NOT
   immediately fail. Instead the run reroutes to the named upstream producer
@@ -199,7 +227,8 @@ baseline assertions.
   resets to 0 on each reroute; `reroute_count` is the dedicated boundedness
   counter. Each reroute emits a `step.rerouted` event; budget exhaustion
   emits `step.reroute_budget_exhausted`. RETR does NOT fire for loop-step
-  story-level exhaustion (`verify_each` territory).  For `finalize_merge`,
+  story-level exhaustion (`verify_each` territory) or for expects-accepted
+  `STATUS: retry` verdicts (C22 handles verdict retries first).  For `finalize_merge`,
   RETR fires when `on_fail.retry_step` is declared (rebase-loopback);
   rugpull takes over as the terminal fallback after reroute budget
   exhaustion (see C8-rugpull RETR-rugpull interaction note).

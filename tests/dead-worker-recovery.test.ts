@@ -357,12 +357,12 @@ describe("recoverOrphanedStepsForAgent — story-level WLST", () => {
 
 describe("cleanupAbandonedSteps — story-level WLST", () => {
   it("increments story.abandoned_count, not story.retry_count, on age-based cleanup", async () => {
-    // Backdate by 1 hour to exceed ABANDONED_THRESHOLD_MS
+    // Backdate by 2 hours to exceed ABANDONED_THRESHOLD_MS (maxRoleTimeout + 5min grace)
     const { runId, storyRowId } = seedStoryRun({
       agentId: "wf-dead_dev",
       abandonedCount: 0,
       retryCount: 2,
-      backdateSeconds: 3600,
+      backdateSeconds: 7200,
     });
 
     const { cleanupAbandonedSteps } = await import("../dist/installer/step-ops.js");
@@ -379,7 +379,7 @@ describe("cleanupAbandonedSteps — story-level WLST", () => {
       agentId: "wf-dead_dev",
       abandonedCount: 8,
       retryCount: 0,
-      backdateSeconds: 3600,
+      backdateSeconds: 7200,
     });
 
     const { cleanupAbandonedSteps } = await import("../dist/installer/step-ops.js");
@@ -402,7 +402,7 @@ describe("cleanupAbandonedSteps — story-level WLST", () => {
       abandonedCount: 0,
       retryCount: 4,
       maxRetries: 4,
-      backdateSeconds: 3600,
+      backdateSeconds: 7200,
     });
 
     const { cleanupAbandonedSteps } = await import("../dist/installer/step-ops.js");

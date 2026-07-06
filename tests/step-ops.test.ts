@@ -4385,3 +4385,436 @@ describe("handleVerifyEachCompletion — US-002 VBUD (story-scoped verify retry 
     assert.equal(verifyStep.retry_count, 3, "non-verify_each verify step retry_count must be UNCHANGED — VBUD only affects verify_each loops");
   });
 });
+
+describe("RETRY VERDICT ROUTING — completeStepInternal STATUS: retry guard (CATP phantom-success fix)", () => {
+  const _savedStateDir = process.env.TAMANDUA_STATE_DIR;
+  const _savedDbPath = process.env.TAMANDUA_DB_PATH;
+  let _testIsolationDir: string;
+  let _workflowsDir: string;
+
+  // Plain string constant for merge-family expects (regex accepts done|retry).
+  // Same pattern as VERIFY_EACH_EXPECTS elsewhere in this file — \\s in JS → \s (regex whitespace).
+  const MERGE_FAMILY_EXPECTS = "regex:^STATUS:\\s*(done|retry)\\s*$";
+
+  // Merge-family-shaped workflow: test → merge.
+  // merge declares on_fail.retry_step: test for rebase-loopback.
+  // YAML does NOT need the expects field — expects are set in the DB inserts.
+  const mergeFamilyYaml = `
+id: test-retry-verdict-merge
+agents:
+  - id: dev
+    workspace:
+      baseDir: .
+      files: {}
+steps:
+  - id: test
+    agent: dev
+    input: "Run tests"
+    expects: "STATUS: done"
+    max_retries: 3
+  - id: finalize_merge
+    agent: dev
+    input: "Merge"
+    expects: "STATUS: done"
+    max_retries: 2
+    on_fail:
+      retry_step: test
+`;
+
+  // Single-step workflow WITHOUT on_fail (FINAL step edge case).
+  const noOnFailYaml = `
+id: test-retry-verdict-no-onfail
+agents:
+  - id: dev
+    workspace:
+      baseDir: .
+      files: {}
+steps:
+  - id: single_step
+    agent: dev
+    input: "Do work"
+    expects: "STATUS: done"
+    max_retries: 2
+`;
+
+  // Three-step with intermediate: produce → middle → consume.
+  // consume declares on_fail.retry_step: produce (skip over middle).
+  const threeStepYaml = `
+id: test-retry-verdict-three
+agents:
+  - id: dev
+    workspace:
+      baseDir: .
+      files: {}
+steps:
+  - id: produce
+    agent: dev
+    input: "Produce"
+    expects: "STATUS: done"
+    max_retries: 3
+  - id: middle
+    agent: dev
+    input: "Middle"
+    expects: "STATUS: done"
+    max_retries: 3
+  - id: consume
+    agent: dev
+    input: "Consume"
+    expects: "STATUS: done"
+    max_retries: 2
+    on_fail:
+      retry_step: produce
+`;
+
+  before(() => {
+    _testIsolationDir = fs.mkdtempSync(path.join(os.tmpdir(), "tamandua-retry-verdict-test-"));
+    process.env.TAMANDUA_STATE_DIR = _testIsolationDir;
+    process.env.TAMANDUA_DB_PATH = path.join(_testIsolationDir, "tamandua.db");
+
+    _workflowsDir = path.join(_testIsolationDir, "workflows");
+    const workflows: Record<string, string> = {
+      "test-retry-verdict-merge": mergeFamilyYaml,
+      "test-retry-verdict-no-onfail": noOnFailYaml,
+      "test-retry-verdict-three": threeStepYaml,
+    };
+    for (const [id, yml] of Object.entries(workflows)) {
+      const dir = path.join(_workflowsDir, id);
+      fs.mkdirSync(dir, { recursive: true });
+      fs.writeFileSync(path.join(dir, "workflow.yml"), yml);
+    }
+  });
+
+  after(() => {
+    if (_savedStateDir === undefined) delete process.env.TAMANDUA_STATE_DIR;
+    else process.env.TAMANDUA_STATE_DIR = _savedStateDir;
+    if (_savedDbPath === undefined) delete process.env.TAMANDUA_DB_PATH;
+    else process.env.TAMANDUA_DB_PATH = _savedDbPath;
+    try { fs.rmSync(_testIsolationDir, { recursive: true, force: true }); } catch { /* best effort */ }
+  });
+
+  function ts(): string {
+    return new Date().toISOString();
+  }
+
+  it("CATP reproduction: merge-family expects-accepted STATUS: retry returns 'retrying' and does NOT complete the step", async () => {
+    const { getDb } = await import("../dist/db.js");
+    const db = getDb();
+    const runId = crypto.randomUUID();
+    const testStepRowId = crypto.randomUUID();
+    const mergeStepRowId = crypto.randomUUID();
+    const now = ts();
+
+    const seededContext = JSON.stringify({ task: "merge task", repo: "/tmp/repo", branch: "fix/bug" });
+    db.prepare(
+      "INSERT INTO runs (id, run_number, workflow_id, task, status, context, tokens_spent, created_at, updated_at) VALUES (?, 1, 'test-retry-verdict-merge', 'merge task', 'running', ?, 0, ?, ?)"
+    ).run(runId, seededContext, now, now);
+
+    // test step (idx 0) — already done
+    db.prepare(
+      `INSERT INTO steps (id, run_id, step_id, agent_id, step_index, input_template, expects,
+       status, output, retry_count, max_retries, type, created_at, updated_at)
+       VALUES (?, ?, 'test', 'dev', 0, 'Run tests', ?,
+       'done', 'STATUS: done', 0, 3, 'single', ?, ?)`
+    ).run(testStepRowId, runId, MERGE_FAMILY_EXPECTS, now, now);
+
+    // finalize_merge step (idx 1) — running, about to complete with STATUS: retry
+    db.prepare(
+      `INSERT INTO steps (id, run_id, step_id, agent_id, step_index, input_template, expects,
+       status, retry_count, max_retries, type, created_at, updated_at)
+       VALUES (?, ?, 'finalize_merge', 'dev', 1, 'Merge', ?,
+       'running', 0, 2, 'single', ?, ?)`
+    ).run(mergeStepRowId, runId, MERGE_FAMILY_EXPECTS, now, now);
+
+    // CATP scenario: merger rebased, replies STATUS: retry / REBASED: true
+    const catpOutput = "STATUS: retry\nREBASED: true\nCONFLICT_NOTES: main moved during run";
+    const result = completeStep(mergeStepRowId, catpOutput);
+
+    // The step must NOT complete with "done" — it should be "retrying"
+    assert.equal(result.status, "retrying", `CATP: STATUS: retry must trigger retry, got: ${result.status}`);
+
+    // Verify step is pending, not done
+    const step = db.prepare("SELECT status, retry_count, output FROM steps WHERE id = ?").get(mergeStepRowId) as { status: string; retry_count: number; output: string };
+    assert.equal(step.status, "pending", "CATP: step must be pending, not done (phantom-success prevention)");
+    assert.equal(step.retry_count, 1, "CATP: retry_count must be incremented to 1");
+    // retry_feedback must carry the full verdict reply (REBASED: true, CONFLICT_NOTES, etc.)
+    assert.ok(step.output.includes("STATUS: retry"), "retry_feedback must carry the verdict reply");
+    assert.ok(step.output.includes("REBASED: true"), "retry_feedback must carry REBASED info");
+    assert.ok(step.output.includes("CONFLICT_NOTES"), "retry_feedback must carry CONFLICT_NOTES");
+
+    // Verify step.retry event was emitted
+    const events = getRunEvents(runId);
+    const retryEvent = events.find(e => e.event === "step.retry");
+    assert.ok(retryEvent, "step.retry event must be emitted on STATUS: retry verdict");
+    assert.ok(retryEvent.detail.toLowerCase().includes("retry verdict"), `retry event detail must mention verdict, got: ${retryEvent.detail}`);
+  });
+
+  it("retry exhaustion with on_fail.retry_step: STATUS: retry at max_retries reroutes to upstream producer", async () => {
+    const { getDb } = await import("../dist/db.js");
+    const db = getDb();
+    const runId = crypto.randomUUID();
+    const testStepRowId = crypto.randomUUID();
+    const mergeStepRowId = crypto.randomUUID();
+    const now = ts();
+
+    const seededContext = JSON.stringify({ task: "merge task", repo: "/tmp/repo", branch: "fix/bug" });
+    db.prepare(
+      "INSERT INTO runs (id, run_number, workflow_id, task, status, context, tokens_spent, created_at, updated_at) VALUES (?, 1, 'test-retry-verdict-merge', 'merge task', 'running', ?, 0, ?, ?)"
+    ).run(runId, seededContext, now, now);
+
+    // test step (idx 0) — done
+    db.prepare(
+      `INSERT INTO steps (id, run_id, step_id, agent_id, step_index, input_template, expects,
+       status, output, retry_count, max_retries, type, created_at, updated_at)
+       VALUES (?, ?, 'test', 'dev', 0, 'Run tests', ?,
+       'done', 'STATUS: done', 0, 3, 'single', ?, ?)`
+    ).run(testStepRowId, runId, MERGE_FAMILY_EXPECTS, now, now);
+
+    // finalize_merge (idx 1) — already at max_retries, running
+    db.prepare(
+      `INSERT INTO steps (id, run_id, step_id, agent_id, step_index, input_template, expects,
+       status, retry_count, max_retries, type, created_at, updated_at)
+       VALUES (?, ?, 'finalize_merge', 'dev', 1, 'Merge', ?,
+       'running', 2, 2, 'single', ?, ?)`
+    ).run(mergeStepRowId, runId, MERGE_FAMILY_EXPECTS, now, now);
+
+    const result = completeStep(mergeStepRowId, "STATUS: retry\nREBASED: true");
+
+    // Must return "rerouted" — not failed, not done
+    assert.equal(result.status, "rerouted", `Retries exhausted + on_fail → must reroute, got: ${result.status}`);
+
+    // finalize_merge must be reset to waiting
+    const mergeStep = db.prepare("SELECT status, retry_count, reroute_count FROM steps WHERE id = ?").get(mergeStepRowId) as { status: string; retry_count: number; reroute_count: number };
+    assert.equal(mergeStep.status, "waiting", "consumer step must be reset to waiting after reroute");
+    assert.equal(mergeStep.retry_count, 0, "consumer retry_count must be reset to 0 after reroute");
+    assert.equal(mergeStep.reroute_count, 1, "reroute_count must be incremented to 1");
+
+    // test step must be re-pended to pending
+    const testStep = db.prepare("SELECT status, output FROM steps WHERE id = ?").get(testStepRowId) as { status: string; output: string };
+    assert.equal(testStep.status, "pending", "producer step must be re-pended to pending");
+    assert.ok(testStep.output.includes("Reroute from"), "producer output must carry reroute feedback");
+
+    // step.rerouted event must be emitted
+    const events = getRunEvents(runId);
+    const reroutedEvent = events.find(e => e.event === "step.rerouted");
+    assert.ok(reroutedEvent, "step.rerouted event must be emitted");
+  });
+
+  it("retry exhaustion with NO on_fail: STATUS: retry at max_retries fails step and run", async () => {
+    const { getDb } = await import("../dist/db.js");
+    const db = getDb();
+    const runId = crypto.randomUUID();
+    const stepRowId = crypto.randomUUID();
+    const now = ts();
+
+    const seededContext = JSON.stringify({ task: "solo task", repo: "/tmp/repo" });
+    db.prepare(
+      "INSERT INTO runs (id, run_number, workflow_id, task, status, context, tokens_spent, created_at, updated_at) VALUES (?, 1, 'test-retry-verdict-no-onfail', 'solo task', 'running', ?, 0, ?, ?)"
+    ).run(runId, seededContext, now, now);
+
+    // single_step — at max_retries, running (FINAL step edge case: no downstream steps)
+    db.prepare(
+      `INSERT INTO steps (id, run_id, step_id, agent_id, step_index, input_template, expects,
+       status, retry_count, max_retries, type, created_at, updated_at)
+       VALUES (?, ?, 'single_step', 'dev', 0, 'Do work', ?,
+       'running', 2, 2, 'single', ?, ?)`
+    ).run(stepRowId, runId, MERGE_FAMILY_EXPECTS, now, now);
+
+    const result = completeStep(stepRowId, "STATUS: retry\nREBASED: true");
+
+    // Must fail — no on_fail declared, retries exhausted
+    assert.equal(result.status, "failed", `No on_fail + exhausted → must fail, got: ${result.status}`);
+
+    // step must be failed
+    const step = db.prepare("SELECT status, retry_count FROM steps WHERE id = ?").get(stepRowId) as { status: string; retry_count: number };
+    assert.equal(step.status, "failed", "step must be failed");
+    assert.equal(step.retry_count, 3, "retry_count must be 3 (already at 2, now incremented)");
+
+    // run must be failed
+    const run = db.prepare("SELECT status FROM runs WHERE id = ?").get(runId) as { status: string };
+    assert.equal(run.status, "failed", "run must be failed");
+
+    // FINAL step edge case: a last-step STATUS: retry with retries exhausted must NOT complete the run
+    assert.notEqual(run.status, "completed", "FINAL step: STATUS: retry must never complete the run");
+  });
+
+  it("existing expects-validation failure path is unchanged — output that fails expects still retries normally", async () => {
+    const { getDb } = await import("../dist/db.js");
+    const db = getDb();
+    const runId = crypto.randomUUID();
+    const stepRowId = crypto.randomUUID();
+    const now = ts();
+
+    const seededContext = JSON.stringify({ task: "task", repo: "/tmp/repo" });
+    db.prepare(
+      "INSERT INTO runs (id, run_number, workflow_id, task, status, context, tokens_spent, created_at, updated_at) VALUES (?, 1, 'test-retry-verdict-no-onfail', 'task', 'running', ?, 0, ?, ?)"
+    ).run(runId, seededContext, now, now);
+
+    // single_step with expects that ONLY accepts "done" (regex: done only)
+    db.prepare(
+      `INSERT INTO steps (id, run_id, step_id, agent_id, step_index, input_template, expects,
+       status, retry_count, max_retries, type, created_at, updated_at)
+       VALUES (?, ?, 'single_step', 'dev', 0, 'Do work', ?,
+       'running', 0, 3, 'single', ?, ?)`
+    ).run(stepRowId, runId, "regex:^STATUS:\\s*done\\s*$", now, now);
+
+    // Output that does NOT match expects (STATUS: retry when expects only accepts done)
+    const result = completeStep(stepRowId, "STATUS: retry\nREBASED: true");
+
+    // The expects-failure path should trigger — this is the OLD retry path, not the new guard
+    // It should be "retrying" (not "failed" since retries remain)
+    assert.equal(result.status, "retrying", `Expects-failure path must still retry, got: ${result.status}`);
+
+    const step = db.prepare("SELECT status, retry_count, output FROM steps WHERE id = ?").get(stepRowId) as { status: string; retry_count: number; output: string };
+    assert.equal(step.status, "pending", "expects-failure: step must be pending");
+    assert.equal(step.retry_count, 1, "expects-failure: retry_count must be incremented");
+    // The output should contain the validation error, not the original output
+    assert.ok(step.output.includes("does not match expects regex"), `expects-failure: output should contain validation error, got: ${step.output.slice(0, 80)}`);
+  });
+
+  it("STATUS: retry on three-step workflow with on_fail.retry_step skips intermediate steps on reroute", async () => {
+    const { getDb } = await import("../dist/db.js");
+    const db = getDb();
+    const runId = crypto.randomUUID();
+    const produceRowId = crypto.randomUUID();
+    const middleRowId = crypto.randomUUID();
+    const consumeRowId = crypto.randomUUID();
+    const now = ts();
+
+    const seededContext = JSON.stringify({ task: "three-step task", repo: "/tmp/repo" });
+    db.prepare(
+      "INSERT INTO runs (id, run_number, workflow_id, task, status, context, tokens_spent, created_at, updated_at) VALUES (?, 1, 'test-retry-verdict-three', 'task', 'running', ?, 0, ?, ?)"
+    ).run(runId, seededContext, now, now);
+
+    // produce (idx 0) — done
+    db.prepare(
+      `INSERT INTO steps (id, run_id, step_id, agent_id, step_index, input_template, expects,
+       status, output, retry_count, max_retries, type, created_at, updated_at)
+       VALUES (?, ?, 'produce', 'dev', 0, 'Produce', 'STATUS: done',
+       'done', 'STATUS: done\\nOUTPUT: hello', 0, 3, 'single', ?, ?)`
+    ).run(produceRowId, runId, now, now);
+
+    // middle (idx 1) — done (intermediate step that reroute skips over)
+    db.prepare(
+      `INSERT INTO steps (id, run_id, step_id, agent_id, step_index, input_template, expects,
+       status, output, retry_count, max_retries, type, created_at, updated_at)
+       VALUES (?, ?, 'middle', 'dev', 1, 'Middle', 'STATUS: done',
+       'done', 'STATUS: done', 0, 3, 'single', ?, ?)`
+    ).run(middleRowId, runId, now, now);
+
+    // consume (idx 2) — at max_retries, running, STATUS: retry
+    db.prepare(
+      `INSERT INTO steps (id, run_id, step_id, agent_id, step_index, input_template, expects,
+       status, retry_count, max_retries, type, created_at, updated_at)
+       VALUES (?, ?, 'consume', 'dev', 2, 'Consume', ?,
+       'running', 2, 2, 'single', ?, ?)`
+    ).run(consumeRowId, runId, MERGE_FAMILY_EXPECTS, now, now);
+
+    const result = completeStep(consumeRowId, "STATUS: retry\nNEEDS_REDO: true");
+
+    assert.equal(result.status, "rerouted", `Three-step: must reroute to produce, got: ${result.status}`);
+
+    // produce must be re-pended
+    const produceStep = db.prepare("SELECT status FROM steps WHERE id = ?").get(produceRowId) as { status: string };
+    assert.equal(produceStep.status, "pending", "produce must be re-pended to pending");
+
+    // middle must be UNTOUCHED (still done)
+    const middleStep = db.prepare("SELECT status FROM steps WHERE id = ?").get(middleRowId) as { status: string };
+    assert.equal(middleStep.status, "done", "intermediate step must stay done during reroute");
+
+    // consume must be reset to waiting
+    const consumeStep = db.prepare("SELECT status, retry_count FROM steps WHERE id = ?").get(consumeRowId) as { status: string; retry_count: number };
+    assert.equal(consumeStep.status, "waiting", "consume must be reset to waiting");
+    assert.equal(consumeStep.retry_count, 0, "consume retry_count reset to 0");
+  });
+
+  it("coexistence: verify_each story-reset and non-verify_each C22 retry guard work together in the same workflow", async () => {
+    // A single workflow with both:
+    //   - verify_each loop (implement + verify) — verify step handles STATUS: retry via handleVerifyEachCompletion
+    //   - finalize_merge (non-verify_each) — handles STATUS: retry via C22 guard
+    // Both paths must coexist without interference.
+    const { getDb } = await import("../dist/db.js");
+    const db = getDb();
+    const runId = crypto.randomUUID();
+    const loopStepId = crypto.randomUUID();
+    const verifyStepId = crypto.randomUUID();
+    const mergeStepId = crypto.randomUUID();
+    const storyId = crypto.randomUUID();
+    const now = ts();
+
+    const seededContext = JSON.stringify({ task: "coexistence task", repo: "/tmp/repo", branch: "feature/x" });
+    db.prepare(
+      "INSERT INTO runs (id, run_number, workflow_id, task, status, context, tokens_spent, created_at, updated_at) VALUES (?, 1, 'test-retry-verdict-merge', 'coexistence task', 'running', ?, 0, ?, ?)"
+    ).run(runId, seededContext, now, now);
+
+    // Loop step (implement) — index 0, verify_each config
+    db.prepare(
+      "INSERT INTO steps (id, run_id, step_id, agent_id, step_index, input_template, expects, status, retry_count, max_retries, type, loop_config, created_at, updated_at) VALUES (?, ?, 'implement', 'dev', 0, '{{task}}', '', 'running', 0, 4, 'loop', ?, ?, ?)"
+    ).run(loopStepId, runId, JSON.stringify({ verify_each: true, verify_step: "verify", over: "stories" }), now, now);
+
+    // Verify step — index 1, per-story verifier (accepts done|retry)
+    const VERIFY_EACH_EXPECTS = "regex:^STATUS:\\s*(done|retry)\\s*$";
+    db.prepare(
+      "INSERT INTO steps (id, run_id, step_id, agent_id, step_index, input_template, expects, status, retry_count, max_retries, type, created_at, updated_at) VALUES (?, ?, 'verify', 'dev', 1, 'Review implementation', ?, 'running', 0, 4, 'single', ?, ?)"
+    ).run(verifyStepId, runId, VERIFY_EACH_EXPECTS, now, now);
+
+    // finalize_merge step — index 2, non-verify_each (accepts done|retry)
+    db.prepare(
+      "INSERT INTO steps (id, run_id, step_id, agent_id, step_index, input_template, expects, status, retry_count, max_retries, type, created_at, updated_at) VALUES (?, ?, 'finalize_merge', 'dev', 2, 'Merge', ?, 'running', 0, 2, 'single', ?, ?)"
+    ).run(mergeStepId, runId, MERGE_FAMILY_EXPECTS, now, now);
+
+    // Story — done (so verify step has something to reset)
+    db.prepare(
+      "INSERT INTO stories (id, run_id, story_index, story_id, title, description, acceptance_criteria, status, retry_count, max_retries, created_at, updated_at) VALUES (?, ?, 0, 'US-001', 'Coexist story', 'desc', '[]', 'done', 0, 3, ?, ?)"
+    ).run(storyId, runId, now, now);
+
+    // ── PATH 1: verify_each → handleVerifyEachCompletion (story reset, NOT C22) ──
+    const verifyResult = completeStep(verifyStepId, "STATUS: retry\nISSUES: Needs rework\nTESTS: none");
+    assert.equal(verifyResult.status, "advanced", "verify_each: completeStep should return advanced (story reset handled internally)");
+
+    // Verify step should be reset to waiting (handled by handleVerifyEachCompletion)
+    const verifyStep = db.prepare("SELECT status, retry_count, output FROM steps WHERE id = ?").get(verifyStepId) as { status: string; retry_count: number; output: string };
+    assert.equal(verifyStep.status, "waiting", "verify_each: verify step must be waiting (handled by story-level retry, not C22)");
+    assert.equal(verifyStep.retry_count, 0, "verify_each: verify step retry_count must NOT increment (story-level retry is separate)");
+    assert.ok(verifyStep.output.includes("STATUS: retry"), "verify_each: verify step output must carry retry verdict");
+
+    // Story must be reset to pending
+    const story = db.prepare("SELECT status, retry_count FROM stories WHERE id = ?").get(storyId) as { status: string; retry_count: number };
+    assert.equal(story.status, "pending", "verify_each: story must be reset to pending");
+    assert.equal(story.retry_count, 1, "verify_each: story retry_count must increment");
+
+    // Loop step advances to pending (story reset triggers pipeline re-evaluation)
+    const loopStep = db.prepare("SELECT status FROM steps WHERE id = ?").get(loopStepId) as { status: string };
+    assert.equal(loopStep.status, "pending", "verify_each: loop step advances to pending after story reset");
+
+    // merge step must be UNTOUCHED by the verify_each retry
+    const mergeAfterVerify = db.prepare("SELECT status, retry_count FROM steps WHERE id = ?").get(mergeStepId) as { status: string; retry_count: number };
+    assert.equal(mergeAfterVerify.status, "running", "coexistence: merge step untouched after verify_each retry");
+    assert.equal(mergeAfterVerify.retry_count, 0, "coexistence: merge retry_count untouched after verify_each retry");
+
+    // ── PATH 2: non-verify_each → C22 guard (step retry, NOT story reset) ──
+    const mergeResult = completeStep(mergeStepId, "STATUS: retry\nREBASED: true\nCONFLICT_NOTES: main moved");
+    assert.equal(mergeResult.status, "retrying", `coexistence: STATUS: retry on merge must trigger C22 retry, got: ${mergeResult.status}`);
+
+    // merge step must be pending (NOT done — C22 prevents phantom-success)
+    const mergeStep = db.prepare("SELECT status, retry_count, output FROM steps WHERE id = ?").get(mergeStepId) as { status: string; retry_count: number; output: string };
+    assert.equal(mergeStep.status, "pending", "coexistence: merge step must be pending (C22 retry, not done)");
+    assert.equal(mergeStep.retry_count, 1, "coexistence: merge retry_count must increment to 1");
+    assert.ok(mergeStep.output.includes("STATUS: retry"), "coexistence: merge retry_feedback carries verdict");
+    assert.ok(mergeStep.output.includes("REBASED: true"), "coexistence: merge retry_feedback carries REBASED info");
+
+    // Verify step and loop step must be UNTOUCHED by the merge retry
+    const verifyAfterMerge = db.prepare("SELECT status, retry_count FROM steps WHERE id = ?").get(verifyStepId) as { status: string; retry_count: number };
+    assert.equal(verifyAfterMerge.status, "waiting", "coexistence: verify step untouched after merge C22 retry");
+    assert.equal(verifyAfterMerge.retry_count, 0, "coexistence: verify retry_count untouched after merge C22 retry");
+
+    // step.retry event must be emitted (only for merge retry, not verify_each)
+    const events = getRunEvents(runId);
+    const retryEvents = events.filter(e => e.event === "step.retry");
+    assert.equal(retryEvents.length, 1, "coexistence: exactly one step.retry event (merge C22 retry, verify_each uses story.retry)");
+    assert.ok(retryEvents[0].detail.toLowerCase().includes("retry verdict"), `retry event detail must mention verdict, got: ${retryEvents[0].detail}`);
+
+    // Run must still be running
+    const run = db.prepare("SELECT status FROM runs WHERE id = ?").get(runId) as { status: string };
+    assert.equal(run.status, "running", "coexistence: run must still be running after both retry paths");
+  });
+});
