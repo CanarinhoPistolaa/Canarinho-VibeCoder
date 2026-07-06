@@ -142,7 +142,9 @@ describe("runWorkflow", () => {
     } else {
       delete process.env.TAMANDUA_WORKTREE_ROOT;
     }
-    fs.rmSync(tempHome, { recursive: true, force: true });
+    // Retries absorb stragglers still writing into the temp home during
+    // teardown (ENOTEMPTY otherwise, seen on macOS).
+    fs.rmSync(tempHome, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
   });
 
   it("daemonctl paths honor HOME assigned after module import", () => {

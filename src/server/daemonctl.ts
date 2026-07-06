@@ -248,15 +248,11 @@ function processHomeMatches(pid: number, homeDir: string): boolean {
   // macOS: the kernel hides other processes' environments, so bind the pid
   // to this homeDir by provenance instead. Refusing on any lookup failure
   // is intentional — this guard only ever loosens into a signal:
-  //  (1) the pid is recorded in one of this homeDir's service pidfiles,
-  //  (2) its command line is a tamandua service (dist/server/*.js), and
-  //  (3) the process is not younger than its pidfile (minus slack) — a
-  //      reused pid pointing at an unrelated (or production) service would
-  //      have started AFTER the stale pidfile was written.
-  const cmdline = getCmdline(pid);
-  if (!/dist\/server\/(daemon|mcp-standalone|control-standalone)\.js/.test(cmdline)) {
-    return false;
-  }
+  //  (1) the pid is recorded in one of this homeDir's service pidfiles, and
+  //  (2) the process is not younger than its pidfile (minus slack) — the
+  //      pidfile is written while the recorded process is alive, so a
+  //      reused pid pointing at an unrelated (or production) process would
+  //      have started AFTER the pidfile, i.e. be younger than it.
   const dir = path.join(homeDir, ".tamandua");
   for (const name of ["tamandua.pid", "mcp.pid", "control-plane.pid"]) {
     try {
