@@ -24,6 +24,7 @@ import { DEFAULT_CONTROL_PORT } from "../server/control-server.js";
 import { pauseRunWithDaemon, resumeRunWithDaemon, nudgeWithDaemon } from "../server/control-client.js";
 import { claimStep, completeStep, failStep, getStories, getOwnProcessGroupId, peekStep } from "../installer/step-ops.js";
 import { ensureCliSymlink } from "../installer/symlink.js";
+import { checkCatalogStalenessWarning } from "../installer/catalog-version.js";
 import { resolveSourcePath, resolveSkillPath } from "../installer/paths.js";
 import { formatServiceStatus, formatTamanduaInfo, formatRunsSummary, formatProcessList } from "./status-format.js";
 import {
@@ -2897,6 +2898,10 @@ async function main() {
       harnessType,
       context: runArgs.context,
     });
+    const stalenessWarning = checkCatalogStalenessWarning();
+    if (stalenessWarning) {
+      process.stderr.write(stalenessWarning + "\n");
+    }
     if (result.daemonWarning) {
       let dashboardLine = "";
       try {

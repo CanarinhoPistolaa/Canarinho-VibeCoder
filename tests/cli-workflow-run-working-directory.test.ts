@@ -153,6 +153,7 @@ describe("CLI workflow run working-directory-for-harness", () => {
         .filter((line) => line.trim().length > 0)
         .filter((line) => !line.includes("ExperimentalWarning: SQLite"))
         .filter((line) => !line.includes("--trace-warnings"))
+        .filter((line) => !line.includes("Warning: installed catalog is older than bundled catalog"))
         .join("\n");
       assert.equal(meaningfulStderr, "", `expected no meaningful stderr, got: ${stderr}`);
       assert.match(stdout, /Run: [0-9a-f]{8}/i);

@@ -58,6 +58,25 @@ export function writeCatalogStamp(sourcePath: string): void {
 }
 
 /**
+ * Performs a cheap synchronous check (stat + read + string compare — no network,
+ * no git) comparing the installed catalog stamp against the current build version.
+ *
+ * @returns A one-line warning string if the catalog is stale or the stamp is missing,
+ *          or an empty string if the catalog is current.
+ */
+export function checkCatalogStalenessWarning(): string {
+  const stamp = readInstalledCatalogStamp();
+  if (!stamp) {
+    return "Warning: installed catalog is older than bundled catalog. Run tamandua update --force to apply latest workflow/persona fixes.";
+  }
+  const currentVersion = getBuildVersion();
+  if (currentVersion === "unknown" || stamp.version !== currentVersion) {
+    return "Warning: installed catalog is older than bundled catalog. Run tamandua update --force to apply latest workflow/persona fixes.";
+  }
+  return "";
+}
+
+/**
  * Reads the installed catalog stamp.
  *
  * @returns The parsed CatalogStamp, or null if the file doesn't exist or is invalid.
