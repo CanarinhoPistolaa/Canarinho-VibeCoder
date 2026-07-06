@@ -189,6 +189,28 @@ followed by a top-level command listing.
 - Logs: `~/.tamandua/tamandua.log`
 - Medic: `~/.tamandua/medic.json`
 
+## Update and Catalog Staleness
+
+Installed workflows live in `~/.tamandua/workflows/` and may become older than the
+bundled catalog shipped with the current tamandua binary. This means prompt-level
+fixes to workflow personas (in `workflows/` and `agents/`) are silently inert until
+the installed catalog is refreshed. Two mechanisms surface this gap:
+
+- **Doctor check:** `tamandua doctor` includes a catalog-staleness check in the
+  STALENESS group. It compares the installed catalog stamp against the current
+  build version and warns with a remedy if they differ or the stamp is missing.
+- **Launch-time nudge:** `tamandua workflow run` prints a one-line warning to
+  stderr (never blocks the launch) when the installed catalog is older than the
+  bundled catalog:
+  `Warning: installed catalog is older than bundled catalog. Run tamandua update --force to apply latest workflow/persona fixes.`
+
+**Remedy:** Run `tamandua update --force` to refresh the installed catalog.
+
+**Stamp file:** The installed catalog records a version stamp at
+`~/.tamandua/workflows/.catalog-version.json` at install/update time. It contains
+the build version, source path, and install timestamp. The doctor check and
+launch-time nudge are cheap — stat + read + string compare, no network, no git.
+
 ## Artifacts to Review on Changes
 
 When making changes, review whether these artifacts need updating:
