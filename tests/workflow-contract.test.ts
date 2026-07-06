@@ -3,8 +3,10 @@
  * for workflow contract key enforcement rules (US-001).
  */
 
-import { describe, it } from "node:test";
+import { before, describe, it } from "node:test";
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 import {
   parseExpectedKeys,
   parseEnforcedKeys,
@@ -12,6 +14,7 @@ import {
   AUTO_CONTEXT_KEYS,
   CALLER_PROVIDED,
 } from "../dist/installer/workflow-contract.js";
+import { validateExpects } from "../dist/installer/step-ops.js";
 
 describe("parseExpectedKeys", () => {
   it("extracts keys from Reply with: block", () => {
@@ -81,7 +84,7 @@ describe("parseExpectedKeys", () => {
     const template = [
       "Reply with:",
       "STATUS: done",
-      "REBASED: <true|false>",
+      "REBASED: false",
       "MERGE_COMMIT: <short commit hash>",
       "MERGED_INTO: {{original_branch}}",
       "MERGED_TREE: $(git rev-parse HEAD^{tree})",
@@ -325,4 +328,92 @@ describe("CALLER_PROVIDED", () => {
       }
     }
   });
+});
+
+// ══════════════════════════════════════════════════════════════════════
+// US-001 / MRG2 — Merge expects conjunction gate
+// ══════════════════════════════════════════════════════════════════════
+
+/**
+ * Extract the finalize_merge expects block from a workflow YAML file.
+ * Returns the raw expects string (with leading 6-space indent removed).
+ */
+function extractFinalizeMergeExpects(workflowPath: string): string {
+  const content = readFileSync(resolve(workflowPath), "utf8");
+  // Match from "- id: finalize_merge" through the expects block until on_fail:
+  const match = content.match(
+    /- id: finalize_merge[\s\S]*?expects:\s*\|\n((?:      .*(?:\n|$))+)/,
+  );
+  assert.ok(match, `${workflowPath}: missing finalize_merge expects block`);
+  const block = match[1];
+  assert.ok(block, `${workflowPath}: missing finalize_merge expects body`);
+  return block
+    .split("\n")
+    .filter((line) => line.trim() !== "")
+    .map((line) => line.replace(/^      /, ""))
+    .join("\n");
+}
+
+const MERGE_WORKFLOWS = [
+  "workflows/bug-fix-merge/workflow.yml",
+  "workflows/feature-dev-merge/workflow.yml",
+  "workflows/security-audit-merge/workflow.yml",
+  "workflows/quarantine-broken-tests-merge/workflow.yml",
+];
+
+const ALL_MERGE_WORKFLOWS = [
+  ...MERGE_WORKFLOWS,
+  "workflows/bug-fix-merge-worktree/workflow.yml",
+  "workflows/feature-dev-merge-worktree/workflow.yml",
+  "workflows/security-audit-merge-worktree/workflow.yml",
+  "workflows/quarantine-broken-tests-merge-worktree/workflow.yml",
+];
+
+describe("US-001: Merge expects conjunction — source workflows", () => {
+  for (const wf of ALL_MERGE_WORKFLOWS) {
+    it(`${wf}: expects block contains the conjunction line`, () => {
+      const expects = extractFinalizeMergeExpects(wf);
+      assert.ok(
+        expects.includes("regex:^(STATUS:\\s*retry|REBASED:\\s*false)\\s*$"),
+        `${wf}: missing conjunction expects line\nactual:\n---\n${expects}\n---`,
+      );
+    });
+  }
+});
+
+describe("US-001: Merge expects conjunction — validateExpects gate", () => {
+  for (const wf of ALL_MERGE_WORKFLOWS) {
+    describe(wf, () => {
+      let expects: string;
+      before(() => {
+        expects = extractFinalizeMergeExpects(wf);
+      });
+
+      it("accepts STATUS: done + REBASED: false", () => {
+        const output = "STATUS: done\nREBASED: false\nMERGE_COMMIT: abc123\nMERGED_INTO: main\nMERGED_TREE: deadbeef";
+        const err = validateExpects(output, expects);
+        assert.equal(err, null, `done+false should be accepted but got: ${err}`);
+      });
+
+      it("accepts STATUS: retry + REBASED: true", () => {
+        const output = "STATUS: retry\nREBASED: true\nCONFLICT_NOTES: main moved during rebase\nRETRY_STEP: test";
+        const err = validateExpects(output, expects);
+        assert.equal(err, null, `retry+true should be accepted but got: ${err}`);
+      });
+
+      it("accepts STATUS: retry + REBASED: false", () => {
+        const output = "STATUS: retry\nREBASED: false\nCONFLICT_NOTES: other issue";
+        const err = validateExpects(output, expects);
+        assert.equal(err, null, `retry+false should be accepted but got: ${err}`);
+      });
+
+      it("rejects STATUS: done + REBASED: true (forbidden conjunction)", () => {
+        const output = "STATUS: done\nREBASED: true\nMERGE_COMMIT: abc123\nMERGED_INTO: main\nMERGED_TREE: deadbeef";
+        const err = validateExpects(output, expects);
+        assert.ok(err !== null, `done+true MUST be rejected but validateExpects returned null`);
+        assert.match(err!, /does not match expects regex/,
+          `error message should mention expects mismatch, got: ${err}`);
+      });
+    });
+  }
 });

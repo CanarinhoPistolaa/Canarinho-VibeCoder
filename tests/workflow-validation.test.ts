@@ -497,7 +497,7 @@ describe("workflow structure", () => {
     assert.match(finalStep!.input, /git commit -F <tempfile>/);
 
     // Output format includes REBASED
-    assert.match(finalStep!.input, /REBASED:\s*<(true\|false|true\/false)>/);
+    assert.match(finalStep!.input, /REBASED:\s*false/);
     assert.match(finalStep!.input, /MERGE_COMMIT:/);
     assert.match(finalStep!.input, /MERGED_INTO:/);
 
@@ -544,7 +544,7 @@ describe("workflow structure", () => {
     assert.match(content, /IF YOU REBASED, YOU NEVER MERGE IN THIS INVOCATION/);
 
     // Output format includes REBASED field
-    assert.match(content, /REBASED:\s*<(true\|false|true\/false)>/);
+    assert.match(content, /On successful merge[\s\S]*REBASED:\s*false/);
 
     // Preserves fix(security):-prefix commit message guidance
     assert.match(content, /fix\(security\)/);

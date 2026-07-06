@@ -152,7 +152,7 @@ If neither marker is present, the scheduler treats the step as **lost/abandoned*
 On successful merge (branch was FF-safe or after rebase + verifier re-validation):
 ```text
 STATUS: done
-REBASED: <true|false>
+REBASED: false
 MERGE_COMMIT: <short commit hash>
 MERGED_INTO: <original branch>
 MERGED_TREE: <tree hash>

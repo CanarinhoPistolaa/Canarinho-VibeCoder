@@ -645,7 +645,7 @@ describe("linter self-tests — synthetic fixtures", () => {
         {
           id: "merger",
           agent: "agent",
-          input: "Merge.\n\nReply with:\nSTATUS: done\nREBASED: <true|false>\nMERGED_TREE: <sha>",
+          input: "Merge.\n\nReply with:\nSTATUS: done\nREBASED: false\nMERGED_TREE: <sha>",
           expects: "regex:^STATUS:\\s*(done|retry)\\s*$\nregex:^REBASED:\\s*(true|false)\\s*$",
         },
       ],

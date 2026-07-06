@@ -131,7 +131,7 @@ describe("merger AGENTS.md fast-forward-first merge process", () => {
   });
 
   it("output format includes REBASED field", () => {
-    assert.match(content, /REBASED:\s*<(true\|false|true\/false)>/);
+    assert.match(content, /On successful merge[\s\S]*REBASED:\s*false/);
   });
 
   it("no contradictory FF + unrelated squash instructions coexist (US-004 guardrail)", () => {

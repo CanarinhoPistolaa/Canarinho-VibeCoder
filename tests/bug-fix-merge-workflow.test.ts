@@ -61,7 +61,7 @@ describe("bug-fix-merge workflow", () => {
     assert.match(finalStep!.input, /git merge --squash \{\{branch\}\}/);
     assert.match(finalStep!.input, /git commit -F <tempfile>/);
     // Output format includes REBASED
-    assert.match(finalStep!.input, /REBASED:\s*<(true\|false|true\/false)>/);
+    assert.match(finalStep!.input, /REBASED:\s*false/);
     assert.match(finalStep!.input, /ORIGINAL_BRANCH:\s*\{\{original_branch\}\}/);
     assert.match(finalStep!.input, /MERGE_COMMIT:/);
     assert.match(finalStep!.input, /MERGED_INTO:/);
@@ -232,7 +232,7 @@ describe("bug-fix-merge workflow", () => {
     });
 
     it("AGENTS.md output format includes REBASED field", () => {
-      assert.match(mergerAgentsMd, /REBASED:\s*<(true\|false|true\/false)>/);
+      assert.match(mergerAgentsMd, /On successful merge[\s\S]*REBASED:\s*false/);
     });
 
     it("AGENTS.md retry path routes to verifier (RETRY_STEP: verify)", () => {

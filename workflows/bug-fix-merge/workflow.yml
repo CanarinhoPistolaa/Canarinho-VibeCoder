@@ -325,13 +325,14 @@ steps:
 
       Reply with:
       STATUS: done
-      REBASED: <true|false>
+      REBASED: false
       MERGE_COMMIT: <short commit hash>
       MERGED_INTO: {{original_branch}}
       MERGED_TREE: $(git rev-parse HEAD^{tree})
     expects: |
       regex:^STATUS:\s*(done|retry)\s*$
       regex:^REBASED:\s*(true|false)\s*$
+      regex:^(STATUS:\s*retry|REBASED:\s*false)\s*$
     on_fail:
       retry_step: verify
       max_reroutes: 4

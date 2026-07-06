@@ -352,7 +352,14 @@ running tests; a separate verifier or tester must re-validate the rebased branch
    expects: |
      regex:^STATUS:\s*(done|retry)\s*$
      regex:^REBASED:\s*(true|false)\s*$
+     regex:^(STATUS:\s*retry|REBASED:\s*false)\s*$
    ```
+
+   The conjunction line (``regex:^(STATUS:\s*retry|REBASED:\s*false)\s*$``)
+   encodes the implication *done ⇒ REBASED: false* — it rejects the forbidden
+   ``STATUS: done + REBASED: true`` combination (merge of an untested rebased
+   tree) while still accepting all three valid verdicts: done+false (clean
+   merge), retry+true (honest rebase loopback), and retry+false.
 
    The `on_fail` block routes retry verdicts to the validation step:
 

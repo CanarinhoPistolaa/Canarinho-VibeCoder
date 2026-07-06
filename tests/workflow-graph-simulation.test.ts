@@ -219,6 +219,16 @@ function synthesizeRegexLine(regexLine: string): string {
     return `${key}: https://github.com/sim-org/sim-repo/pull/1`;
   }
 
+  // MRG2: Merge success simulation must not claim a rebase.  When the REBASED
+  // regex alternation includes "false", force that value so the synthesized
+  // "STATUS: done + REBASED: true" combination never violates the merge-contract
+  // conjunction gate (done => REBASED: false).
+  // Retry/rebase paths are injected separately by the simulator.  This keeps
+  // synthetic done outputs compatible with the merge contract.
+  if (key === "REBASED" && /\bfalse\b/.test(valuePattern)) {
+    return `${key}: false`;
+  }
+
   // Closed enum alternation: (critical|high|medium|low) → pick first
   const altMatch = valuePattern.match(/\(([^)]+)\)/);
   if (altMatch) {
