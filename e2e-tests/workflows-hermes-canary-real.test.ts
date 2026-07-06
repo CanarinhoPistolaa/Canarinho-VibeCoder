@@ -55,7 +55,9 @@ const CANARY_TASK =
 function isHermesAvailable(): boolean {
   if (process.env.TAMANDUA_HERMES_BINARY) return true;
   try {
-    const r = spawnSync("command", ["-v", "hermes"], {
+    // `command` is a shell builtin, not an executable — it must run
+    // inside sh or the spawn fails and hermes is never detected on PATH.
+    const r = spawnSync("sh", ["-c", "command -v hermes"], {
       encoding: "utf-8",
       stdio: ["ignore", "pipe", "ignore"],
     });

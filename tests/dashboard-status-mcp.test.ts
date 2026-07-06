@@ -89,15 +89,28 @@ describe("tamandua dashboard status MCP visibility", () => {
 
       for (const pid of pids) {
         try {
-          const env = execSync(
-            `cat /proc/${pid}/environ 2>/dev/null | tr '\\0' '\\n' | grep '^HOME='`,
-            { encoding: "utf8" },
-          );
-          if (env.includes("tamandua-dashboard-status")) {
+          // Only kill processes bound to a test temp dir. On Linux the
+          // HOME= env entry says so; macOS hides other processes' envs,
+          // but the services keep their log fd open under the temp home,
+          // which lsof reports.
+          let belongsToTest = false;
+          if (process.platform === "linux") {
+            const env = execSync(
+              `cat /proc/${pid}/environ 2>/dev/null | tr '\\0' '\\n' | grep '^HOME='`,
+              { encoding: "utf8" },
+            );
+            belongsToTest = env.includes("tamandua-dashboard-status");
+          } else {
+            const fds = execSync(`lsof -p ${pid} -Fn 2>/dev/null || true`, {
+              encoding: "utf8",
+            });
+            belongsToTest = fds.includes("tamandua-dashboard-status");
+          }
+          if (belongsToTest) {
             process.kill(Number(pid), "SIGKILL");
           }
         } catch {
-          // Process may have exited between pgrep and /proc read
+          // Process may have exited between pgrep and the evidence read
         }
       }
     } catch {
