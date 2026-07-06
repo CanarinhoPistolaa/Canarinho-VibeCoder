@@ -91,6 +91,10 @@ function testCommandEnv(): NodeJS.ProcessEnv {
 }
 
 function buildSampleProject(repoDir: string): void {
+  execFileSync("npm", ["install", "--no-audit", "--no-fund", "--no-package-lock"], {
+    cwd: repoDir,
+    encoding: "utf-8",
+  });
   execFileSync("npm", ["exec", "--yes", "--package", "typescript", "--", "tsc"], {
     cwd: repoDir,
     encoding: "utf-8",

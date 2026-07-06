@@ -1,5 +1,5 @@
 {
-  "name": "sample-project-vuln",
+  "name": "sample-project-review",
   "version": "1.0.0",
   "private": true,
   "type": "module",
@@ -8,7 +8,6 @@
     "test": "node --test test/*.test.ts"
   },
   "devDependencies": {
-    "typescript": "^5.0.0",
-    "@types/node": "^25.2.1"
+    "typescript": "^5.0.0"
   }
 }
