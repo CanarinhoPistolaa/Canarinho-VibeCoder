@@ -7,7 +7,7 @@
  * Accepts optional dependency injection for unit testing.
  */
 import { execSync } from "node:child_process";
-import { getDaemonStatus, getMcpStatus, getControlPlaneStatus, isRunning } from "../server/daemonctl.js";
+import { getDaemonStatus, getMcpStatus, getControlPlaneStatus, getMcpStatusAsync, getControlPlaneStatusAsync, isRunning } from "../server/daemonctl.js";
 
 /**
  * Platform-aware process-listing helper for `tamandua status`.
@@ -53,6 +53,53 @@ export function formatServiceStatus(opts?: {
   const dashboard = (opts?.getDaemonStatus ?? getDaemonStatus)();
   const mcp = (opts?.getMcpStatus ?? getMcpStatus)();
   const controlPlane = (opts?.getControlPlaneStatus ?? getControlPlaneStatus)();
+
+  const lines: string[] = [];
+  lines.push("Services");
+  lines.push("--------");
+
+  // Dashboard
+  if (dashboard.running) {
+    lines.push(`Dashboard:      UP   (pid ${dashboard.pid}, port ${dashboard.port}, http://localhost:${dashboard.port})`);
+  } else {
+    lines.push(`Dashboard:      DOWN (port ${dashboard.port})`);
+  }
+
+  // MCP
+  if (mcp.running) {
+    lines.push(`MCP:            UP   (pid ${mcp.pid}, port ${mcp.port}, http://localhost:${mcp.port}${mcp.endpoint})`);
+  } else {
+    lines.push(`MCP:            DOWN (port ${mcp.port}, endpoint ${mcp.endpoint})`);
+  }
+
+  // Control-plane
+  if (controlPlane.running) {
+    lines.push(`Control-plane:  UP   (pid ${controlPlane.pid}, port ${controlPlane.port}, http://localhost:${controlPlane.port}${controlPlane.endpoint})`);
+  } else {
+    lines.push(`Control-plane:  DOWN (port ${controlPlane.port}, endpoint ${controlPlane.endpoint})`);
+  }
+
+  return lines.join("\n");
+}
+
+/**
+ * Async variant of formatServiceStatus that probes live health endpoints
+ * for MCP and control-plane instead of relying solely on PID files.
+ *
+ * PID-file-only checks (the synchronous getControlPlaneStatus / getMcpStatus)
+ * always report DOWN when services run in-process with the daemon — the daemon
+ * never writes a separate PID file for in-process services.
+ *
+ * Accepts the same dependency-injection pattern as formatServiceStatus.
+ */
+export async function formatServiceStatusAsync(opts?: {
+  getDaemonStatus?: typeof getDaemonStatus;
+  getMcpStatusAsync?: typeof getMcpStatusAsync;
+  getControlPlaneStatusAsync?: typeof getControlPlaneStatusAsync;
+}): Promise<string> {
+  const dashboard = (opts?.getDaemonStatus ?? getDaemonStatus)();
+  const mcp = await (opts?.getMcpStatusAsync ?? getMcpStatusAsync)();
+  const controlPlane = await (opts?.getControlPlaneStatusAsync ?? getControlPlaneStatusAsync)();
 
   const lines: string[] = [];
   lines.push("Services");

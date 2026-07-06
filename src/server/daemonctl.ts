@@ -895,9 +895,9 @@ async function isTcpPortOpen(port: number, timeoutMs = 500): Promise<boolean> {
   });
 }
 
-async function fetchControlPlaneHealth(port: number): Promise<{ healthy: true; pid: number | null } | { healthy: false; status?: number }> {
+async function fetchControlPlaneHealth(port: number, timeoutMs = 1000): Promise<{ healthy: true; pid: number | null } | { healthy: false; status?: number }> {
   const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 1000);
+  const timeout = setTimeout(() => controller.abort(), timeoutMs);
   try {
     const res = await fetch(`http://127.0.0.1:${port}${CONTROL_PLANE_HEALTH_ENDPOINT}`, {
       signal: controller.signal,
@@ -913,6 +913,28 @@ async function fetchControlPlaneHealth(port: number): Promise<{ healthy: true; p
       // Treat a 2xx health response as healthy even if the body is malformed.
     }
     return { healthy: true, pid };
+  } catch {
+    return { healthy: false };
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+/** Probe the MCP server's HTTP endpoint to verify it is alive.
+ *
+ * The MCP server has no dedicated health endpoint; its only HTTP route is
+ * the streaming `/mcp` endpoint. Any HTTP response (even a 400 for missing
+ * session ID) proves the server is accepting connections and responding.
+ * This mirrors the control-plane health-probe pattern for consistency. */
+async function fetchMcpHealth(port: number, timeoutMs = 2000): Promise<{ healthy: boolean }> {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    await fetch(`http://127.0.0.1:${port}${MCP_ENDPOINT_PATH}`, {
+      signal: controller.signal,
+    });
+    // Any response (even non-2xx) means the server is alive and responding.
+    return { healthy: true };
   } catch {
     return { healthy: false };
   } finally {
@@ -1024,6 +1046,87 @@ export function getControlPlaneStatus(opts?: DaemonctlPathOptions): {
     port,
     endpoint: CONTROL_PLANE_HEALTH_ENDPOINT,
   };
+}
+
+/**
+ * Async control plane status check that probes the live health endpoint.
+ *
+ * When the daemon runs the control plane in-process (the default), no
+ * control-plane.pid file is written, so the synchronous
+ * `getControlPlaneStatus()` always returns DOWN. This variant probes
+ * the actual `/control/health` HTTP endpoint with a bounded ~2s timeout
+ * and heals stale or missing PID files on success.
+ */
+export async function getControlPlaneStatusAsync(opts?: DaemonctlPathOptions): Promise<{
+  running: boolean;
+  pid: number | null;
+  port: number;
+  endpoint: string;
+}> {
+  const port = readControlPlanePort(opts);
+  const health = await fetchControlPlaneHealth(port, 2000);
+  if (health.healthy) {
+    // Heal the PID file so the synchronous check also works.
+    const pid = health.pid ?? null;
+    if (pid !== null) {
+      try {
+        const pidFile = getControlPlanePidFile(opts);
+        fs.mkdirSync(path.dirname(pidFile), { recursive: true });
+        fs.writeFileSync(pidFile, String(pid), "utf-8");
+      } catch {
+        // Best effort.
+      }
+    }
+    return { running: true, pid, port, endpoint: CONTROL_PLANE_HEALTH_ENDPOINT };
+  }
+
+  // Health probe failed — fall back to the synchronous PID-file check.
+  return getControlPlaneStatus(opts);
+}
+
+/**
+ * Async MCP status check that probes the live HTTP endpoint.
+ *
+ * Sends a GET to `/mcp` with a bounded ~2s timeout. Any HTTP response
+ * (even an error) proves the server is alive — this mirrors the
+ * control-plane health-probe pattern. When the MCP server is alive but
+ * no mcp.pid file exists (in-process MCP), we heal by writing the daemon PID.
+ */
+export async function getMcpStatusAsync(opts?: DaemonctlPathOptions): Promise<{
+  running: boolean;
+  pid: number | null;
+  port: number;
+  endpoint: string;
+}> {
+  const port = readMcpPort(opts);
+
+  // Probe the MCP HTTP endpoint with a production-appropriate timeout.
+  const health = await fetchMcpHealth(port, 2000);
+  if (health.healthy) {
+    // Heal the PID file: if the daemon is running, use its PID.
+    let pid: number | null = null;
+    const syncStatus = isMcpRunning(opts);
+    if (syncStatus.running) {
+      pid = syncStatus.pid;
+    } else {
+      // No PID file — infer from daemon.
+      const daemonStatus = isRunning(opts);
+      if (daemonStatus.running) {
+        pid = daemonStatus.pid;
+        try {
+          const mcpPidFile = getMcpPidFile(opts);
+          fs.mkdirSync(path.dirname(mcpPidFile), { recursive: true });
+          fs.writeFileSync(mcpPidFile, String(pid), "utf-8");
+        } catch {
+          // Best effort.
+        }
+      }
+    }
+    return { running: true, pid, port, endpoint: MCP_ENDPOINT_PATH };
+  }
+
+  // Health probe failed — fall back to the synchronous PID-file check.
+  return getMcpStatus(opts);
 }
 
 /**

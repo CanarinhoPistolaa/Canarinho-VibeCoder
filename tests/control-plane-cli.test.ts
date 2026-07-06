@@ -208,6 +208,15 @@ describe("tamandua control-plane CLI", { concurrency: 1 }, () => {
     try {
       cleanupIsolatedControlPlaneFiles(tempHome);
 
+      // Write a control-plane port file with a port that is guaranteed not to
+      // have a control plane listening. The async status probe (added in the
+      // status-control-plane-false-down fix) queries the health endpoint on the
+      // configured port, so without this isolation the test would report "running"
+      // if a production daemon happens to be listening on the default port 3339.
+      const unusedPort = await reserveRandomPort();
+      fs.mkdirSync(path.join(tempHome, ".tamandua"), { recursive: true });
+      fs.writeFileSync(getIsolatedControlPlanePortFile(tempHome), String(unusedPort), "utf-8");
+
       const { stdout, stderr, exitCode } = await runCli(["control-plane", "status"], tempHome);
 
       assert.equal(exitCode, 0);

@@ -504,6 +504,15 @@ describe("MCP lifecycle integration", { concurrency: 1 }, () => {
       // loaded parallel suite, SIGTERM-to-exit can take seconds.
       await new Promise<void>((resolve) => setTimeout(resolve, 5000));
 
+      // The async status probe checks the HTTP endpoint on the configured port.
+      // After stop cleans up the port file, readMcpPort falls back to the default
+      // port (3338), which may have a production MCP. Write an unused port so the
+      // probe correctly reports DOWN.
+      const unusedPort = await reserveRandomPort();
+      const portDir = path.join(tempEnv.homeDir, ".tamandua");
+      fs.mkdirSync(portDir, { recursive: true });
+      fs.writeFileSync(path.join(portDir, "mcp-port"), String(unusedPort), "utf-8");
+
       // Verify the isolated MCP state via CLI status and HTTP reachability.
       status = await runCli(["mcp", "status"], cliEnv);
       assert.match(status.stdout, /MCP server is not running/);

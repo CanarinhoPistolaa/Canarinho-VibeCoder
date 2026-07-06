@@ -26,7 +26,7 @@ import { claimStep, completeStep, failStep, getStories, getOwnProcessGroupId, pe
 import { ensureCliSymlink } from "../installer/symlink.js";
 import { checkCatalogStalenessWarning } from "../installer/catalog-version.js";
 import { resolveSourcePath, resolveSkillPath } from "../installer/paths.js";
-import { formatServiceStatus, formatTamanduaInfo, formatRunsSummary, formatProcessList } from "./status-format.js";
+import { formatServiceStatus, formatServiceStatusAsync, formatTamanduaInfo, formatRunsSummary, formatProcessList } from "./status-format.js";
 import {
   listRunWorktrees,
   getRunWorktree,
@@ -1928,7 +1928,8 @@ async function main() {
       return;
     }
     if (sub === "status") {
-      const st = getMcpStatus();
+      const { getMcpStatusAsync: mcpStatusAsync } = await import("../server/daemonctl.js");
+      const st = await mcpStatusAsync();
       if (!st.running) {
         console.log("MCP server is not running.");
         console.log(`Default endpoint: http://localhost:${st.port}${st.endpoint}`);
@@ -1994,7 +1995,8 @@ async function main() {
     }
     if (sub === "status") {
       const st = getDaemonStatus();
-      const mcp = getMcpStatus();
+      const { getMcpStatusAsync: mcpStatusAsync } = await import("../server/daemonctl.js");
+      const mcp = await mcpStatusAsync();
 
       if (!st.running) {
         console.log("Dashboard is not running.");
@@ -2088,7 +2090,8 @@ async function main() {
       return;
     }
     if (sub === "status") {
-      const st = getControlPlaneStatus();
+      const { getControlPlaneStatusAsync: cpStatusAsync } = await import("../server/daemonctl.js");
+      const st = await cpStatusAsync();
       if (!st.running) {
         console.log("Control plane is not running.");
         console.log(`Default endpoint: http://localhost:${st.port}${st.endpoint}`);
@@ -2664,7 +2667,7 @@ async function main() {
     console.log("Tamandua Status");
     console.log("===============");
     console.log();
-    console.log(formatServiceStatus());
+    console.log(await formatServiceStatusAsync());
     console.log();
     console.log("---");
     console.log();

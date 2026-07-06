@@ -205,9 +205,15 @@ function cleanupIsolatedMcpFiles(homeDir: string): void {
 describe("tamandua mcp CLI", { concurrency: 1 }, () => {
   // AC 5: tamandua mcp status shows not running when MCP is down
   it("mcp status shows not running when MCP is down", async () => {
+    const unusedPort = await reserveRandomPort();
     const tempHome = createTempHome();
     try {
       cleanupIsolatedMcpFiles(tempHome);
+      // Write an isolated port file pointing to an unused port so the
+      // async status probe doesn't detect a production MCP on the default 3338.
+      const tamanduaDir = path.join(tempHome, ".tamandua");
+      fs.mkdirSync(tamanduaDir, { recursive: true });
+      fs.writeFileSync(getIsolatedMcpPortFile(tempHome), String(unusedPort), "utf-8");
 
       const { stdout, stderr, exitCode } = await runCli(["mcp", "status"], tempHome);
 

@@ -1647,7 +1647,19 @@ describe("status command", () => {
   });
 
   it("tamandua status produces comprehensive output with all sections and dividers", () => {
-    const result = cli(["status"]);
+    // Write isolated port files so the async status probes don't detect
+    // production services running on the default ports 3338/3339.
+    const testEnv = makeTestEnv();
+    const tamanduaDir = path.join(testEnv.homeDir, ".tamandua");
+    fs.mkdirSync(tamanduaDir, { recursive: true });
+    // Use ports that are unlikely to have any service listening.
+    fs.writeFileSync(path.join(tamanduaDir, "mcp-port"), "13338", "utf-8");
+    fs.writeFileSync(path.join(tamanduaDir, "control-plane-port"), "13339", "utf-8");
+
+    const result = cli(["status"], {
+      HOME: testEnv.homeDir,
+      TAMANDUA_STATE_DIR: testEnv.stateDir,
+    });
     try {
       assert.equal(result.status, 0);
       const out = result.stdout ?? "";
@@ -1686,6 +1698,7 @@ describe("status command", () => {
       assert.doesNotMatch(out, /Full status output coming in future stories/);
     } finally {
       fs.rmSync(result.testEnv.tmpDir, { recursive: true, force: true });
+      fs.rmSync(testEnv.tmpDir, { recursive: true, force: true });
     }
   });
 
@@ -1819,6 +1832,133 @@ describe("formatServiceStatus", () => {
     assert.match(result, /Dashboard:/);
     assert.match(result, /MCP:/);
     assert.match(result, /Control-plane:/);
+  });
+});
+
+// Direct unit tests for formatServiceStatusAsync() — tests the async variant
+// that probes live health endpoints for MCP and control-plane.
+describe("formatServiceStatusAsync", () => {
+  it("shows all services UP when everything is running", async () => {
+    const { formatServiceStatusAsync } = await import("../../dist/cli/status-format.js");
+
+    const result = await formatServiceStatusAsync({
+      getDaemonStatus: () => ({ running: true, pid: 12345, port: 3334 }),
+      getMcpStatusAsync: async () => ({
+        running: true,
+        pid: 12346,
+        port: 3338,
+        endpoint: "/mcp",
+      }),
+      getControlPlaneStatusAsync: async () => ({
+        running: true,
+        pid: 12347,
+        port: 3339,
+        endpoint: "/control/health",
+      }),
+    });
+
+    assert.match(result, /Services/);
+    assert.match(result, /Dashboard: +UP +\(pid 12345, port 3334, http:\/\/localhost:3334\)/);
+    assert.match(result, /MCP: +UP +\(pid 12346, port 3338, http:\/\/localhost:3338\/mcp\)/);
+    assert.match(result, /Control-plane: +UP +\(pid 12347, port 3339, http:\/\/localhost:3339\/control\/health\)/);
+  });
+
+  it("shows all services DOWN when nothing is running", async () => {
+    const { formatServiceStatusAsync } = await import("../../dist/cli/status-format.js");
+
+    const result = await formatServiceStatusAsync({
+      getDaemonStatus: () => ({ running: false, pid: null, port: 3334 }),
+      getMcpStatusAsync: async () => ({
+        running: false,
+        pid: null,
+        port: 3338,
+        endpoint: "/mcp",
+      }),
+      getControlPlaneStatusAsync: async () => ({
+        running: false,
+        pid: null,
+        port: 3339,
+        endpoint: "/control/health",
+      }),
+    });
+
+    assert.match(result, /Services/);
+    assert.match(result, /Dashboard: +DOWN \(port 3334\)/);
+    assert.match(result, /MCP: +DOWN \(port 3338, endpoint \/mcp\)/);
+    assert.match(result, /Control-plane: +DOWN \(port 3339, endpoint \/control\/health\)/);
+  });
+
+  it("shows mixed state: dashboard and MCP up, control-plane down", async () => {
+    const { formatServiceStatusAsync } = await import("../../dist/cli/status-format.js");
+
+    const result = await formatServiceStatusAsync({
+      getDaemonStatus: () => ({ running: true, pid: 42, port: 3334 }),
+      getMcpStatusAsync: async () => ({
+        running: true,
+        pid: 42,
+        port: 3338,
+        endpoint: "/mcp",
+      }),
+      getControlPlaneStatusAsync: async () => ({
+        running: false,
+        pid: null,
+        port: 3339,
+        endpoint: "/control/health",
+      }),
+    });
+
+    assert.match(result, /Services/);
+    assert.match(result, /Dashboard: +UP +\(pid 42, port 3334, http:\/\/localhost:3334\)/);
+    assert.match(result, /MCP: +UP +\(pid 42, port 3338, http:\/\/localhost:3338\/mcp\)/);
+    assert.match(result, /Control-plane: +DOWN/);
+  });
+
+  it("control-plane UP via async even though sync would report DOWN (in-process daemon)", async () => {
+    const { formatServiceStatusAsync } = await import("../../dist/cli/status-format.js");
+
+    // The critical scenario: daemon is running with control-plane in-process,
+    // so there's no control-plane.pid. The async probe hits the health endpoint
+    // and discovers the control plane IS actually up.
+    const result = await formatServiceStatusAsync({
+      getDaemonStatus: () => ({ running: true, pid: 100, port: 3334 }),
+      getMcpStatusAsync: async () => ({
+        running: false,
+        pid: null,
+        port: 3338,
+        endpoint: "/mcp",
+      }),
+      getControlPlaneStatusAsync: async () => ({
+        running: true,
+        pid: 100,
+        port: 3339,
+        endpoint: "/control/health",
+      }),
+    });
+
+    assert.match(result, /Control-plane: +UP +\(pid 100, port 3339, http:\/\/localhost:3339\/control\/health\)/);
+  });
+
+  it("MCP UP via async TCP probe even without PID file", async () => {
+    const { formatServiceStatusAsync } = await import("../../dist/cli/status-format.js");
+
+    // MCP running in-process with daemon — no mcp.pid but port is open.
+    const result = await formatServiceStatusAsync({
+      getDaemonStatus: () => ({ running: true, pid: 200, port: 3334 }),
+      getMcpStatusAsync: async () => ({
+        running: true,
+        pid: 200,
+        port: 3338,
+        endpoint: "/mcp",
+      }),
+      getControlPlaneStatusAsync: async () => ({
+        running: false,
+        pid: null,
+        port: 3339,
+        endpoint: "/control/health",
+      }),
+    });
+
+    assert.match(result, /MCP: +UP +\(pid 200, port 3338, http:\/\/localhost:3338\/mcp\)/);
   });
 });
 
