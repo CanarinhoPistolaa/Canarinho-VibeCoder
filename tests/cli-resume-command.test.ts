@@ -232,7 +232,7 @@ describe("tamandua workflow resume CLI", { concurrency: 1 }, () => {
       if (daemon && daemon.exitCode === null && daemon.pid) {
         try { process.kill(daemon.pid, "SIGTERM"); } catch { /* ignore */ }
       }
-      fs.rmSync(root, { recursive: true, force: true });
+      fs.rmSync(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
     }
   });
 
@@ -276,7 +276,7 @@ describe("tamandua workflow resume CLI", { concurrency: 1 }, () => {
         `Expected "completed" status in error, got: ${stderr}`,
       );
     } finally {
-      fs.rmSync(root, { recursive: true, force: true });
+      fs.rmSync(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
     }
   });
 
@@ -320,7 +320,7 @@ describe("tamandua workflow resume CLI", { concurrency: 1 }, () => {
         `Expected "canceled" status in error, got: ${stderr}`,
       );
     } finally {
-      fs.rmSync(root, { recursive: true, force: true });
+      fs.rmSync(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
     }
   });
 
@@ -403,7 +403,7 @@ describe("tamandua workflow resume CLI", { concurrency: 1 }, () => {
       if (daemon && daemon.exitCode === null && daemon.pid) {
         try { process.kill(daemon.pid, "SIGTERM"); } catch { /* ignore */ }
       }
-      fs.rmSync(root, { recursive: true, force: true });
+      fs.rmSync(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
     }
   });
 
@@ -443,7 +443,7 @@ describe("tamandua workflow resume CLI", { concurrency: 1 }, () => {
         `Expected "only paused or failed" error, got: ${stderr}`,
       );
     } finally {
-      fs.rmSync(root, { recursive: true, force: true });
+      fs.rmSync(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
     }
   });
 
@@ -485,7 +485,7 @@ describe("tamandua workflow resume CLI", { concurrency: 1 }, () => {
         `Expected daemon-unreachable error, got: ${stderr}`,
       );
     } finally {
-      fs.rmSync(root, { recursive: true, force: true });
+      fs.rmSync(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
     }
   });
 
@@ -511,7 +511,7 @@ describe("tamandua workflow resume CLI", { concurrency: 1 }, () => {
         `Expected not-found error in stderr, got: ${stderr}`,
       );
     } finally {
-      fs.rmSync(root, { recursive: true, force: true });
+      fs.rmSync(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
     }
   });
 
@@ -534,7 +534,7 @@ describe("tamandua workflow resume CLI", { concurrency: 1 }, () => {
         `Expected "Missing run-id" error, got stderr: "${cleanStderr(stderr)}"`,
       );
     } finally {
-      fs.rmSync(root, { recursive: true, force: true });
+      fs.rmSync(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
     }
   });
 });
