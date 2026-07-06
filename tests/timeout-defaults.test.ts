@@ -18,6 +18,12 @@ const PROJECT_ROOT = (() => {
 const oldHarnessRaw = String(6 * 10);
 const oldHarnessRe = new RegExp(`\\?\\?\\s*${oldHarnessRaw}\\s*\\)\\s*\\*\\s*1000`);
 
+// harness-adapter: shared option comment default was also (n * 10)
+const oldHarnessDocDefault = String(6 * 10);
+const oldHarnessDocRe = new RegExp(
+  `timeout\\?\\s*:\\s*number;\\s*//\\s*seconds,\\s*default\\s+${oldHarnessDocDefault}(?!\\d)`,
+);
+
 // autoresearch: DEFAULT_TIMEOUT_MS was (n * 60 * 1000), now doubled
 const oldArFactor = String(3 * 10);
 const oldArRe = new RegExp(
@@ -51,6 +57,21 @@ describe("harness-adapter fallback timeout defaults", () => {
 
   it("has no remaining previous fallback timeout value", () => {
     assert.ok(!oldHarnessRe.test(content), "previous fallback timeout must not remain");
+  });
+
+  it("documents the shared harness timeout default as 10 minutes", () => {
+    assert.match(
+      content,
+      /timeout\?\s*:\s*number;\s*\/\/\s*seconds,\s*default\s+10m\s*\(600s\)/,
+      "RunHarnessOptions timeout comment must document the doubled default",
+    );
+  });
+
+  it("no remaining previous harness option comment default", () => {
+    assert.ok(
+      !oldHarnessDocRe.test(content),
+      "previous harness option comment default must not remain",
+    );
   });
 });
 

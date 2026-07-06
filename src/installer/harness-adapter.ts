@@ -23,7 +23,7 @@ export interface HarnessRoundResult {
 // ── Run options shared across harnesses ────────────────────────────
 
 export interface RunHarnessOptions {
-  timeout?: number; // seconds, default 60
+  timeout?: number; // seconds, default 10m (600s)
   workdir?: string;
   env?: Record<string, string>;
   /**
