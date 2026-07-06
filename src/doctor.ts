@@ -23,6 +23,7 @@ import {
 } from "./server/daemonctl.js";
 import type { DaemonctlPathOptions } from "./server/daemonctl.js";
 import { getBuildVersion } from "./lib/version.js";
+import { readInstalledCatalogStamp } from "./installer/catalog-version.js";
 import { parseExpectedKeys } from "./installer/step-ops.js";
 import { getDb } from "./db.js";
 import { runMedicCheck } from "./medic/medic.js";
@@ -244,6 +245,45 @@ function checkHermesBinary(): DoctorCheckResult {
 export interface DoctorOpts {
   /** Override HOME directory for test isolation. */
   homeDir?: string;
+}
+
+// ── Catalog Staleness check (US-002) ───────────────────────────
+
+/**
+ * Compare the installed catalog stamp version against the current build version.
+ *
+ * - No stamp → warn with "run tamandua update --force" remedy
+ * - Stamp version differs → warn with "run tamandua update --force" remedy
+ * - Stamp version matches → pass
+ * - Synchronous: just stat + read + string compare, no network, no git
+ */
+function checkCatalogStaleness(): DoctorCheckResult {
+  const stamp = readInstalledCatalogStamp();
+  const localVersion = getBuildVersion();
+
+  if (!stamp) {
+    return {
+      name: "Installed catalog vs bundled catalog",
+      status: "warn",
+      message: "No installed catalog stamp found — installed workflows may be missing or predate catalog version tracking",
+      remedy: "Run: tamandua update --force",
+    };
+  }
+
+  if (stamp.version !== localVersion) {
+    return {
+      name: "Installed catalog vs bundled catalog",
+      status: "warn",
+      message: `Installed catalog version ${stamp.version} is older than bundled catalog version ${localVersion}`,
+      remedy: "Run: tamandua update --force",
+    };
+  }
+
+  return {
+    name: "Installed catalog vs bundled catalog",
+    status: "pass",
+    message: `Installed catalog version ${stamp.version} matches bundled catalog version ${localVersion}`,
+  };
 }
 
 // ── STALENESS check (US-005) ───────────────────────────────────
@@ -927,6 +967,13 @@ export async function runDoctorChecks(opts?: DoctorOpts): Promise<CheckGroup[]> 
 
   // STALENESS — wired in US-005
   const stalenessChecks = await guardedChecks("Staleness check", () => runStalenessCheck(opts));
+
+  // Catalog staleness — synchronous check, no need for guardedChecks async wrapper
+  // but we still wrap it for consistency
+  const catalogStalenessCheck = await guardedChecks("Catalog staleness check", () =>
+    Promise.resolve([checkCatalogStaleness()]),
+  );
+  stalenessChecks.push(...catalogStalenessCheck);
 
   // STATE — wired in US-006
   const stateChecks = await guardedChecks("State checks", () => runStateChecks(opts));

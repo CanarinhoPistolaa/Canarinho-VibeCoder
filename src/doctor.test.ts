@@ -28,6 +28,7 @@ import {
   writeMcpPort,
 } from "../dist/server/daemonctl.js";
 import { spawn } from "node:child_process";
+import { getBuildVersion } from "../dist/lib/version.js";
 
 // ── Test-isolation DB setup ────────────────────────────────────
 
@@ -341,11 +342,11 @@ describe("runDoctorChecks", () => {
     assert.strictEqual(svc!.checks.length, 4);
   });
 
-  it("STALENESS group has 1 check", async () => {
+  it("STALENESS group has 2 checks", async () => {
     const groups = await runDoctorChecks();
     const staleness = groups.find((g) => g.label === "STALENESS");
     assert.ok(staleness);
-    assert.strictEqual(staleness!.checks.length, 1);
+    assert.strictEqual(staleness!.checks.length, 2);
   });
 
   it("STATE group has at least 2 checks", async () => {
@@ -699,10 +700,11 @@ describe("SERVICES checks (US-004)", () => {
     const groups = await runDoctorChecks();
     const staleness = groups.find((g) => g.label === "STALENESS");
     assert.ok(staleness, "Expected STALENESS group");
-    assert.strictEqual(staleness!.checks.length, 1);
-    const check = staleness!.checks[0];
-    assert.notStrictEqual(check.message, "Not yet implemented",
-      "Staleness check should not be a placeholder");
+    assert.strictEqual(staleness!.checks.length, 2);
+    for (const check of staleness!.checks) {
+      assert.notStrictEqual(check.message, "Not yet implemented",
+        "Staleness check should not be a placeholder");
+    }
   });
 });
 
@@ -728,7 +730,7 @@ describe("STALENESS check (US-005)", () => {
       const groups = await runDoctorChecks({ homeDir });
       const staleness = groups.find((g) => g.label === "STALENESS");
       assert.ok(staleness);
-      assert.strictEqual(staleness!.checks.length, 1);
+      assert.strictEqual(staleness!.checks.length, 2);
       const check = staleness!.checks[0];
       assert.strictEqual(check.status, "pass",
         `Staleness check should pass when versions match, got: ${check.status} (${check.message})`);
@@ -777,6 +779,7 @@ describe("STALENESS check (US-005)", () => {
         const groups = await runDoctorChecks({ homeDir });
         const staleness = groups.find((g) => g.label === "STALENESS");
         assert.ok(staleness);
+        assert.strictEqual(staleness!.checks.length, 2);
         const check = staleness!.checks[0];
         assert.strictEqual(check.status, "fail",
           `Staleness check should fail when versions differ, got: ${check.status} (${check.message})`);
@@ -820,6 +823,7 @@ describe("STALENESS check (US-005)", () => {
         const groups = await runDoctorChecks({ homeDir });
         const staleness = groups.find((g) => g.label === "STALENESS");
         assert.ok(staleness);
+        assert.strictEqual(staleness!.checks.length, 2);
         const check = staleness!.checks[0];
         assert.strictEqual(check.status, "warn",
           `Staleness check should warn when buildVersion is missing, got: ${check.status} (${check.message})`);
@@ -849,6 +853,7 @@ describe("STALENESS check (US-005)", () => {
       const groups = await runDoctorChecks({ homeDir });
       const staleness = groups.find((g) => g.label === "STALENESS");
       assert.ok(staleness);
+      assert.strictEqual(staleness!.checks.length, 2);
       const check = staleness!.checks[0];
       assert.strictEqual(check.status, "info",
         `Staleness check should be info when control plane is unreachable, got: ${check.status} (${check.message})`);
@@ -882,6 +887,7 @@ describe("STALENESS check (US-005)", () => {
         const groups = await runDoctorChecks({ homeDir });
         const staleness = groups.find((g) => g.label === "STALENESS");
         assert.ok(staleness);
+        assert.strictEqual(staleness!.checks.length, 2);
         const check = staleness!.checks[0];
         assert.strictEqual(check.status, "info",
           `Staleness check should be info on non-200 response, got: ${check.status} (${check.message})`);
@@ -890,6 +896,172 @@ describe("STALENESS check (US-005)", () => {
       }
     } finally {
       fs.rmSync(homeDir, { recursive: true, force: true });
+    }
+  });
+});
+
+describe("Catalog staleness check (US-002)", () => {
+  let savedStateDir: string | undefined;
+
+  beforeEach(() => {
+    savedStateDir = process.env.TAMANDUA_STATE_DIR;
+  });
+
+  afterEach(() => {
+    if (savedStateDir !== undefined) {
+      process.env.TAMANDUA_STATE_DIR = savedStateDir;
+    } else {
+      delete process.env.TAMANDUA_STATE_DIR;
+    }
+  });
+
+  function setupCatalogStamp(homeDir: string, stampVersion: string | null): void {
+    const stateDir = path.join(homeDir, ".tamandua");
+    process.env.TAMANDUA_STATE_DIR = stateDir;
+
+    const workflowsDir = path.join(stateDir, "workflows");
+    fs.mkdirSync(workflowsDir, { recursive: true });
+
+    if (stampVersion !== null) {
+      fs.writeFileSync(
+        path.join(workflowsDir, ".catalog-version.json"),
+        JSON.stringify({
+          version: stampVersion,
+          sourcePath: "/test/path",
+          installedAt: new Date().toISOString(),
+        }, null, 2) + "\n",
+        "utf-8",
+      );
+    }
+
+    // DB must exist for STATE checks
+    const dbPath = path.join(stateDir, "tamandua.db");
+    fs.mkdirSync(path.dirname(dbPath), { recursive: true });
+    fs.writeFileSync(dbPath, "");
+  }
+
+  it("returns pass when installed stamp version matches build version", async () => {
+    const homeDir = createTempHome();
+    try {
+      const currentVersion = getBuildVersion();
+      setupCatalogStamp(homeDir, currentVersion);
+
+      const groups = await runDoctorChecks({ homeDir });
+      const staleness = groups.find((g) => g.label === "STALENESS");
+      assert.ok(staleness);
+      assert.strictEqual(staleness!.checks.length, 2);
+
+      const catalogCheck = staleness!.checks.find((c) => c.name === "Installed catalog vs bundled catalog");
+      assert.ok(catalogCheck, "Expected catalog staleness check");
+      assert.strictEqual(catalogCheck!.status, "pass",
+        `Should pass when versions match, got: ${catalogCheck!.status} (${catalogCheck!.message})`);
+      assert.ok(catalogCheck!.message.includes("matches"),
+        `Message should say matches, got: ${catalogCheck!.message}`);
+    } finally {
+      try { fs.rmSync(homeDir, { recursive: true, force: true }); } catch {}
+    }
+  });
+
+  it("returns warn when stamp file is missing", async () => {
+    const homeDir = createTempHome();
+    try {
+      setupCatalogStamp(homeDir, null);
+
+      const groups = await runDoctorChecks({ homeDir });
+      const staleness = groups.find((g) => g.label === "STALENESS");
+      assert.ok(staleness);
+
+      const catalogCheck = staleness!.checks.find((c) => c.name === "Installed catalog vs bundled catalog");
+      assert.ok(catalogCheck, "Expected catalog staleness check");
+      assert.strictEqual(catalogCheck!.status, "warn",
+        `Should warn when stamp missing, got: ${catalogCheck!.status} (${catalogCheck!.message})`);
+      assert.ok(catalogCheck!.message.toLowerCase().includes("no installed catalog stamp"),
+        `Message should mention missing stamp, got: ${catalogCheck!.message}`);
+      assert.ok(catalogCheck!.remedy, "Should have a remedy");
+      assert.ok(catalogCheck!.remedy!.includes("tamandua update --force"),
+        `Remedy should say tamandua update --force, got: ${catalogCheck!.remedy}`);
+    } finally {
+      try { fs.rmSync(homeDir, { recursive: true, force: true }); } catch {}
+    }
+  });
+
+  it("returns warn when stamp version differs from build version", async () => {
+    const homeDir = createTempHome();
+    try {
+      setupCatalogStamp(homeDir, "old-version-12345");
+
+      const groups = await runDoctorChecks({ homeDir });
+      const staleness = groups.find((g) => g.label === "STALENESS");
+      assert.ok(staleness);
+
+      const catalogCheck = staleness!.checks.find((c) => c.name === "Installed catalog vs bundled catalog");
+      assert.ok(catalogCheck, "Expected catalog staleness check");
+      assert.strictEqual(catalogCheck!.status, "warn",
+        `Should warn when versions differ, got: ${catalogCheck!.status} (${catalogCheck!.message})`);
+      assert.ok(catalogCheck!.message.includes("older"),
+        `Message should say older, got: ${catalogCheck!.message}`);
+      assert.ok(catalogCheck!.message.includes("old-version-12345"),
+        `Message should include old version, got: ${catalogCheck!.message}`);
+      assert.ok(catalogCheck!.remedy, "Should have a remedy");
+      assert.ok(catalogCheck!.remedy!.includes("tamandua update --force"),
+        `Remedy should say tamandua update --force, got: ${catalogCheck!.remedy}`);
+    } finally {
+      try { fs.rmSync(homeDir, { recursive: true, force: true }); } catch {}
+    }
+  });
+
+  it("returns warn when readInstalledCatalogStamp returns null (invalid JSON)", async () => {
+    const homeDir = createTempHome();
+    try {
+      const stateDir = path.join(homeDir, ".tamandua");
+      process.env.TAMANDUA_STATE_DIR = stateDir;
+
+      // Create stamp with invalid JSON
+      const workflowsDir = path.join(stateDir, "workflows");
+      fs.mkdirSync(workflowsDir, { recursive: true });
+      fs.writeFileSync(
+        path.join(workflowsDir, ".catalog-version.json"),
+        "not valid json",
+        "utf-8",
+      );
+
+      // DB must exist for STATE checks
+      const dbPath = path.join(stateDir, "tamandua.db");
+      fs.mkdirSync(path.dirname(dbPath), { recursive: true });
+      fs.writeFileSync(dbPath, "");
+
+      const groups = await runDoctorChecks({ homeDir });
+      const staleness = groups.find((g) => g.label === "STALENESS");
+      assert.ok(staleness);
+
+      const catalogCheck = staleness!.checks.find((c) => c.name === "Installed catalog vs bundled catalog");
+      assert.ok(catalogCheck, "Expected catalog staleness check");
+      assert.strictEqual(catalogCheck!.status, "warn",
+        `Should warn when stamp is invalid, got: ${catalogCheck!.status} (${catalogCheck!.message})`);
+      assert.ok(catalogCheck!.message.toLowerCase().includes("no installed catalog stamp"),
+        `Message should mention missing/invalid stamp, got: ${catalogCheck!.message}`);
+      assert.ok(catalogCheck!.remedy?.includes("tamandua update --force"),
+        `Remedy should say tamandua update --force, got: ${catalogCheck!.remedy}`);
+    } finally {
+      try { fs.rmSync(homeDir, { recursive: true, force: true }); } catch {}
+    }
+  });
+
+  it("remedy message always includes 'tamandua update --force' for warn cases", async () => {
+    const homeDir = createTempHome();
+    try {
+      setupCatalogStamp(homeDir, null);
+
+      const groups = await runDoctorChecks({ homeDir });
+      const staleness = groups.find((g) => g.label === "STALENESS");
+      assert.ok(staleness);
+
+      const catalogCheck = staleness!.checks.find((c) => c.name === "Installed catalog vs bundled catalog");
+      assert.ok(catalogCheck, "Expected catalog staleness check");
+      assert.strictEqual(catalogCheck!.status, "warn");
+      assert.strictEqual(catalogCheck!.remedy, "Run: tamandua update --force");
+    } finally {
+      try { fs.rmSync(homeDir, { recursive: true, force: true }); } catch {}
     }
   });
 });
