@@ -998,6 +998,7 @@ export function parseAndInsertStories(output: string, runId: string): void {
 
 const ABANDONED_THRESHOLD_MS = (getMaxRoleTimeoutSeconds() + 5 * 60) * 1000;
 const MAX_ABANDON_RESETS = 5;
+const ABANDON_STORY_MAX = 8;
 
 /**
  * Find steps that have been "running" for too long and reset them to pending.
@@ -1035,30 +1036,30 @@ export function cleanupAbandonedSteps(): void {
       }
     }
 
-    // Loop steps: apply per-story retry, not per-step retry
+    // Loop steps: apply per-story abandonment, not per-step retry
     if (step.type === "loop" && step.current_story_id) {
       const story = db.prepare(
-        "SELECT id, retry_count, max_retries, story_id, title FROM stories WHERE id = ?"
+        "SELECT id, retry_count, abandoned_count, max_retries, story_id, title FROM stories WHERE id = ?"
       ).get(step.current_story_id) as {
-        id: string; retry_count: number; max_retries: number; story_id: string; title: string;
+        id: string; retry_count: number; abandoned_count: number; max_retries: number; story_id: string; title: string;
       } | undefined;
 
       if (story) {
-        const newRetry = story.retry_count + 1;
+        const newAbandoned = (story.abandoned_count ?? 0) + 1;
         const wfId = getWorkflowId(step.run_id);
-        if (newRetry > story.max_retries) {
-          db.prepare("UPDATE stories SET status = 'failed', retry_count = ?, updated_at = datetime('now') WHERE id = ?").run(newRetry, story.id);
-          db.prepare("UPDATE steps SET status = 'failed', output = 'Story abandoned and retries exhausted', current_story_id = NULL, updated_at = datetime('now') WHERE id = ?").run(step.id);
+        if (newAbandoned > ABANDON_STORY_MAX) {
+          db.prepare("UPDATE stories SET status = 'failed', abandoned_count = ?, updated_at = datetime('now') WHERE id = ?").run(newAbandoned, story.id);
+          db.prepare("UPDATE steps SET status = 'failed', output = 'Story abandoned — abandon budget exhausted', current_story_id = NULL, updated_at = datetime('now') WHERE id = ?").run(step.id);
           db.prepare("UPDATE runs SET status = 'failed', updated_at = datetime('now') WHERE id = ?").run(step.run_id);
-          emitEvent({ ts: new Date().toISOString(), event: "story.failed", runId: step.run_id, workflowId: wfId, stepId: step.step_id, storyId: story.story_id, storyTitle: story.title, detail: "Abandoned — retries exhausted" });
-          emitEvent({ ts: new Date().toISOString(), event: "step.failed", runId: step.run_id, workflowId: wfId, stepId: step.step_id, detail: "Story abandoned and retries exhausted" });
-          emitRunTerminalEvent({ event: "run.failed", runId: step.run_id, workflowId: wfId, detail: "Story abandoned and retries exhausted" });
+          emitEvent({ ts: new Date().toISOString(), event: "story.failed", runId: step.run_id, workflowId: wfId, stepId: step.step_id, storyId: story.story_id, storyTitle: story.title, detail: `Abandoned — abandon budget exhausted (${newAbandoned}/${ABANDON_STORY_MAX})` });
+          emitEvent({ ts: new Date().toISOString(), event: "step.failed", runId: step.run_id, workflowId: wfId, stepId: step.step_id, detail: "Story abandoned — abandon budget exhausted" });
+          emitRunTerminalEvent({ event: "run.failed", runId: step.run_id, workflowId: wfId, detail: "Story abandoned — abandon budget exhausted" });
           scheduleRunCronTeardown(step.run_id);
         } else {
-          db.prepare("UPDATE stories SET status = 'pending', retry_count = ?, updated_at = datetime('now') WHERE id = ?").run(newRetry, story.id);
+          db.prepare("UPDATE stories SET status = 'pending', abandoned_count = ?, updated_at = datetime('now') WHERE id = ?").run(newAbandoned, story.id);
           db.prepare("UPDATE steps SET status = 'pending', current_story_id = NULL, updated_at = datetime('now') WHERE id = ?").run(step.id);
-          emitEvent({ ts: new Date().toISOString(), event: "step.timeout", runId: step.run_id, workflowId: wfId, stepId: step.step_id, detail: `Story ${story.story_id} abandoned — reset to pending (story retry ${newRetry})` });
-          logger.info(`Abandoned step reset to pending (story retry ${newRetry})`, { runId: step.run_id, stepId: step.step_id });
+          emitEvent({ ts: new Date().toISOString(), event: "step.timeout", runId: step.run_id, workflowId: wfId, stepId: step.step_id, detail: `Story ${story.story_id} abandoned — reset to pending (story abandon ${newAbandoned}/${ABANDON_STORY_MAX})` });
+          logger.info(`Abandoned step reset to pending (story abandon ${newAbandoned}/${ABANDON_STORY_MAX})`, { runId: step.run_id, stepId: step.step_id });
         }
         continue;
       }
@@ -1200,35 +1201,35 @@ export function recoverOrphanedStepsForAgent(
       }
     }
 
-    // Loop steps with current_story_id: handle story-level retry
+    // Loop steps with current_story_id: handle story-level abandonment recovery
     if (step.type === "loop" && step.current_story_id) {
       const story = db.prepare(
-        "SELECT id, retry_count, max_retries, story_id, title FROM stories WHERE id = ?"
+        "SELECT id, retry_count, abandoned_count, max_retries, story_id, title FROM stories WHERE id = ?"
       ).get(step.current_story_id) as {
-        id: string; retry_count: number; max_retries: number; story_id: string; title: string;
+        id: string; retry_count: number; abandoned_count: number; max_retries: number; story_id: string; title: string;
       } | undefined;
 
       if (story) {
-        const newRetry = story.retry_count + 1;
+        const newAbandoned = (story.abandoned_count ?? 0) + 1;
         const wfId = getWorkflowId(step.run_id);
-        if (newRetry > story.max_retries) {
-          db.prepare("UPDATE stories SET status = 'failed', retry_count = ?, updated_at = datetime('now') WHERE id = ?").run(newRetry, story.id);
-          db.prepare("UPDATE steps SET status = 'failed', output = 'Agent terminated without completing story; retries exhausted', current_story_id = NULL, updated_at = datetime('now') WHERE id = ?").run(step.id);
+        if (newAbandoned > ABANDON_STORY_MAX) {
+          db.prepare("UPDATE stories SET status = 'failed', abandoned_count = ?, updated_at = datetime('now') WHERE id = ?").run(newAbandoned, story.id);
+          db.prepare("UPDATE steps SET status = 'failed', output = 'Agent terminated without completing story; abandon budget exhausted', current_story_id = NULL, updated_at = datetime('now') WHERE id = ?").run(step.id);
           db.prepare("UPDATE runs SET status = 'failed', updated_at = datetime('now') WHERE id = ?").run(step.run_id);
-          emitEvent({ ts: new Date().toISOString(), event: "story.failed", runId: step.run_id, workflowId: wfId, stepId: step.step_id, storyId: story.story_id, storyTitle: story.title, detail: "Agent terminated — retries exhausted" });
-          emitEvent({ ts: new Date().toISOString(), event: "step.failed", runId: step.run_id, workflowId: wfId, stepId: step.step_id, detail: "Agent terminated without completing story; retries exhausted" });
-          emitRunTerminalEvent({ event: "run.failed", runId: step.run_id, workflowId: wfId, detail: "Agent terminated without completing story; retries exhausted" });
+          emitEvent({ ts: new Date().toISOString(), event: "story.failed", runId: step.run_id, workflowId: wfId, stepId: step.step_id, storyId: story.story_id, storyTitle: story.title, detail: `Agent terminated — abandon budget exhausted (${newAbandoned}/${ABANDON_STORY_MAX})` });
+          emitEvent({ ts: new Date().toISOString(), event: "step.failed", runId: step.run_id, workflowId: wfId, stepId: step.step_id, detail: "Agent terminated without completing story; abandon budget exhausted" });
+          emitRunTerminalEvent({ event: "run.failed", runId: step.run_id, workflowId: wfId, detail: "Agent terminated without completing story; abandon budget exhausted" });
           scheduleRunCronTeardown(step.run_id);
           failed++;
         } else {
-          db.prepare("UPDATE stories SET status = 'pending', retry_count = ?, updated_at = datetime('now') WHERE id = ?").run(newRetry, story.id);
+          db.prepare("UPDATE stories SET status = 'pending', abandoned_count = ?, updated_at = datetime('now') WHERE id = ?").run(newAbandoned, story.id);
           db.prepare("UPDATE steps SET status = 'pending', current_story_id = NULL, updated_at = datetime('now') WHERE id = ?").run(step.id);
           const storyRecoveryEvent = workerJobId !== undefined ? "step.worker_lost" : "step.timeout";
           const storyRecoveryDetail = workerJobId !== undefined
-            ? `Worker ${workerJobId} exited without completing story ${story.story_id}; reset to pending (story retry ${newRetry}/${story.max_retries})`
-            : `Agent terminated; story ${story.story_id} reset to pending (story retry ${newRetry}/${story.max_retries})`;
+            ? `Worker ${workerJobId} exited without completing story ${story.story_id}; reset to pending (story abandon ${newAbandoned}/${ABANDON_STORY_MAX})`
+            : `Agent terminated; story ${story.story_id} reset to pending (story abandon ${newAbandoned}/${ABANDON_STORY_MAX})`;
           emitEvent({ ts: new Date().toISOString(), event: storyRecoveryEvent, runId: step.run_id, workflowId: wfId, stepId: step.step_id, detail: storyRecoveryDetail });
-          logger.info(`Orphaned step recovery: story ${story.story_id} reset to pending (retry ${newRetry}/${story.max_retries})`, { runId: step.run_id, stepId: step.step_id, agentId });
+          logger.info(`Orphaned step recovery: story ${story.story_id} reset to pending (abandon ${newAbandoned}/${ABANDON_STORY_MAX})`, { runId: step.run_id, stepId: step.step_id, agentId });
           if (timeoutRetryReason) {
             setRunContextKey(step.run_id, "timeout_retry", timeoutRetryReason);
           }

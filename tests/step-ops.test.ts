@@ -3008,10 +3008,10 @@ steps:
       "INSERT INTO runs (id, run_number, workflow_id, task, status, context, tokens_spent, created_at, updated_at) VALUES (?, 1, 'bug-fix', 'fix bug', 'running', ?, 0, ?, ?)"
     ).run(runId, seededContext, now, now);
 
-    // Story with exhausted retries (story retry_count == max_retries)
+    // Story with exhausted abandon budget (abandoned_count == ABANDON_STORY_MAX=8)
     const storyId = crypto.randomUUID();
     db.prepare(
-      "INSERT INTO stories (id, run_id, story_index, story_id, title, description, acceptance_criteria, status, retry_count, max_retries, created_at, updated_at) VALUES (?, ?, 0, 'S1', 'Test', 'desc', '[]', 'running', 3, 3, ?, ?)"
+      "INSERT INTO stories (id, run_id, story_index, story_id, title, description, acceptance_criteria, status, retry_count, max_retries, abandoned_count, created_at, updated_at) VALUES (?, ?, 0, 'S1', 'Test', 'desc', '[]', 'running', 0, 4, 8, ?, ?)"
     ).run(storyId, runId, now, now);
 
     // Loop step mid-iteration (current_story_id set, running)
@@ -3020,7 +3020,7 @@ steps:
       "INSERT INTO steps (id, run_id, step_id, agent_id, step_index, input_template, expects, status, retry_count, max_retries, type, current_story_id, loop_config, created_at, updated_at) VALUES (?, ?, 'fix', 'bf_fixer', 0, 'Fix', '', 'running', 0, 4, 'loop', ?, ?, ?, ?)"
     ).run(loopStepId, runId, storyId, JSON.stringify({ over: "stories" }), now, now);
 
-    // Orphan recovery for the fixer agent — story retries exhausted
+    // Orphan recovery for the fixer agent — story abandon budget exhausted
     const result = recoverOrphanedStepsForAgent("bf_fixer", runId);
 
     // Story-level exhaustion does NOT trigger RETR — run fails
@@ -3029,7 +3029,7 @@ steps:
 
     // Run should be failed
     const run = db.prepare("SELECT status FROM runs WHERE id = ?").get(runId) as { status: string };
-    assert.equal(run.status, "failed", "run should be failed on story-level exhaustion");
+    assert.equal(run.status, "failed", "run should be failed on story-level abandon exhaustion");
   });
 });
 
