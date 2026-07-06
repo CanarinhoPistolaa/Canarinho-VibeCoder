@@ -221,7 +221,7 @@ async function restartPreviouslyRunningServices(
       const started = await services.startDashboard(snapshot.dashboard.port);
       output.log(`Dashboard restarted on port ${started.port} (PID ${started.pid}).`);
     } catch (err) {
-      failures.push(`dashboard: ${err instanceof Error ? err.message : String(err)}`);
+      failures.push(`dashboard: ${err instanceof Error ? err.message : String(err)} (recover: tamandua dashboard restart)`);
     }
   }
 
@@ -230,7 +230,7 @@ async function restartPreviouslyRunningServices(
       const started = await services.startMcp(snapshot.mcp.port);
       output.log(`Standalone MCP restarted on port ${started.port} (PID ${started.pid}).`);
     } catch (err) {
-      failures.push(`mcp: ${err instanceof Error ? err.message : String(err)}`);
+      failures.push(`mcp: ${err instanceof Error ? err.message : String(err)} (recover: tamandua mcp restart)`);
     }
   }
 
@@ -239,7 +239,7 @@ async function restartPreviouslyRunningServices(
       const started = await services.startControlPlane(snapshot.controlPlane.port);
       output.log(`Standalone control plane restarted on port ${started.port} (PID ${started.pid}).`);
     } catch (err) {
-      failures.push(`control-plane: ${err instanceof Error ? err.message : String(err)}`);
+      failures.push(`control-plane: ${err instanceof Error ? err.message : String(err)} (recover: tamandua control-plane restart)`);
     }
   }
 
@@ -332,10 +332,17 @@ export async function runUpdate(options: RunUpdateOptions = {}): Promise<UpdateR
   }
 
   if (activeRuns.length > 0 && options.force) {
+    const runningRuns = activeRuns.filter(r => r.status === "running");
     output.warn(
       `Active Tamandua runs detected (${activeRuns.length}); --force set, continuing.\n` +
       formatActiveRuns(activeRuns),
     );
+    if (runningRuns.length > 0) {
+      output.warn(
+        `In-flight workers for ${runningRuns.length} running run(s) will be rugpulled and requeued: ` +
+        runningRuns.map(r => r.id).join(", "),
+      );
+    }
   }
 
   await stopRunningServices(serviceSnapshot, services, output, waitForProcessExit);

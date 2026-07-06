@@ -420,10 +420,13 @@ In order, it does this:
   4. Reports whether the dashboard daemon is already running.
   5. If the dashboard is not running, starts it on the default port
      (3334) so you can monitor workflow runs.
-  6. Reports whether the MCP server is running.
+  6. If the MCP server is not running, starts it on the default port
+     (3338).
+  7. If the control plane is not running, starts it on the default
+     port (3339).
 
 Examples:
-  tamandua get-ready            # Install all bundled workflows and start dashboard
+  tamandua get-ready            # Install all bundled workflows and start dashboard/MCP/control plane
   tamandua workflow install <name>  # Install a single workflow by name`;
 }
 
@@ -1885,13 +1888,12 @@ async function main() {
     for (const wf of workflows) { try { await installWorkflow({ workflowId: wf }); console.log(`  ✓ ${wf}`); } catch (err) { console.log(`  ✗ ${wf}: ${err instanceof Error ? err.message : String(err)}`); } }
     ensureCliSymlink();
     console.log(`\nDone. Start with: tamandua workflow run <name> "your task"`);
-    if (!isRunning().running) { try { const r = await startDaemon(3334); console.log(`\nDashboard started (PID ${r.pid}): http://localhost:${r.port}`); } catch (err) { console.log(`\nNote: dashboard not started: ${err instanceof Error ? err.message : String(err)}`); } }
+    if (!isRunning().running) { try { const r = await startDaemon(3334); console.log(`\nDashboard started (PID ${r.pid}): http://localhost:${r.port}`); } catch (err) { console.log(`\nNote: dashboard not started: ${err instanceof Error ? err.message : String(err)} (recover: tamandua dashboard restart)`); } }
     else console.log("\nDashboard already running.");
-    if (!getMcpStatus().running) {
-      console.log("\nMCP server not started. To start it: tamandua mcp start");
-    } else {
-      console.log("\nMCP server already running.");
-    }
+    if (!getMcpStatus().running) { try { const r = await startMcp(); console.log(`\nMCP server started (PID ${r.pid}): http://localhost:${r.port}/mcp`); } catch (err) { console.log(`\nNote: MCP server not started: ${err instanceof Error ? err.message : String(err)} (recover: tamandua mcp start)`); } }
+    else console.log("\nMCP server already running.");
+    if (!getControlPlaneStatus().running) { try { const r = await startControlPlane(); console.log(`\nControl plane started (PID ${r.pid}): http://localhost:${r.port}/control/health`); } catch (err) { console.log(`\nNote: control plane not started: ${err instanceof Error ? err.message : String(err)} (recover: tamandua control-plane start)`); } }
+    else console.log("\nControl plane already running.");
     return;
   }
 

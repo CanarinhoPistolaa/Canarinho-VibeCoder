@@ -257,8 +257,8 @@ describe("tamandua dashboard status MCP visibility", () => {
     }
   });
 
-  // AC 4: get-ready suggests tamandua mcp start
-  it("tamandua get-ready suggests MCP start when MCP is not running", async () => {
+  // AC 4: get-ready tries to start MCP when not running
+  it("tamandua get-ready starts MCP when MCP is not running", async () => {
     const tempEnv = createTempEnv();
     const controlPort = await reserveRandomPort();
     const cliEnv = {
@@ -270,7 +270,10 @@ describe("tamandua dashboard status MCP visibility", () => {
     try {
       const install = await runCliOnce(["get-ready"], cliEnv);
       assert.equal(install.code, 0, install.stderr || install.stdout);
-      assert.match(install.stdout, /MCP server not started\. To start it: tamandua mcp start/);
+      // get-ready now actively attempts to start MCP (and control plane);
+      // when MCP start fails (e.g., no built mcp-standalone.js), it prints
+      // a Note with the recovery command instead of the old passive message.
+      assert.match(install.stdout, /MCP server already running\.|MCP server started|Note: MCP server not started[\s\S]*recover: tamandua mcp start/);
     } finally {
       await runCliOnce(["uninstall", "--force"], cliEnv);
       fs.rmSync(tempEnv.root, { recursive: true, force: true });

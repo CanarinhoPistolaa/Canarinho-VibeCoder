@@ -495,6 +495,11 @@ export async function startDaemon(port = 3334, opts?: StartOptions): Promise<{ p
       throw new Error("Daemon failed to start. Check " + logFile);
     }
 
+    // Verify the daemon responds to its health endpoint before returning.
+    // A PID file write followed by an immediate crash leaves update --force
+    // thinking the service restarted successfully (2026-07-05 incident).
+    await waitForHealthEndpoint(`http://127.0.0.1:${port}/api/health`);
+
     if (opts?.keepHandle) {
       return { pid: check.pid, port, child };
     }
@@ -728,6 +733,22 @@ export async function startMcp(port?: number, opts?: StartOptions): Promise<{ pi
       throw new Error(`MCP server failed to start. Recent MCP log:\n${logTail}`);
     }
     throw new Error("MCP server failed to start. Check " + mcpLogFile);
+  }
+
+  // Verify the MCP server is actually accepting connections on its port.
+  // The /mcp endpoint uses Streamable HTTP transport (not a simple GET), so
+  // we probe via TCP connect instead of a health endpoint fetch.
+  const mcpTcpDeadline = Date.now() + 10_000;
+  let mcpTcpOk = false;
+  while (!mcpTcpOk && Date.now() < mcpTcpDeadline) {
+    mcpTcpOk = await isTcpPortOpen(mcpPort, 500);
+    if (!mcpTcpOk) await new Promise<void>((resolve) => setTimeout(resolve, 100));
+  }
+  if (!mcpTcpOk) {
+    throw new Error(
+      `MCP server PID file written but port ${mcpPort} is not accepting TCP connections. ` +
+      `The process may have crashed after writing the PID file. Check ${mcpLogFile}`,
+    );
   }
 
   if (opts?.keepHandle) {
