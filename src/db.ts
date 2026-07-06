@@ -173,6 +173,17 @@ function migrate(db: DatabaseSync): void {
     db.exec("ALTER TABLE steps ADD COLUMN claim_invalidated_by TEXT");
   }
 
+  // ── WLST abandoned_count for stories ──
+  // Tracks infrastructure-failure (worker-loss/timeout) story recoveries
+  // separately from honest-verdict retry_count. Worker losses consume this
+  // budget instead of the judgment retry_count, preventing blind timeout
+  // burns from exhausting the story's honest-retry allowance.
+  const storyCols = db.prepare("PRAGMA table_info(stories)").all() as Array<{ name: string }>;
+  const storyColNames = new Set(storyCols.map((c) => c.name));
+  if (!storyColNames.has("abandoned_count")) {
+    db.exec("ALTER TABLE stories ADD COLUMN abandoned_count INTEGER DEFAULT 0");
+  }
+
   // Indexes for run-scoped scheduling and step claim queries.
   db.exec(
     "CREATE INDEX IF NOT EXISTS idx_steps_agent_run_status ON steps(agent_id, run_id, status)",

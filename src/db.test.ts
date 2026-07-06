@@ -339,6 +339,116 @@ describe("run_worktrees table migration", () => {
   });
 });
 
+describe("stories abandoned_count migration", () => {
+  let tempHome: string;
+  let origHome: string | undefined;
+  let origDbPath: string | undefined;
+
+  before(() => {
+    tempHome = mkdtempSync(path.join(os.tmpdir(), "tamandua-stories-migration-test-"));
+    origHome = process.env.HOME;
+    origDbPath = process.env.TAMANDUA_DB_PATH;
+    process.env.HOME = tempHome;
+    delete process.env.TAMANDUA_DB_PATH;
+  });
+
+  after(() => {
+    if (origHome) {
+      process.env.HOME = origHome;
+    } else {
+      delete process.env.HOME;
+    }
+    if (origDbPath) {
+      process.env.TAMANDUA_DB_PATH = origDbPath;
+    } else {
+      delete process.env.TAMANDUA_DB_PATH;
+    }
+    rmSync(tempHome, { recursive: true, force: true });
+  });
+
+  function columnNames(db: DatabaseSync, table: string): Set<string> {
+    const cols = db.prepare(`PRAGMA table_info(${table})`).all() as Array<{ name: string }>;
+    return new Set(cols.map((c) => c.name));
+  }
+
+  it("stories table has abandoned_count column with INTEGER DEFAULT 0", () => {
+    const db = getDb();
+    const cols = db.prepare("PRAGMA table_info(stories)").all() as Array<{
+      name: string;
+      type: string;
+      notnull: number;
+      dflt_value: string | null;
+    }>;
+
+    const col = cols.find((c) => c.name === "abandoned_count");
+    assert.ok(col, "abandoned_count column should exist");
+    assert.equal(col.type, "INTEGER", "abandoned_count should be INTEGER");
+    assert.equal(col.dflt_value, "0", "abandoned_count default should be 0");
+  });
+
+  it("migration is idempotent (second call does nothing harmful)", () => {
+    const db = getDb();
+
+    const cols = db.prepare("PRAGMA table_info(stories)").all() as Array<{ name: string }>;
+    const colNames = cols.map((c) => c.name).sort();
+    const expectedCols = [
+      "abandoned_count",
+      "acceptance_criteria",
+      "created_at",
+      "description",
+      "id",
+      "max_retries",
+      "output",
+      "retry_count",
+      "run_id",
+      "status",
+      "story_id",
+      "story_index",
+      "title",
+      "updated_at",
+    ];
+    assert.deepEqual(colNames, expectedCols.sort(), "columns should match expected after idempotent migrate");
+  });
+
+  it("new story inserted gets abandoned_count = 0 via DEFAULT", () => {
+    const db = getDb();
+    const now = new Date().toISOString();
+
+    // Insert a run first
+    db.prepare(`
+      INSERT INTO runs (id, workflow_id, task, status, created_at, updated_at, tokens_spent, run_number)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    `).run("wlst-test-run", "test-workflow", "Test task", "running", now, now, 0, 1);
+
+    // Insert a story — note abandoned_count is NOT in the column list, relying on DEFAULT
+    db.prepare(`
+      INSERT INTO stories (id, run_id, story_index, story_id, title, description, acceptance_criteria, status, retry_count, max_retries, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run("wlst-story-1", "wlst-test-run", 0, "US-001", "Test Story", "Desc", "[]", "pending", 0, 4, now, now);
+
+    const row = db.prepare("SELECT abandoned_count FROM stories WHERE id = ?").get("wlst-story-1") as { abandoned_count: number };
+    assert.equal(row.abandoned_count, 0, "new story should have abandoned_count = 0 via DEFAULT");
+  });
+
+  it("existing DB tables unaffected by stories migration", () => {
+    const db = getDb();
+    // Core tables still exist
+    const runsCols = columnNames(db, "runs");
+    assert.ok(runsCols.has("id"), "runs.id should exist");
+    assert.ok(runsCols.has("tokens_spent"), "runs.tokens_spent should exist");
+
+    const stepCols = columnNames(db, "steps");
+    assert.ok(stepCols.has("id"), "steps.id should exist");
+    assert.ok(stepCols.has("abandoned_count"), "steps.abandoned_count should exist");
+    assert.ok(stepCols.has("reroute_count"), "steps.reroute_count should exist");
+
+    const storyCols = columnNames(db, "stories");
+    assert.ok(storyCols.has("id"), "stories.id should exist");
+    assert.ok(storyCols.has("retry_count"), "stories.retry_count should exist");
+    assert.ok(storyCols.has("status"), "stories.status should exist");
+  });
+});
+
 describe("getDbPath", () => {
   it("returns path ending with .tamandua/tamandua.db under HOME", () => {
     const result = getDbPath();
