@@ -5,6 +5,7 @@ import { installWorkflow } from "../installer/install.js";
 import { checkActiveRuns, type ActiveRunInfo } from "../installer/uninstall.js";
 import { listBundledWorkflows } from "../installer/workflow-fetch.js";
 import { resolveSourcePath } from "../installer/paths.js";
+import { writeCatalogStamp } from "../installer/catalog-version.js";
 import {
   getControlPlaneStatus,
   getDaemonStatus,
@@ -279,6 +280,9 @@ export async function installAllBundledWorkflowsForUpdate(options: {
   if (failures.length > 0) {
     throw new Error(`Failed to install bundled workflow(s): ${failures.join("; ")}`);
   }
+
+  // Record catalog stamp so staleness checks can detect outdated installed prompts
+  writeCatalogStamp(resolveSourcePath());
 
   return workflowIds;
 }

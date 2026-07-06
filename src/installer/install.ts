@@ -4,8 +4,9 @@ import { fetchWorkflow } from "./workflow-fetch.js";
 import { loadWorkflowSpec } from "./workflow-spec.js";
 import { provisionAgents } from "./agent-provision.js";
 import { readPiConfig, type PiConfig } from "./pi-config.js";
-import { resolvePiStateDir } from "./paths.js";
+import { resolvePiStateDir, resolveSourcePath } from "./paths.js";
 import type { AgentRole, WorkflowInstallResult } from "./types.js";
+import { writeCatalogStamp } from "./catalog-version.js";
 
 // ── Agent list management (Tamandua stores agents at ~/.tamandua/agents.json) ──
 
@@ -276,6 +277,9 @@ export async function installWorkflow(params: {
     workflowId: workflow.id,
     source: `bundled:${params.workflowId}`,
   });
+
+  // Record catalog stamp so staleness checks can detect outdated installed prompts
+  writeCatalogStamp(resolveSourcePath());
 
   return { workflowId: workflow.id, workflowDir };
 }

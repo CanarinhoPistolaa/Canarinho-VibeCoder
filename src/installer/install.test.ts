@@ -215,6 +215,20 @@ describe("installWorkflow", () => {
     assert.ok(fs.existsSync(metadataPath));
   });
 
+  it("writes catalog version stamp after successful install", async () => {
+    await installWorkflow({ workflowId: "bug-fix" });
+
+    // Verify the catalog stamp file was written
+    const stampPath = path.join(tempHome, ".tamandua", "workflows", ".catalog-version.json");
+    assert.ok(fs.existsSync(stampPath), "catalog-version.json should exist after install");
+
+    const stamp = JSON.parse(fs.readFileSync(stampPath, "utf-8"));
+    assert.equal(typeof stamp.version, "string");
+    assert.ok(stamp.version.length > 0, "version should not be empty");
+    assert.equal(typeof stamp.sourcePath, "string");
+    assert.ok(Date.parse(stamp.installedAt) > 0, "installedAt should be a parseable date");
+  });
+
   it("throws on non-existent workflow", async () => {
     await assert.rejects(
       () => installWorkflow({ workflowId: "nonexistent-wf-xyz" }),
