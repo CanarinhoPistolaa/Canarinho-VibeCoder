@@ -9,7 +9,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
-import { lookupHermesSessionTokens } from "../../dist/installer/hermes-usage.js";
+import { lookupHermesSessionTokens, probeHermesStateContract } from "../../dist/installer/hermes-usage.js";
 
 function createTempHome(): string {
   return fs.mkdtempSync(path.join(os.tmpdir(), "tamandua-test-hermes-usage-"));
@@ -226,5 +226,129 @@ describe("lookupHermesSessionTokens", () => {
     ]);
     const result = await lookupHermesSessionTokens("sess-zero", makeEnv(tempDir!));
     assert.equal(result, 0);
+  });
+});
+
+describe("probeHermesStateContract", () => {
+  let tempDir: string | null = null;
+  let savedHermesHome: string | undefined;
+
+  beforeEach(() => {
+    tempDir = createTempHome();
+    savedHermesHome = process.env.HERMES_HOME;
+  });
+
+  afterEach(() => {
+    if (tempDir) {
+      fs.rmSync(tempDir, { recursive: true, force: true });
+      tempDir = null;
+    }
+    if (savedHermesHome === undefined) {
+      delete process.env.HERMES_HOME;
+    } else {
+      process.env.HERMES_HOME = savedHermesHome;
+    }
+  });
+
+  it("returns ok:true for a valid state.db with all required columns", () => {
+    seedStateDb(tempDir!, [
+      { id: "sess-1", input_tokens: 100, output_tokens: 200, cache_read_tokens: 50, cache_write_tokens: 25 },
+    ]);
+    const result = probeHermesStateContract(makeEnv(tempDir!));
+    assert.deepEqual(result, { ok: true });
+  });
+
+  it("returns ok:false when state.db is missing", () => {
+    const result = probeHermesStateContract(makeEnv(tempDir!));
+    assert.equal(result.ok, false);
+    assert.ok(result.reason!.includes("state.db not found"), `reason should mention missing state.db, got: ${result.reason}`);
+  });
+
+  it("returns ok:false when sessions table is missing", () => {
+    const dbPath = path.join(tempDir!, "state.db");
+    const db = new DatabaseSync(dbPath);
+    db.exec("CREATE TABLE other_table (x int)");
+    db.close();
+
+    const result = probeHermesStateContract(makeEnv(tempDir!));
+    assert.equal(result.ok, false);
+    assert.ok(result.reason!.includes("no sessions table"), `reason should mention no sessions table, got: ${result.reason}`);
+  });
+
+  it("returns ok:false when a single required column is missing", () => {
+    const dbPath = path.join(tempDir!, "state.db");
+    const db = new DatabaseSync(dbPath);
+    db.exec(`
+      CREATE TABLE sessions (
+        id TEXT PRIMARY KEY,
+        input_tokens INTEGER,
+        output_tokens INTEGER,
+        cache_read_tokens INTEGER
+      )
+    `);
+    db.prepare("INSERT INTO sessions (id, input_tokens, output_tokens, cache_read_tokens) VALUES (?, ?, ?, ?)").run(
+      "sess-abc", 100, 200, 50,
+    );
+    db.close();
+
+    const result = probeHermesStateContract(makeEnv(tempDir!));
+    assert.equal(result.ok, false);
+    assert.ok(result.reason!.includes("missing columns"), `reason should mention missing columns, got: ${result.reason}`);
+    assert.ok(result.reason!.includes("cache_write_tokens"), `reason should list cache_write_tokens, got: ${result.reason}`);
+  });
+
+  it("returns ok:false when multiple required columns are missing", () => {
+    const dbPath = path.join(tempDir!, "state.db");
+    const db = new DatabaseSync(dbPath);
+    db.exec(`
+      CREATE TABLE sessions (
+        id TEXT PRIMARY KEY,
+        input_tokens INTEGER
+      )
+    `);
+    db.close();
+
+    const result = probeHermesStateContract(makeEnv(tempDir!));
+    assert.equal(result.ok, false);
+    assert.ok(result.reason!.includes("missing columns"), `reason should mention missing columns, got: ${result.reason}`);
+    assert.ok(result.reason!.includes("output_tokens"), `reason should list output_tokens, got: ${result.reason}`);
+    assert.ok(result.reason!.includes("cache_read_tokens"), `reason should list cache_read_tokens, got: ${result.reason}`);
+    assert.ok(result.reason!.includes("cache_write_tokens"), `reason should list cache_write_tokens, got: ${result.reason}`);
+  });
+
+  it("works with extra columns beyond the required ones", () => {
+    seedStateDb(tempDir!, [
+      { id: "sess-1", input_tokens: 100, output_tokens: 200, cache_read_tokens: 50, cache_write_tokens: 25 },
+    ]);
+    // seedStateDb already includes reasoning_tokens and estimated_cost_usd as extras
+    const result = probeHermesStateContract(makeEnv(tempDir!));
+    assert.deepEqual(result, { ok: true });
+  });
+
+  it("uses HERMES_HOME from env parameter", () => {
+    seedStateDb(tempDir!, [
+      { id: "sess-1", input_tokens: 10, output_tokens: 10, cache_read_tokens: 0, cache_write_tokens: 0 },
+    ]);
+    delete process.env.HERMES_HOME;
+    const result = probeHermesStateContract({ HERMES_HOME: tempDir! });
+    assert.deepEqual(result, { ok: true });
+  });
+
+  it("falls back to process.env.HERMES_HOME", () => {
+    seedStateDb(tempDir!, [
+      { id: "sess-1", input_tokens: 10, output_tokens: 10, cache_read_tokens: 0, cache_write_tokens: 0 },
+    ]);
+    process.env.HERMES_HOME = tempDir!;
+    const result = probeHermesStateContract({});
+    assert.deepEqual(result, { ok: true });
+  });
+
+  it("is synchronous (returns immediately, not a Promise)", () => {
+    seedStateDb(tempDir!, [
+      { id: "sess-1", input_tokens: 10, output_tokens: 10, cache_read_tokens: 0, cache_write_tokens: 0 },
+    ]);
+    const result = probeHermesStateContract(makeEnv(tempDir!));
+    assert.ok(!(result instanceof Promise), "probeHermesStateContract should return a plain object, not a Promise");
+    assert.deepEqual(result, { ok: true });
   });
 });

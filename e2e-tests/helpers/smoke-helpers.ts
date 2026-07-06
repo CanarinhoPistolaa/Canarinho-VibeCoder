@@ -47,6 +47,15 @@ export async function createTempHome() {
     `Real ~/.pi directory must exist at ${realPiDir} for e2e tests to reuse pi auth configuration.`,
   );
   fs.symlinkSync(realPiDir, isolatedPiLink, "dir");
+  // Also symlink real ~/.hermes for hermes-based e2e tests (e.g., hermes
+  // canary). Hermes reads its credentials and config from ~/.hermes, the
+  // same isolation pattern as ~/.pi above. Skip silently if ~/.hermes
+  // doesn't exist (most dev machines won't have hermes installed).
+  const realHermesDir = path.join(os.homedir(), ".hermes");
+  const isolatedHermesLink = path.join(homeDir, ".hermes");
+  if (fs.existsSync(realHermesDir)) {
+    fs.symlinkSync(realHermesDir, isolatedHermesLink, "dir");
+  }
   return { root, homeDir, tamanduaDir, controlPort, dashboardPort };
 }
 

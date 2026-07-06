@@ -328,11 +328,11 @@ describe("runDoctorChecks", () => {
     }
   });
 
-  it("ENVIRONMENT group has 5 checks", async () => {
+  it("ENVIRONMENT group has at least 5 checks", async () => {
     const groups = await runDoctorChecks();
     const env = groups.find((g) => g.label === "ENVIRONMENT");
     assert.ok(env);
-    assert.strictEqual(env!.checks.length, 5);
+    assert.ok(env!.checks.length >= 5, `Expected at least 5 ENVIRONMENT checks, got ${env!.checks.length}`);
   });
 
   it("SERVICES group has 4 checks", async () => {
@@ -487,6 +487,203 @@ describe("ENVIRONMENT checks (US-003)", () => {
         `Check "${check.name}" should not be a placeholder`,
       );
     }
+  });
+});
+
+// ── Hermes contract check helpers ────────────────────────────────
+
+/** Create a fixture HERMES_HOME directory with a state.db. */
+function seedHermesFixtureDb(hermesHome: string, options?: { missingColumns?: string[]; noSessionsTable?: boolean; noDb?: boolean }): void {
+  if (options?.noDb) return;
+  const dbPath = path.join(hermesHome, "state.db");
+  const db = new DatabaseSync(dbPath);
+  if (options?.noSessionsTable) {
+    db.exec("CREATE TABLE other_table (x int)");
+  } else if (options?.missingColumns && options.missingColumns.length > 0) {
+    const allColumns = [
+      "id TEXT PRIMARY KEY",
+      "input_tokens INTEGER DEFAULT 0",
+      "output_tokens INTEGER DEFAULT 0",
+      "cache_read_tokens INTEGER DEFAULT 0",
+      "cache_write_tokens INTEGER DEFAULT 0",
+    ];
+    const kept = allColumns.filter((c) => !options.missingColumns!.includes(c.split(" ")[0]));
+    db.exec(`CREATE TABLE sessions (${kept.join(", ")})`);
+  } else {
+    db.exec(`
+      CREATE TABLE sessions (
+        id TEXT PRIMARY KEY,
+        input_tokens INTEGER DEFAULT 0,
+        output_tokens INTEGER DEFAULT 0,
+        cache_read_tokens INTEGER DEFAULT 0,
+        cache_write_tokens INTEGER DEFAULT 0,
+        reasoning_tokens INTEGER DEFAULT 0,
+        estimated_cost_usd REAL
+      )
+    `);
+  }
+  db.close();
+}
+
+// ── ENVIRONMENT hermes contract check (US-004) ────────────────────
+
+describe("ENVIRONMENT hermes contract check (US-004)", () => {
+  let savedHermesBinary: string | undefined;
+  let savedHermesHome: string | undefined;
+  let savedPath: string | undefined;
+  let fixtureDir: string | null = null;
+
+  afterEach(() => {
+    if (savedHermesBinary !== undefined) {
+      process.env.TAMANDUA_HERMES_BINARY = savedHermesBinary;
+    } else {
+      delete process.env.TAMANDUA_HERMES_BINARY;
+    }
+    if (savedHermesHome !== undefined) {
+      process.env.HERMES_HOME = savedHermesHome;
+    } else {
+      delete process.env.HERMES_HOME;
+    }
+    if (savedPath !== undefined) {
+      process.env.PATH = savedPath;
+    }
+    if (fixtureDir) {
+      try { fs.rmSync(fixtureDir, { recursive: true, force: true }); } catch {}
+      fixtureDir = null;
+    }
+  });
+
+  it("when no hermes binary, ENVIRONMENT group has exactly 5 checks (no contract check)", async () => {
+    savedHermesBinary = process.env.TAMANDUA_HERMES_BINARY;
+    delete process.env.TAMANDUA_HERMES_BINARY;
+    // Remove hermes from PATH to ensure commandIsOnPath('hermes') returns false
+    savedPath = process.env.PATH;
+    process.env.PATH = "/usr/bin:/bin";
+
+    const groups = await runDoctorChecks();
+    const env = groups.find((g) => g.label === "ENVIRONMENT");
+    assert.ok(env);
+
+    // No Hermes state.db contract check should appear when hermes is absent
+    const contractCheck = env!.checks.find((c) => c.name === "Hermes state.db contract");
+    assert.strictEqual(contractCheck, undefined,
+      "Should NOT have hermes contract check when hermes binary is absent");
+
+    assert.strictEqual(env!.checks.length, 5,
+      `Expected exactly 5 ENVIRONMENT checks when no hermes, got ${env!.checks.length}: ${env!.checks.map((c: DoctorCheckResult) => c.name).join(", ")}`);
+  });
+
+  it("hermes contract check shows info with 'contract OK' when state.db is valid", async () => {
+    savedHermesBinary = process.env.TAMANDUA_HERMES_BINARY;
+    savedHermesHome = process.env.HERMES_HOME;
+
+    // Create a fixture HERMES_HOME with a valid state.db
+    fixtureDir = createTempHome();
+    seedHermesFixtureDb(fixtureDir);
+
+    // Point TAMANDUA_HERMES_BINARY to any truthy value — the probe only
+    // checks presence, not whether the binary actually exists or works.
+    process.env.TAMANDUA_HERMES_BINARY = "/usr/bin/true";
+    process.env.HERMES_HOME = fixtureDir;
+
+    const groups = await runDoctorChecks();
+    const env = groups.find((g) => g.label === "ENVIRONMENT");
+    assert.ok(env);
+
+    const contractCheck = env!.checks.find((c) => c.name === "Hermes state.db contract");
+    assert.ok(contractCheck, "Expected Hermes state.db contract check when hermes binary is available");
+    assert.strictEqual(contractCheck!.status, "info",
+      `Contract check should be info when contract holds, got: ${contractCheck!.status} (${contractCheck!.message})`);
+    assert.ok(contractCheck!.message.includes("contract OK"),
+      `Message should say 'contract OK', got: ${contractCheck!.message}`);
+    assert.ok(contractCheck!.message.includes("token accounting available"),
+      `Message should mention token accounting, got: ${contractCheck!.message}`);
+
+    assert.strictEqual(env!.checks.length, 6,
+      `Expected exactly 6 ENVIRONMENT checks with hermes available, got ${env!.checks.length}`);
+  });
+
+  it("hermes contract check shows warn when state.db has no sessions table", async () => {
+    savedHermesBinary = process.env.TAMANDUA_HERMES_BINARY;
+    savedHermesHome = process.env.HERMES_HOME;
+
+    // Create a fixture with state.db but no sessions table
+    fixtureDir = createTempHome();
+    seedHermesFixtureDb(fixtureDir, { noSessionsTable: true });
+
+    process.env.TAMANDUA_HERMES_BINARY = "/usr/bin/true";
+    process.env.HERMES_HOME = fixtureDir;
+
+    const groups = await runDoctorChecks();
+    const env = groups.find((g) => g.label === "ENVIRONMENT");
+    assert.ok(env);
+
+    const contractCheck = env!.checks.find((c) => c.name === "Hermes state.db contract");
+    assert.ok(contractCheck, "Expected Hermes state.db contract check");
+    assert.strictEqual(contractCheck!.status, "warn",
+      `Contract check should be warn when contract is broken, got: ${contractCheck!.status} (${contractCheck!.message})`);
+    assert.ok(contractCheck!.message.includes("contract broken"),
+      `Message should say 'contract broken', got: ${contractCheck!.message}`);
+    assert.ok(contractCheck!.message.includes("no sessions table"),
+      `Reason should mention no sessions table, got: ${contractCheck!.message}`);
+    assert.ok(contractCheck!.message.includes("Hermes runs will report 0 tokens"),
+      `Message should mention impact, got: ${contractCheck!.message}`);
+  });
+
+  it("hermes contract check shows warn when state.db has missing column", async () => {
+    savedHermesBinary = process.env.TAMANDUA_HERMES_BINARY;
+    savedHermesHome = process.env.HERMES_HOME;
+
+    // Create a fixture with sessions table but missing cache_write_tokens column
+    fixtureDir = createTempHome();
+    seedHermesFixtureDb(fixtureDir, { missingColumns: ["cache_write_tokens"] });
+
+    process.env.TAMANDUA_HERMES_BINARY = "/usr/bin/true";
+    process.env.HERMES_HOME = fixtureDir;
+
+    const groups = await runDoctorChecks();
+    const env = groups.find((g) => g.label === "ENVIRONMENT");
+    assert.ok(env);
+
+    const contractCheck = env!.checks.find((c) => c.name === "Hermes state.db contract");
+    assert.ok(contractCheck, "Expected Hermes state.db contract check");
+    assert.strictEqual(contractCheck!.status, "warn",
+      `Contract check should be warn when contract is broken, got: ${contractCheck!.status} (${contractCheck!.message})`);
+    assert.ok(contractCheck!.message.includes("contract broken"),
+      `Message should say 'contract broken', got: ${contractCheck!.message}`);
+    assert.ok(contractCheck!.message.includes("missing columns"),
+      `Reason should mention missing columns, got: ${contractCheck!.message}`);
+    assert.ok(contractCheck!.message.includes("cache_write_tokens"),
+      `Reason should list missing column name, got: ${contractCheck!.message}`);
+    assert.ok(contractCheck!.message.includes("Hermes runs will report 0 tokens"),
+      `Message should mention impact, got: ${contractCheck!.message}`);
+  });
+
+  it("hermes contract check shows warn with reason when state.db is missing", async () => {
+    savedHermesBinary = process.env.TAMANDUA_HERMES_BINARY;
+    savedHermesHome = process.env.HERMES_HOME;
+
+    // Create a fixture HERMES_HOME without state.db
+    fixtureDir = createTempHome();
+    seedHermesFixtureDb(fixtureDir, { noDb: true });
+
+    process.env.TAMANDUA_HERMES_BINARY = "/usr/bin/true";
+    process.env.HERMES_HOME = fixtureDir;
+
+    const groups = await runDoctorChecks();
+    const env = groups.find((g) => g.label === "ENVIRONMENT");
+    assert.ok(env);
+
+    const contractCheck = env!.checks.find((c) => c.name === "Hermes state.db contract");
+    assert.ok(contractCheck, "Expected Hermes state.db contract check");
+    assert.strictEqual(contractCheck!.status, "warn",
+      `Contract check should be warn when state.db is missing, got: ${contractCheck!.status} (${contractCheck!.message})`);
+    assert.ok(contractCheck!.message.includes("contract broken"),
+      `Message should say 'contract broken', got: ${contractCheck!.message}`);
+    assert.ok(contractCheck!.message.includes("state.db not found"),
+      `Reason should mention state.db not found, got: ${contractCheck!.message}`);
+    assert.ok(contractCheck!.message.includes("Hermes runs will report 0 tokens"),
+      `Message should mention impact, got: ${contractCheck!.message}`);
   });
 });
 

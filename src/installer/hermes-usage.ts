@@ -15,6 +15,80 @@ const MAX_RETRIES = 3;
 const RETRY_DELAY_MS = 700;
 
 /**
+ * Resolve the hermes home directory from the given env (falls back to
+ * process.env, then ~/.hermes).
+ */
+function resolveHermesHome(env?: NodeJS.ProcessEnv): string {
+  return (
+    env?.HERMES_HOME ??
+    process.env.HERMES_HOME ??
+    path.join(os.homedir(), ".hermes")
+  );
+}
+
+/**
+ * Probe the hermes state.db schema contract without invoking hermes or
+ * spending tokens.
+ *
+ * Checks that `$HERMES_HOME/state.db` exists, opens read-only, and has a
+ * `sessions` table with all required token accounting columns
+ * (input_tokens, output_tokens, cache_read_tokens, cache_write_tokens).
+ *
+ * This is synchronous — it only does stat + open, no hermes invocation.
+ *
+ * @returns `{ ok: true }` when the contract holds, or
+ *          `{ ok: false, reason: "..." }` with a descriptive reason.
+ */
+export function probeHermesStateContract(
+  env?: NodeJS.ProcessEnv,
+): { ok: boolean; reason?: string } {
+  const hermesHome = resolveHermesHome(env);
+  const dbPath = path.join(hermesHome, "state.db");
+
+  if (!fs.existsSync(dbPath)) {
+    return { ok: false, reason: `hermes state.db not found at ${dbPath}` };
+  }
+
+  let db: DatabaseSync | null = null;
+  try {
+    db = new DatabaseSync(dbPath, { readOnly: true });
+
+    const schemaResult = db
+      .prepare("SELECT name FROM pragma_table_info('sessions')")
+      .all() as Array<{ name: string }>;
+
+    if (schemaResult.length === 0) {
+      return {
+        ok: false,
+        reason: "hermes state.db has no sessions table",
+      };
+    }
+
+    const columnNames = new Set(schemaResult.map((col) => col.name));
+    const missing = REQUIRED_COLUMNS.filter((col) => !columnNames.has(col));
+    if (missing.length > 0) {
+      return {
+        ok: false,
+        reason: `hermes state.db sessions table missing columns: ${missing.join(", ")}`,
+      };
+    }
+
+    return { ok: true };
+  } catch (err) {
+    return {
+      ok: false,
+      reason: `hermes state.db read error: ${err instanceof Error ? err.message : String(err)}`,
+    };
+  } finally {
+    try {
+      db?.close();
+    } catch {
+      // ignore close errors
+    }
+  }
+}
+
+/**
  * Look up token usage for a hermes session from its state.db.
  *
  * Resolves `$HERMES_HOME/state.db` from the provided `env` (falling back
@@ -36,40 +110,26 @@ export async function lookupHermesSessionTokens(
   sessionRef: string,
   env?: NodeJS.ProcessEnv,
 ): Promise<number | null> {
-  const hermesHome =
-    env?.HERMES_HOME ??
-    process.env.HERMES_HOME ??
-    path.join(os.homedir(), ".hermes");
+  const hermesHome = resolveHermesHome(env);
   const dbPath = path.join(hermesHome, "state.db");
+
+  // Use the contract probe to validate the schema before attempting
+  // row lookups.
+  const contract = probeHermesStateContract(env);
+  if (!contract.ok) {
+    logger.warn("Hermes session token lookup failed", {
+      sessionRef,
+      reason: contract.reason,
+    });
+    return null;
+  }
 
   let lastReason: string | null = null;
 
   for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
-    if (!fs.existsSync(dbPath)) {
-      lastReason = `hermes state.db not found at ${dbPath}`;
-      break; // file missing — retrying won't help
-    }
-
     let db: DatabaseSync | null = null;
     try {
       db = new DatabaseSync(dbPath, { readOnly: true });
-
-      // ── Schema probe ─────────────────────────────────────────
-      const schemaResult = db
-        .prepare("SELECT name FROM pragma_table_info('sessions')")
-        .all() as Array<{ name: string }>;
-
-      if (schemaResult.length === 0) {
-        lastReason = "hermes state.db has no sessions table";
-        break; // no table — retrying won't help
-      }
-
-      const columnNames = new Set(schemaResult.map((col) => col.name));
-      const missing = REQUIRED_COLUMNS.filter((col) => !columnNames.has(col));
-      if (missing.length > 0) {
-        lastReason = `hermes state.db sessions table missing columns: ${missing.join(", ")}`;
-        break; // missing columns — retrying won't help
-      }
 
       // ── Row lookup ───────────────────────────────────────────
       const row = db

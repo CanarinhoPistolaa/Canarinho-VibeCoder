@@ -32,6 +32,7 @@ import { getRunWorktree } from "./installer/worktree-manager.js";
 import { collectProcessSnapshot, matchRunEvidence } from "./installer/run-cleanup.js";
 import { getRecentEvents } from "./installer/events.js";
 import type { TamanduaEvent } from "./installer/events.js";
+import { probeHermesStateContract } from "./installer/hermes-usage.js";
 
 // ── Types ──────────────────────────────────────────────────────────
 
@@ -209,6 +210,12 @@ function checkPiTokenSaver(): DoctorCheckResult {
   };
 }
 
+/** Determine whether a hermes binary is available. */
+function hermesBinaryAvailable(): boolean {
+  if (process.env.TAMANDUA_HERMES_BINARY) return true;
+  return commandIsOnPath("hermes");
+}
+
 /**
  * Detect Hermes binary availability.
  * Checks `TAMANDUA_HERMES_BINARY` env var first, then PATH.
@@ -236,6 +243,36 @@ function checkHermesBinary(): DoctorCheckResult {
     status: "info",
     message:
       "TAMANDUA_HERMES_BINARY not set and hermes not found on PATH (alpha support — optional)",
+  };
+}
+
+/**
+ * Probe the hermes state.db contract when a hermes binary is available.
+ *
+ * Precondition: `hermesBinaryAvailable()` MUST be true before calling.
+ * The caller in `runDoctorChecks` gates this check — it is NOT invoked
+ * when no hermes binary exists.
+ *
+ * - Contract OK → info ("contract OK — token accounting available")
+ * - Contract broken → warn with reason + impact note
+ *
+ * Hermes is alpha — this check never fails; broken contract only warns.
+ */
+function checkHermesContract(): DoctorCheckResult {
+  const probe = probeHermesStateContract();
+
+  if (probe.ok) {
+    return {
+      name: "Hermes state.db contract",
+      status: "info",
+      message: "hermes state.db contract OK — token accounting available",
+    };
+  }
+
+  return {
+    name: "Hermes state.db contract",
+    status: "warn",
+    message: `hermes state.db contract broken: ${probe.reason}. Hermes runs will report 0 tokens.`,
   };
 }
 
@@ -954,13 +991,20 @@ async function guardedChecks(
 
 export async function runDoctorChecks(opts?: DoctorOpts): Promise<CheckGroup[]> {
   // ENVIRONMENT — wired in US-003
-  const environmentChecks = await Promise.all([
+  const envPromises: Array<DoctorCheckResult | Promise<DoctorCheckResult>> = [
     checkNodeVersion(),
-    Promise.resolve(checkPiOnPath()),
-    Promise.resolve(checkGhOnPath()),
-    Promise.resolve(checkPiTokenSaver()),
-    Promise.resolve(checkHermesBinary()),
-  ]);
+    checkPiOnPath(),
+    checkGhOnPath(),
+    checkPiTokenSaver(),
+    checkHermesBinary(),
+  ];
+
+  // Hermes contract check: only included when a hermes binary is available.
+  if (hermesBinaryAvailable()) {
+    envPromises.push(checkHermesContract());
+  }
+
+  const environmentChecks = await Promise.all(envPromises);
 
   // SERVICES — wired in US-004
   const servicesChecks = await guardedChecks("Services checks", () => runServicesChecks(opts));

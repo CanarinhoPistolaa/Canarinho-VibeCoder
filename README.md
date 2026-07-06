@@ -589,6 +589,46 @@ If `TAMANDUA_HERMES_BINARY` is not set, Tamandua searches for `hermes` on your
 `PATH`. The harness validation runs at scheduling time — if the Hermes binary
 isn't found or isn't executable, the run fails immediately with a clear error.
 
+##### Hermes E2E Canary
+
+`./run-hermes-e2e-canary` is an **opt-in** end-to-end canary that validates
+the full Hermes pipeline against the real Hermes binary. It launches a single
+trivial workflow run (`--hermes-as-harness`) through the daemon, scheduler, and
+Hermes harness, then audits the token-attribution chain:
+`session_id` trailer → `state.db` lookup → `runs.tokens_spent` > 0.
+
+> **⚠️ Spends real tokens and is very slow (30+ minutes).** The canary is
+> never part of `./run-all-e2e-tests` or `npm test`. Run it manually after
+> Hermes upgrades or when changing the harness adapter.
+
+```bash
+./run-hermes-e2e-canary
+```
+
+The test **silently skips** with a clear message when no Hermes binary is
+found on `PATH` or via `TAMANDUA_HERMES_BINARY`. A temporary isolated Tamandua
+home is created for each run, but `~/.hermes` is symlinked in so the real
+Hermes binary can find its credentials and config.
+
+##### Doctor Contract Check
+
+`tamandua doctor` includes a Hermes `state.db` contract check in its
+ENVIRONMENT group. When a Hermes binary is found, the doctor probes
+`$HERMES_HOME/state.db` (read-only, no Hermes invocation, no tokens) and
+verifies the `sessions` table contains all columns required for token
+accounting: `input_tokens`, `output_tokens`, `cache_read_tokens`,
+`cache_write_tokens`.
+
+- **Contract OK** → `info`: "hermes state.db contract OK — token accounting
+  available"
+- **Contract broken** → `warn`: "hermes state.db contract broken: <reason>.
+  Hermes runs will report 0 tokens."
+- **No Hermes binary** → the check is omitted entirely.
+
+This is a cheap schema probe that catches Hermes-side breakage (new
+`state.db` format, renamed columns) before a production run silently reports
+zero tokens.
+
 ### Remote MCP tools
 
 The remote MCP endpoint exposes 14 tools:
