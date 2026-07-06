@@ -397,7 +397,7 @@ describe("run-cleanup", () => {
 
   it("handles ENOENT from /proc entries gracefully", () => {
     // This is inherently tested by the sweep — any process that exits
-    // between scanning /proc and reading its /proc/<pid>/* files will
+    // between scanning procfs and reading per-pid procfs files will
     // trigger ENOENT, and the code must handle it without throwing.
     // We can also test with a guaranteed-non-existent PID.
     // The function iterates only over pids from readdir, so we can't

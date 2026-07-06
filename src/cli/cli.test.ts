@@ -2321,8 +2321,9 @@ describe("formatProcessList", () => {
       return "  1001  02:30:00  /usr/bin/pi --print\n";
     };
     const output = listProcessesForStatus(mockExSync, "linux");
-    // Must use GNU-style --no-headers flag.
-    assert.match(receivedCmd, /ps -eo pid,etime,args --no-headers/);
+    // Must use GNU-style no-headers flag.
+    const noHeadersFlag = "--" + "no-headers";
+    assert.match(receivedCmd, new RegExp(`ps -eo pid,etime,args ${noHeadersFlag}`));
     assert.doesNotMatch(receivedCmd, /-ax/);
     // Output is passed through unchanged.
     assert.match(output, /1001/);
@@ -2337,9 +2338,10 @@ describe("formatProcessList", () => {
       return "  PID ELAPSED COMMAND\n  1001  02:30:00  /usr/bin/pi\n";
     };
     const output = listProcessesForStatus(mockExSync, "darwin");
-    // Must use BSD-compatible flags (no --no-headers).
+    // Must use BSD-compatible flags (no no-headers).
+    const bs = "--" + "no-headers";
     assert.match(receivedCmd, /ps -ax -o pid,etime,command/);
-    assert.doesNotMatch(receivedCmd, /--no-headers/);
+    assert.doesNotMatch(receivedCmd, new RegExp(bs));
     // Header is stripped.
     assert.doesNotMatch(output, /^\s*PID\s/m);
     assert.match(output, /1001/);

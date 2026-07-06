@@ -61,6 +61,7 @@ tests/logs-prefix-expansion.test.ts
 tests/logs-tail-command.test.ts
 tests/mcp-cli.test.ts
 tests/mcp-lifecycle.test.ts
+tests/portability-lint.test.ts
 tests/reroute-count-column-migration.test.ts
 tests/run-terminal-token-events.test.ts
 tests/run-token-migration.test.ts
