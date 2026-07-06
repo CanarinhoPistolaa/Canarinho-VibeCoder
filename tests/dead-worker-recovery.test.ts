@@ -223,6 +223,7 @@ function seedStoryRun(opts: {
   retryCount?: number;
   maxRetries?: number;
   backdateSeconds?: number;
+  inputTemplate?: string;
 } = {}): { runId: string; storyId: string; storyRowId: string; stepRowId: string } {
   const db = getDb();
   const runId = crypto.randomUUID();
@@ -241,11 +242,12 @@ function seedStoryRun(opts: {
      VALUES (?, ?, 0, 'S1', 'Test', 'desc', '[]', 'running', ?, ?, ?, ?, ?)`,
   ).run(storyRowId, runId, opts.retryCount ?? 0, opts.maxRetries ?? 4, opts.abandonedCount ?? 0, ago, ago);
 
+  const inputTemplate = opts.inputTemplate ?? 'Implement';
   db.prepare(
     `INSERT INTO steps (id, run_id, step_id, agent_id, step_index, input_template, expects,
        status, retry_count, max_retries, type, current_story_id, loop_config, created_at, updated_at)
-     VALUES (?, ?, 'implement', ?, 0, 'Implement', '', 'running', 0, 4, 'loop', ?, ?, ?, ?)`,
-  ).run(stepRowId, runId, opts.agentId ?? "wf-dead_dev", storyRowId, JSON.stringify({ over: "stories" }), ago, ago);
+     VALUES (?, ?, 'implement', ?, 0, ?, '', 'running', 0, 4, 'loop', ?, ?, ?, ?)`,
+  ).run(stepRowId, runId, opts.agentId ?? "wf-dead_dev", inputTemplate, storyRowId, JSON.stringify({ over: "stories" }), ago, ago);
 
   return { runId, storyId: "S1", storyRowId, stepRowId };
 }
@@ -436,5 +438,143 @@ describe("cleanupAbandonedSteps — story-level WLST", () => {
     const story = storyState(storyRowId);
     assert.equal(story.status, "done", "done stories must NOT be reset by cleanupAbandonedSteps");
     assert.equal(story.abandoned_count, 0, "abandoned_count should be unchanged");
+  });
+});
+
+// ══════════════════════════════════════════════════════════════════════
+// US-005 WLST Feedback — timeout_retry flows to story-level claim context
+// ══════════════════════════════════════════════════════════════════════
+
+describe("recoverOrphanedStepsForAgent — timeout_retry feedback (story-level)", () => {
+  it("sets timeout_retry in run context when timeoutRetryReason is provided for story-level recovery", async () => {
+    const { recoverOrphanedStepsForAgent } = await import("../dist/installer/step-ops.js");
+    const { runId, storyRowId } = seedStoryRun({
+      agentId: "wf-dead_fixer",
+      abandonedCount: 0,
+      retryCount: 2,
+      backdateSeconds: 5,
+    });
+
+    const timeoutReason = "previous attempt was killed by the 30-minute harness timeout — plan the work to fit, or split it.";
+    const result = recoverOrphanedStepsForAgent("wf-dead_fixer", runId, 0, timeoutReason);
+
+    assert.equal(result.recovered, 1, "story should be recovered");
+    assert.equal(result.failed, 0, "story should not be failed");
+
+    // Story-level recovery should keep abandoned_count separate from retry_count
+    const story = storyState(storyRowId);
+    assert.equal(story.status, "pending", "story should be reset to pending");
+    assert.equal(story.abandoned_count, 1, "abandoned_count should increment");
+    assert.equal(story.retry_count, 2, "retry_count unchanged");
+
+    // Run context should contain timeout_retry
+    const runAfter = getDb().prepare("SELECT context FROM runs WHERE id = ?").get(runId) as { context: string };
+    const ctx = JSON.parse(runAfter.context);
+    assert.equal(ctx.timeout_retry, timeoutReason,
+      "run context must carry timeout_retry after story-level timeout recovery");
+  });
+
+  it("claimStep sees timeout_retry in resolvedInput for the loop step", async () => {
+    const { recoverOrphanedStepsForAgent, claimStep } = await import("../dist/installer/step-ops.js");
+    const { runId } = seedStoryRun({
+      agentId: "wf-dead_fixer",
+      abandonedCount: 0,
+      retryCount: 2,
+      backdateSeconds: 5,
+      // The input_template must include {{timeout_retry}} so the resolver
+      // injects the timeout message — just like real workflow YAML templates.
+      inputTemplate: "Story: {{current_story}}\nID: {{current_story_id}}\nTitle: {{current_story_title}}\nTIMEOUT RETRY: {{timeout_retry}}\nRETRY FEEDBACK: {{retry_feedback}}",
+    });
+
+    const timeoutReason = "previous attempt was killed by the 30-minute harness timeout — plan the work to fit, or split it.";
+    const recoveryResult = recoverOrphanedStepsForAgent("wf-dead_fixer", runId, 0, timeoutReason);
+    assert.equal(recoveryResult.recovered, 1, "story should be recovered");
+
+    // After recovery, the loop step is reset to pending (current_story_id=NULL).
+    // claimStep for the agent should pick it up and resolve timeout_retry.
+    const claim = claimStep("wf-dead_fixer", runId);
+    assert.ok(claim.found, "step should be claimable after story-level recovery");
+    // The resolvedInput should contain the timeout message (via the TIMEOUT RETRY section)
+    assert.ok(claim.resolvedInput!.includes("TIMEOUT RETRY"),
+      `resolvedInput should include TIMEOUT RETRY section, got: ${claim.resolvedInput?.slice(0, 500)}`);
+    assert.ok(claim.resolvedInput!.includes(timeoutReason),
+      `resolvedInput should include the timeout reason, got: ${claim.resolvedInput?.slice(0, 500)}`);
+  });
+
+  it("clears timeout_retry from run context after claim prevents leakage", async () => {
+    const { recoverOrphanedStepsForAgent, claimStep } = await import("../dist/installer/step-ops.js");
+    const { runId } = seedStoryRun({
+      agentId: "wf-dead_fixer",
+      abandonedCount: 0,
+      retryCount: 2,
+      backdateSeconds: 5,
+      inputTemplate: "Story: {{current_story}}\nTIMEOUT RETRY: {{timeout_retry}}",
+    });
+
+    const timeoutReason = "previous attempt was killed by the 30-minute harness timeout — plan the work to fit, or split it.";
+    recoverOrphanedStepsForAgent("wf-dead_fixer", runId, 0, timeoutReason);
+
+    // Verify timeout_retry is present before claim
+    const ctxBefore = JSON.parse((getDb().prepare("SELECT context FROM runs WHERE id = ?").get(runId) as { context: string }).context);
+    assert.equal(ctxBefore.timeout_retry, timeoutReason, "timeout_retry should be present before claim");
+
+    // Claim the step — this should clear timeout_retry
+    const claim = claimStep("wf-dead_fixer", runId);
+    assert.ok(claim.found, "step should be claimable");
+
+    // After claim, timeout_retry should be cleared from run context.
+    // The loop-step path deletes the key entirely (not sets to "").
+    const ctxAfter = JSON.parse((getDb().prepare("SELECT context FROM runs WHERE id = ?").get(runId) as { context: string }).context);
+    assert.ok(!ctxAfter.timeout_retry,
+      `timeout_retry should be cleared from run context after claim, got: ${JSON.stringify(ctxAfter.timeout_retry)}`);
+  });
+
+  it("does NOT set timeout_retry when timeoutRetryReason is omitted for story-level recovery", async () => {
+    const { recoverOrphanedStepsForAgent } = await import("../dist/installer/step-ops.js");
+    const { runId, storyRowId } = seedStoryRun({
+      agentId: "wf-dead_fixer",
+      abandonedCount: 0,
+      retryCount: 0,
+      backdateSeconds: 5,
+    });
+
+    // Recovery WITHOUT timeout reason (non-timeout worker loss, e.g. crash)
+    const result = recoverOrphanedStepsForAgent("wf-dead_fixer", runId, 0);
+    assert.equal(result.recovered, 1, "story should be recovered");
+
+    // Verify abandoned_count is used (not retry_count)
+    const story = storyState(storyRowId);
+    assert.equal(story.abandoned_count, 1, "abandoned_count should increment");
+    assert.equal(story.retry_count, 0, "retry_count unchanged");
+
+    const runAfter = getDb().prepare("SELECT context FROM runs WHERE id = ?").get(runId) as { context: string };
+    const ctx = JSON.parse(runAfter.context);
+    // timeout_retry should not be set when no timeout reason was provided
+    assert.ok(!ctx.timeout_retry,
+      `timeout_retry should not be present when no timeout reason was provided, got: ${JSON.stringify(ctx.timeout_retry)}`);
+  });
+
+  it("feedback message includes harness timeout minutes (not raw ms error)", async () => {
+    const { recoverOrphanedStepsForAgent } = await import("../dist/installer/step-ops.js");
+    const { runId } = seedStoryRun({
+      agentId: "wf-dead_fixer",
+      abandonedCount: 0,
+      retryCount: 0,
+      backdateSeconds: 5,
+    });
+
+    // Simulate the formatted feedback that agent-scheduler would produce
+    // ("previous attempt was killed by the N-minute harness timeout...")
+    const formattedReason = "previous attempt was killed by the 20-minute harness timeout — plan the work to fit, or split it.";
+    const result = recoverOrphanedStepsForAgent("wf-dead_fixer", runId, 0, formattedReason);
+    assert.equal(result.recovered, 1);
+
+    const runAfter = getDb().prepare("SELECT context FROM runs WHERE id = ?").get(runId) as { context: string };
+    const ctx = JSON.parse(runAfter.context);
+    // The message should NOT be a raw ms error like "pi timed out after 1200000ms"
+    assert.ok(!ctx.timeout_retry.includes("timed out after") || ctx.timeout_retry.includes("minute"),
+      `feedback should use minute-based format, not raw ms: ${ctx.timeout_retry}`);
+    assert.ok(ctx.timeout_retry.includes("plan the work to fit"),
+      `feedback should include actionable guidance: ${ctx.timeout_retry}`);
   });
 });

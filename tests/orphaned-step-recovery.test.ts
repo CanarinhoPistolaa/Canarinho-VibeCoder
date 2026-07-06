@@ -932,12 +932,13 @@ describe("US-004: Worker-lifecycle recovery regression tests", () => {
       assert.equal(result.failed, 0, "should not fail");
       assert.equal(result.skipped, 0, "should not skip");
 
-      // Verify story reset to pending, story retry_count bumped
+      // Verify story reset to pending, story abandoned_count bumped (US-004 WLST)
       const storyAfterRecovery = db.prepare(
-        "SELECT status, retry_count FROM stories WHERE id = ?"
-      ).get(storyUuid) as { status: string; retry_count: number };
+        "SELECT status, retry_count, abandoned_count FROM stories WHERE id = ?"
+      ).get(storyUuid) as { status: string; retry_count: number; abandoned_count: number };
       assert.equal(storyAfterRecovery.status, "pending");
-      assert.equal(storyAfterRecovery.retry_count, 1);
+      assert.equal(storyAfterRecovery.abandoned_count, 1, "worker loss must increment abandoned_count, not retry_count");
+      assert.equal(storyAfterRecovery.retry_count, 0, "retry_count must stay unchanged for worker-loss recovery");
 
       // Verify loop step reset to pending, current_story_id cleared
       const loopStepAfterRecovery = db.prepare(
@@ -951,7 +952,7 @@ describe("US-004: Worker-lifecycle recovery regression tests", () => {
       const workerLostEvents = events.filter((e) => e.event === "step.worker_lost");
       assert.equal(workerLostEvents.length, 1, "should emit exactly 1 step.worker_lost event");
       assert.ok(workerLostEvents[0].detail?.includes("US-100"), `detail should mention story ID, got: ${workerLostEvents[0].detail}`);
-      assert.ok(workerLostEvents[0].detail?.includes("story retry 1/2"), `detail should include story retry, got: ${workerLostEvents[0].detail}`);
+      assert.ok(workerLostEvents[0].detail?.includes("story abandon 1/8"), `detail should include story abandon, got: ${workerLostEvents[0].detail}`);
     } finally {
       db.prepare("DELETE FROM stories WHERE id = ?").run(storyUuid);
       db.prepare("DELETE FROM steps WHERE id = ?").run(loopStepUuid);

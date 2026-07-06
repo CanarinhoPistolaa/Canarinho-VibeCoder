@@ -1198,7 +1198,9 @@ export async function executeDispatchRound(
 
     try {
       const isTimeout = errorMessage.includes("timed out");
-      const timeoutRetryReason = isTimeout ? errorMessage : undefined;
+      const timeoutRetryReason = isTimeout
+        ? `previous attempt was killed by the ${Math.round(timeout / 60)}-minute harness timeout — plan the work to fit, or split it.`
+        : undefined;
 
       const { recoverOrphanedStepsForAgent } = await import("./step-ops.js");
       const recoveryResult = recoverOrphanedStepsForAgent(
