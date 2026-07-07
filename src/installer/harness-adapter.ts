@@ -44,8 +44,9 @@ export interface RunHarnessOptions {
   onSpawn?: (handle: { pid: number; pgid: number }) => void;
   /**
    * When true (runs launched with --no-hurry-please-save-tokens-mode),
-   * prefer a `pi-token-saver` command from PATH over `pi`.
-   * pi-only — hermes adapters accept but ignore this option.
+   * prefer a `<harness>-token-saver` command from PATH over the plain
+   * harness binary (e.g. `pi-token-saver` for pi, `hermes-token-saver`
+   * for hermes). Falls back silently when the wrapper is absent.
    */
   preferTokenSaver?: boolean;
 }
@@ -348,7 +349,7 @@ class HermesHarnessAdapter implements HarnessAdapter {
   readonly type: HarnessType = "hermes";
 
   async findBinary(
-    _options?: { preferTokenSaver?: boolean },
+    options?: { preferTokenSaver?: boolean },
   ): Promise<string> {
     // Prefer explicit env override
     const envHermes = process.env.TAMANDUA_HERMES_BINARY?.trim();
@@ -361,6 +362,12 @@ class HermesHarnessAdapter implements HarnessAdapter {
           `TAMANDUA_HERMES_BINARY set but not executable: ${envHermes}`,
         );
       }
+    }
+
+    if (options?.preferTokenSaver) {
+      const tokenSaver = searchPathForExecutable("hermes-token-saver");
+      if (tokenSaver) return tokenSaver;
+      // Not installed (yet) — fall through to normal hermes resolution.
     }
 
     // Search PATH
@@ -377,7 +384,9 @@ class HermesHarnessAdapter implements HarnessAdapter {
     options?: RunHarnessOptions,
   ): Promise<HarnessRoundResult> {
     const timeoutMs = ((options?.timeout) ?? 600) * 1000;
-    const hermesPath = await this.findBinary();
+    const hermesPath = await this.findBinary({
+      preferTokenSaver: options?.preferTokenSaver,
+    });
 
     const childEnv: Record<string, string | undefined> = {
       ...(process.env as Record<string, string | undefined>),

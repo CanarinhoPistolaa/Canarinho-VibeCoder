@@ -427,6 +427,42 @@ describe("ENVIRONMENT checks (US-003)", () => {
     );
   });
 
+  it("hermes-token-saver check returns pass when found on PATH with optional token-saving tool message", async () => {
+    const groups = await runDoctorChecks();
+    const env = groups.find((g) => g.label === "ENVIRONMENT");
+    assert.ok(env);
+    const saverCheck = env!.checks.find((c) => c.name === "hermes-token-saver detection");
+    assert.ok(saverCheck, "Expected hermes-token-saver check to exist");
+    assert.strictEqual(saverCheck!.status, "pass",
+      `hermes-token-saver check should pass when found, got: ${saverCheck!.status} (${saverCheck!.message})`);
+    assert.ok(
+      saverCheck!.message.toLowerCase().includes("optional token-saving tool"),
+      `Message should mention 'optional token-saving tool', got: ${saverCheck!.message}`,
+    );
+  });
+
+  it("hermes-token-saver check returns info with no-hurry reference when absent from PATH", async () => {
+    const savedPath = process.env.PATH;
+    // Exclude user-local bin so hermes-token-saver is not found
+    process.env.PATH = "/usr/bin:/bin";
+    try {
+      const groups = await runDoctorChecks();
+      const env = groups.find((g) => g.label === "ENVIRONMENT");
+      assert.ok(env);
+      const saverCheck = env!.checks.find((c) => c.name === "hermes-token-saver detection");
+      assert.ok(saverCheck, "Expected hermes-token-saver check to exist");
+      assert.strictEqual(saverCheck!.status, "info",
+        `hermes-token-saver check should be info when absent, got: ${saverCheck!.status} (${saverCheck!.message})`);
+      assert.ok(
+        saverCheck!.message.toLowerCase().includes("optional") &&
+          saverCheck!.message.toLowerCase().includes("no-hurry"),
+        `Message should mention 'optional' and 'no-hurry', got: ${saverCheck!.message}`,
+      );
+    } finally {
+      process.env.PATH = savedPath;
+    }
+  });
+
   it("Hermes check is always info (never fail)", async () => {
     const groups = await runDoctorChecks();
     const env = groups.find((g) => g.label === "ENVIRONMENT");
@@ -569,8 +605,8 @@ describe("ENVIRONMENT hermes contract check (US-004)", () => {
     assert.strictEqual(contractCheck, undefined,
       "Should NOT have hermes contract check when hermes binary is absent");
 
-    assert.strictEqual(env!.checks.length, 5,
-      `Expected exactly 5 ENVIRONMENT checks when no hermes, got ${env!.checks.length}: ${env!.checks.map((c: DoctorCheckResult) => c.name).join(", ")}`);
+    assert.strictEqual(env!.checks.length, 6,
+      `Expected exactly 6 ENVIRONMENT checks when no hermes, got ${env!.checks.length}: ${env!.checks.map((c: DoctorCheckResult) => c.name).join(", ")}`);
   });
 
   it("hermes contract check shows info with 'contract OK' when state.db is valid", async () => {
@@ -599,8 +635,8 @@ describe("ENVIRONMENT hermes contract check (US-004)", () => {
     assert.ok(contractCheck!.message.includes("token accounting available"),
       `Message should mention token accounting, got: ${contractCheck!.message}`);
 
-    assert.strictEqual(env!.checks.length, 6,
-      `Expected exactly 6 ENVIRONMENT checks with hermes available, got ${env!.checks.length}`);
+    assert.strictEqual(env!.checks.length, 7,
+      `Expected exactly 7 ENVIRONMENT checks with hermes available, got ${env!.checks.length}`);
   });
 
   it("hermes contract check shows warn when state.db has no sessions table", async () => {

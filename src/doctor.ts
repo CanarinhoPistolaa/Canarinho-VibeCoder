@@ -276,6 +276,27 @@ function checkHermesContract(): DoctorCheckResult {
   };
 }
 
+/**
+ * Detect `hermes-token-saver` on PATH.
+ * This is an optional tool — never fail, always report as "info" or "pass".
+ */
+function checkHermesTokenSaver(): DoctorCheckResult {
+  const found = commandIsOnPath("hermes-token-saver");
+  if (found) {
+    return {
+      name: "hermes-token-saver detection",
+      status: "pass",
+      message: "hermes-token-saver found on PATH (optional token-saving tool)",
+    };
+  }
+  return {
+    name: "hermes-token-saver detection",
+    status: "info",
+    message:
+      "hermes-token-saver not found on PATH (optional — only preferred by no-hurry runs)",
+  };
+}
+
 // ── Doctor options ──────────────────────────────────────────────
 
 /** Options for runDoctorChecks. */
@@ -996,6 +1017,7 @@ export async function runDoctorChecks(opts?: DoctorOpts): Promise<CheckGroup[]> 
     checkPiOnPath(),
     checkGhOnPath(),
     checkPiTokenSaver(),
+    checkHermesTokenSaver(),
     checkHermesBinary(),
   ];
 

@@ -219,7 +219,7 @@ const mcpTools: Array<Record<string, unknown>> = [
         },
         noHurrySaveTokensMode: {
           type: "boolean",
-          description: "When true, work spawns prefer a pi-token-saver command from PATH over pi (looked up per invocation; falls back to pi when absent). Idle dispatch is free either way. Optional, defaults to false.",
+          description: "When true, work spawns prefer a <harness>-token-saver command from PATH over the plain harness binary (looked up per invocation; falls back to the harness binary when absent). Idle dispatch is free either way. Optional, defaults to false.",
         },
       },
     },

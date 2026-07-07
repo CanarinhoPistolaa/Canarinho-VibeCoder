@@ -398,6 +398,85 @@ describe("HermesHarnessAdapter implementation", () => {
       fs.rmSync(tmpDir, { recursive: true, force: true });
       fs.rmSync(tmpDir2, { recursive: true, force: true });
     });
+
+    // ── preferTokenSaver (hermes-token-saver) ──────────────────────
+
+    it("prefers hermes-token-saver over hermes when preferTokenSaver is true and both exist", async () => {
+      delete process.env.TAMANDUA_HERMES_BINARY;
+
+      const binDir = fs.mkdtempSync(
+        path.join(os.tmpdir(), "tamandua-test-harness-adapter-hts-")
+      );
+      const hermesPath = path.join(binDir, "hermes");
+      const saverPath = path.join(binDir, "hermes-token-saver");
+      fs.writeFileSync(hermesPath, "#!/bin/sh\necho hermes\n", { mode: 0o755 });
+      fs.writeFileSync(saverPath, "#!/bin/sh\necho saver\n", { mode: 0o755 });
+
+      process.env.PATH = binDir;
+
+      assert.equal(await adapter.findBinary({ preferTokenSaver: true }), saverPath);
+      assert.equal(await adapter.findBinary({ preferTokenSaver: false }), hermesPath);
+      assert.equal(await adapter.findBinary(), hermesPath);
+
+      fs.rmSync(binDir, { recursive: true, force: true });
+    });
+
+    it("falls back to hermes when hermes-token-saver is not installed", async () => {
+      delete process.env.TAMANDUA_HERMES_BINARY;
+
+      const binDir = fs.mkdtempSync(
+        path.join(os.tmpdir(), "tamandua-test-harness-adapter-hts-")
+      );
+      const hermesPath = path.join(binDir, "hermes");
+      fs.writeFileSync(hermesPath, "#!/bin/sh\necho hermes\n", { mode: 0o755 });
+
+      process.env.PATH = binDir;
+
+      assert.equal(await adapter.findBinary({ preferTokenSaver: true }), hermesPath);
+
+      fs.rmSync(binDir, { recursive: true, force: true });
+    });
+
+    it("TAMANDUA_HERMES_BINARY overrides hermes-token-saver preference", async () => {
+      const binDir = fs.mkdtempSync(
+        path.join(os.tmpdir(), "tamandua-test-harness-adapter-hts-")
+      );
+      const hermesPath = path.join(binDir, "hermes");
+      const saverPath = path.join(binDir, "hermes-token-saver");
+      const pinnedPath = path.join(binDir, "pinned-hermes");
+      fs.writeFileSync(hermesPath, "#!/bin/sh\necho hermes\n", { mode: 0o755 });
+      fs.writeFileSync(saverPath, "#!/bin/sh\necho saver\n", { mode: 0o755 });
+      fs.writeFileSync(pinnedPath, "#!/bin/sh\necho pinned\n", { mode: 0o755 });
+
+      process.env.PATH = binDir;
+      process.env.TAMANDUA_HERMES_BINARY = pinnedPath;
+
+      assert.equal(await adapter.findBinary({ preferTokenSaver: true }), pinnedPath);
+
+      fs.rmSync(binDir, { recursive: true, force: true });
+    });
+
+    it("per-invocation resolution: hermes-token-saver appearing on PATH between calls takes effect", async () => {
+      delete process.env.TAMANDUA_HERMES_BINARY;
+
+      const binDir = fs.mkdtempSync(
+        path.join(os.tmpdir(), "tamandua-test-harness-adapter-hts-")
+      );
+      const hermesPath = path.join(binDir, "hermes");
+      fs.writeFileSync(hermesPath, "#!/bin/sh\necho hermes\n", { mode: 0o755 });
+
+      process.env.PATH = binDir;
+
+      // First call: wrapper absent → fallback to hermes
+      assert.equal(await adapter.findBinary({ preferTokenSaver: true }), hermesPath);
+
+      // "Install" hermes-token-saver between rounds — next resolution must find it
+      const saverPath = path.join(binDir, "hermes-token-saver");
+      fs.writeFileSync(saverPath, "#!/bin/sh\necho saver\n", { mode: 0o755 });
+      assert.equal(await adapter.findBinary({ preferTokenSaver: true }), saverPath);
+
+      fs.rmSync(binDir, { recursive: true, force: true });
+    });
   });
 
   describe("runRound", () => {

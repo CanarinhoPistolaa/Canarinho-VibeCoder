@@ -104,7 +104,11 @@ describe("README MCP tools documentation", () => {
     );
     assert.ok(
       readmeContent.includes("pi-token-saver"),
-      "README must document the noHurrySaveTokensMode pi-token-saver preference"
+      "README must document the pi-token-saver wrapper for noHurrySaveTokensMode"
+    );
+    assert.ok(
+      readmeContent.includes("hermes-token-saver"),
+      "README must document the hermes-token-saver wrapper for noHurrySaveTokensMode"
     );
     assert.ok(
       readmeContent.includes("wait for in-flight work"),

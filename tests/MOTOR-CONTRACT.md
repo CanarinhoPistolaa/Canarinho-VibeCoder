@@ -64,10 +64,11 @@ token overhead on real runs (see the historical baselines at the bottom).
 ### Dispatch
 
 - **C0-binary** Work spawns resolve the harness binary PER INVOCATION:
-  `TAMANDUA_PI_BINARY` env override (config/test seam) → `pi-token-saver`
-  from PATH when the run is no-hurry (`--no-hurry-please-save-tokens-mode`)
-  → `pi` from PATH. Installing pi-token-saver mid-run takes effect on the
-  next round. Pinned by `tests/pi-token-saver.test.ts`.
+  per-harness env override (`TAMANDUA_PI_BINARY` / `TAMANDUA_HERMES_BINARY`,
+  the config/test seam) → `<harness>-token-saver` from PATH when the run
+  is no-hurry (`--no-hurry-please-save-tokens-mode`) → plain harness binary
+  from PATH. Installing the wrapper mid-run takes effect on the next round.
+  Pinned by `tests/pi-token-saver.test.ts` and `tests/hermes-token-saver.test.ts`.
 - **C5** Each pending step is executed exactly once at a time: concurrent
   dispatch attempts (timer tick + nudge, two claimants) must not double-run a
   step (in-flight guards, claim atomicity), and duplicate completions

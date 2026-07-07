@@ -147,9 +147,11 @@ export interface SetupAgentCronsOptions {
   /**
    * Accepted for signature back-compat (`--no-hurry-please-save-tokens-mode`).
    * The flag does not affect scheduling — dispatch rounds are free either
-   * way. Its effect lives in the work spawn: no-hurry runs prefer the
-   * `pi-token-saver` harness when one is installed on PATH (the dispatch
-   * round reads the flag from run context, not from this option).
+   * way. Its effect lives in the work spawn: no-hurry runs prefer a
+   * `<harness>-token-saver` wrapper when one is installed on PATH (e.g.,
+   * `pi-token-saver` or `hermes-token-saver`, matched to whichever harness
+   * the run uses; the dispatch round reads the flag from run context, not
+   * from this option).
    */
   noHurrySaveTokensMode?: boolean;
 }
@@ -159,11 +161,13 @@ export interface SetupAgentCronsOptions {
 export interface FindPiBinaryOptions {
   /**
    * When true (runs launched with --no-hurry-please-save-tokens-mode),
-   * prefer a `pi-token-saver` command from PATH over `pi`. Resolution
-   * happens per invocation, so installing pi-token-saver mid-run takes
-   * effect on the next work round; when it is absent, `pi` is used as
-   * usual. The TAMANDUA_PI_BINARY override still wins over both — it is
-   * the explicit config/test seam.
+   * prefer a `<harness>-token-saver` command from PATH over the plain
+   * harness binary (e.g., `pi-token-saver` over `pi`, or `hermes-token-saver`
+   * over `hermes`). Resolution happens per invocation, so installing the
+   * wrapper mid-run takes effect on the next work round; when it is absent,
+   * the plain harness binary is used as usual. The per-harness env override
+   * (TAMANDUA_PI_BINARY / TAMANDUA_HERMES_BINARY) still wins over both —
+   * that is the explicit config/test seam.
    */
   preferTokenSaver?: boolean;
 }
@@ -236,7 +240,7 @@ export interface RunPiOptions {
    * so termination paths can kill the process group.
    */
   onSpawn?: (handle: { pid: number; pgid: number }) => void;
-  /** See FindPiBinaryOptions.preferTokenSaver (no-hurry runs). */
+  /** See FindPiBinaryOptions.preferTokenSaver (no-hurry runs prefer a token-saver wrapper from PATH). */
   preferTokenSaver?: boolean;
 }
 
@@ -974,7 +978,7 @@ export async function executeDispatchRound(
     return;
   }
 
-  // No-hurry runs prefer the pi-token-saver harness when installed;
+  // No-hurry runs prefer a <harness>-token-saver wrapper when installed on PATH;
   // resolved from run context alongside the status check below.
   let preferTokenSaver = false;
 

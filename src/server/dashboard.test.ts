@@ -1948,7 +1948,7 @@ describe("dashboard hurry status icons UI", () => {
       // Should include the turtle emoji for no_hurry runs
       assert.match(html, /🐢/);
       // Should include the no-hurry tooltip text
-      assert.match(html, /No-hurry mode: work rounds prefer the pi-token-saver harness/);
+      assert.match(html, /No-hurry mode: work rounds prefer a/);
     } finally {
       await stopDashboard(server);
     }
@@ -1964,10 +1964,8 @@ describe("dashboard hurry status icons UI", () => {
       const html = await response.text();
       // Should include the runner emoji for regular runs
       assert.match(html, /🏃/);
-      // Regular runs use the standard pi harness; the tooltip points at
-      // the pi-token-saver alternative.
-      assert.match(html, /Regular run: always uses the standard pi harness/);
-      assert.match(html, /pi-token-saver/);
+      assert.match(html, /Regular run: always uses the plain harness binary/);
+      assert.match(html, /token-saver/);
     } finally {
       await stopDashboard(server);
     }
@@ -2000,7 +1998,7 @@ describe("dashboard hurry status icons UI", () => {
       assert.match(html, /class="hurry-icon"\s+title=/);
       // Tooltip should switch based on no_hurry boolean
       assert.match(html, /r\.no_hurry\s*\?\s*'No-hurry mode/);
-      assert.match(html, /Regular run: always uses the standard pi harness/);
+      assert.match(html, /Regular run: always uses the plain harness binary/);
     } finally {
       await stopDashboard(server);
     }

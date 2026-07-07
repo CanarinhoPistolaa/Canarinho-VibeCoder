@@ -475,7 +475,7 @@ shown alongside the failure.
 Check categories:
   ENVIRONMENT  Node.js >= 22 (probes node:sqlite for runtime compatibility),
                pi present on PATH, gh present on PATH,
-               pi-token-saver detection (informational — optional),
+               pi-token-saver and hermes-token-saver detection (informational — optional),
                TAMANDUA_HERMES_BINARY / hermes detection (informational — alpha)
   SERVICES     Dashboard daemon PID alive, control plane health reachable,
                dashboard HTTP up, MCP server status (if configured).
@@ -1125,11 +1125,12 @@ The task is passed to the workflow's agents as their objective.
 
 Options:
   --no-hurry-please-save-tokens-mode
-      Prefer the pi-token-saver harness for this run's work: whenever a
-      step spawns pi, a pi-token-saver command is looked up on PATH first
-      (per invocation, so installing it mid-run takes effect) and used if
-      present; otherwise pi runs as usual. Idle checking is free either
-      way — the dispatch motor never spends tokens between steps.
+      Prefer a token-saver wrapper for this run's work: whenever a step
+      spawns a harness (pi or hermes), the matching <harness>-token-saver
+      command is looked up on PATH first (per invocation, so installing it
+      mid-run takes effect) and used if present; otherwise the plain
+      harness binary runs as usual. Idle checking is free either way —
+      the dispatch motor never spends tokens between steps.
   --context <key=value>
       Inject a key-value pair into the run's template context for step
       input resolution. Repeatable for multiple keys. The key and value

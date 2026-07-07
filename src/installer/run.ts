@@ -31,7 +31,7 @@ export interface RunWorkflowParams {
   worktreeOriginRepository?: string;
   /** Origin ref for worktree-based workflows */
   worktreeOriginRef?: string;
-  /** When true, work spawns prefer a pi-token-saver command from PATH over pi (per invocation; falls back to pi). */
+  /** When true, work spawns prefer a <harness>-token-saver command from PATH over the plain harness binary (per invocation; falls back to the harness binary). */
   noHurrySaveTokensMode?: boolean;
   /** Harness binary to use for agent invocations (default "pi") */
   harnessType?: HarnessType;
