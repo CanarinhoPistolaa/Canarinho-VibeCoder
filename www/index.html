@@ -786,7 +786,7 @@ steps:
           <tr>
             <td><code>noHurrySaveTokensMode</code></td>
             <td>No</td>
-            <td>When <code>true</code>, work spawns prefer a <code>pi-token-saver</code> command from <code>PATH</code> over <code>pi</code> (looked up per invocation; falls back to <code>pi</code> when absent). Idle dispatch is free either way. Defaults to <code>false</code>.</td>
+            <td>When <code>true</code>, work spawns prefer the harness's token-saver command from <code>PATH</code> (<code>pi-token-saver</code> for pi runs, <code>hermes-token-saver</code> for hermes runs), looked up per invocation; falls back to the plain harness command when absent. Idle dispatch is free either way. Defaults to <code>false</code>.</td>
           </tr>
         </tbody>
       </table>

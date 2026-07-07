@@ -652,7 +652,7 @@
           <td><a class="mono run-link" href="/runs/${encodeURIComponent(r.id)}/kanban" title="Open kanban view">${esc(r.id).slice(0, 8)}</a></td>
           <td>${esc(r.workflow_id)}</td>
           <td class="truncate" title="${esc(r.task || "")}">${esc(task)}</td>
-          <td><span class="badge ${badgeClass}">${r.status}</span>${(r.status === 'running' || r.status === 'paused') ? `<span class="hurry-icon" title="${r.no_hurry ? 'No-hurry mode: work rounds prefer a &lt;harness&gt;-token-saver wrapper when installed (falls back to the plain harness binary).' : 'Regular run: always uses the plain harness binary. Idle dispatch is free either way; use --no-hurry-please-save-tokens-mode to prefer a &lt;harness&gt;-token-saver wrapper when installed.'}">${r.no_hurry ? '🐢' : '🏃'}</span>` : ''}</td>
+          <td><span class="badge ${badgeClass}">${r.status}</span>${(r.status === 'running' || r.status === 'paused') ? `<span class="hurry-icon" title="${r.no_hurry ? 'No-hurry mode: work rounds prefer the run harness\'s token-saver wrapper when installed — pi-token-saver for pi runs, hermes-token-saver for hermes runs — falling back to the plain harness binary.' : 'Regular run: always uses its configured harness binary directly (pi by default, hermes for --hermes-as-harness runs); idle dispatch is free either way; use --no-hurry-please-save-tokens-mode to prefer a token-saver wrapper when installed.'}">${r.no_hurry ? '🐢' : '🏃'}</span>` : ''}</td>
           <td>
             <div class="progress-bar" title="${done}/${total} steps (${failed} failed)">
               <div class="progress-fill ${fillClass}" style="width:${pct}%"></div>
