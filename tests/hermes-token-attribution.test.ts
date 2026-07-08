@@ -324,9 +324,16 @@ describe("hermes token attribution", () => {
 
       // Fake hermes that prints STATUS: done PLUS pi-style JSON with
       // totalTokens 99999 on stdout, and session_id on stderr.
+      // The message must carry role: "assistant" and text content —
+      // parseWorkRoundMetadata only extracts usage from assistant
+      // message_end events, so a role-less message would never be
+      // attributed and the test would pass even without the hermes
+      // stdout-attribution guard.
       const piStyleJson = JSON.stringify({
         type: "message_end",
         message: {
+          role: "assistant",
+          content: [{ type: "text", text: "STATUS: done" }],
           usage: { input: 99999, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 99999 },
         },
       });
