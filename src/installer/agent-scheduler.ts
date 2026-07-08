@@ -1140,7 +1140,14 @@ export async function executeDispatchRound(
       ...(result.signal ? { signal: result.signal } : {}),
     });
 
-    await attributeWorkRoundTokenUsage(context, job, outputSummary, metadata);
+    // Guard: hermes stdout carries no token usage by contract.
+    // Any usage parsed from it is contamination (e.g. agent echoing
+    // pi-style JSON) that would double count on top of the state.db
+    // attribution. This also stops the misleading "--mode json may
+    // be off" warning for hermes rounds.
+    if (harnessType !== "hermes") {
+      await attributeWorkRoundTokenUsage(context, job, outputSummary, metadata);
+    }
 
     // ── Hermes token lookup ──────────────────────────────────────
     // When the round ran through hermes and a session id was captured,

@@ -75,7 +75,7 @@ describe("lookupHermesSessionTokens", () => {
       { id: "sess-abc", input_tokens: 100, output_tokens: 200, cache_read_tokens: 50, cache_write_tokens: 25 },
     ]);
     const result = await lookupHermesSessionTokens("sess-abc", makeEnv(tempDir!));
-    assert.equal(result, 375);
+    assert.equal(result, 325);
   });
 
   it("excludes reasoning_tokens from the total", async () => {
@@ -83,7 +83,7 @@ describe("lookupHermesSessionTokens", () => {
       { id: "sess-abc", input_tokens: 100, output_tokens: 200, cache_read_tokens: 50, cache_write_tokens: 25, reasoning_tokens: 500 },
     ]);
     const result = await lookupHermesSessionTokens("sess-abc", makeEnv(tempDir!));
-    assert.equal(result, 375);
+    assert.equal(result, 325);
   });
 
   it("clamps negative token values to 0", async () => {
@@ -175,7 +175,7 @@ describe("lookupHermesSessionTokens", () => {
     // Clear process.env.HERMES_HOME so only the parameter is used
     delete process.env.HERMES_HOME;
     const result = await lookupHermesSessionTokens("sess-env", { HERMES_HOME: tempDir! });
-    assert.equal(result, 38);
+    assert.equal(result, 33);
   });
 
   it("falls back to process.env.HERMES_HOME when env parameter omits it", async () => {
@@ -185,7 +185,7 @@ describe("lookupHermesSessionTokens", () => {
 
     process.env.HERMES_HOME = tempDir!;
     const result = await lookupHermesSessionTokens("sess-proc", {});
-    assert.equal(result, 38);
+    assert.equal(result, 33);
   });
 
   it("env parameter HERMES_HOME takes precedence over process.env", async () => {
@@ -207,7 +207,7 @@ describe("lookupHermesSessionTokens", () => {
       { id: "sess-round", input_tokens: 100, output_tokens: 200, cache_read_tokens: 50, cache_write_tokens: 25 },
     ]);
     const result = await lookupHermesSessionTokens("sess-round", makeEnv(tempDir!));
-    assert.equal(result, 375);
+    assert.equal(result, 325);
     assert.ok(Number.isInteger(result));
   });
 
@@ -216,8 +216,17 @@ describe("lookupHermesSessionTokens", () => {
       { id: "sess-sum", input_tokens: 10, output_tokens: 20, cache_read_tokens: 30, cache_write_tokens: 40 },
     ]);
     const result = await lookupHermesSessionTokens("sess-sum", makeEnv(tempDir!));
-    // 10 + 20 + 30 + 40 = 100
-    assert.equal(result, 100);
+    // 10 + 20 + 40 = 70 (cache_read excluded)
+    assert.equal(result, 70);
+  });
+
+  it("excludes cache_read_tokens from the total", async () => {
+    seedStateDb(tempDir!, [
+      { id: "sess-cache", input_tokens: 100, output_tokens: 50, cache_read_tokens: 5_000_000, cache_write_tokens: 0 },
+    ]);
+    const result = await lookupHermesSessionTokens("sess-cache", makeEnv(tempDir!));
+    // 100 + 50 + 0 = 150 (cache_read of 5_000_000 excluded)
+    assert.equal(result, 150);
   });
 
   it("works with zero tokens", async () => {

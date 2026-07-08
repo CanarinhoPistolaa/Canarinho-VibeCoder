@@ -107,9 +107,11 @@ function runHermesDispatchRound(
       ? fs.readFileSync(eventsPath, "utf-8").split(/\\r?\\n/).filter(Boolean).map((l) => JSON.parse(l))
       : [];
     const tokenEvent = events.find((e) => e.event === "run.tokens.updated");
+    const tokenEventCount = events.filter((e) => e.event === "run.tokens.updated").length;
     console.log(JSON.stringify({
       tokensSpent: run.tokens_spent,
       tokenEventDelta: tokenEvent?.tokenDelta ?? null,
+      tokenEventCount,
     }));
   `;
 
@@ -149,8 +151,8 @@ describe("hermes token attribution", () => {
       const fakeHermes = createFakeHermes(temp.root, sessionId);
       const result = runHermesDispatchRound(temp.homeDir, fakeHermes, runId, stepId, hermesHome);
 
-      assert.equal(result.tokensSpent, 375, "tokens_spent should be 375 (100+200+50+25)");
-      assert.equal(result.tokenEventDelta, 375, "tokenEventDelta should match token total");
+      assert.equal(result.tokensSpent, 325, "tokens_spent should be 325 (100+200+25 — cache_read excluded)");
+      assert.equal(result.tokenEventDelta, 325, "tokenEventDelta should match token total (cache_read excluded)");
     } finally {
       fs.rmSync(temp.root, { recursive: true, force: true });
     }
@@ -296,6 +298,56 @@ describe("hermes token attribution", () => {
       // Pi token path should attribute 42 tokens from JSON parsing,
       // NOT 3996 from the hermes state.db.
       assert.equal(piData.tokensSpent, 42, "pi round must attribute tokens from JSON, not hermes state.db");
+    } finally {
+      fs.rmSync(temp.root, { recursive: true, force: true });
+    }
+  });
+
+  it("does not double count when hermes stdout carries pi-style JSON", () => {
+    // Regression: hermes stdout carries no token usage by contract.
+    // If an agent echoes pi-style JSON with totalTokens 99999 on stdout,
+    // that must NOT be attributed — only the state.db-derived total counts.
+    const temp = createTempHome();
+    const runId = crypto.randomUUID();
+    const stepId = crypto.randomUUID();
+    const sessionId = "test-session-contaminated";
+    const hermesHome = path.join(temp.root, "hermes-data");
+    fs.mkdirSync(hermesHome, { recursive: true });
+    try {
+      // Seed state.db — tokens total = 100 + 200 + 25 = 325 (cache_read excluded)
+      seedHermesStateDb(hermesHome, sessionId, {
+        input: 100,
+        output: 200,
+        cacheRead: 50,
+        cacheWrite: 25,
+      });
+
+      // Fake hermes that prints STATUS: done PLUS pi-style JSON with
+      // totalTokens 99999 on stdout, and session_id on stderr.
+      const piStyleJson = JSON.stringify({
+        type: "message_end",
+        message: {
+          usage: { input: 99999, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 99999 },
+        },
+      });
+      const fakeHermes = path.join(temp.root, "fake-hermes-contaminated");
+      fs.writeFileSync(
+        fakeHermes,
+        `#!/usr/bin/env bash
+echo "STATUS: done"
+echo '${piStyleJson}'
+echo "session_id: ${sessionId}" >&2
+`,
+        "utf-8",
+      );
+      fs.chmodSync(fakeHermes, 0o755);
+
+      const result = runHermesDispatchRound(temp.homeDir, fakeHermes, runId, stepId, hermesHome);
+
+      // Must use state.db total (325), not the pi-style JSON total (99999)
+      assert.equal(result.tokensSpent, 325, "tokens_spent must come from state.db (325), not stdout JSON (99999)");
+      assert.equal(result.tokenEventDelta, 325, "tokenEventDelta must come from state.db (325)");
+      assert.equal(result.tokenEventCount, 1, "exactly one run.tokens.updated event");
     } finally {
       fs.rmSync(temp.root, { recursive: true, force: true });
     }

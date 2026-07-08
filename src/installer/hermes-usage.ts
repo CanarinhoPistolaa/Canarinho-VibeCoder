@@ -95,9 +95,12 @@ export function probeHermesStateContract(
  * to `process.env.HERMES_HOME`, then `~/.hermes/state.db`). Opens the DB
  * **read-only** — it never creates or writes the file.
  *
- * Token total = input_tokens + output_tokens + cache_read_tokens +
- * cache_write_tokens (excludes reasoning_tokens). Negatives are clamped
- * to 0, total is rounded to integer.
+ * Token total = input_tokens + output_tokens + cache_write_tokens
+ * (excludes reasoning_tokens AND cache_read_tokens).
+ * cache_read_tokens are excluded because hermes re-reads the entire
+ * context from cache on every API call, inflating totals 10–30× and
+ * making them incomparable to pi's per-round token attribution.
+ * Negatives are clamped to 0, total is rounded to integer.
  *
  * Retries the row lookup up to 3 attempts (~2 s total) to tolerate
  * hermes WAL writer lag. On **any** failure (file missing, table/columns
@@ -149,7 +152,6 @@ export async function lookupHermesSessionTokens(
         const total =
           Math.max(0, row.input_tokens ?? 0) +
           Math.max(0, row.output_tokens ?? 0) +
-          Math.max(0, row.cache_read_tokens ?? 0) +
           Math.max(0, row.cache_write_tokens ?? 0);
         return Math.round(total);
       }
