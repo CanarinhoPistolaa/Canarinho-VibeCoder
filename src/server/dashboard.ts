@@ -43,6 +43,28 @@ import {
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const INDEX_HTML = path.join(__dirname, "index.html");
 const KANBAN_HTML = path.join(__dirname, "kanban.html");
+const DASHBOARD_CSS = path.join(__dirname, "dashboard-ui.css");
+const DASHBOARD_JS = path.join(__dirname, "dashboard-ui.js");
+const KANBAN_CSS = path.join(__dirname, "kanban-ui.css");
+const KANBAN_JS = path.join(__dirname, "kanban-ui.js");
+
+const STATIC_FILES: Record<string, { filePath: string; contentType: string }> = {
+  "/dashboard-ui.css": { filePath: DASHBOARD_CSS, contentType: "text/css; charset=utf-8" },
+  "/dashboard-ui.js": { filePath: DASHBOARD_JS, contentType: "application/javascript; charset=utf-8" },
+  "/kanban-ui.css": { filePath: KANBAN_CSS, contentType: "text/css; charset=utf-8" },
+  "/kanban-ui.js": { filePath: KANBAN_JS, contentType: "application/javascript; charset=utf-8" },
+};
+
+function staticFileResponse(res: http.ServerResponse, filePath: string, contentType: string): void {
+  try {
+    const content = fs.readFileSync(filePath);
+    res.writeHead(200, { "Content-Type": contentType });
+    res.end(content);
+  } catch {
+    res.writeHead(404, { "Content-Type": "text/plain; charset=utf-8" });
+    res.end("Not found");
+  }
+}
 
 // ── Runs List Cache ────────────────────────────────────────────────
 
@@ -964,6 +986,13 @@ function route(req: http.IncomingMessage, res: http.ServerResponse): void {
 <body><h1>Tamandua Dashboard</h1><p>Dashboard HTML not found. Rebuild tamandua or check dist/server/index.html.</p></body>
 </html>`, 200);
     }
+    return;
+  }
+
+  // GET static assets (dashboard + kanban CSS/JS)
+  if (method === "GET" && STATIC_FILES[pathname]) {
+    const file = STATIC_FILES[pathname];
+    staticFileResponse(res, file.filePath, file.contentType);
     return;
   }
 
