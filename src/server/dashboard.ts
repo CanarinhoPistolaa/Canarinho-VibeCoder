@@ -47,12 +47,20 @@ const DASHBOARD_CSS = path.join(__dirname, "dashboard-ui.css");
 const DASHBOARD_JS = path.join(__dirname, "dashboard-ui.js");
 const KANBAN_CSS = path.join(__dirname, "kanban-ui.css");
 const KANBAN_JS = path.join(__dirname, "kanban-ui.js");
+const FAVICON_16 = path.join(__dirname, "favicon-16.png");
+const FAVICON_32 = path.join(__dirname, "favicon-32.png");
+const FAVICON_180 = path.join(__dirname, "favicon-180.png");
+const BRAND_LOGO = path.join(__dirname, "brand-logo.png");
 
 const STATIC_FILES: Record<string, { filePath: string; contentType: string }> = {
   "/dashboard-ui.css": { filePath: DASHBOARD_CSS, contentType: "text/css; charset=utf-8" },
   "/dashboard-ui.js": { filePath: DASHBOARD_JS, contentType: "application/javascript; charset=utf-8" },
   "/kanban-ui.css": { filePath: KANBAN_CSS, contentType: "text/css; charset=utf-8" },
   "/kanban-ui.js": { filePath: KANBAN_JS, contentType: "application/javascript; charset=utf-8" },
+  "/favicon-16.png": { filePath: FAVICON_16, contentType: "image/png" },
+  "/favicon-32.png": { filePath: FAVICON_32, contentType: "image/png" },
+  "/favicon-180.png": { filePath: FAVICON_180, contentType: "image/png" },
+  "/brand-logo.png": { filePath: BRAND_LOGO, contentType: "image/png" },
 };
 
 function staticFileResponse(res: http.ServerResponse, filePath: string, contentType: string): void {
