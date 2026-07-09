@@ -5,8 +5,6 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 cd "$SCRIPT_DIR"
 
-shopt -s globstar nullglob
-
 RUNTIME_DIR="$(mktemp -d "${TMPDIR:-/tmp}/tamandua-coverage.XXXXXX")"
 trap 'rm -rf "$RUNTIME_DIR"' EXIT
 
@@ -31,17 +29,14 @@ COVERAGE_ARGS=(
   --test-coverage-exclude='src/**/*.test.ts'
 )
 
-TEST_FILES=(
-  tests/*.test.ts
-  src/**/*.test.ts
-)
+TEST_FILES=($(find tests src -maxdepth 5 -name '*.test.ts' -type f | sort))
 
 set +e
 node --test --test-timeout=120000 "${COVERAGE_ARGS[@]}" "${TEST_FILES[@]}" > "$COVERAGE_OUTPUT" 2>&1
 set -e
 
 LC_ALL=C awk -F'|' '
-    /all files/ {
+    /^# all files[[:space:]]+\|/ {
       gsub(/[[:space:]%]/, "", $2)
       gsub(/,/, ".", $2)
       printf "%.6f\n", $2 / 100
