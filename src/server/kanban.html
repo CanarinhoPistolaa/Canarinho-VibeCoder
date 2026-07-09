@@ -100,10 +100,10 @@
     main.board {
       flex: 1 1 auto;
       display: grid;
-      grid-template-columns: repeat(var(--lanes, 6), minmax(0, 1fr));
+      grid-template-columns: repeat(var(--lanes, 6), minmax(240px, 1fr));
       gap: 14px;
       padding: 20px 24px 28px;
-      overflow: hidden;
+      overflow: auto;
       min-height: 0;
     }
     .lane {
@@ -526,6 +526,13 @@
     }
     @media (max-width: 480px) {
       main.board { grid-template-columns: 1fr; padding: 14px; }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      *, *::before, *::after {
+        animation-duration: 0.01ms !important;
+        animation-iteration-count: 1 !important;
+        transition-duration: 0.01ms !important;
+      }
     }
   </style>
 </head>
