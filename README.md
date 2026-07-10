@@ -1,6 +1,6 @@
 # Canarinho VibeCoder
 
-<p align="center"><img src="www/assets/tamandua.png" alt="Canarinho VibeCoder logo" width="180"></p>
+<p align="center"><img src="www/assets/canarinho.png" alt="Canarinho VibeCoder logo" width="180"></p>
 
 <p align="center">
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="License: MIT"></a>
