@@ -6,7 +6,7 @@
   <title>Workflow Editor — Canarinho VibeCoder</title>
   <link rel="stylesheet" href="/dashboard-ui.css">
   <style>
-    .editor-layout { display: grid; grid-template-columns: 1fr 320px; gap: 20px; align-items: start; }
+    .editor-layout { display: grid; grid-template-columns: 1fr 384px; gap: 20px; align-items: start; }
     @media (max-width: 900px) { .editor-layout { grid-template-columns: 1fr; } }
     .form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
     .form-grid .span-2 { grid-column: span 2; }
@@ -54,7 +54,8 @@
       background: #0d1117; border: 1px solid var(--border);
       border-radius: 6px; padding: 14px;
       font-family: "SF Mono","Fira Code",monospace; font-size: 12px; line-height: 1.6;
-      color: #c9d1d9; white-space: pre; overflow-x: auto;
+      color: #c9d1d9; white-space: pre-wrap; word-break: break-word;
+      overflow-y: auto;
       max-height: calc(100vh - 200px); overflow-y: auto;
       position: sticky; top: 20px;
     }
