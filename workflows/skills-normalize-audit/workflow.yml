@@ -24,6 +24,7 @@ agents:
         AGENTS.md: agents/scanner/AGENTS.md
         SOUL.md: agents/scanner/SOUL.md
         IDENTITY.md: agents/scanner/IDENTITY.md
+    model: deepseek-v4-pro-official
 
   - id: auditor
     name: Auditor
@@ -38,6 +39,7 @@ agents:
         AGENTS.md: agents/auditor/AGENTS.md
         SOUL.md: agents/auditor/SOUL.md
         IDENTITY.md: agents/auditor/IDENTITY.md
+    model: deepseek-v4-pro-official
 
   - id: reporter
     name: Reporter
@@ -51,6 +53,7 @@ agents:
         AGENTS.md: agents/reporter/AGENTS.md
         SOUL.md: agents/reporter/SOUL.md
         IDENTITY.md: agents/reporter/IDENTITY.md
+    model: deepseek-v4-pro-official
 
 steps:
   - id: scan
@@ -78,7 +81,11 @@ steps:
       SKILLS_JSON: [{"id": "folder-name", "name": "Display Name", "description": "full description from frontmatter", "path": "/full/path/to/skill/directory"}, ...]
 
       The SKILLS_JSON must be a valid JSON array with all skills included.
-    expects: "STATUS: done\nregex:^SKILLS_COUNT:\\s*\\d+\nregex:^SKILLS_JSON:\\s*\\S+"
+    expects: "STATUS: done
+
+      regex:^SKILLS_COUNT:\\s*\\d+
+
+      regex:^SKILLS_JSON:\\s*\\S+"
     max_retries: 4
 
   - id: audit
@@ -121,7 +128,15 @@ steps:
       - Don't force clusters — only group skills that genuinely overlap
       - For clusters, explain WHY they overlap — be specific about shared keywords or scopes
       - Recommendations must be actionable — say exactly which skill to keep
-    expects: "STATUS: done\nregex:^CLUSTERS_FOUND:\\s*\\d+\nregex:^REDUNDANT_COUNT:\\s*\\d+\nregex:^CLUSTERS_JSON:\\s*\\S+\nregex:^CLEAN_SKILLS:\\s*\\S+"
+    expects: "STATUS: done
+
+      regex:^CLUSTERS_FOUND:\\s*\\d+
+
+      regex:^REDUNDANT_COUNT:\\s*\\d+
+
+      regex:^CLUSTERS_JSON:\\s*\\S+
+
+      regex:^CLEAN_SKILLS:\\s*\\S+"
     max_retries: 4
 
   - id: report

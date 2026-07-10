@@ -19,6 +19,7 @@ agents:
       files:
         AGENTS.md: agents/tester/AGENTS.md
         SOUL.md: agents/tester/SOUL.md
+    model: deepseek-v4-pro-official
 
 steps:
   - id: test
