@@ -19,7 +19,7 @@ function writeMinimalWorkflow(
   workflowId: string,
   workspaceMode: "direct" | "worktree" = "direct",
 ): void {
-  const workflowDir = path.join(homeDir, ".tamandua", "workflows", workflowId);
+  const workflowDir = path.join(homeDir, ".canarinho", "workflows", workflowId);
   fs.mkdirSync(workflowDir, { recursive: true });
   fs.writeFileSync(
     path.join(workflowDir, "workflow.yml"),
@@ -54,10 +54,10 @@ describe("HarnessType flow (US-001)", () => {
   let origHome: string | undefined;
 
   before(() => {
-    tempHome = fs.mkdtempSync(path.join(os.tmpdir(), "tamandua-harness-type-"));
+    tempHome = fs.mkdtempSync(path.join(os.tmpdir(), "canarinho-harness-type-"));
     origHome = process.env.HOME;
     process.env.HOME = tempHome;
-    delete process.env.TAMANDUA_DB_PATH;
+    delete process.env.canarinho_DB_PATH;
   });
 
   after(() => {

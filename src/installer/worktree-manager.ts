@@ -84,9 +84,9 @@ function rowToManagedRunWorktree(
 // ── Exported functions ──
 
 export function resolveWorktreeRoot(): string {
-  const env = process.env.TAMANDUA_WORKTREE_ROOT?.trim();
+  const env = process.env.canarinho_WORKTREE_ROOT?.trim();
   if (env) return path.resolve(env);
-  return path.join(os.homedir(), ".tamandua", "worktrees");
+  return path.join(os.homedir(), ".canarinho", "worktrees");
 }
 
 export function buildWorktreePath(params: {

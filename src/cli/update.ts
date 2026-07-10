@@ -92,7 +92,7 @@ function assertSourceCheckout(sourcePath: string): void {
 
   if (!fs.existsSync(packageJson) || !fs.existsSync(buildAndInstall)) {
     throw new Error(
-      `Tamandua source checkout not found at ${sourcePath}. Expected package.json and build-and-install.`,
+      `canarinho source checkout not found at ${sourcePath}. Expected package.json and build-and-install.`,
     );
   }
 }
@@ -156,7 +156,7 @@ async function readGitHead(sourcePath: string, runCommand: RunCommand): Promise<
     stdio: "pipe",
   });
   const head = result.stdout.trim();
-  if (!head) throw new Error("Unable to read git HEAD for Tamandua source checkout.");
+  if (!head) throw new Error("Unable to read git HEAD for canarinho source checkout.");
   return head;
 }
 
@@ -203,7 +203,7 @@ async function stopRunningServices(
   }
 
   if (stoppedPids.length === 0) {
-    output.log("No Tamandua services were running.");
+    output.log("No canarinho services were running.");
     return;
   }
 
@@ -222,7 +222,7 @@ async function restartPreviouslyRunningServices(
       const started = await services.startDashboard(snapshot.dashboard.port);
       output.log(`Dashboard restarted on port ${started.port} (PID ${started.pid}).`);
     } catch (err) {
-      failures.push(`dashboard: ${err instanceof Error ? err.message : String(err)} (recover: tamandua dashboard restart)`);
+      failures.push(`dashboard: ${err instanceof Error ? err.message : String(err)} (recover: canarinho dashboard restart)`);
     }
   }
 
@@ -231,7 +231,7 @@ async function restartPreviouslyRunningServices(
       const started = await services.startMcp(snapshot.mcp.port);
       output.log(`Standalone MCP restarted on port ${started.port} (PID ${started.pid}).`);
     } catch (err) {
-      failures.push(`mcp: ${err instanceof Error ? err.message : String(err)} (recover: tamandua mcp restart)`);
+      failures.push(`mcp: ${err instanceof Error ? err.message : String(err)} (recover: canarinho mcp restart)`);
     }
   }
 
@@ -240,7 +240,7 @@ async function restartPreviouslyRunningServices(
       const started = await services.startControlPlane(snapshot.controlPlane.port);
       output.log(`Standalone control plane restarted on port ${started.port} (PID ${started.pid}).`);
     } catch (err) {
-      failures.push(`control-plane: ${err instanceof Error ? err.message : String(err)} (recover: tamandua control-plane restart)`);
+      failures.push(`control-plane: ${err instanceof Error ? err.message : String(err)} (recover: canarinho control-plane restart)`);
     }
   }
 
@@ -298,7 +298,7 @@ export async function runUpdate(options: RunUpdateOptions = {}): Promise<UpdateR
   assertSourceCheckout(sourcePath);
 
   const beforeHead = await readGitHead(sourcePath, runCommand);
-  output.log(`Tamandua source: ${sourcePath}`);
+  output.log(`canarinho source: ${sourcePath}`);
   output.log("Pulling latest changes...");
   await runCommand("git", ["pull"], { cwd: sourcePath, stdio: "inherit" });
 
@@ -321,9 +321,9 @@ export async function runUpdate(options: RunUpdateOptions = {}): Promise<UpdateR
   const activeRuns = await checkRuns();
   if (activeRuns.length > 0 && !options.force) {
     output.warn(
-      `Active Tamandua runs detected (${activeRuns.length}). Leaving services and workflows unchanged.\n` +
+      `Active canarinho runs detected (${activeRuns.length}). Leaving services and workflows unchanged.\n` +
       `${formatActiveRuns(activeRuns)}\n\n` +
-      "Run `tamandua update --force` to continue despite active runs.",
+      "Run `canarinho update --force` to continue despite active runs.",
     );
     await runVersionCheck();
     return {
@@ -338,7 +338,7 @@ export async function runUpdate(options: RunUpdateOptions = {}): Promise<UpdateR
   if (activeRuns.length > 0 && options.force) {
     const runningRuns = activeRuns.filter(r => r.status === "running");
     output.warn(
-      `Active Tamandua runs detected (${activeRuns.length}); --force set, continuing.\n` +
+      `Active canarinho runs detected (${activeRuns.length}); --force set, continuing.\n` +
       formatActiveRuns(activeRuns),
     );
     if (runningRuns.length > 0) {
@@ -362,7 +362,7 @@ export async function runUpdate(options: RunUpdateOptions = {}): Promise<UpdateR
     await restartPreviouslyRunningServices(serviceSnapshot, services, output);
   }
 
-  output.log("Tamandua update complete.");
+  output.log("canarinho update complete.");
   await runVersionCheck();
   return {
     status: "updated",

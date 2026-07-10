@@ -15,7 +15,7 @@ function appendEvent(filePath: string, event: Record<string, unknown>): void {
 }
 
 function createTempEnv() {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), "tamandua-token-log-format-"));
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "canarinho-token-log-format-"));
   const stateDir = path.join(root, "state");
   const homeDir = path.join(root, "home");
   fs.mkdirSync(stateDir, { recursive: true });
@@ -72,7 +72,7 @@ async function stopWithSigint(child: ChildProcessWithoutNullStreams): Promise<nu
 }
 
 describe("token spend event formatting", () => {
-  it("includes token spend details in tamandua logs output", async () => {
+  it("includes token spend details in canarinho logs output", async () => {
     const env = createTempEnv();
     const runId = "run-token-logs";
     const globalFile = path.join(env.stateDir, "events", "all.jsonl");
@@ -99,7 +99,7 @@ describe("token spend event formatting", () => {
       });
 
       const result = await runCliOnce(["logs", "20"], {
-        TAMANDUA_STATE_DIR: env.stateDir,
+        canarinho_STATE_DIR: env.stateDir,
         HOME: env.homeDir,
       });
 
@@ -126,9 +126,9 @@ describe("token spend event formatting", () => {
     });
 
     const proc = spawnCli(["logs-tail", runId], {
-      TAMANDUA_STATE_DIR: env.stateDir,
+      canarinho_STATE_DIR: env.stateDir,
       HOME: env.homeDir,
-      TAMANDUA_LOGS_TAIL_POLL_MS: "25",
+      canarinho_LOGS_TAIL_POLL_MS: "25",
     });
 
     try {

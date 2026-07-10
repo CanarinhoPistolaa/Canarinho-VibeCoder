@@ -53,24 +53,24 @@ describe("writeCatalogStamp", () => {
 
   beforeEach(() => {
     originalHome = process.env.HOME;
-    originalStateDir = process.env.TAMANDUA_STATE_DIR;
-    tempHome = fs.mkdtempSync(path.join(os.tmpdir(), "tamandua-catstamp-"));
+    originalStateDir = process.env.canarinho_STATE_DIR;
+    tempHome = fs.mkdtempSync(path.join(os.tmpdir(), "canarinho-catstamp-"));
     process.env.HOME = tempHome;
-    delete process.env.TAMANDUA_STATE_DIR;
+    delete process.env.canarinho_STATE_DIR;
   });
 
   afterEach(() => {
     if (originalHome) process.env.HOME = originalHome;
     else delete process.env.HOME;
-    if (originalStateDir) process.env.TAMANDUA_STATE_DIR = originalStateDir;
-    else delete process.env.TAMANDUA_STATE_DIR;
+    if (originalStateDir) process.env.canarinho_STATE_DIR = originalStateDir;
+    else delete process.env.canarinho_STATE_DIR;
     fs.rmSync(tempHome, { recursive: true, force: true });
   });
 
-  it("creates .catalog-version.json in ~/.tamandua/workflows/", () => {
+  it("creates .catalog-version.json in ~/.canarinho/workflows/", () => {
     writeCatalogStamp("/tmp/test-source");
 
-    const stampPath = path.join(tempHome, ".tamandua", "workflows", ".catalog-version.json");
+    const stampPath = path.join(tempHome, ".canarinho", "workflows", ".catalog-version.json");
     assert.ok(fs.existsSync(stampPath), "stamp file should exist");
 
     const raw = fs.readFileSync(stampPath, "utf-8");
@@ -87,7 +87,7 @@ describe("writeCatalogStamp", () => {
     // Write again with different sourcePath
     writeCatalogStamp("/second/path");
 
-    const stampPath = path.join(tempHome, ".tamandua", "workflows", ".catalog-version.json");
+    const stampPath = path.join(tempHome, ".canarinho", "workflows", ".catalog-version.json");
     const parsed = JSON.parse(fs.readFileSync(stampPath, "utf-8"));
     assert.equal(parsed.sourcePath, "/second/path");
   });
@@ -100,17 +100,17 @@ describe("readInstalledCatalogStamp", () => {
 
   beforeEach(() => {
     originalHome = process.env.HOME;
-    originalStateDir = process.env.TAMANDUA_STATE_DIR;
-    tempHome = fs.mkdtempSync(path.join(os.tmpdir(), "tamandua-rstamp-"));
+    originalStateDir = process.env.canarinho_STATE_DIR;
+    tempHome = fs.mkdtempSync(path.join(os.tmpdir(), "canarinho-rstamp-"));
     process.env.HOME = tempHome;
-    delete process.env.TAMANDUA_STATE_DIR;
+    delete process.env.canarinho_STATE_DIR;
   });
 
   afterEach(() => {
     if (originalHome) process.env.HOME = originalHome;
     else delete process.env.HOME;
-    if (originalStateDir) process.env.TAMANDUA_STATE_DIR = originalStateDir;
-    else delete process.env.TAMANDUA_STATE_DIR;
+    if (originalStateDir) process.env.canarinho_STATE_DIR = originalStateDir;
+    else delete process.env.canarinho_STATE_DIR;
     fs.rmSync(tempHome, { recursive: true, force: true });
   });
 
@@ -130,7 +130,7 @@ describe("readInstalledCatalogStamp", () => {
   });
 
   it("returns null when stamp file contains invalid JSON", () => {
-    const workflowsDir = path.join(tempHome, ".tamandua", "workflows");
+    const workflowsDir = path.join(tempHome, ".canarinho", "workflows");
     fs.mkdirSync(workflowsDir, { recursive: true });
     fs.writeFileSync(path.join(workflowsDir, ".catalog-version.json"), "not-json", "utf-8");
 
@@ -139,7 +139,7 @@ describe("readInstalledCatalogStamp", () => {
   });
 
   it("returns null when stamp file is missing the version field", () => {
-    const workflowsDir = path.join(tempHome, ".tamandua", "workflows");
+    const workflowsDir = path.join(tempHome, ".canarinho", "workflows");
     fs.mkdirSync(workflowsDir, { recursive: true });
     fs.writeFileSync(
       path.join(workflowsDir, ".catalog-version.json"),
@@ -152,7 +152,7 @@ describe("readInstalledCatalogStamp", () => {
   });
 
   it("returns null when stamp file has empty version", () => {
-    const workflowsDir = path.join(tempHome, ".tamandua", "workflows");
+    const workflowsDir = path.join(tempHome, ".canarinho", "workflows");
     fs.mkdirSync(workflowsDir, { recursive: true });
     fs.writeFileSync(
       path.join(workflowsDir, ".catalog-version.json"),
@@ -172,17 +172,17 @@ describe("checkCatalogStalenessWarning (US-003)", () => {
 
   beforeEach(() => {
     originalHome = process.env.HOME;
-    originalStateDir = process.env.TAMANDUA_STATE_DIR;
-    tempHome = fs.mkdtempSync(path.join(os.tmpdir(), "tamandua-cswarn-"));
+    originalStateDir = process.env.canarinho_STATE_DIR;
+    tempHome = fs.mkdtempSync(path.join(os.tmpdir(), "canarinho-cswarn-"));
     process.env.HOME = tempHome;
-    delete process.env.TAMANDUA_STATE_DIR;
+    delete process.env.canarinho_STATE_DIR;
   });
 
   afterEach(() => {
     if (originalHome) process.env.HOME = originalHome;
     else delete process.env.HOME;
-    if (originalStateDir) process.env.TAMANDUA_STATE_DIR = originalStateDir;
-    else delete process.env.TAMANDUA_STATE_DIR;
+    if (originalStateDir) process.env.canarinho_STATE_DIR = originalStateDir;
+    else delete process.env.canarinho_STATE_DIR;
     fs.rmSync(tempHome, { recursive: true, force: true });
   });
 
@@ -190,12 +190,12 @@ describe("checkCatalogStalenessWarning (US-003)", () => {
     const warning = checkCatalogStalenessWarning();
     assert.ok(warning.length > 0, "warning should be non-empty when stamp is missing");
     assert.match(warning, /Warning: installed catalog is older than bundled catalog/);
-    assert.match(warning, /tamandua update --force/);
+    assert.match(warning, /canarinho update --force/);
   });
 
   it("returns non-empty warning string when stamp version differs from build version", () => {
     // Write a stamp with a deliberately wrong version
-    const workflowsDir = path.join(tempHome, ".tamandua", "workflows");
+    const workflowsDir = path.join(tempHome, ".canarinho", "workflows");
     fs.mkdirSync(workflowsDir, { recursive: true });
     fs.writeFileSync(
       path.join(workflowsDir, ".catalog-version.json"),
@@ -206,11 +206,11 @@ describe("checkCatalogStalenessWarning (US-003)", () => {
     const warning = checkCatalogStalenessWarning();
     assert.ok(warning.length > 0, "warning should be non-empty when version differs");
     assert.match(warning, /Warning: installed catalog is older than bundled catalog/);
-    assert.match(warning, /tamandua update --force/);
+    assert.match(warning, /canarinho update --force/);
   });
 
   it("returns non-empty warning string when stamp file is invalid JSON", () => {
-    const workflowsDir = path.join(tempHome, ".tamandua", "workflows");
+    const workflowsDir = path.join(tempHome, ".canarinho", "workflows");
     fs.mkdirSync(workflowsDir, { recursive: true });
     fs.writeFileSync(
       path.join(workflowsDir, ".catalog-version.json"),
@@ -243,9 +243,9 @@ describe("checkCatalogStalenessWarning (US-003)", () => {
     assert.ok(warning.length > 0, "warning should be non-empty when stamp is missing");
   });
 
-  it("warning contains exact wording referencing 'tamandua update --force'", () => {
+  it("warning contains exact wording referencing 'canarinho update --force'", () => {
     const warning = checkCatalogStalenessWarning();
-    assert.ok(warning.includes("tamandua update --force"));
+    assert.ok(warning.includes("canarinho update --force"));
   });
 
   it("warning is exactly one line (no trailing newline in the string)", () => {

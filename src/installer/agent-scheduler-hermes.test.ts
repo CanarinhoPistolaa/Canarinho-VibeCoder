@@ -31,15 +31,15 @@ describe("runHermes", () => {
   let savedHermesBinary: string | undefined;
 
   beforeEach(() => {
-    tempHome = fs.mkdtempSync(path.join(os.tmpdir(), "tamandua-test-hermes-"));
-    savedHermesBinary = process.env.TAMANDUA_HERMES_BINARY;
+    tempHome = fs.mkdtempSync(path.join(os.tmpdir(), "canarinho-test-hermes-"));
+    savedHermesBinary = process.env.canarinho_HERMES_BINARY;
   });
 
   afterEach(() => {
     if (savedHermesBinary === undefined) {
-      delete process.env.TAMANDUA_HERMES_BINARY;
+      delete process.env.canarinho_HERMES_BINARY;
     } else {
-      process.env.TAMANDUA_HERMES_BINARY = savedHermesBinary;
+      process.env.canarinho_HERMES_BINARY = savedHermesBinary;
     }
     fs.rmSync(tempHome, { recursive: true, force: true });
   });
@@ -53,7 +53,7 @@ echo "Work completed successfully"
 echo "session_id: 20260518_103004_cdae11"`,
     );
 
-    process.env.TAMANDUA_HERMES_BINARY = hermesPath;
+    process.env.canarinho_HERMES_BINARY = hermesPath;
 
     const output = await runHermes("do something", { timeout: 5 });
 
@@ -72,7 +72,7 @@ echo "useful output here"
 echo "session_id: 20260518_late"`,
     );
 
-    process.env.TAMANDUA_HERMES_BINARY = hermesPath;
+    process.env.canarinho_HERMES_BINARY = hermesPath;
 
     const output = await runHermes("do something", { timeout: 5 });
 
@@ -88,7 +88,7 @@ echo "session_id: 20260518_late"`,
       `echo "session_id: 20260518_103004_cdae11"`,
     );
 
-    process.env.TAMANDUA_HERMES_BINARY = hermesPath;
+    process.env.canarinho_HERMES_BINARY = hermesPath;
 
     const output = await runHermes("do something", { timeout: 5 });
     assert.equal(output, "");
@@ -102,7 +102,7 @@ echo "session_id: 20260518_late"`,
       `echo "$@" > "${logPath}"`,
     );
 
-    process.env.TAMANDUA_HERMES_BINARY = hermesPath;
+    process.env.canarinho_HERMES_BINARY = hermesPath;
 
     await runHermes("build feature X", { timeout: 5 });
 
@@ -129,7 +129,7 @@ echo "TESTS: all passing"
 echo "session_id: 20260518_103004_cdae11"`,
     );
 
-    process.env.TAMANDUA_HERMES_BINARY = hermesPath;
+    process.env.canarinho_HERMES_BINARY = hermesPath;
 
     const output = await runHermes("do the work", { timeout: 5 });
 
@@ -152,7 +152,7 @@ echo "session_id: 20260518_103004_cdae11"`,
 sleep 10`,
     );
 
-    process.env.TAMANDUA_HERMES_BINARY = hermesPath;
+    process.env.canarinho_HERMES_BINARY = hermesPath;
 
     // After US-002 the adapter resolves on timeout (so the scheduler can
     // attribute tokens).  The output may be empty because the harness was
@@ -171,7 +171,7 @@ echo "session_id: 20260518_103004_cdae11" >&2
 exit 1`,
     );
 
-    process.env.TAMANDUA_HERMES_BINARY = hermesPath;
+    process.env.canarinho_HERMES_BINARY = hermesPath;
 
     // After US-002 the adapter always resolves (the scheduler decides what
     // to do with non-zero exits).  The stdout includes partial output,
@@ -181,14 +181,14 @@ exit 1`,
     assert.ok(!output.includes("session_id:"), "session_id should be filtered from stdout");
   });
 
-  it("works with TAMANDUA_HERMES_BINARY env var", async () => {
+  it("works with canarinho_HERMES_BINARY env var", async () => {
     const hermesPath = path.join(tempHome, "hermes-custom");
     makeMockHermes(
       hermesPath,
       `echo "custom hermes output"`,
     );
 
-    process.env.TAMANDUA_HERMES_BINARY = hermesPath;
+    process.env.canarinho_HERMES_BINARY = hermesPath;
 
     const output = await runHermes("task", { timeout: 5 });
     assert.equal(output, "custom hermes output");
@@ -202,7 +202,7 @@ exit 1`,
 echo "debug stderr" 1>&2`,
     );
 
-    process.env.TAMANDUA_HERMES_BINARY = hermesPath;
+    process.env.canarinho_HERMES_BINARY = hermesPath;
 
     const output = await runHermes("task", { timeout: 5 });
     assert.equal(output, "useful stdout");

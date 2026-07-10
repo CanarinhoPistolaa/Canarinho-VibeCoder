@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { loadWorkflowSpec } from "../../dist/installer/workflow-spec.js";
 
 function createTempWorkflow(ymlContent: string): string {
-  const dir = mkdtempSync("/tmp/tamandua-test-workflow-spec-");
+  const dir = mkdtempSync("/tmp/canarinho-test-workflow-spec-");
   mkdirSync(dir, { recursive: true });
   writeFileSync(
     join(dir, "workflow.yml"),
@@ -273,7 +273,7 @@ steps:
 
 describe("loadWorkflowSpec validation errors", () => {
   it("throws when workflow.yml does not exist (ENOENT)", async () => {
-    const dir = mkdtempSync("/tmp/tamandua-test-workflow-spec-");
+    const dir = mkdtempSync("/tmp/canarinho-test-workflow-spec-");
     try {
       await assert.rejects(
         () => loadWorkflowSpec(dir),

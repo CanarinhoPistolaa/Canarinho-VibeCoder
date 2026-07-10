@@ -1,10 +1,10 @@
 /**
- * Tests for tamandua workflow list --json (US-001).
+ * Tests for canarinho workflow list --json (US-001).
  *
  * Validates:
- * 1. tamandua workflow list --json outputs valid JSON array with id/name/description
- * 2. tamandua workflow list (without --json) outputs human-readable format
- * 3. tamandua workflow list --help documents --json flag
+ * 1. canarinho workflow list --json outputs valid JSON array with id/name/description
+ * 2. canarinho workflow list (without --json) outputs human-readable format
+ * 3. canarinho workflow list --help documents --json flag
  * 4. Empty workflow directory produces [] for --json
  *
  * All tests use isolated temp HOME directories.
@@ -71,15 +71,15 @@ function cleanStderr(stderr: string): string {
 }
 
 function createTempHome(): string {
-  return fs.mkdtempSync(path.join(os.tmpdir(), "tamandua-wfl-json-"));
+  return fs.mkdtempSync(path.join(os.tmpdir(), "canarinho-wfl-json-"));
 }
 
 // ═══════════════════════════════════════════════════════════════════
 // Tests
 // ═══════════════════════════════════════════════════════════════════
 
-describe("tamandua workflow list --json", () => {
-  // AC 1: tamandua workflow list --json outputs valid JSON array with id/name/description
+describe("canarinho workflow list --json", () => {
+  // AC 1: canarinho workflow list --json outputs valid JSON array with id/name/description
   it("--json outputs valid JSON array with id, name, description", async (t) => {
     if (!fs.existsSync(CLI_SCRIPT)) {
       t.skip("CLI script not built — run npm run build first");
@@ -107,7 +107,7 @@ describe("tamandua workflow list --json", () => {
     }
   });
 
-  // AC 2: tamandua workflow list (without --json) still outputs human-readable format
+  // AC 2: canarinho workflow list (without --json) still outputs human-readable format
   it("without --json outputs human-readable format unchanged", async (t) => {
     if (!fs.existsSync(CLI_SCRIPT)) {
       t.skip("CLI script not built — run npm run build first");
@@ -134,7 +134,7 @@ describe("tamandua workflow list --json", () => {
     }
   });
 
-  // AC 3: tamandua workflow list --help documents --json flag
+  // AC 3: canarinho workflow list --help documents --json flag
   it("--help documents --json flag", async (t) => {
     if (!fs.existsSync(CLI_SCRIPT)) {
       t.skip("CLI script not built — run npm run build first");

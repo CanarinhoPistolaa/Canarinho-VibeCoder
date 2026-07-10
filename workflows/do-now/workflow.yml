@@ -17,7 +17,7 @@ agents:
     workspace:
       baseDir: agents/doer
       skills:
-        - tamandua-agents
+        - canarinho-agents
       files:
         AGENTS.md: agents/doer/AGENTS.md
         SOUL.md: agents/doer/SOUL.md

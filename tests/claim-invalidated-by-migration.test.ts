@@ -10,7 +10,7 @@ import { describe, it } from "node:test";
 const repoRoot = process.cwd();
 
 function createTempHome() {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), "tamandua-claim-invalidated-"));
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "canarinho-claim-invalidated-"));
   const homeDir = path.join(root, "home");
   fs.mkdirSync(homeDir, { recursive: true });
   return { root, homeDir };
@@ -54,8 +54,8 @@ describe("claim_invalidated_by column migration", () => {
     const temp = createTempHome();
 
     try {
-      const dbDir = path.join(temp.homeDir, ".tamandua");
-      const dbPath = path.join(dbDir, "tamandua.db");
+      const dbDir = path.join(temp.homeDir, ".canarinho");
+      const dbPath = path.join(dbDir, "canarinho.db");
       fs.mkdirSync(dbDir, { recursive: true });
 
       const legacyDb = new DatabaseSync(dbPath);
@@ -126,8 +126,8 @@ describe("claim_invalidated_by column migration", () => {
     const temp = createTempHome();
 
     try {
-      const dbDir = path.join(temp.homeDir, ".tamandua");
-      const dbPath = path.join(dbDir, "tamandua.db");
+      const dbDir = path.join(temp.homeDir, ".canarinho");
+      const dbPath = path.join(dbDir, "canarinho.db");
       fs.mkdirSync(dbDir, { recursive: true });
 
       const legacyDb = new DatabaseSync(dbPath);
@@ -206,8 +206,8 @@ describe("claim_invalidated_by column migration", () => {
     const temp = createTempHome();
 
     try {
-      const dbDir = path.join(temp.homeDir, ".tamandua");
-      const dbPath = path.join(dbDir, "tamandua.db");
+      const dbDir = path.join(temp.homeDir, ".canarinho");
+      const dbPath = path.join(dbDir, "canarinho.db");
       fs.mkdirSync(dbDir, { recursive: true });
 
       const legacyDb = new DatabaseSync(dbPath);
@@ -274,8 +274,8 @@ describe("claim_invalidated_by column migration", () => {
     const temp = createTempHome();
 
     try {
-      const dbDir = path.join(temp.homeDir, ".tamandua");
-      const dbPath = path.join(dbDir, "tamandua.db");
+      const dbDir = path.join(temp.homeDir, ".canarinho");
+      const dbPath = path.join(dbDir, "canarinho.db");
       fs.mkdirSync(dbDir, { recursive: true });
 
       const legacyDb = new DatabaseSync(dbPath);

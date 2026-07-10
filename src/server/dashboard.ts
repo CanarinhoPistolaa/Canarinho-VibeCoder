@@ -1,5 +1,5 @@
 /**
- * Tamandua Dashboard HTTP Server
+ * canarinho Dashboard HTTP Server
  *
  * Creates an HTTP server that serves the dashboard UI and API endpoints.
  *
@@ -96,11 +96,11 @@ function staticFileResponse(res: http.ServerResponse, filePath: string, contentT
 
 // ── Runs List Cache ────────────────────────────────────────────────
 
-let runsCache: { json: string; timestamp: number } | null = null;
+let runsCacheByPage: Map<string, { json: string; timestamp: number }> = new Map();
 const RUNS_CACHE_TTL_MS = 2000;
 
 export function invalidateRunsCache(): void {
-  runsCache = null;
+  runsCacheByPage = new Map();
 }
 
 // ── Helpers ─────────────────────────────────────────────────────────
@@ -652,6 +652,18 @@ function handleListRuns(req: http.IncomingMessage, res: http.ServerResponse): vo
     const perPage = 25;
     const offset = (page - 1) * perPage;
 
+    const cacheKey = `${page}|${statusFilter ?? ""}`;
+    const now = Date.now();
+    const cached = runsCacheByPage?.get(cacheKey);
+    if (cached && (now - cached.timestamp) < RUNS_CACHE_TTL_MS) {
+      res.writeHead(200, {
+        "Content-Type": "application/json",
+        "Access-Control-Allow-Origin": "*",
+      });
+      res.end(cached.json);
+      return;
+    }
+
     const db = getDb();
 
     let whereClause = "";
@@ -705,7 +717,14 @@ function handleListRuns(req: http.IncomingMessage, res: http.ServerResponse): vo
       return { ...row, no_hurry, cost };
     });
 
-    jsonResponse(res, { runs, total, page, totalPages, perPage });
+    const payload = { runs, total, page, totalPages, perPage };
+    const json = JSON.stringify(payload);
+    runsCacheByPage.set(cacheKey, { json, timestamp: now });
+    res.writeHead(200, {
+      "Content-Type": "application/json",
+      "Access-Control-Allow-Origin": "*",
+    });
+    res.end(json);
   } catch (err) {
     errorResponse(res, `Failed to list runs: ${(err as Error).message}`);
   }
@@ -1452,8 +1471,8 @@ function route(req: http.IncomingMessage, res: http.ServerResponse): void {
     } catch {
       htmlResponse(res, `<!DOCTYPE html>
 <html lang="en">
-<head><meta charset="UTF-8"><title>Tamandua Dashboard</title></head>
-<body><h1>Tamandua Dashboard</h1><p>Dashboard HTML not found. Rebuild tamandua or check dist/server/index.html.</p></body>
+<head><meta charset="UTF-8"><title>canarinho Dashboard</title></head>
+<body><h1>canarinho Dashboard</h1><p>Dashboard HTML not found. Rebuild canarinho or check dist/server/index.html.</p></body>
 </html>`, 200);
     }
     return;
@@ -1475,8 +1494,8 @@ function route(req: http.IncomingMessage, res: http.ServerResponse): void {
     } catch {
       htmlResponse(res, `<!DOCTYPE html>
 <html lang="en">
-<head><meta charset="UTF-8"><title>Tamandua Kanban</title></head>
-<body><h1>Tamandua Kanban</h1><p>Kanban HTML not found. Rebuild tamandua or check dist/server/kanban.html.</p></body>
+<head><meta charset="UTF-8"><title>canarinho Kanban</title></head>
+<body><h1>canarinho Kanban</h1><p>Kanban HTML not found. Rebuild canarinho or check dist/server/kanban.html.</p></body>
 </html>`, 200);
     }
     return;
@@ -1720,7 +1739,8 @@ export function createDashboardServer(port: number, options: DashboardServerOpti
 
   assertPortIsolation(port, "dashboard");
   server.listen(port, () => {
-    console.log(`Tamandua dashboard listening on http://localhost:${port}`);
+    console.log(`canarinho dashboard listening on http://localhost:${port}`);
+    invalidateRunsCache();
     // Backfill AutoResearch sessions from recent workflow runs
     backfillAutoresearchSessions();
   });

@@ -23,9 +23,9 @@ let originalDbPath: string | undefined;
 let originalAllowSharedHarnessWorkdir: string | undefined;
 
 beforeEach(() => {
-  originalStateDir = process.env.TAMANDUA_STATE_DIR;
-  originalDbPath = process.env.TAMANDUA_DB_PATH;
-  originalAllowSharedHarnessWorkdir = process.env.TAMANDUA_ALLOW_SHARED_HARNESS_WORKDIR;
+  originalStateDir = process.env.canarinho_STATE_DIR;
+  originalDbPath = process.env.canarinho_DB_PATH;
+  originalAllowSharedHarnessWorkdir = process.env.canarinho_ALLOW_SHARED_HARNESS_WORKDIR;
 });
 
 afterEach(async () => {
@@ -34,16 +34,16 @@ afterEach(async () => {
     fs.rmSync(dir, { recursive: true, force: true });
   }
   cleanupDirs = [];
-  if (originalStateDir === undefined) delete process.env.TAMANDUA_STATE_DIR;
-  else process.env.TAMANDUA_STATE_DIR = originalStateDir;
-  if (originalDbPath === undefined) delete process.env.TAMANDUA_DB_PATH;
-  else process.env.TAMANDUA_DB_PATH = originalDbPath;
-  if (originalAllowSharedHarnessWorkdir === undefined) delete process.env.TAMANDUA_ALLOW_SHARED_HARNESS_WORKDIR;
-  else process.env.TAMANDUA_ALLOW_SHARED_HARNESS_WORKDIR = originalAllowSharedHarnessWorkdir;
+  if (originalStateDir === undefined) delete process.env.canarinho_STATE_DIR;
+  else process.env.canarinho_STATE_DIR = originalStateDir;
+  if (originalDbPath === undefined) delete process.env.canarinho_DB_PATH;
+  else process.env.canarinho_DB_PATH = originalDbPath;
+  if (originalAllowSharedHarnessWorkdir === undefined) delete process.env.canarinho_ALLOW_SHARED_HARNESS_WORKDIR;
+  else process.env.canarinho_ALLOW_SHARED_HARNESS_WORKDIR = originalAllowSharedHarnessWorkdir;
 });
 
 function makeTempRoot(): string {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), "tamandua-harness-workdir-"));
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "canarinho-harness-workdir-"));
   cleanupDirs.push(root);
   return root;
 }
@@ -73,7 +73,7 @@ async function jsonRequest(
   const payload = body ? JSON.stringify(body) : "";
   const headers: Record<string, string> = {
     "content-type": "application/json",
-    "x-tamandua-secret": SECRET,
+    "x-canarinho-secret": SECRET,
   };
   if (payload) headers["content-length"] = String(Buffer.byteLength(payload));
 
@@ -145,10 +145,10 @@ function seedRun(
 function setupState(): { root: string; stateDir: string; dbPath: string } {
   const root = makeTempRoot();
   const stateDir = path.join(root, "state");
-  const dbPath = path.join(stateDir, "tamandua.db");
+  const dbPath = path.join(stateDir, "canarinho.db");
   fs.mkdirSync(stateDir, { recursive: true });
-  process.env.TAMANDUA_STATE_DIR = stateDir;
-  process.env.TAMANDUA_DB_PATH = dbPath;
+  process.env.canarinho_STATE_DIR = stateDir;
+  process.env.canarinho_DB_PATH = dbPath;
   writeWorkflow(stateDir);
   getDb();
   return { root, stateDir, dbPath };

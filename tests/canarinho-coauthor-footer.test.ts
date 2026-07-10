@@ -4,7 +4,7 @@ import { readFileSync, existsSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import { resolveBundledWorkflowsDir } from "../dist/installer/paths.js";
 
-const TAMANDUA_FOOTER = "Co-Authored-By: Tamandua <tamandua@tetradactyla.org>";
+const canarinho_FOOTER = "Co-Authored-By: canarinho <canarinho@tetradactyla.org>";
 const CLAUDE_FOOTER_PREFIX = "Co-Authored-By: Claude";
 
 const workflowsDir = resolveBundledWorkflowsDir();
@@ -35,7 +35,7 @@ function findPersonaFilesWithGitCommit(): { workflowId: string; path: string }[]
   return results;
 }
 
-describe("Tamandua co-author footer", () => {
+describe("canarinho co-author footer", () => {
   const personaFiles = findPersonaFilesWithGitCommit();
 
   it("finds at least the known merger persona files mentioning git commit", () => {
@@ -50,7 +50,7 @@ describe("Tamandua co-author footer", () => {
     );
   });
 
-  it("every bundled persona file mentioning git commit contains the Tamandua co-author footer", () => {
+  it("every bundled persona file mentioning git commit contains the canarinho co-author footer", () => {
     assert.ok(
       personaFiles.length > 0,
       "expected at least one persona file mentioning git commit",
@@ -58,8 +58,8 @@ describe("Tamandua co-author footer", () => {
     for (const { workflowId, path } of personaFiles) {
       const content = readFileSync(path, "utf-8");
       assert.ok(
-        content.includes(TAMANDUA_FOOTER),
-        `${workflowId}: ${path} must contain exact footer string:\n  ${TAMANDUA_FOOTER}`,
+        content.includes(canarinho_FOOTER),
+        `${workflowId}: ${path} must contain exact footer string:\n  ${canarinho_FOOTER}`,
       );
     }
   });
@@ -74,12 +74,12 @@ describe("Tamandua co-author footer", () => {
     }
   });
 
-  it("the exact Tamandua footer string is distinguishable from the Claude footer — Claude prefix is not a substring of Tamandua footer", () => {
-    // Self-consistency guard: the Tamandua footer should not contain
+  it("the exact canarinho footer string is distinguishable from the Claude footer — Claude prefix is not a substring of canarinho footer", () => {
+    // Self-consistency guard: the canarinho footer should not contain
     // the Claude prefix, ensuring our match is specific.
     assert.ok(
-      !TAMANDUA_FOOTER.includes(CLAUDE_FOOTER_PREFIX),
-      "Tamandua footer must not contain Claude prefix — ensures exact match is distinguishable",
+      !canarinho_FOOTER.includes(CLAUDE_FOOTER_PREFIX),
+      "canarinho footer must not contain Claude prefix — ensures exact match is distinguishable",
     );
   });
 });

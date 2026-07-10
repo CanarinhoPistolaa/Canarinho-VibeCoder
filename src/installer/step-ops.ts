@@ -3,7 +3,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { execSync, execFileSync } from "node:child_process";
 import { getDb } from "../db.js";
-import { resolvePiStateDir, resolveWorkflowDir, resolveTamanduaCli, resolveRunRoot } from "./paths.js";
+import { resolvePiStateDir, resolveWorkflowDir, resolvecanarinhoCli, resolveRunRoot } from "./paths.js";
 import { teardownWorkflowCronsIfIdle } from "./agent-scheduler.js";
 import { emitEvent } from "./events.js";
 import { logger } from "../lib/logger.js";
@@ -424,8 +424,8 @@ function emitRunTerminalEvent(params: {
 // ══════════════════════════════════════════════════════════════════════
 
 /**
- * Get the workspace path for a Tamandua agent by its id.
- * Reads from ~/.tamandua/agents.json (a JSON array of agent configs with workspace paths).
+ * Get the workspace path for a canarinho agent by its id.
+ * Reads from ~/.canarinho/agents.json (a JSON array of agent configs with workspace paths).
  */
 export function getAgentWorkspacePath(agentId: string): string | null {
   try {
@@ -446,7 +446,7 @@ export function getAgentWorkspacePath(agentId: string): string | null {
 
 /**
  * Return the canonical progress file path for a run.
- * Location: <tamandua state>/runs/<runId>/progress.txt
+ * Location: <canarinho state>/runs/<runId>/progress.txt
  */
 export function getRunProgressPath(runId: string): string {
   return path.join(resolveRunRoot(), runId, "progress.txt");
@@ -456,7 +456,7 @@ export function getRunProgressPath(runId: string): string {
  * Read progress.txt for a run.
  *
  * Lookup order (backward-compatible):
- * 1. Canonical path: <tamandua state>/runs/<runId>/progress.txt
+ * 1. Canonical path: <canarinho state>/runs/<runId>/progress.txt
  * 2. Workspace-scoped: <agent workspace>/progress-<runId>.txt
  * 3. Workspace-legacy:  <agent workspace>/progress.txt
  */
@@ -542,7 +542,7 @@ export function mergeStoryPlanIntoProgress(existingContent: string, storyPlanSec
 
 /**
  * Write the full story plan to the progress log after STORIES_JSON is parsed.
- * Writes to the canonical progress file at <tamandua state>/runs/<runId>/progress.txt,
+ * Writes to the canonical progress file at <canarinho state>/runs/<runId>/progress.txt,
  * preserving any existing Codebase Patterns or other sections.
  * Emits a 'stories.planned' event on success.
  */

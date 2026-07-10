@@ -10,11 +10,11 @@ import { describe, it } from "node:test";
 const cliPath = path.resolve(process.cwd(), "dist", "cli", "cli.js");
 
 function createTempEnv() {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), "tamandua-token-status-"));
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "canarinho-token-status-"));
   const homeDir = path.join(root, "home");
-  const tamanduaDir = path.join(homeDir, ".tamandua");
-  fs.mkdirSync(tamanduaDir, { recursive: true });
-  return { root, homeDir, tamanduaDir };
+  const canarinhoDir = path.join(homeDir, ".canarinho");
+  fs.mkdirSync(canarinhoDir, { recursive: true });
+  return { root, homeDir, canarinhoDir };
 }
 
 function spawnCli(args: string[], env: Record<string, string>): {
@@ -115,7 +115,7 @@ function seedDb(dbPath: string, runs: Array<{
 describe("CLI token display", () => {
   it("workflow status shows Tokens line with formatted number", async () => {
     const env = createTempEnv();
-    const dbPath = path.join(env.tamanduaDir, "tamandua.db");
+    const dbPath = path.join(env.canarinhoDir, "canarinho.db");
     const runId = "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee";
 
     seedDb(dbPath, [
@@ -153,7 +153,7 @@ describe("CLI token display", () => {
 
   it("workflow status shows Tokens: 0 for zero tokens", async () => {
     const env = createTempEnv();
-    const dbPath = path.join(env.tamanduaDir, "tamandua.db");
+    const dbPath = path.join(env.canarinhoDir, "canarinho.db");
     const runId = "bbbbbbbb-bbbb-4ccc-8ddd-eeeeeeeeeeee";
 
     seedDb(dbPath, [
@@ -189,7 +189,7 @@ describe("CLI token display", () => {
 
   it("workflow runs shows token count per run", async () => {
     const env = createTempEnv();
-    const dbPath = path.join(env.tamanduaDir, "tamandua.db");
+    const dbPath = path.join(env.canarinhoDir, "canarinho.db");
 
     seedDb(dbPath, [
       {
@@ -240,7 +240,7 @@ describe("CLI token display", () => {
 
   it("workflow status queries tokens_spent from DB (not hardcoded)", async () => {
     const env = createTempEnv();
-    const dbPath = path.join(env.tamanduaDir, "tamandua.db");
+    const dbPath = path.join(env.canarinhoDir, "canarinho.db");
     const runId = "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee";
 
     // Seed with a specific non-zero value
@@ -276,7 +276,7 @@ describe("CLI token display", () => {
 
   it("workflow status with task substring match shows Tokens line", async () => {
     const env = createTempEnv();
-    const dbPath = path.join(env.tamanduaDir, "tamandua.db");
+    const dbPath = path.join(env.canarinhoDir, "canarinho.db");
     const runId = "ffffffff-ffff-4fff-8fff-ffffffffffff";
 
     seedDb(dbPath, [

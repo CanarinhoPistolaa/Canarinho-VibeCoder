@@ -32,8 +32,8 @@ function runGit(args: string[], cwd: string): { stdout: string; status: number }
 
 function initGitRepo(dir: string): void {
   runGit(["init"], dir);
-  runGit(["config", "user.email", "test@tamandua.local"], dir);
-  runGit(["config", "user.name", "Tamandua Test"], dir);
+  runGit(["config", "user.email", "test@canarinho.local"], dir);
+  runGit(["config", "user.name", "canarinho Test"], dir);
   // Create an initial commit so we have a ref to work with
   writeFileSync(path.join(dir, "README.md"), "# Test Repo\n", "utf-8");
   runGit(["add", "README.md"], dir);
@@ -57,12 +57,12 @@ describe("worktree-manager", () => {
   let origWorktreeRoot: string | undefined;
 
   before(() => {
-    tempHome = mkdtempSync(path.join(os.tmpdir(), "tamandua-worktree-mgr-"));
+    tempHome = mkdtempSync(path.join(os.tmpdir(), "canarinho-worktree-mgr-"));
     origHome = process.env.HOME;
-    origDbPath = process.env.TAMANDUA_DB_PATH;
-    origWorktreeRoot = process.env.TAMANDUA_WORKTREE_ROOT;
+    origDbPath = process.env.canarinho_DB_PATH;
+    origWorktreeRoot = process.env.canarinho_WORKTREE_ROOT;
     process.env.HOME = tempHome;
-    delete process.env.TAMANDUA_DB_PATH;
+    delete process.env.canarinho_DB_PATH;
   });
 
   after(() => {
@@ -72,14 +72,14 @@ describe("worktree-manager", () => {
       delete process.env.HOME;
     }
     if (origDbPath) {
-      process.env.TAMANDUA_DB_PATH = origDbPath;
+      process.env.canarinho_DB_PATH = origDbPath;
     } else {
-      delete process.env.TAMANDUA_DB_PATH;
+      delete process.env.canarinho_DB_PATH;
     }
     if (origWorktreeRoot) {
-      process.env.TAMANDUA_WORKTREE_ROOT = origWorktreeRoot;
+      process.env.canarinho_WORKTREE_ROOT = origWorktreeRoot;
     } else {
-      delete process.env.TAMANDUA_WORKTREE_ROOT;
+      delete process.env.canarinho_WORKTREE_ROOT;
     }
     rmSync(tempHome, { recursive: true, force: true });
   });
@@ -87,17 +87,17 @@ describe("worktree-manager", () => {
   // ── resolveWorktreeRoot ──
 
   describe("resolveWorktreeRoot", () => {
-    it("defaults to ~/.tamandua/worktrees when no env var set", () => {
-      delete process.env.TAMANDUA_WORKTREE_ROOT;
+    it("defaults to ~/.canarinho/worktrees when no env var set", () => {
+      delete process.env.canarinho_WORKTREE_ROOT;
       const root = resolveWorktreeRoot();
-      assert.ok(root.endsWith(".tamandua/worktrees"), "should end with .tamandua/worktrees");
+      assert.ok(root.endsWith(".canarinho/worktrees"), "should end with .canarinho/worktrees");
     });
 
-    it("honors TAMANDUA_WORKTREE_ROOT env var", () => {
-      process.env.TAMANDUA_WORKTREE_ROOT = "/custom/worktree/path";
+    it("honors canarinho_WORKTREE_ROOT env var", () => {
+      process.env.canarinho_WORKTREE_ROOT = "/custom/worktree/path";
       const root = resolveWorktreeRoot();
       assert.equal(root, "/custom/worktree/path");
-      delete process.env.TAMANDUA_WORKTREE_ROOT;
+      delete process.env.canarinho_WORKTREE_ROOT;
     });
   });
 
@@ -148,7 +148,7 @@ describe("worktree-manager", () => {
     let originRepo: string;
 
     before(() => {
-      originRepo = mkdtempSync(path.join(os.tmpdir(), "tamandua-origin-"));
+      originRepo = mkdtempSync(path.join(os.tmpdir(), "canarinho-origin-"));
       initGitRepo(originRepo);
     });
 
@@ -187,7 +187,7 @@ describe("worktree-manager", () => {
     });
 
     it("rejects non-git origin repos with clear error", () => {
-      const nonGitDir = mkdtempSync(path.join(os.tmpdir(), "tamandua-non-git-"));
+      const nonGitDir = mkdtempSync(path.join(os.tmpdir(), "canarinho-non-git-"));
       try {
         assert.throws(
           () =>
@@ -206,7 +206,7 @@ describe("worktree-manager", () => {
 
     it("rejects detached origin with no ref and no original branch", () => {
       // Create a repo, then detach HEAD
-      const detachedRepo = mkdtempSync(path.join(os.tmpdir(), "tamandua-detached-"));
+      const detachedRepo = mkdtempSync(path.join(os.tmpdir(), "canarinho-detached-"));
       try {
         initGitRepo(detachedRepo);
         // Detach HEAD by checking out a SHA
@@ -229,7 +229,7 @@ describe("worktree-manager", () => {
     });
 
     it("works with detached origin when explicit origin ref is provided", () => {
-      const detachedRepo = mkdtempSync(path.join(os.tmpdir(), "tamandua-detached2-"));
+      const detachedRepo = mkdtempSync(path.join(os.tmpdir(), "canarinho-detached2-"));
       try {
         initGitRepo(detachedRepo);
         const sha = getHeadSha(detachedRepo);
@@ -254,7 +254,7 @@ describe("worktree-manager", () => {
     });
 
     it("rejects dirty origin repositories", () => {
-      const dirtyRepo = mkdtempSync(path.join(os.tmpdir(), "tamandua-dirty-origin-"));
+      const dirtyRepo = mkdtempSync(path.join(os.tmpdir(), "canarinho-dirty-origin-"));
       try {
         initGitRepo(dirtyRepo);
         writeFileSync(path.join(dirtyRepo, "dirty.txt"), "unstaged change", "utf-8");
@@ -313,7 +313,7 @@ describe("worktree-manager", () => {
     let originRepo: string;
 
     before(() => {
-      originRepo = mkdtempSync(path.join(os.tmpdir(), "tamandua-get-"));
+      originRepo = mkdtempSync(path.join(os.tmpdir(), "canarinho-get-"));
       initGitRepo(originRepo);
     });
 
@@ -352,7 +352,7 @@ describe("worktree-manager", () => {
     let originRepo: string;
 
     before(() => {
-      originRepo = mkdtempSync(path.join(os.tmpdir(), "tamandua-validate-"));
+      originRepo = mkdtempSync(path.join(os.tmpdir(), "canarinho-validate-"));
       initGitRepo(originRepo);
     });
 
@@ -456,7 +456,7 @@ describe("worktree-manager", () => {
     let originRepo: string;
 
     before(() => {
-      originRepo = mkdtempSync(path.join(os.tmpdir(), "tamandua-remove-"));
+      originRepo = mkdtempSync(path.join(os.tmpdir(), "canarinho-remove-"));
       initGitRepo(originRepo);
     });
 
@@ -532,7 +532,7 @@ describe("worktree-manager", () => {
     let originRepo: string;
 
     before(() => {
-      originRepo = mkdtempSync(path.join(os.tmpdir(), "tamandua-list-"));
+      originRepo = mkdtempSync(path.join(os.tmpdir(), "canarinho-list-"));
       initGitRepo(originRepo);
     });
 

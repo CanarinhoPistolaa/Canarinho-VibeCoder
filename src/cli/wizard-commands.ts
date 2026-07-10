@@ -155,13 +155,13 @@ export function shellQuote(arg: string): string {
 /**
  * Render an argv array into a pasteable shell command string.
  *
- * @param argv       The command and its arguments (e.g. ["tamandua", "autoresearch", "loop", "--prompt"])
- * @param binaryName Optional binary name to prepend (defaults to "tamandua").
+ * @param argv       The command and its arguments (e.g. ["canarinho", "autoresearch", "loop", "--prompt"])
+ * @param binaryName Optional binary name to prepend (defaults to "canarinho").
  * @returns A shell-safe single-line string suitable for copy-paste.
  */
 export function renderShellCommand(
   argv: string[],
-  binaryName: string = "tamandua",
+  binaryName: string = "canarinho",
 ): string {
   return [binaryName, ...argv.map(shellQuote)].join(" ");
 }
@@ -186,12 +186,12 @@ export interface RenderedWizardCommands {
  * with a descriptive error message so the orchestrator can surface it.
  *
  * @param result     The ready evaluator output from pi.
- * @param binaryName Optional binary name (defaults to "tamandua").
+ * @param binaryName Optional binary name (defaults to "canarinho").
  * @returns Rendered command display and structured argvs.
  */
 export function renderWizardCommands(
   result: WizardEvaluatorReady,
-  binaryName: string = "tamandua",
+  binaryName: string = "canarinho",
 ): RenderedWizardCommands {
   // Validate loop argv.
   const loopError = validateLoopArgv(result.loopArgv);

@@ -10,20 +10,33 @@ import { spawn } from "node:child_process";
 import { DatabaseSync } from "node:sqlite";
 import { describe, it } from "node:test";
 
+function safeRmSync(target: string): void {
+  try {
+    fs.rmSync(target, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
+  } catch {
+    try {
+      fs.rmSync(target, { recursive: true, force: true, maxRetries: 20, retryDelay: 200 });
+    } catch {
+      // best-effort; temp dir will be reaped by OS
+    }
+  }
+}
+
+
 const cliPath = path.resolve(process.cwd(), "dist", "cli", "cli.js");
 
 async function createTempEnv() {
   const [controlPort, dashboardPort] = await reserveDistinctRandomPorts(2);
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), "tamandua-cli-run-cwd-"));
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "canarinho-cli-run-cwd-"));
   const homeDir = path.join(root, "home");
-  const tamanduaDir = path.join(homeDir, ".tamandua");
-  fs.mkdirSync(tamanduaDir, { recursive: true });
-  fs.writeFileSync(path.join(tamanduaDir, "port"), String(dashboardPort), "utf-8");
-  return { root, homeDir, tamanduaDir, controlPort, dashboardPort };
+  const canarinhoDir = path.join(homeDir, ".canarinho");
+  fs.mkdirSync(canarinhoDir, { recursive: true });
+  fs.writeFileSync(path.join(canarinhoDir, "port"), String(dashboardPort), "utf-8");
+  return { root, homeDir, canarinhoDir, controlPort, dashboardPort };
 }
 
 function writeMinimalWorkflow(homeDir: string, workflowId: string): void {
-  const workflowDir = path.join(homeDir, ".tamandua", "workflows", workflowId);
+  const workflowDir = path.join(homeDir, ".canarinho", "workflows", workflowId);
   fs.mkdirSync(workflowDir, { recursive: true });
   fs.writeFileSync(
     path.join(workflowDir, "workflow.yml"),
@@ -144,7 +157,7 @@ describe("CLI workflow run working-directory-for-harness", () => {
           "--working-directory-for-harness",
           harnessDir,
         ],
-        { HOME: env.homeDir, TAMANDUA_CONTROL_PORT: String(env.controlPort) },
+        { HOME: env.homeDir, canarinho_CONTROL_PORT: String(env.controlPort) },
         /Harness CWD:/,
       );
 
@@ -159,7 +172,7 @@ describe("CLI workflow run working-directory-for-harness", () => {
       assert.match(stdout, /Run: [0-9a-f]{8}/i);
       assert.match(stdout, new RegExp(`Harness CWD: ${path.resolve(harnessDir).replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}`));
 
-      const dbPath = path.join(env.tamanduaDir, "tamandua.db");
+      const dbPath = path.join(env.canarinhoDir, "canarinho.db");
       const db = new DatabaseSync(dbPath);
       const row = db
         .prepare(
@@ -181,9 +194,9 @@ describe("CLI workflow run working-directory-for-harness", () => {
     } finally {
       await runCliToExit(["dashboard", "stop"], {
         HOME: env.homeDir,
-        TAMANDUA_CONTROL_PORT: String(env.controlPort),
+        canarinho_CONTROL_PORT: String(env.controlPort),
       }).catch(() => ({ stdout: "", stderr: "", code: null }));
-      try { fs.rmSync(env.root, { recursive: true, force: true }); } catch { /* cleanup */ }
+      try { safeRmSync(env.root); } catch { /* cleanup */ }
     }
   });
 
@@ -204,7 +217,7 @@ describe("CLI workflow run working-directory-for-harness", () => {
           "--working-directory-for-harness",
           missingDir,
         ],
-        { HOME: env.homeDir, TAMANDUA_CONTROL_PORT: String(env.controlPort) },
+        { HOME: env.homeDir, canarinho_CONTROL_PORT: String(env.controlPort) },
       );
 
       assert.equal(result.code, 1, `expected exit code 1, got ${result.code}\nstdout:\n${result.stdout}\nstderr:\n${result.stderr}`);
@@ -213,9 +226,9 @@ describe("CLI workflow run working-directory-for-harness", () => {
     } finally {
       await runCliToExit(["dashboard", "stop"], {
         HOME: env.homeDir,
-        TAMANDUA_CONTROL_PORT: String(env.controlPort),
+        canarinho_CONTROL_PORT: String(env.controlPort),
       }).catch(() => ({ stdout: "", stderr: "", code: null }));
-      try { fs.rmSync(env.root, { recursive: true, force: true }); } catch { /* cleanup */ }
+      try { safeRmSync(env.root); } catch { /* cleanup */ }
     }
   });
 
@@ -255,8 +268,8 @@ describe("CLI workflow run working-directory-for-harness", () => {
         ["workflow", "run", workflowId, "Test LNCH probe timeout"],
         {
           HOME: env.homeDir,
-          TAMANDUA_CONTROL_PORT: String(blockerPort),
-          TAMANDUA_CONTROL_PROBE_TIMEOUT_OVERRIDE: probeTimeoutMs,
+          canarinho_CONTROL_PORT: String(blockerPort),
+          canarinho_CONTROL_PROBE_TIMEOUT_OVERRIDE: probeTimeoutMs,
         },
       );
 
@@ -283,12 +296,12 @@ describe("CLI workflow run working-directory-for-harness", () => {
       );
       assert.match(
         result.stdout,
-        /tamandua workflow status/,
+        /canarinho workflow status/,
         "output should include status command hint",
       );
 
       // Verify the run row exists in the DB
-      const dbPath = path.join(env.tamanduaDir, "tamandua.db");
+      const dbPath = path.join(env.canarinhoDir, "canarinho.db");
       const db = new DatabaseSync(dbPath);
       const row = db
         .prepare(
@@ -302,10 +315,10 @@ describe("CLI workflow run working-directory-for-harness", () => {
       dummyServer.close();
       await runCliToExit(["dashboard", "stop"], {
         HOME: env.homeDir,
-        TAMANDUA_CONTROL_PORT: String(blockerPort),
+        canarinho_CONTROL_PORT: String(blockerPort),
       }).catch(() => ({ stdout: "", stderr: "", code: null }));
       try {
-        fs.rmSync(env.root, { recursive: true, force: true });
+        safeRmSync(env.root);
       } catch {
         /* cleanup */
       }
@@ -318,7 +331,7 @@ describe("CLI workflow run working-directory-for-harness", () => {
     try {
       const result = await runCliToExit(
         ["workflow", "run", "nonexistent-workflow-id", "Should fail"],
-        { HOME: env.homeDir, TAMANDUA_CONTROL_PORT: String(env.controlPort) },
+        { HOME: env.homeDir, canarinho_CONTROL_PORT: String(env.controlPort) },
       );
 
       assert.equal(
@@ -334,10 +347,10 @@ describe("CLI workflow run working-directory-for-harness", () => {
     } finally {
       await runCliToExit(["dashboard", "stop"], {
         HOME: env.homeDir,
-        TAMANDUA_CONTROL_PORT: String(env.controlPort),
+        canarinho_CONTROL_PORT: String(env.controlPort),
       }).catch(() => ({ stdout: "", stderr: "", code: null }));
       try {
-        fs.rmSync(env.root, { recursive: true, force: true });
+        safeRmSync(env.root);
       } catch {
         /* cleanup */
       }

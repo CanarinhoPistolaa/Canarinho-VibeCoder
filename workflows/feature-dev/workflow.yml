@@ -23,7 +23,7 @@ agents:
     workspace:
       baseDir: agents/planner
       skills:
-        - tamandua-agents
+        - canarinho-agents
       files:
         AGENTS.md: agents/planner/AGENTS.md
         SOUL.md: agents/planner/SOUL.md
@@ -37,7 +37,7 @@ agents:
     workspace:
       baseDir: agents/setup
       skills:
-        - tamandua-agents
+        - canarinho-agents
       files:
         AGENTS.md: ../../agents/shared/setup/AGENTS.md
         SOUL.md: ../../agents/shared/setup/SOUL.md
@@ -51,7 +51,7 @@ agents:
     workspace:
       baseDir: agents/developer
       skills:
-        - tamandua-agents
+        - canarinho-agents
       files:
         AGENTS.md: agents/developer/AGENTS.md
         SOUL.md: agents/developer/SOUL.md
@@ -66,7 +66,7 @@ agents:
       baseDir: agents/verifier
       skills:
         - agent-browser
-        - tamandua-agents
+        - canarinho-agents
       files:
         AGENTS.md: ../../agents/shared/verifier/AGENTS.md
         SOUL.md: ../../agents/shared/verifier/SOUL.md
@@ -80,7 +80,7 @@ agents:
     workspace:
       baseDir: agents/tester
       skills:
-        - tamandua-agents
+        - canarinho-agents
       files:
         AGENTS.md: agents/tester/AGENTS.md
         SOUL.md: agents/tester/SOUL.md

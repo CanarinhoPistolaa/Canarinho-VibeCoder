@@ -77,7 +77,7 @@ function cleanStderr(stderr: string): string {
 
 function createTempHome(): string {
   return fs.mkdtempSync(
-    path.join(os.tmpdir(), "tamandua-version-warning-"),
+    path.join(os.tmpdir(), "canarinho-version-warning-"),
   );
 }
 
@@ -98,7 +98,7 @@ function writeVersionStatus(
   );
 }
 
-const UPDATE_WARNING = "WARNING: A new version of tamandua is available! Run: tamandua update";
+const UPDATE_WARNING = "WARNING: A new version of canarinho is available! Run: canarinho update";
 
 // ═══════════════════════════════════════════════════════════════════
 // Tests
@@ -115,7 +115,7 @@ describe("CLI version warning", () => {
     const tempHome = createTempHome();
     try {
       writeVersionStatus(
-        path.join(tempHome, ".tamandua"),
+        path.join(tempHome, ".canarinho"),
         { updateAvailable: true },
       );
 
@@ -146,7 +146,7 @@ describe("CLI version warning", () => {
     const tempHome = createTempHome();
     try {
       writeVersionStatus(
-        path.join(tempHome, ".tamandua"),
+        path.join(tempHome, ".canarinho"),
         { updateAvailable: false },
       );
 
@@ -204,7 +204,7 @@ describe("CLI version warning", () => {
     const tempHome = createTempHome();
     try {
       writeVersionStatus(
-        path.join(tempHome, ".tamandua"),
+        path.join(tempHome, ".canarinho"),
         { updateAvailable: true },
       );
 
@@ -235,7 +235,7 @@ describe("CLI version warning", () => {
     const tempHome = createTempHome();
     try {
       writeVersionStatus(
-        path.join(tempHome, ".tamandua"),
+        path.join(tempHome, ".canarinho"),
         { updateAvailable: true },
       );
 
@@ -269,7 +269,7 @@ describe("CLI version warning", () => {
     const tempHome = createTempHome();
     try {
       writeVersionStatus(
-        path.join(tempHome, ".tamandua"),
+        path.join(tempHome, ".canarinho"),
         { updateAvailable: true },
       );
 
@@ -302,7 +302,7 @@ describe("CLI version warning", () => {
     const tempHome = createTempHome();
     try {
       writeVersionStatus(
-        path.join(tempHome, ".tamandua"),
+        path.join(tempHome, ".canarinho"),
         { updateAvailable: true },
       );
 
@@ -335,7 +335,7 @@ describe("CLI version warning", () => {
     const tempHome = createTempHome();
     try {
       writeVersionStatus(
-        path.join(tempHome, ".tamandua"),
+        path.join(tempHome, ".canarinho"),
         { updateAvailable: true },
       );
 
@@ -369,7 +369,7 @@ describe("CLI version warning", () => {
     const tempHome = createTempHome();
     try {
       writeVersionStatus(
-        path.join(tempHome, ".tamandua"),
+        path.join(tempHome, ".canarinho"),
         { updateAvailable: true },
       );
 
@@ -400,7 +400,7 @@ describe("CLI version warning", () => {
     const tempHome = createTempHome();
     try {
       writeVersionStatus(
-        path.join(tempHome, ".tamandua"),
+        path.join(tempHome, ".canarinho"),
         { updateAvailable: true },
       );
 
@@ -439,7 +439,7 @@ describe("CLI version warning", () => {
     const tempHome = createTempHome();
     try {
       writeVersionStatus(
-        path.join(tempHome, ".tamandua"),
+        path.join(tempHome, ".canarinho"),
         { updateAvailable: true },
       );
 

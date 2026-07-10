@@ -8,7 +8,7 @@
  * readControlPlanePort assert before reading port files. writePort/
  * writeMcpPort/writeControlPlanePort assert before writing port files.
  *
- * When guard is active and TAMANDUA_STATE_DIR is not isolating (i.e. HOME
+ * When guard is active and canarinho_STATE_DIR is not isolating (i.e. HOME
  * resolves to the real user home), these functions must throw
  * "TEST ISOLATION VIOLATION" to prevent touching production state.
  *
@@ -29,22 +29,22 @@ let savedNodeTestContext: string | undefined;
 
 beforeEach(() => {
   savedHome = process.env.HOME;
-  savedStateDir = process.env.TAMANDUA_STATE_DIR;
-  savedGuard = process.env.TAMANDUA_TEST_GUARD;
+  savedStateDir = process.env.canarinho_STATE_DIR;
+  savedGuard = process.env.canarinho_TEST_GUARD;
   savedNodeTestContext = process.env.NODE_TEST_CONTEXT;
 
   // Activate the guard for all tests in this file. The default npm test env
-  // already sets TAMANDUA_TEST_GUARD=1, but be explicit about it.
-  process.env.TAMANDUA_TEST_GUARD = "1";
+  // already sets canarinho_TEST_GUARD=1, but be explicit about it.
+  process.env.canarinho_TEST_GUARD = "1";
 });
 
 afterEach(() => {
   if (savedHome !== undefined) process.env.HOME = savedHome;
   else delete process.env.HOME;
-  if (savedStateDir !== undefined) process.env.TAMANDUA_STATE_DIR = savedStateDir;
-  else delete process.env.TAMANDUA_STATE_DIR;
-  if (savedGuard !== undefined) process.env.TAMANDUA_TEST_GUARD = savedGuard;
-  else delete process.env.TAMANDUA_TEST_GUARD;
+  if (savedStateDir !== undefined) process.env.canarinho_STATE_DIR = savedStateDir;
+  else delete process.env.canarinho_STATE_DIR;
+  if (savedGuard !== undefined) process.env.canarinho_TEST_GUARD = savedGuard;
+  else delete process.env.canarinho_TEST_GUARD;
   if (savedNodeTestContext !== undefined) process.env.NODE_TEST_CONTEXT = savedNodeTestContext;
   else delete process.env.NODE_TEST_CONTEXT;
 });
@@ -63,19 +63,19 @@ function importDaemonctl() {
 describe("daemonctl readPort guard", { concurrency: 1 }, () => {
   it("throws TEST ISOLATION VIOLATION when guard is active and HOME is real user home", async () => {
     process.env.HOME = os.userInfo().homedir;
-    delete process.env.TAMANDUA_STATE_DIR;
+    delete process.env.canarinho_STATE_DIR;
 
     const { readPort } = await importDaemonctl();
 
     assert.throws(
       () => readPort(),
       /TEST ISOLATION VIOLATION/,
-      "should throw when resolving port file under real ~/.tamandua",
+      "should throw when resolving port file under real ~/.canarinho",
     );
   });
 
   it("works normally when opts.homeDir is provided (explicit isolation)", async () => {
-    const tempHome = fs.mkdtempSync(path.join(os.tmpdir(), "tamandua-dc-guard-"));
+    const tempHome = fs.mkdtempSync(path.join(os.tmpdir(), "canarinho-dc-guard-"));
     try {
       process.env.HOME = os.userInfo().homedir; // guard would fire without opts
 
@@ -92,9 +92,9 @@ describe("daemonctl readPort guard", { concurrency: 1 }, () => {
   it("returns default port when guard is inactive (production unaffected)", async () => {
     // Temporarily disable the guard. Even pointing HOME at real user
     // home must not block reads.
-    process.env.TAMANDUA_TEST_GUARD = "0";
+    process.env.canarinho_TEST_GUARD = "0";
     process.env.HOME = os.userInfo().homedir;
-    delete process.env.TAMANDUA_STATE_DIR;
+    delete process.env.canarinho_STATE_DIR;
 
     const { readPort } = await importDaemonctl();
 
@@ -109,19 +109,19 @@ describe("daemonctl readPort guard", { concurrency: 1 }, () => {
 describe("daemonctl readMcpPort guard", { concurrency: 1 }, () => {
   it("throws TEST ISOLATION VIOLATION when guard is active and HOME is real user home", async () => {
     process.env.HOME = os.userInfo().homedir;
-    delete process.env.TAMANDUA_STATE_DIR;
+    delete process.env.canarinho_STATE_DIR;
 
     const { readMcpPort } = await importDaemonctl();
 
     assert.throws(
       () => readMcpPort(),
       /TEST ISOLATION VIOLATION/,
-      "should throw when resolving MCP port file under real ~/.tamandua",
+      "should throw when resolving MCP port file under real ~/.canarinho",
     );
   });
 
   it("works normally when opts.homeDir is provided", async () => {
-    const tempHome = fs.mkdtempSync(path.join(os.tmpdir(), "tamandua-dc-guard-"));
+    const tempHome = fs.mkdtempSync(path.join(os.tmpdir(), "canarinho-dc-guard-"));
     try {
       process.env.HOME = os.userInfo().homedir;
 
@@ -141,19 +141,19 @@ describe("daemonctl readMcpPort guard", { concurrency: 1 }, () => {
 describe("daemonctl readControlPlanePort guard", { concurrency: 1 }, () => {
   it("throws TEST ISOLATION VIOLATION when guard is active and HOME is real user home", async () => {
     process.env.HOME = os.userInfo().homedir;
-    delete process.env.TAMANDUA_STATE_DIR;
+    delete process.env.canarinho_STATE_DIR;
 
     const { readControlPlanePort } = await importDaemonctl();
 
     assert.throws(
       () => readControlPlanePort(),
       /TEST ISOLATION VIOLATION/,
-      "should throw when resolving control plane port file under real ~/.tamandua",
+      "should throw when resolving control plane port file under real ~/.canarinho",
     );
   });
 
   it("works normally when opts.homeDir is provided", async () => {
-    const tempHome = fs.mkdtempSync(path.join(os.tmpdir(), "tamandua-dc-guard-"));
+    const tempHome = fs.mkdtempSync(path.join(os.tmpdir(), "canarinho-dc-guard-"));
     try {
       process.env.HOME = os.userInfo().homedir;
 
@@ -173,7 +173,7 @@ describe("daemonctl readControlPlanePort guard", { concurrency: 1 }, () => {
 describe("daemonctl writePort guard", { concurrency: 1 }, () => {
   it("throws TEST ISOLATION VIOLATION when guard is active and HOME is real user home", async () => {
     process.env.HOME = os.userInfo().homedir;
-    delete process.env.TAMANDUA_STATE_DIR;
+    delete process.env.canarinho_STATE_DIR;
 
     const { writePort } = await importDaemonctl();
 
@@ -185,7 +185,7 @@ describe("daemonctl writePort guard", { concurrency: 1 }, () => {
   });
 
   it("works normally when opts.homeDir is provided", async () => {
-    const tempHome = fs.mkdtempSync(path.join(os.tmpdir(), "tamandua-dc-guard-"));
+    const tempHome = fs.mkdtempSync(path.join(os.tmpdir(), "canarinho-dc-guard-"));
     try {
       process.env.HOME = os.userInfo().homedir;
 
@@ -205,7 +205,7 @@ describe("daemonctl writePort guard", { concurrency: 1 }, () => {
 describe("daemonctl writeMcpPort guard", { concurrency: 1 }, () => {
   it("throws TEST ISOLATION VIOLATION when guard is active and HOME is real user home", async () => {
     process.env.HOME = os.userInfo().homedir;
-    delete process.env.TAMANDUA_STATE_DIR;
+    delete process.env.canarinho_STATE_DIR;
 
     const { writeMcpPort } = await importDaemonctl();
 
@@ -217,7 +217,7 @@ describe("daemonctl writeMcpPort guard", { concurrency: 1 }, () => {
   });
 
   it("works normally when opts.homeDir is provided", async () => {
-    const tempHome = fs.mkdtempSync(path.join(os.tmpdir(), "tamandua-dc-guard-"));
+    const tempHome = fs.mkdtempSync(path.join(os.tmpdir(), "canarinho-dc-guard-"));
     try {
       const { writeMcpPort, readMcpPort } = await importDaemonctl();
       const opts = { homeDir: tempHome };
@@ -235,7 +235,7 @@ describe("daemonctl writeMcpPort guard", { concurrency: 1 }, () => {
 describe("daemonctl writeControlPlanePort guard", { concurrency: 1 }, () => {
   it("throws TEST ISOLATION VIOLATION when guard is active and HOME is real user home", async () => {
     process.env.HOME = os.userInfo().homedir;
-    delete process.env.TAMANDUA_STATE_DIR;
+    delete process.env.canarinho_STATE_DIR;
 
     const { writeControlPlanePort } = await importDaemonctl();
 
@@ -247,7 +247,7 @@ describe("daemonctl writeControlPlanePort guard", { concurrency: 1 }, () => {
   });
 
   it("works normally when opts.homeDir is provided", async () => {
-    const tempHome = fs.mkdtempSync(path.join(os.tmpdir(), "tamandua-dc-guard-"));
+    const tempHome = fs.mkdtempSync(path.join(os.tmpdir(), "canarinho-dc-guard-"));
     try {
       const { writeControlPlanePort, readControlPlanePort } = await importDaemonctl();
       const opts = { homeDir: tempHome };
@@ -265,7 +265,7 @@ describe("daemonctl writeControlPlanePort guard", { concurrency: 1 }, () => {
 describe("daemonctl path file guards", { concurrency: 1 }, () => {
   it("getPidFile throws when guard is active and HOME is real user home", async () => {
     process.env.HOME = os.userInfo().homedir;
-    delete process.env.TAMANDUA_STATE_DIR;
+    delete process.env.canarinho_STATE_DIR;
 
     const { getPidFile } = await importDaemonctl();
 
@@ -278,7 +278,7 @@ describe("daemonctl path file guards", { concurrency: 1 }, () => {
 
   it("getMcpPidFile throws when guard is active and HOME is real user home", async () => {
     process.env.HOME = os.userInfo().homedir;
-    delete process.env.TAMANDUA_STATE_DIR;
+    delete process.env.canarinho_STATE_DIR;
 
     const { getMcpPidFile } = await importDaemonctl();
 
@@ -291,7 +291,7 @@ describe("daemonctl path file guards", { concurrency: 1 }, () => {
 
   it("getControlPlanePidFile throws when guard is active and HOME is real user home", async () => {
     process.env.HOME = os.userInfo().homedir;
-    delete process.env.TAMANDUA_STATE_DIR;
+    delete process.env.canarinho_STATE_DIR;
 
     const { getControlPlanePidFile } = await importDaemonctl();
 
@@ -304,7 +304,7 @@ describe("daemonctl path file guards", { concurrency: 1 }, () => {
 
   it("getPortFile throws when guard is active and HOME is real user home", async () => {
     process.env.HOME = os.userInfo().homedir;
-    delete process.env.TAMANDUA_STATE_DIR;
+    delete process.env.canarinho_STATE_DIR;
 
     const { getPortFile } = await importDaemonctl();
 
@@ -317,7 +317,7 @@ describe("daemonctl path file guards", { concurrency: 1 }, () => {
 
   it("getMcpPortFile throws when guard is active and HOME is real user home", async () => {
     process.env.HOME = os.userInfo().homedir;
-    delete process.env.TAMANDUA_STATE_DIR;
+    delete process.env.canarinho_STATE_DIR;
 
     const { getMcpPortFile } = await importDaemonctl();
 
@@ -330,7 +330,7 @@ describe("daemonctl path file guards", { concurrency: 1 }, () => {
 
   it("getControlPlanePortFile throws when guard is active and HOME is real user home", async () => {
     process.env.HOME = os.userInfo().homedir;
-    delete process.env.TAMANDUA_STATE_DIR;
+    delete process.env.canarinho_STATE_DIR;
 
     const { getControlPlanePortFile } = await importDaemonctl();
 
@@ -342,7 +342,7 @@ describe("daemonctl path file guards", { concurrency: 1 }, () => {
   });
 
   it("path functions work normally when opts.homeDir is provided", async () => {
-    const tempHome = fs.mkdtempSync(path.join(os.tmpdir(), "tamandua-dc-guard-"));
+    const tempHome = fs.mkdtempSync(path.join(os.tmpdir(), "canarinho-dc-guard-"));
     try {
       process.env.HOME = os.userInfo().homedir;
       const opts = { homeDir: tempHome };
@@ -350,35 +350,35 @@ describe("daemonctl path file guards", { concurrency: 1 }, () => {
       const { getPidFile, getMcpPidFile, getControlPlanePidFile,
               getPortFile, getMcpPortFile, getControlPlanePortFile } = await importDaemonctl();
 
-      const tamanduaDir = path.join(tempHome, ".tamandua");
-      assert.ok(getPidFile(opts).startsWith(tamanduaDir));
-      assert.ok(getMcpPidFile(opts).startsWith(tamanduaDir));
-      assert.ok(getControlPlanePidFile(opts).startsWith(tamanduaDir));
-      assert.ok(getPortFile(opts).startsWith(tamanduaDir));
-      assert.ok(getMcpPortFile(opts).startsWith(tamanduaDir));
-      assert.ok(getControlPlanePortFile(opts).startsWith(tamanduaDir));
+      const canarinhoDir = path.join(tempHome, ".canarinho");
+      assert.ok(getPidFile(opts).startsWith(canarinhoDir));
+      assert.ok(getMcpPidFile(opts).startsWith(canarinhoDir));
+      assert.ok(getControlPlanePidFile(opts).startsWith(canarinhoDir));
+      assert.ok(getPortFile(opts).startsWith(canarinhoDir));
+      assert.ok(getMcpPortFile(opts).startsWith(canarinhoDir));
+      assert.ok(getControlPlanePortFile(opts).startsWith(canarinhoDir));
     } finally {
       fs.rmSync(tempHome, { recursive: true, force: true });
     }
   });
 
   it("path functions work normally when guard is inactive", async () => {
-    process.env.TAMANDUA_TEST_GUARD = "0";
+    process.env.canarinho_TEST_GUARD = "0";
     delete process.env.NODE_TEST_CONTEXT;
     process.env.HOME = os.userInfo().homedir;
-    delete process.env.TAMANDUA_STATE_DIR;
+    delete process.env.canarinho_STATE_DIR;
 
     const { getPidFile, getMcpPidFile, getControlPlanePidFile,
             getPortFile, getMcpPortFile, getControlPlanePortFile } = await importDaemonctl();
 
     // No throw expected — guard is inactive. Functions return the paths.
-    const tamanduaDir = path.join(os.userInfo().homedir, ".tamandua");
-    assert.ok(getPidFile().startsWith(tamanduaDir));
-    assert.ok(getMcpPidFile().startsWith(tamanduaDir));
-    assert.ok(getControlPlanePidFile().startsWith(tamanduaDir));
-    assert.ok(getPortFile().startsWith(tamanduaDir));
-    assert.ok(getMcpPortFile().startsWith(tamanduaDir));
-    assert.ok(getControlPlanePortFile().startsWith(tamanduaDir));
+    const canarinhoDir = path.join(os.userInfo().homedir, ".canarinho");
+    assert.ok(getPidFile().startsWith(canarinhoDir));
+    assert.ok(getMcpPidFile().startsWith(canarinhoDir));
+    assert.ok(getControlPlanePidFile().startsWith(canarinhoDir));
+    assert.ok(getPortFile().startsWith(canarinhoDir));
+    assert.ok(getMcpPortFile().startsWith(canarinhoDir));
+    assert.ok(getControlPlanePortFile().startsWith(canarinhoDir));
   });
 });
 
@@ -386,25 +386,25 @@ describe("daemonctl path file guards", { concurrency: 1 }, () => {
 
 describe("daemonctl HOME-spoof resistance", { concurrency: 1 }, () => {
   it("readPort still detects production path when HOME is spoofed", async () => {
-    // Spoof HOME to a temp dir but don't set TAMANDUA_STATE_DIR.
+    // Spoof HOME to a temp dir but don't set canarinho_STATE_DIR.
     // The guard uses os.userInfo().homedir, not os.homedir(), so it
     // should still detect that the resolved port file is under the
-    // real ~/.tamandua.
-    // Actually, with spoofed HOME, getTamanduaDir() resolves to
-    // spoofedHome/.tamandua — which is NOT under realHome/.tamandua.
+    // real ~/.canarinho.
+    // Actually, with spoofed HOME, getcanarinhoDir() resolves to
+    // spoofedHome/.canarinho — which is NOT under realHome/.canarinho.
     // The guard only blocks when the resolved path IS under the real
     // state dir. So with spoofed HOME, readPort() resolves to a
     // different path and the guard should NOT fire. That's correct:
     // if HOME is spoofed, the port file path doesn't hit production.
-    const spoofedHome = fs.mkdtempSync(path.join(os.tmpdir(), "tamandua-spoof-"));
+    const spoofedHome = fs.mkdtempSync(path.join(os.tmpdir(), "canarinho-spoof-"));
     try {
       process.env.HOME = spoofedHome;
-      delete process.env.TAMANDUA_STATE_DIR;
+      delete process.env.canarinho_STATE_DIR;
 
       const { readPort } = await importDaemonctl();
 
       // With spoofed HOME, the resolved port file is under spoofedHome,
-      // not under real ~/.tamandua, so the guard does NOT fire.
+      // not under real ~/.canarinho, so the guard does NOT fire.
       const port = readPort();
       assert.ok(typeof port === "number" && port > 0 && port < 65536,
         "should not be blocked — sporofed HOME resolves to different path");
@@ -419,7 +419,7 @@ describe("daemonctl HOME-spoof resistance", { concurrency: 1 }, () => {
 describe("daemonctl isRunning guard", { concurrency: 1 }, () => {
   it("returns {running: false} when guard is active and HOME is real user home", async () => {
     process.env.HOME = os.userInfo().homedir;
-    delete process.env.TAMANDUA_STATE_DIR;
+    delete process.env.canarinho_STATE_DIR;
 
     const { isRunning } = await importDaemonctl();
 
@@ -429,13 +429,13 @@ describe("daemonctl isRunning guard", { concurrency: 1 }, () => {
   });
 
   it("works normally when opts.homeDir is provided", async () => {
-    const tempHome = fs.mkdtempSync(path.join(os.tmpdir(), "tamandua-dc-guard-"));
+    const tempHome = fs.mkdtempSync(path.join(os.tmpdir(), "canarinho-dc-guard-"));
     try {
       process.env.HOME = os.userInfo().homedir;
       const opts = { homeDir: tempHome };
 
       // Create a fake PID file in the temp dir with a PID that doesn't exist
-      const pidFile = path.join(tempHome, ".tamandua", "tamandua.pid");
+      const pidFile = path.join(tempHome, ".canarinho", "canarinho.pid");
       fs.mkdirSync(path.dirname(pidFile), { recursive: true });
       fs.writeFileSync(pidFile, String(999999), "utf-8");
 
@@ -449,10 +449,10 @@ describe("daemonctl isRunning guard", { concurrency: 1 }, () => {
   });
 
   it("works normally when guard is inactive", async () => {
-    process.env.TAMANDUA_TEST_GUARD = "0";
+    process.env.canarinho_TEST_GUARD = "0";
     delete process.env.NODE_TEST_CONTEXT;
     process.env.HOME = os.userInfo().homedir;
-    delete process.env.TAMANDUA_STATE_DIR;
+    delete process.env.canarinho_STATE_DIR;
 
     const { isRunning } = await importDaemonctl();
 
@@ -469,7 +469,7 @@ describe("daemonctl isRunning guard", { concurrency: 1 }, () => {
 describe("daemonctl isMcpRunning guard", { concurrency: 1 }, () => {
   it("returns {running: false} when guard is active and HOME is real user home", async () => {
     process.env.HOME = os.userInfo().homedir;
-    delete process.env.TAMANDUA_STATE_DIR;
+    delete process.env.canarinho_STATE_DIR;
 
     const { isMcpRunning } = await importDaemonctl();
 
@@ -479,12 +479,12 @@ describe("daemonctl isMcpRunning guard", { concurrency: 1 }, () => {
   });
 
   it("works normally when opts.homeDir is provided", async () => {
-    const tempHome = fs.mkdtempSync(path.join(os.tmpdir(), "tamandua-dc-guard-"));
+    const tempHome = fs.mkdtempSync(path.join(os.tmpdir(), "canarinho-dc-guard-"));
     try {
       process.env.HOME = os.userInfo().homedir;
       const opts = { homeDir: tempHome };
 
-      const pidFile = path.join(tempHome, ".tamandua", "mcp.pid");
+      const pidFile = path.join(tempHome, ".canarinho", "mcp.pid");
       fs.mkdirSync(path.dirname(pidFile), { recursive: true });
       fs.writeFileSync(pidFile, String(999999), "utf-8");
 
@@ -500,7 +500,7 @@ describe("daemonctl isMcpRunning guard", { concurrency: 1 }, () => {
 describe("daemonctl isControlPlaneRunning guard", { concurrency: 1 }, () => {
   it("returns {running: false} when guard is active and HOME is real user home", async () => {
     process.env.HOME = os.userInfo().homedir;
-    delete process.env.TAMANDUA_STATE_DIR;
+    delete process.env.canarinho_STATE_DIR;
 
     const { isControlPlaneRunning } = await importDaemonctl();
 
@@ -510,12 +510,12 @@ describe("daemonctl isControlPlaneRunning guard", { concurrency: 1 }, () => {
   });
 
   it("works normally when opts.homeDir is provided", async () => {
-    const tempHome = fs.mkdtempSync(path.join(os.tmpdir(), "tamandua-dc-guard-"));
+    const tempHome = fs.mkdtempSync(path.join(os.tmpdir(), "canarinho-dc-guard-"));
     try {
       process.env.HOME = os.userInfo().homedir;
       const opts = { homeDir: tempHome };
 
-      const pidFile = path.join(tempHome, ".tamandua", "control-plane.pid");
+      const pidFile = path.join(tempHome, ".canarinho", "control-plane.pid");
       fs.mkdirSync(path.dirname(pidFile), { recursive: true });
       fs.writeFileSync(pidFile, String(999999), "utf-8");
 
@@ -533,7 +533,7 @@ describe("daemonctl isControlPlaneRunning guard", { concurrency: 1 }, () => {
 describe("daemonctl stopDaemon guard", { concurrency: 1 }, () => {
   it("throws TEST ISOLATION VIOLATION when guard is active and HOME is real user home", async () => {
     process.env.HOME = os.userInfo().homedir;
-    delete process.env.TAMANDUA_STATE_DIR;
+    delete process.env.canarinho_STATE_DIR;
 
     const { stopDaemon } = await importDaemonctl();
 
@@ -545,7 +545,7 @@ describe("daemonctl stopDaemon guard", { concurrency: 1 }, () => {
   });
 
   it("works normally when opts.homeDir is provided", async () => {
-    const tempHome = fs.mkdtempSync(path.join(os.tmpdir(), "tamandua-dc-guard-"));
+    const tempHome = fs.mkdtempSync(path.join(os.tmpdir(), "canarinho-dc-guard-"));
     try {
       process.env.HOME = os.userInfo().homedir;
       const opts = { homeDir: tempHome };
@@ -563,7 +563,7 @@ describe("daemonctl stopDaemon guard", { concurrency: 1 }, () => {
 describe("daemonctl stopMcp guard", { concurrency: 1 }, () => {
   it("throws TEST ISOLATION VIOLATION when guard is active and HOME is real user home", async () => {
     process.env.HOME = os.userInfo().homedir;
-    delete process.env.TAMANDUA_STATE_DIR;
+    delete process.env.canarinho_STATE_DIR;
 
     const { stopMcp } = await importDaemonctl();
 
@@ -575,7 +575,7 @@ describe("daemonctl stopMcp guard", { concurrency: 1 }, () => {
   });
 
   it("works normally when opts.homeDir is provided", async () => {
-    const tempHome = fs.mkdtempSync(path.join(os.tmpdir(), "tamandua-dc-guard-"));
+    const tempHome = fs.mkdtempSync(path.join(os.tmpdir(), "canarinho-dc-guard-"));
     try {
       process.env.HOME = os.userInfo().homedir;
       const opts = { homeDir: tempHome };
@@ -592,7 +592,7 @@ describe("daemonctl stopMcp guard", { concurrency: 1 }, () => {
 describe("daemonctl stopControlPlane guard", { concurrency: 1 }, () => {
   it("throws TEST ISOLATION VIOLATION when guard is active and HOME is real user home", async () => {
     process.env.HOME = os.userInfo().homedir;
-    delete process.env.TAMANDUA_STATE_DIR;
+    delete process.env.canarinho_STATE_DIR;
 
     const { stopControlPlane } = await importDaemonctl();
 
@@ -604,7 +604,7 @@ describe("daemonctl stopControlPlane guard", { concurrency: 1 }, () => {
   });
 
   it("works normally when opts.homeDir is provided", async () => {
-    const tempHome = fs.mkdtempSync(path.join(os.tmpdir(), "tamandua-dc-guard-"));
+    const tempHome = fs.mkdtempSync(path.join(os.tmpdir(), "canarinho-dc-guard-"));
     try {
       process.env.HOME = os.userInfo().homedir;
       const opts = { homeDir: tempHome };
@@ -621,7 +621,7 @@ describe("daemonctl stopControlPlane guard", { concurrency: 1 }, () => {
 // ── HOME-isolation regression (ISFO) ──────────────────────────────
 //
 // These tests verify that daemonctl path-resolution functions work
-// correctly under TAMANDUA_TEST_GUARD=1 when HOME points to an isolated
+// correctly under canarinho_TEST_GUARD=1 when HOME points to an isolated
 // temp directory WITHOUT requiring opts.homeDir. This is the pattern
 // used by startDashboard() (calls readMcpPort), controlRequest() in
 // control-client (resolves daemon-secret via HOME), and runDoctorChecks()
@@ -632,10 +632,10 @@ describe("daemonctl stopControlPlane guard", { concurrency: 1 }, () => {
 
 describe("daemonctl isolation via HOME env (no opts.homeDir)", { concurrency: 1 }, () => {
   it("readMcpPort works when HOME is isolated temp dir", async () => {
-    const tempHome = fs.mkdtempSync(path.join(os.tmpdir(), "tamandua-dc-home-iso-"));
+    const tempHome = fs.mkdtempSync(path.join(os.tmpdir(), "canarinho-dc-home-iso-"));
     try {
       process.env.HOME = tempHome;
-      delete process.env.TAMANDUA_STATE_DIR;
+      delete process.env.canarinho_STATE_DIR;
 
       const { readMcpPort, writeMcpPort } = await importDaemonctl();
 
@@ -649,10 +649,10 @@ describe("daemonctl isolation via HOME env (no opts.homeDir)", { concurrency: 1 
   });
 
   it("readControlPlanePort works when HOME is isolated temp dir", async () => {
-    const tempHome = fs.mkdtempSync(path.join(os.tmpdir(), "tamandua-dc-home-iso-"));
+    const tempHome = fs.mkdtempSync(path.join(os.tmpdir(), "canarinho-dc-home-iso-"));
     try {
       process.env.HOME = tempHome;
-      delete process.env.TAMANDUA_STATE_DIR;
+      delete process.env.canarinho_STATE_DIR;
 
       const { readControlPlanePort, writeControlPlanePort } = await importDaemonctl();
 
@@ -665,10 +665,10 @@ describe("daemonctl isolation via HOME env (no opts.homeDir)", { concurrency: 1 
   });
 
   it("readPort works when HOME is isolated temp dir", async () => {
-    const tempHome = fs.mkdtempSync(path.join(os.tmpdir(), "tamandua-dc-home-iso-"));
+    const tempHome = fs.mkdtempSync(path.join(os.tmpdir(), "canarinho-dc-home-iso-"));
     try {
       process.env.HOME = tempHome;
-      delete process.env.TAMANDUA_STATE_DIR;
+      delete process.env.canarinho_STATE_DIR;
 
       const { readPort, writePort } = await importDaemonctl();
 
@@ -685,7 +685,7 @@ describe("daemonctl isolation via HOME env (no opts.homeDir)", { concurrency: 1 
     // this confirms the guard is active and the isolated-HOME tests
     // above aren't false negatives (guard disabled).
     process.env.HOME = os.userInfo().homedir;
-    delete process.env.TAMANDUA_STATE_DIR;
+    delete process.env.canarinho_STATE_DIR;
 
     const { readPort } = await importDaemonctl();
 

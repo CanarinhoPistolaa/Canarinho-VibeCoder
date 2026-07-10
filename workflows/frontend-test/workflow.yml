@@ -1,4 +1,4 @@
-# Frontend Test Workflow — Tests the Tamandua dashboard without starting a second daemon.
+# Frontend Test Workflow — Tests the canarinho dashboard without starting a second daemon.
 id: frontend-test
 name: Frontend Test
 version: 1
@@ -11,11 +11,11 @@ agents:
   - id: tester
     name: Frontend Tester
     role: testing
-    description: Builds and validates the Tamandua dashboard frontend source.
+    description: Builds and validates the canarinho dashboard frontend source.
     workspace:
       baseDir: agents/tester
       skills:
-        - tamandua-agents
+        - canarinho-agents
       files:
         AGENTS.md: agents/tester/AGENTS.md
         SOUL.md: agents/tester/SOUL.md
@@ -25,7 +25,7 @@ steps:
   - id: test
     agent: tester
     input: |
-      Validate the Tamandua dashboard frontend.
+      Validate the canarinho dashboard frontend.
 
       {{task}}
 
@@ -38,7 +38,7 @@ steps:
       2. Verify the dashboard HTML file exists and is valid:
          - Check `src/server/index.html` exists
          - Verify it contains required elements:
-           - `<title>Tamandua Dashboard</title>`
+           - `<title>canarinho Dashboard</title>`
            - `<header>` with `<h1>`
            - `<style>` block (CSS is inline)
            - `<script>` block (JS is inline)
@@ -54,8 +54,8 @@ steps:
          - Check that `src/server/dashboard.test.ts` exists and has test cases
       6. Report results
 
-      ⚠️ DO NOT run `tamandua dashboard start` — the agent runs inside the
-      Tamandua daemon and starting a second daemon would kill this process.
+      ⚠️ DO NOT run `canarinho dashboard start` — the agent runs inside the
+      canarinho daemon and starting a second daemon would kill this process.
 
       Reply with:
       STATUS: done

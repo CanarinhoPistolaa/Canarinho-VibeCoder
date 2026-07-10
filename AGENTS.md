@@ -1,6 +1,6 @@
 # AGENTS.md
 
-Instructions for AI coding assistants and developers working on the tamandua codebase.
+Instructions for AI coding assistants and developers working on the canarinho codebase.
 
 ## Development
 
@@ -9,13 +9,13 @@ Instructions for AI coding assistants and developers working on the tamandua cod
 ```bash
 # Build from source (checkout root):
 ./build              # npm install + tsc + inject-version
-./install            # symlink ~/.local/bin/tamandua → this checkout
+./install            # symlink ~/.local/bin/canarinho → this checkout
 ./build-and-install  # both steps at once
 ```
 
 The `build` script requires Node.js >= 22. It runs `npm install` followed by `npm run build` (TypeScript compilation, HTML copy, version injection).
 
-The `install` script delegates to `scripts/install.sh --local <pwd>` — it creates a symlink so `tamandua` on your PATH always uses the dist from your checkout. No global npm install, no GitHub clone needed.
+The `install` script delegates to `scripts/install.sh --local <pwd>` — it creates a symlink so `canarinho` on your PATH always uses the dist from your checkout. No global npm install, no GitHub clone needed.
 
 ```bash
 # After editing source, rebuild:
@@ -28,8 +28,8 @@ npm test
 ## Project Structure
 
 ```
-tamandua/
-├── bin/tamandua                  # Shell wrapper
+canarinho/
+├── bin/canarinho                  # Shell wrapper
 ├── src/
 │   ├── index.ts                  # Export entry
 │   ├── db.ts                     # SQLite database (runs, steps, stories, worktrees, autoresearch sessions)
@@ -84,7 +84,7 @@ tamandua/
 ├── docs/                         # User documentation
 ├── tests/                        # Integration tests
 ├── e2e-tests/                    # End-to-end tests (smoke + real; NOT part of npm test)
-├── www/                          # Static website (tamandua.org)
+├── www/                          # Static website (canarinho.org)
 ├── scripts/                      # Build scripts
 ├── package.json
 ├── tsconfig.json
@@ -93,14 +93,14 @@ tamandua/
 
 ## Architecture
 
-Tamandua is an agent team orchestrator built on top of pi (the coding agent CLI).
+canarinho is an agent team orchestrator built on top of pi (the coding agent CLI).
 
 ### Runtime model
 
 - Agent settings live at `~/.pi/agent/settings.json`
 - Work is dispatched via direct `pi --print` invocation (no gateway HTTP API)
 - Sessions use `pi --print --session`
-- Agent config lives in `~/.tamandua/agents.json`
+- Agent config lives in `~/.canarinho/agents.json`
 - Permissions are expressed as role descriptions
 
 ### Agent Scheduler (deterministic dispatch motor)
@@ -124,7 +124,7 @@ tokens (MOTOR-CONTRACT.md N1/N2). Per-(runId, agentId) in-memory
 4. `executeDispatchRound` emits stage logs (`Dispatch round skipped/idle`, `Work round start/complete/failed`) with shared round context (`jobId`, `agentId`, timeout/workdir/model when available) and bounded outcome/error previews
 5. Work rounds run pi in JSON mode (`--mode json`) so scheduler logic can extract `message_end.message.usage` token metadata and attribute increments to `runs.tokens_spent` using run IDs parsed from tool outputs (falling back to the dispatch job's own runId).
 6. Successful token attribution emits a `run.tokens.updated` event (`tokenDelta` + `tokensSpent` fields); terminal run lifecycle events (`run.completed`/`run.failed`) also carry `tokensSpent` for cost visibility.
-7. `tamandua_stats.system_tokens_spent` is a legacy ledger kept as a
+7. `canarinho_stats.system_tokens_spent` is a legacy ledger kept as a
    tripwire: nothing writes to it anymore; tests assert it stays 0.
 
 ### Step Lifecycle
@@ -147,7 +147,7 @@ waiting → pending → running → done/failed
   the run reroutes to the named upstream producer (bounded by
   `max_reroutes`, default 2 before falling through to permanent
   failure). No automatic replacement is triggered for these failures.
-  Use `tamandua workflow resume <run-id>` to reattempt a permanently
+  Use `canarinho workflow resume <run-id>` to reattempt a permanently
   failed run; fix the underlying issue before resuming.
 
 ### CLI Help Convention
@@ -166,14 +166,14 @@ in `src/cli/cli.ts` (canonical implementation: commit `bf326a5c015b4da479df83e87
 one function per command or subcommand that returns a multi-line help string.
 Examples: `getStepPeekHelp()`, `getWorkflowRunHelp()`, `getUpdateHelp()`,
 `getDashboardStartHelp()`. The full pattern is `get{Group}{Action}Help` —
-e.g. `getMcpStartHelp` covers `tamandua mcp start --help`.
+e.g. `getMcpStartHelp` covers `canarinho mcp start --help`.
 
 **--help dispatch** runs at the very top of `main()` before any command execution,
 I/O, or side effects (including update warnings). This guarantees `--help` is always
 available and never triggers unintended operations.
 
 **`getUsageText()`** (global usage, shown when no recognized command is passed with
-`--help`) opens with: `Run tamandua <command> --help for detailed command help.`
+`--help`) opens with: `Run canarinho <command> --help for detailed command help.`
 followed by a top-level command listing.
 
 **When adding or changing commands:** every new command or subcommand needs:
@@ -182,32 +182,32 @@ followed by a top-level command listing.
 
 ## State
 
-- SQLite database: `~/.tamandua/tamandua.db`
-- Agent config: `~/.tamandua/agents.json`
-- Cron jobs: `~/.tamandua/cron-jobs.json`
-- Events: `~/.tamandua/events.jsonl`
-- Logs: `~/.tamandua/tamandua.log`
-- Medic: `~/.tamandua/medic.json`
+- SQLite database: `~/.canarinho/canarinho.db`
+- Agent config: `~/.canarinho/agents.json`
+- Cron jobs: `~/.canarinho/cron-jobs.json`
+- Events: `~/.canarinho/events.jsonl`
+- Logs: `~/.canarinho/canarinho.log`
+- Medic: `~/.canarinho/medic.json`
 
 ## Update and Catalog Staleness
 
-Installed workflows live in `~/.tamandua/workflows/` and may become older than the
-bundled catalog shipped with the current tamandua binary. This means prompt-level
+Installed workflows live in `~/.canarinho/workflows/` and may become older than the
+bundled catalog shipped with the current canarinho binary. This means prompt-level
 fixes to workflow personas (in `workflows/` and `agents/`) are silently inert until
 the installed catalog is refreshed. Two mechanisms surface this gap:
 
-- **Doctor check:** `tamandua doctor` includes a catalog-staleness check in the
+- **Doctor check:** `canarinho doctor` includes a catalog-staleness check in the
   STALENESS group. It compares the installed catalog stamp against the current
   build version and warns with a remedy if they differ or the stamp is missing.
-- **Launch-time nudge:** `tamandua workflow run` prints a one-line warning to
+- **Launch-time nudge:** `canarinho workflow run` prints a one-line warning to
   stderr (never blocks the launch) when the installed catalog is older than the
   bundled catalog:
-  `Warning: installed catalog is older than bundled catalog. Run tamandua update --force to apply latest workflow/persona fixes.`
+  `Warning: installed catalog is older than bundled catalog. Run canarinho update --force to apply latest workflow/persona fixes.`
 
-**Remedy:** Run `tamandua update --force` to refresh the installed catalog.
+**Remedy:** Run `canarinho update --force` to refresh the installed catalog.
 
 **Stamp file:** The installed catalog records a version stamp at
-`~/.tamandua/workflows/.catalog-version.json` at install/update time. It contains
+`~/.canarinho/workflows/.catalog-version.json` at install/update time. It contains
 the build version, source path, and install timestamp. The doctor check and
 launch-time nudge are cheap — stat + read + string compare, no network, no git.
 
@@ -216,7 +216,7 @@ launch-time nudge are cheap — stat + read + string compare, no network, no git
 When making changes, review whether these artifacts need updating:
 
 - `docs/creating-workflows.md` — user-facing workflow documentation
-- `skills/tamandua-agents/SKILL.md` — provisioned to agents as AGENTS.md/IDENTITY.md/SOUL.md
+- `skills/canarinho-agents/SKILL.md` — provisioned to agents as AGENTS.md/IDENTITY.md/SOUL.md
 - `src/server/mcp-server.ts` — MCP tools registered for agent use
 - `src/cli/cli.ts` — CLI commands that agents invoke, and per-command help functions (`get<Thing>Help()`)
 - `src/server/index.html` — dashboard UI
@@ -236,7 +236,7 @@ Changes that typically cascade to multiple artifacts:
 - **Workflow structure**: new step types, loop wiring, pipeline ordering
 - **Output format contracts**: agent output blocks (STATUS/CHANGES/TESTS)
 
-If you update `skills/tamandua-agents/SKILL.md`, verify that bundled workflow persona AGENTS.md files reflect the change.
+If you update `skills/canarinho-agents/SKILL.md`, verify that bundled workflow persona AGENTS.md files reflect the change.
 
 ## Testing
 
@@ -268,7 +268,7 @@ two lanes; contributors don't need to know about lanes — just run `npm test`:
 (a) imports from `node:child_process`, or (b) calls a daemonctl spawner
 (`startDaemon`/`startMcp`/`startControlPlane` and their stop/restart
 counterparts). In-process servers (`createDashboardServer`,
-`createTamanduaMcpServer`) are NOT serial candidates.
+`createcanarinhoMcpServer`) are NOT serial candidates.
 
 If you add a spawn-capable test file without listing it in
 `tests/serial-files.txt`, `tests/serial-classification-guard.test.ts` fails
@@ -286,9 +286,9 @@ distinction is critical:
 | Test | Script | What it does | Duration |
 |------|--------|--------------|----------|
 | **Smoke (state-machine)** | `./run-all-smoke-e2e-tests` | Exercises workflow state machine, pipeline wiring, and step lifecycle using manual `step claim` / `step complete` with canned outputs. No real agents, models, or schedulers. | ~10–15 seconds |
-| **Scripted (full pipeline, fake pi)** | `./run-all-scripted-e2e-tests` | Runs the REAL daemon → scheduler → harness spawn → step-ops → worktree/merge pipeline, with `TAMANDUA_PI_BINARY` pointed at a deterministic scripted agent (`e2e-tests/helpers/scripted-agent.ts`) that executes the claim/complete work protocol, including chaos scenarios (lost steps, crashed agents). No models, ZERO tokens. Primary regression net for motor changes — see `tests/MOTOR-CONTRACT.md`. | ~30–60 seconds |
+| **Scripted (full pipeline, fake pi)** | `./run-all-scripted-e2e-tests` | Runs the REAL daemon → scheduler → harness spawn → step-ops → worktree/merge pipeline, with `canarinho_PI_BINARY` pointed at a deterministic scripted agent (`e2e-tests/helpers/scripted-agent.ts`) that executes the claim/complete work protocol, including chaos scenarios (lost steps, crashed agents). No models, ZERO tokens. Primary regression net for motor changes — see `tests/MOTOR-CONTRACT.md`. | ~30–60 seconds |
 | **Real canary (single run)** | `./run-real-e2e-canary` | ONE do-now run with a trivial task through the real daemon → scheduler → pi pipeline, with token-accounting audits. **Spends a small amount of real tokens.** Use at motor-change milestones before the full real suite. | ~2–10 minutes |
-| **Real (full pipeline)** | `./run-all-real-e2e-tests` | Launches actual Tamandua workflows that run through the full daemon → scheduler → pi agent pipeline. Uses real model invocations, real worktree creation, real git merges. | 30+ minutes per workflow |
+| **Real (full pipeline)** | `./run-all-real-e2e-tests` | Launches actual canarinho workflows that run through the full daemon → scheduler → pi agent pipeline. Uses real model invocations, real worktree creation, real git merges. | 30+ minutes per workflow |
 
 `./run-all-e2e-tests` is the convenience alias — it runs the **smoke and
 scripted tests** (fast, no tokens). It does NOT run the real e2e test.
@@ -306,27 +306,27 @@ tests, and performs git merges.
 
 #### Test isolation (READ THIS TOO)
 
-Tamandua is the main tool used to develop tamandua itself. Tests — and
+canarinho is the main tool used to develop canarinho itself. Tests — and
 anything they spawn — must NEVER touch the live instance:
 
-- `npm test` sets `TAMANDUA_TEST_GUARD=1`: opening the real `~/.tamandua`
+- `npm test` sets `canarinho_TEST_GUARD=1`: opening the real `~/.canarinho`
   state or binding a production port (3334/3338/3339) throws a
   "TEST ISOLATION VIOLATION" error. The guard passes through
   `cleanChildEnv` to spawned daemons and scripts. Do not work around it —
   fix the test's isolation instead.
 - The guard auto-activates whenever `NODE_TEST_CONTEXT` is set (node:test
-  sets it in every test process), even without `TAMANDUA_TEST_GUARD=1`.
+  sets it in every test process), even without `canarinho_TEST_GUARD=1`.
   To explicitly disable the guard (e.g., a third-party test suite shelling
-  out to the tamandua CLI), set `TAMANDUA_TEST_GUARD=0`.
-- Every test gets its own temp HOME/`TAMANDUA_STATE_DIR`/`TAMANDUA_DB_PATH`
+  out to the canarinho CLI), set `canarinho_TEST_GUARD=0`.
+- Every test gets its own temp HOME/`canarinho_STATE_DIR`/`canarinho_DB_PATH`
   and RANDOM ports for every listener it starts — including
-  `TAMANDUA_CONTROL_PORT` for any daemon it spawns (the daemon binds a
+  `canarinho_CONTROL_PORT` for any daemon it spawns (the daemon binds a
   control plane too, not just the dashboard port).
-- Agents working inside a tamandua run: the step CLI (`step claim` /
+- Agents working inside a canarinho run: the step CLI (`step claim` /
   `complete` / `fail`) is the ONLY sanctioned interaction with the live
   instance. To exercise daemon/MCP/control-plane lifecycle, start an
   ISOLATED instance (temp state dir + random ports). `stopDaemon` refuses
-  to stop the daemon scheduling you (TAMANDUA_WORKER_PID guard).
+  to stop the daemon scheduling you (canarinho_WORKER_PID guard).
 
 #### Agent Default Behavior (READ THIS)
 
@@ -356,7 +356,7 @@ and are separate from the regular suite.
 
 ### Parallel Test Safety
 
-Tamandua is often used to develop and test itself. All tests use isolated temporary HOME and TAMANDUA_STATE_DIR directories, so PID/port files never conflict across parallel test files.
+canarinho is often used to develop and test itself. All tests use isolated temporary HOME and canarinho_STATE_DIR directories, so PID/port files never conflict across parallel test files.
 
 - **Random ports:** Tests that spawn listeners use `reserveRandomPort()` (bind-to-0). Normal tests must not bind, fetch, or probe default ports 3334/3338/3339.
 - **Temp HOME isolation:** Use `fs.mkdtempSync()` for temporary HOME directories, pass `HOME` env to spawned subprocesses, clean up in `finally` blocks. Helpers that run CLI must use an explicit isolated env — do not fall back to `process.env`.
@@ -365,15 +365,15 @@ Tamandua is often used to develop and test itself. All tests use isolated tempor
 
 `npm test` remains a convenience alias that runs the full parallel suite.
 
-`src/server/mcp-server.ts` supports dependency injection via `createTamanduaMcpServer(..., { services })` / `startTamanduaMcpServer(..., { services })`; protocol tests in `src/server/mcp-server.test.ts` should use this hook instead of duplicating DB/event setup.
+`src/server/mcp-server.ts` supports dependency injection via `createcanarinhoMcpServer(..., { services })` / `startcanarinhoMcpServer(..., { services })`; protocol tests in `src/server/mcp-server.test.ts` should use this hook instead of duplicating DB/event setup.
 
-`src/server/daemon.ts` starts dashboard + MCP together (dashboard port from `~/.tamandua/port`, MCP fixed to 3338). Co-lifecycle regression coverage lives in `src/server/daemon.test.ts`.
+`src/server/daemon.ts` starts dashboard + MCP together (dashboard port from `~/.canarinho/port`, MCP fixed to 3338). Co-lifecycle regression coverage lives in `src/server/daemon.test.ts`.
 
 Dashboard UI regressions are covered in `src/server/dashboard.test.ts` by fetching `/` from `createDashboardServer(...)` and asserting required HTML/script hooks (including logs-tail cursor polling markup).
 
-`tests/workflow-validation.test.ts` validates bundled workflows: directory discovery, `workflow.yml` id matching, `workspace.files` path existence, skill wiring and frontmatter, README catalog entries (e.g., `feature-dev-merge-worktree`). Bundled workflow agents should declare `tamandua-agents` in `workspace.skills`, preserving any existing skills like `agent-browser`.
+`tests/workflow-validation.test.ts` validates bundled workflows: directory discovery, `workflow.yml` id matching, `workspace.files` path existence, skill wiring and frontmatter, README catalog entries (e.g., `feature-dev-merge-worktree`). Bundled workflow agents should declare `canarinho-agents` in `workspace.skills`, preserving any existing skills like `agent-browser`.
 `tests/workflow-graph-simulation.test.ts` simulates every bundled workflow to completion in-process through pure step-ops (happy path, mid-run retry, retry exhaustion) — when adding a workflow, it is covered automatically; a `regex:` expects clause may need a new entry in its `REGEX_EXPECTS_CANDIDATES`.
 Step output parsing (`parseOutputKeyValues` in `src/installer/step-ops.ts`) lowercases keys, so an agent output like `ORIGINAL_BRANCH: main` is consumed downstream as `{{original_branch}}`.
 Installer skill copy behavior (workflow-local + shared bundled skills) is covered in `tests/agent-skill-provisioning.test.ts`.
 
-Integration tests (CLI and dashboard API) should spawn subprocesses with temp `HOME` and `TAMANDUA_STATE_DIR` to isolate event files, SQLite, and DB path resolution.
+Integration tests (CLI and dashboard API) should spawn subprocesses with temp `HOME` and `canarinho_STATE_DIR` to isolate event files, SQLite, and DB path resolution.

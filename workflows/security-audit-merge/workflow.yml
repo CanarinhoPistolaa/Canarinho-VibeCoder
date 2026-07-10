@@ -19,7 +19,7 @@ agents:
     workspace:
       baseDir: agents/scanner
       skills:
-        - tamandua-agents
+        - canarinho-agents
       files:
         AGENTS.md: agents/scanner/AGENTS.md
         SOUL.md: agents/scanner/SOUL.md
@@ -33,7 +33,7 @@ agents:
     workspace:
       baseDir: agents/prioritizer
       skills:
-        - tamandua-agents
+        - canarinho-agents
       files:
         AGENTS.md: agents/prioritizer/AGENTS.md
         SOUL.md: agents/prioritizer/SOUL.md
@@ -48,7 +48,7 @@ agents:
     workspace:
       baseDir: agents/setup
       skills:
-        - tamandua-agents
+        - canarinho-agents
       files:
         AGENTS.md: ../../agents/shared/setup/AGENTS.md
         SOUL.md: ../../agents/shared/setup/SOUL.md
@@ -62,7 +62,7 @@ agents:
     workspace:
       baseDir: agents/fixer
       skills:
-        - tamandua-agents
+        - canarinho-agents
       files:
         AGENTS.md: agents/fixer/AGENTS.md
         SOUL.md: agents/fixer/SOUL.md
@@ -76,7 +76,7 @@ agents:
     workspace:
       baseDir: agents/verifier
       skills:
-        - tamandua-agents
+        - canarinho-agents
       files:
         AGENTS.md: ../../agents/shared/verifier/AGENTS.md
         SOUL.md: ../../agents/shared/verifier/SOUL.md
@@ -90,7 +90,7 @@ agents:
     workspace:
       baseDir: agents/tester
       skills:
-        - tamandua-agents
+        - canarinho-agents
       files:
         AGENTS.md: agents/tester/AGENTS.md
         SOUL.md: agents/tester/SOUL.md
@@ -104,7 +104,7 @@ agents:
     workspace:
       baseDir: agents/merger
       skills:
-        - tamandua-agents
+        - canarinho-agents
       files:
         AGENTS.md: agents/merger/AGENTS.md
         SOUL.md: agents/merger/SOUL.md

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Run the FAST Tamandua smoke / state-machine integration e2e tests.
+# Run the FAST canarinho smoke / state-machine integration e2e tests.
 #
 # This is the DEFAULT e2e test script. It exercises the workflow state
 # machine, pipeline wiring, and step lifecycle using manual step advance
@@ -14,7 +14,7 @@
 set -euo pipefail
 cd "$(dirname "$0")"
 
-LOG="${TAMANDUA_SMOKE_E2E_LOG:-e2e-smoke-test-output.log}"
+LOG="${canarinho_SMOKE_E2E_LOG:-e2e-smoke-test-output.log}"
 
 npm run build
 node --test e2e-tests/workflows-smoke.test.ts 2>&1 | tee "$LOG"

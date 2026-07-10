@@ -1,7 +1,7 @@
 #!/bin/bash
 # Run parallel-lane tests (all non-serial test files) with default concurrency.
 # Excludes files listed in tests/serial-files.txt and e2e-tests/.
-# Passes through TAMANDUA_TEST_GUARD and TAMANDUA_PI_BINARY env vars.
+# Passes through canarinho_TEST_GUARD and canarinho_PI_BINARY env vars.
 # Exit code: 0 on pass, non-zero on any failure.
 #
 # Portability: must run under bash 3.2 (macOS /bin/bash) — no associative
@@ -9,12 +9,12 @@
 set -euo pipefail
 
 # Determine repo root (parent of scripts/ dir)
-REPO_ROOT="${TAMANDUA_REPO_ROOT:-$(cd "$(dirname "$0")/.." && pwd)}"
+REPO_ROOT="${canarinho_REPO_ROOT:-$(cd "$(dirname "$0")/.." && pwd)}"
 cd "$REPO_ROOT"
 
 # Default env vars if not set
-export TAMANDUA_TEST_GUARD="${TAMANDUA_TEST_GUARD:-1}"
-export TAMANDUA_PI_BINARY="${TAMANDUA_PI_BINARY:-/usr/bin/false}"
+export canarinho_TEST_GUARD="${canarinho_TEST_GUARD:-1}"
+export canarinho_PI_BINARY="${canarinho_PI_BINARY:-/usr/bin/false}"
 
 # Read serial files to exclude: newline-delimited absolute paths.
 SERIAL_FILES_LIST="$REPO_ROOT/tests/serial-files.txt"

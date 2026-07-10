@@ -20,7 +20,7 @@ import { cleanChildEnv } from "./helpers/test-env.ts";
 const repoRoot = process.cwd();
 
 function createTempHome() {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), "tamandua-work-attribution-"));
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "canarinho-work-attribution-"));
   const homeDir = path.join(root, "home");
   fs.mkdirSync(homeDir, { recursive: true });
   return { root, homeDir };
@@ -100,8 +100,8 @@ function runDispatchRound(homeDir: string, fakePi: string, runId: string, stepId
     await executeDispatchRound(job, { id: "dev", role: "coding", workspace: { baseDir: process.cwd(), files: {} } });
 
     const run = db.prepare("SELECT tokens_spent FROM runs WHERE id = ?").get(runId);
-    const stats = db.prepare("SELECT system_tokens_spent FROM tamandua_stats WHERE id = 1").get();
-    const eventsPath = path.join(process.env.HOME, ".tamandua", "events", runId + ".jsonl");
+    const stats = db.prepare("SELECT system_tokens_spent FROM canarinho_stats WHERE id = 1").get();
+    const eventsPath = path.join(process.env.HOME, ".canarinho", "events", runId + ".jsonl");
     const events = fs.existsSync(eventsPath)
       ? fs.readFileSync(eventsPath, "utf-8").split(/\\r?\\n/).filter(Boolean).map((l) => JSON.parse(l))
       : [];
@@ -115,7 +115,7 @@ function runDispatchRound(homeDir: string, fakePi: string, runId: string, stepId
 
   const result = spawnSync(process.execPath, ["--input-type=module", "-e", script], {
     cwd: repoRoot,
-    env: cleanChildEnv({ HOME: homeDir, TAMANDUA_PI_BINARY: fakePi }),
+    env: cleanChildEnv({ HOME: homeDir, canarinho_PI_BINARY: fakePi }),
     encoding: "utf-8",
     maxBuffer: 16 * 1024 * 1024,
   });

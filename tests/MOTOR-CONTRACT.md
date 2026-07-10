@@ -64,7 +64,7 @@ token overhead on real runs (see the historical baselines at the bottom).
 ### Dispatch
 
 - **C0-binary** Work spawns resolve the harness binary PER INVOCATION:
-  per-harness env override (`TAMANDUA_PI_BINARY` / `TAMANDUA_HERMES_BINARY`,
+  per-harness env override (`canarinho_PI_BINARY` / `canarinho_HERMES_BINARY`,
   the config/test seam) → `<harness>-token-saver` from PATH when the run
   is no-hurry (`--no-hurry-please-save-tokens-mode`) → plain harness binary
   from PATH. Installing the wrapper mid-run takes effect on the next round.
@@ -84,7 +84,7 @@ token overhead on real runs (see the historical baselines at the bottom).
 ### Deterministic-motor guarantees
 
 - **N1** Idle dispatch invokes **no model**: an idle run accrues **zero**
-  `system_tokens_spent`. The ledger (`tamandua_stats.system_tokens_spent`)
+  `system_tokens_spent`. The ledger (`canarinho_stats.system_tokens_spent`)
   is kept as a tripwire — nothing writes to it; a growing value means
   model-driven dispatch was reintroduced.
 - **N2** Harness (model) invocations per run == executed work rounds — the
@@ -165,7 +165,7 @@ baseline assertions.
   branch tip moved since the run started. Mid-pipeline step retry exhaustion,
   expects validation exhaustion, and worker death permanently fail the run by
   design UNLESS the workflow declares `on_fail.retry_step` (see C19).
-  Permanently failed runs are retryable via `tamandua workflow resume` with
+  Permanently failed runs are retryable via `canarinho workflow resume` with
   fix-then-restart semantics.
 
   **Merge-base diff neutralization (C8-rugpull gate integrity):** Verifier
@@ -349,7 +349,7 @@ baseline assertions.
   agents in one workdir; the survivor's late completion is accepted (C5).
   Pinned by `tests/dead-worker-recovery.test.ts` and the scripted e2e
   daemon-SIGKILL test. Relatedly, `stopDaemon`/`stopMcp`/`stopControlPlane`
-  refuse to signal the daemon named by TAMANDUA_WORKER_PID — an agent can
+  refuse to signal the daemon named by canarinho_WORKER_PID — an agent can
   no longer stop the very daemon scheduling it
   (`src/server/daemonctl-self-stop-guard.test.ts`).
 
@@ -435,7 +435,7 @@ a human can clean them up. Remedy text: `Manual cleanup: kill <pid>`.
 | Deterministic-motor acceptance | part of `npm test` (`tests/deterministic-motor-acceptance.test.ts`) | N1–N3 via in-process `executeDispatchRound` with an instrumented fake pi. |
 | Smoke e2e | `./run-all-smoke-e2e-tests` | State machine + pipeline wiring via manual `step claim`/`complete`. Bypasses the motor. C1–C4. |
 | Workflow graph simulation | part of `npm test` (`tests/workflow-graph-simulation.test.ts`) | Every bundled workflow simulated to completion in-process through pure step-ops (happy path, mid-run retry, retry exhaustion). Pins C1–C4, C8 independent of any motor. ~3 seconds for the whole catalog. |
-| Unit/integration | `npm test` | step-ops invariants, recovery, control plane, DB, CLI, work-prompt shape, harness routing, work-round token attribution, persona injection. `npm test` pins `TAMANDUA_PI_BINARY=/usr/bin/false` so no unit test can ever reach a real model. |
+| Unit/integration | `npm test` | step-ops invariants, recovery, control plane, DB, CLI, work-prompt shape, harness routing, work-round token attribution, persona injection. `npm test` pins `canarinho_PI_BINARY=/usr/bin/false` so no unit test can ever reach a real model. |
 | Real canary | `./run-real-e2e-canary` | ONE do-now run with a live model + token-accounting audit (C14/C15) and real-model baseline print (`systemTokens` must be 0). Small token spend. Run at motor milestones before the full real suite. |
 | Real e2e | `./run-all-real-e2e-tests` | Full pipeline with live models, with token audits and on-timeout diagnostics. Final acceptance gate only: real tokens, minutes-to-tens-of-minutes per workflow. |
 
@@ -481,8 +481,8 @@ steps, so runs now spend their time on model work, not waiting.
   dispatcher would hit it. FIXED: terminal-status steps return
   `{ status: "blocked" }`; running/pending steps still complete normally.
   Regression: `tests/step-ops-dispatch-races.test.ts`.
-- Prompts instructed `node "<cli>" ...` while `resolveTamanduaCli()` returns
-  the `bin/tamandua` **shell** script; `node bin/tamandua` throws a
+- Prompts instructed `node "<cli>" ...` while `resolvecanarinhoCli()` returns
+  the `bin/canarinho` **shell** script; `node bin/canarinho` throws a
   SyntaxError. Live LLM agents had been silently working around the error
   every round — a deterministic agent cannot. FIXED: prompts invoke the CLI
   launcher directly.
@@ -504,9 +504,9 @@ steps, so runs now spend their time on model work, not waiting.
   instant "database is locked" errors. FIXED: `PRAGMA busy_timeout = 5000`.
 - Unit tests that start daemons could reach a REAL model: the old motor's
   minutes-long first poll had masked it; instant dispatch exposed it.
-  FIXED: `npm test` pins `TAMANDUA_PI_BINARY=/usr/bin/false` (passes through
+  FIXED: `npm test` pins `canarinho_PI_BINARY=/usr/bin/false` (passes through
   `cleanChildEnv`), and the one deliberately-real-pi unit test is opt-in
-  via `TAMANDUA_REAL_PI_TESTS=1`.
+  via `canarinho_REAL_PI_TESTS=1`.
 
 ### Report-format contract (MPRT)
 

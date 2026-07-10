@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Build and run the full Tamandua test suite (unit + integration).
+# Build and run the full canarinho test suite (unit + integration).
 # End-to-end tests live under e2e-tests/ and are NOT included here.
 # To run end-to-end tests, use ./run-all-e2e-tests instead.
 # Output is streamed to the terminal AND tee'd to test-output.log for inspection.
@@ -7,7 +7,7 @@
 set -euo pipefail
 cd "$(dirname "$0")"
 
-LOG="${TAMANDUA_TEST_LOG:-test-output.log}"
+LOG="${canarinho_TEST_LOG:-test-output.log}"
 
 npm run build
 npm test 2>&1 | tee "$LOG"

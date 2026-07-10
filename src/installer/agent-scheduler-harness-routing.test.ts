@@ -2,7 +2,7 @@
  * Harness routing in executeDispatchRound(): when a dispatch round finds a
  * pending step (deterministic in-process peek), the work spawn must route to
  * runPi for harnessType "pi"/missing and to runHermes for "hermes", with the
- * hermes binary handed down via TAMANDUA_HERMES_BINARY. Also covers
+ * hermes binary handed down via canarinho_HERMES_BINARY. Also covers
  * buildDispatchRoundContext's harnessType and createAgentCronJob reading
  * harness_type from the run context.
  */
@@ -104,15 +104,15 @@ describe("executeDispatchRound harness dispatch", () => {
   let savedHermesBinary: string | undefined;
 
   beforeEach(() => {
-    tempHome = fs.mkdtempSync(path.join(os.tmpdir(), "tamandua-test-routing-"));
-    savedPiBinary = process.env.TAMANDUA_PI_BINARY;
-    savedHermesBinary = process.env.TAMANDUA_HERMES_BINARY;
+    tempHome = fs.mkdtempSync(path.join(os.tmpdir(), "canarinho-test-routing-"));
+    savedPiBinary = process.env.canarinho_PI_BINARY;
+    savedHermesBinary = process.env.canarinho_HERMES_BINARY;
 
     const homeDir = path.join(tempHome, "home");
-    const stateDir = path.join(homeDir, ".tamandua");
+    const stateDir = path.join(homeDir, ".canarinho");
     fs.mkdirSync(stateDir, { recursive: true });
     process.env.HOME = homeDir;
-    process.env.TAMANDUA_STATE_DIR = stateDir;
+    process.env.canarinho_STATE_DIR = stateDir;
 
     // Create mock pi binary. The dispatch motor only spawns a harness when
     // a pending step exists, so each test seeds one; the mock replies
@@ -120,14 +120,14 @@ describe("executeDispatchRound harness dispatch", () => {
     const piPath = path.join(tempHome, "pi-mock");
     const piLog = path.join(tempHome, "pi-args.log");
     makeMockBinary(piPath, `echo "$@" >> "${piLog}"; echo "NO_WORK_AVAILABLE"`);
-    process.env.TAMANDUA_PI_BINARY = piPath;
+    process.env.canarinho_PI_BINARY = piPath;
   });
 
   afterEach(() => {
-    if (savedPiBinary === undefined) delete process.env.TAMANDUA_PI_BINARY;
-    else process.env.TAMANDUA_PI_BINARY = savedPiBinary;
-    if (savedHermesBinary === undefined) delete process.env.TAMANDUA_HERMES_BINARY;
-    else process.env.TAMANDUA_HERMES_BINARY = savedHermesBinary;
+    if (savedPiBinary === undefined) delete process.env.canarinho_PI_BINARY;
+    else process.env.canarinho_PI_BINARY = savedPiBinary;
+    if (savedHermesBinary === undefined) delete process.env.canarinho_HERMES_BINARY;
+    else process.env.canarinho_HERMES_BINARY = savedHermesBinary;
     shutdownAllCrons();
     fs.rmSync(tempHome, { recursive: true, force: true });
   });
@@ -187,7 +187,7 @@ describe("executeDispatchRound harness dispatch", () => {
     const hermesPath = path.join(tempHome, "hermes-mock");
     const hermesLog = path.join(tempHome, "hermes-args.log");
     makeMockBinary(hermesPath, `echo "$@" >> "${hermesLog}"; echo "NO_WORK_AVAILABLE"`);
-    process.env.TAMANDUA_HERMES_BINARY = hermesPath;
+    process.env.canarinho_HERMES_BINARY = hermesPath;
 
     const runId = "run-hermes-dispatch";
     seedRunWithPendingStep(runId, workdir, "hermes");
@@ -273,15 +273,15 @@ describe("executeDispatchRound harness dispatch", () => {
     assert.ok(!fs.existsSync(piLog), "idle dispatch round must not spawn the harness");
   });
 
-  it("passes TAMANDUA_HERMES_BINARY to child env when dispatching to runHermes", async () => {
+  it("passes canarinho_HERMES_BINARY to child env when dispatching to runHermes", async () => {
     const workdir = path.join(tempHome, "work");
     fs.mkdirSync(workdir, { recursive: true });
 
     // Create a mock hermes that dumps its environment
     const hermesPath = path.join(tempHome, "hermes-mock");
     const envLog = path.join(tempHome, "hermes-env.log");
-    makeMockBinary(hermesPath, `env | grep TAMANDUA >> "${envLog}"; echo "NO_WORK_AVAILABLE"`);
-    process.env.TAMANDUA_HERMES_BINARY = hermesPath;
+    makeMockBinary(hermesPath, `env | grep canarinho >> "${envLog}"; echo "NO_WORK_AVAILABLE"`);
+    process.env.canarinho_HERMES_BINARY = hermesPath;
 
     const runId = "run-hermes-env";
     seedRunWithPendingStep(runId, workdir, "hermes");
@@ -300,11 +300,11 @@ describe("executeDispatchRound harness dispatch", () => {
     const hermesEnvDispatchJob = { id: result.id!, workflowId: "test-wf", runId, agentId: "test-wf_test-agent", harnessType: "hermes" as const, workingDirectoryForHarness: workdir, createdAt: "" };
     await executeDispatchRound(hermesEnvDispatchJob, makeAgent(), workflow);
 
-    // Verify TAMANDUA_HERMES_BINARY was passed to child env
+    // Verify canarinho_HERMES_BINARY was passed to child env
     const envOutput = fs.readFileSync(envLog, "utf-8");
     assert.ok(
-      envOutput.includes("TAMANDUA_HERMES_BINARY"),
-      "child env should contain TAMANDUA_HERMES_BINARY",
+      envOutput.includes("canarinho_HERMES_BINARY"),
+      "child env should contain canarinho_HERMES_BINARY",
     );
 
     await removeRunCrons(runId);
@@ -316,24 +316,24 @@ describe("createAgentCronJob harnessType from run context", () => {
   let savedPiBinary: string | undefined;
 
   beforeEach(() => {
-    tempHome = fs.mkdtempSync(path.join(os.tmpdir(), "tamandua-test-cron-harness-"));
-    savedPiBinary = process.env.TAMANDUA_PI_BINARY;
+    tempHome = fs.mkdtempSync(path.join(os.tmpdir(), "canarinho-test-cron-harness-"));
+    savedPiBinary = process.env.canarinho_PI_BINARY;
 
     const homeDir = path.join(tempHome, "home");
-    const stateDir = path.join(homeDir, ".tamandua");
+    const stateDir = path.join(homeDir, ".canarinho");
     fs.mkdirSync(stateDir, { recursive: true });
     process.env.HOME = homeDir;
-    process.env.TAMANDUA_STATE_DIR = stateDir;
+    process.env.canarinho_STATE_DIR = stateDir;
 
     // Create mock pi binary
     const piPath = path.join(tempHome, "pi-mock");
     makeMockBinary(piPath, `echo "NO_WORK_AVAILABLE"`);
-    process.env.TAMANDUA_PI_BINARY = piPath;
+    process.env.canarinho_PI_BINARY = piPath;
   });
 
   afterEach(() => {
-    if (savedPiBinary === undefined) delete process.env.TAMANDUA_PI_BINARY;
-    else process.env.TAMANDUA_PI_BINARY = savedPiBinary;
+    if (savedPiBinary === undefined) delete process.env.canarinho_PI_BINARY;
+    else process.env.canarinho_PI_BINARY = savedPiBinary;
     shutdownAllCrons();
     fs.rmSync(tempHome, { recursive: true, force: true });
   });
@@ -437,13 +437,13 @@ describe("createAgentCronJob harnessType from run context", () => {
       `echo "some output
 session_id: abc123"`,
     );
-    process.env.TAMANDUA_HERMES_BINARY = hermesPath;
+    process.env.canarinho_HERMES_BINARY = hermesPath;
 
     const adapter = getHarnessAdapter("hermes");
     const result = await adapter.runRound("do work", {
       workdir: tempHome,
       timeout: 5,
-      env: { TAMANDUA_HERMES_BINARY: hermesPath },
+      env: { canarinho_HERMES_BINARY: hermesPath },
     });
 
     assert.equal(result.sessionRef, "abc123");
@@ -459,13 +459,13 @@ session_id: abc123"`,
 some output
 session_id: last-one"`,
     );
-    process.env.TAMANDUA_HERMES_BINARY = hermesPath;
+    process.env.canarinho_HERMES_BINARY = hermesPath;
 
     const adapter = getHarnessAdapter("hermes");
     const result = await adapter.runRound("do work", {
       workdir: tempHome,
       timeout: 5,
-      env: { TAMANDUA_HERMES_BINARY: hermesPath },
+      env: { canarinho_HERMES_BINARY: hermesPath },
     });
 
     assert.equal(result.sessionRef, "last-one");
@@ -478,13 +478,13 @@ session_id: last-one"`,
       hermesPath,
       `echo "some output without session id"`,
     );
-    process.env.TAMANDUA_HERMES_BINARY = hermesPath;
+    process.env.canarinho_HERMES_BINARY = hermesPath;
 
     const adapter = getHarnessAdapter("hermes");
     const result = await adapter.runRound("do work", {
       workdir: tempHome,
       timeout: 5,
-      env: { TAMANDUA_HERMES_BINARY: hermesPath },
+      env: { canarinho_HERMES_BINARY: hermesPath },
     });
 
     assert.equal(result.sessionRef, undefined);
@@ -498,13 +498,13 @@ session_id: last-one"`,
       `echo "some output
 session_id:   abc123  "`,
     );
-    process.env.TAMANDUA_HERMES_BINARY = hermesPath;
+    process.env.canarinho_HERMES_BINARY = hermesPath;
 
     const adapter = getHarnessAdapter("hermes");
     const result = await adapter.runRound("do work", {
       workdir: tempHome,
       timeout: 5,
-      env: { TAMANDUA_HERMES_BINARY: hermesPath },
+      env: { canarinho_HERMES_BINARY: hermesPath },
     });
 
     assert.equal(result.sessionRef, "abc123");
@@ -516,13 +516,13 @@ session_id:   abc123  "`,
       hermesPath,
       `exit 0`,
     );
-    process.env.TAMANDUA_HERMES_BINARY = hermesPath;
+    process.env.canarinho_HERMES_BINARY = hermesPath;
 
     const adapter = getHarnessAdapter("hermes");
     const result = await adapter.runRound("do work", {
       workdir: tempHome,
       timeout: 5,
-      env: { TAMANDUA_HERMES_BINARY: hermesPath },
+      env: { canarinho_HERMES_BINARY: hermesPath },
     });
 
     assert.equal(result.sessionRef, undefined);

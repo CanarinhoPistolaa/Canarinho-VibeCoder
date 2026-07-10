@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 
-const skillPath = resolve(import.meta.dirname, "..", "skills", "tamandua-agents", "SKILL.md");
+const skillPath = resolve(import.meta.dirname, "..", "skills", "canarinho-agents", "SKILL.md");
 const skillContent = readFileSync(skillPath, "utf-8");
 
 describe("SKILL.md Hermes harness documentation", () => {
@@ -74,10 +74,10 @@ describe("SKILL.md Hermes harness documentation", () => {
     );
   });
 
-  it("documents TAMANDUA_HERMES_BINARY env var", () => {
+  it("documents canarinho_HERMES_BINARY env var", () => {
     assert.ok(
-      skillContent.includes("TAMANDUA_HERMES_BINARY"),
-      "SKILL.md must document TAMANDUA_HERMES_BINARY environment variable"
+      skillContent.includes("canarinho_HERMES_BINARY"),
+      "SKILL.md must document canarinho_HERMES_BINARY environment variable"
     );
   });
 
@@ -85,7 +85,7 @@ describe("SKILL.md Hermes harness documentation", () => {
     assert.ok(
       skillContent.includes("PATH") &&
       (skillContent.includes("hermes") || skillContent.includes("Hermes")),
-      "SKILL.md must document that hermes is searched on PATH when TAMANDUA_HERMES_BINARY is not set"
+      "SKILL.md must document that hermes is searched on PATH when canarinho_HERMES_BINARY is not set"
     );
   });
 

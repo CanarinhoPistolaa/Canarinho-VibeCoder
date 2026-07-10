@@ -16,7 +16,7 @@ describe("medic-cron", () => {
 
   beforeEach(() => {
     originalHome = process.env.HOME;
-    tempHome = fs.mkdtempSync(path.join(os.tmpdir(), "tamandua-medic-cron-"));
+    tempHome = fs.mkdtempSync(path.join(os.tmpdir(), "canarinho-medic-cron-"));
     process.env.HOME = tempHome;
   });
 
@@ -32,9 +32,9 @@ describe("medic-cron", () => {
       assert.ok(prompt.length > 0);
     });
 
-    it("mentions tamandua medic and health watchdog", () => {
+    it("mentions canarinho medic and health watchdog", () => {
       const prompt = buildMedicPrompt();
-      assert.ok(prompt.includes("Tamandua Medic"));
+      assert.ok(prompt.includes("canarinho Medic"));
       assert.ok(prompt.includes("health watchdog"));
     });
 

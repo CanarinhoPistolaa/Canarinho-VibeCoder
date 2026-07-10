@@ -2,9 +2,9 @@
  * Scripted-hermes test helper — fake hermes binary for full-pipeline e2e.
  *
  * createScriptedHermes() materializes an executable that the agent scheduler
- * can spawn in place of the real hermes binary (via TAMANDUA_HERMES_BINARY).
+ * can spawn in place of the real hermes binary (via canarinho_HERMES_BINARY).
  * Unlike the canned fake-pi in unit tests, the scripted hermes executes the
- * real work protocol — step claim / complete against the isolated tamandua DB
+ * real work protocol — step claim / complete against the isolated canarinho DB
  * (plus a defensive peek) — and applies deterministic per-agent behaviors
  * (file edits, shell commands, canned STATUS outputs) in the harness workdir.
  *
@@ -15,7 +15,7 @@
  *
  * Shares types with scripted-agent.ts so both factories use the same
  * ScriptedAgentConfig shape. The hermes factory also sets:
- *   TAMANDUA_PI_BINARY=/usr/bin/false  (accidental pi spawns fail loudly)
+ *   canarinho_PI_BINARY=/usr/bin/false  (accidental pi spawns fail loudly)
  *   HERMES_HOME=<temp hermes home>  (fake state.db lives here)
  */
 
@@ -87,11 +87,11 @@ export function createScriptedHermes(
     binPath,
     stateDir,
     env: {
-      TAMANDUA_HERMES_BINARY: binPath,
+      canarinho_HERMES_BINARY: binPath,
       HERMES_HOME: hermesHome,
-      TAMANDUA_PI_BINARY: "/usr/bin/false",
-      TAMANDUA_SCRIPTED_BEHAVIORS: behaviorsPath,
-      TAMANDUA_SCRIPTED_STATE: stateDir,
+      canarinho_PI_BINARY: "/usr/bin/false",
+      canarinho_SCRIPTED_BEHAVIORS: behaviorsPath,
+      canarinho_SCRIPTED_STATE: stateDir,
     },
     readInvocations,
     workInvocations: (shortAgent?: string) =>

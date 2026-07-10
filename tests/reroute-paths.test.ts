@@ -186,11 +186,11 @@ describe("RETR: Comprehensive Reroute Paths", () => {
   let _workflowsDir: string;
 
   before(() => {
-    _savedStateDir = process.env.TAMANDUA_STATE_DIR;
-    _savedDbPath = process.env.TAMANDUA_DB_PATH;
-    _isolationDir = fs.mkdtempSync(path.join(os.tmpdir(), "tamandua-reroute-paths-"));
-    process.env.TAMANDUA_STATE_DIR = _isolationDir;
-    process.env.TAMANDUA_DB_PATH = path.join(_isolationDir, "tamandua.db");
+    _savedStateDir = process.env.canarinho_STATE_DIR;
+    _savedDbPath = process.env.canarinho_DB_PATH;
+    _isolationDir = fs.mkdtempSync(path.join(os.tmpdir(), "canarinho-reroute-paths-"));
+    process.env.canarinho_STATE_DIR = _isolationDir;
+    process.env.canarinho_DB_PATH = path.join(_isolationDir, "canarinho.db");
 
     // Create workflow dirs
     _workflowsDir = path.join(_isolationDir, "workflows");
@@ -209,10 +209,10 @@ describe("RETR: Comprehensive Reroute Paths", () => {
   });
 
   after(() => {
-    if (_savedStateDir === undefined) delete process.env.TAMANDUA_STATE_DIR;
-    else process.env.TAMANDUA_STATE_DIR = _savedStateDir;
-    if (_savedDbPath === undefined) delete process.env.TAMANDUA_DB_PATH;
-    else process.env.TAMANDUA_DB_PATH = _savedDbPath;
+    if (_savedStateDir === undefined) delete process.env.canarinho_STATE_DIR;
+    else process.env.canarinho_STATE_DIR = _savedStateDir;
+    if (_savedDbPath === undefined) delete process.env.canarinho_DB_PATH;
+    else process.env.canarinho_DB_PATH = _savedDbPath;
     try { fs.rmSync(_isolationDir, { recursive: true, force: true }); } catch { /* best effort */ }
   });
 

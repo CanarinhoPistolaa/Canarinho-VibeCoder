@@ -24,15 +24,15 @@ describe("update exports", () => {
     });
 
     it("snapshot returns an object with dashboard, mcp, and controlPlane", () => {
-      const prevGuard = process.env.TAMANDUA_TEST_GUARD;
-      process.env.TAMANDUA_TEST_GUARD = "0";
+      const prevGuard = process.env.canarinho_TEST_GUARD;
+      process.env.canarinho_TEST_GUARD = "0";
       let snap: ReturnType<ReturnType<typeof createDefaultUpdateServices>["snapshot"]>;
       try {
         const services = createDefaultUpdateServices();
         snap = services.snapshot();
       } finally {
-        if (prevGuard === undefined) delete process.env.TAMANDUA_TEST_GUARD;
-        else process.env.TAMANDUA_TEST_GUARD = prevGuard;
+        if (prevGuard === undefined) delete process.env.canarinho_TEST_GUARD;
+        else process.env.canarinho_TEST_GUARD = prevGuard;
       }
       assert.ok("dashboard" in snap);
       assert.ok("mcp" in snap);
@@ -114,15 +114,15 @@ describe("update exports", () => {
   });
 
   describe("runUpdate refreshes version status", () => {
-    const originalStateDir = process.env.TAMANDUA_STATE_DIR;
-    const testStateDir = fs.mkdtempSync(path.join(os.tmpdir(), "tamandua-update-version-status-"));
-    process.env.TAMANDUA_STATE_DIR = testStateDir;
+    const originalStateDir = process.env.canarinho_STATE_DIR;
+    const testStateDir = fs.mkdtempSync(path.join(os.tmpdir(), "canarinho-update-version-status-"));
+    process.env.canarinho_STATE_DIR = testStateDir;
 
     after(() => {
       if (originalStateDir === undefined) {
-        delete process.env.TAMANDUA_STATE_DIR;
+        delete process.env.canarinho_STATE_DIR;
       } else {
-        process.env.TAMANDUA_STATE_DIR = originalStateDir;
+        process.env.canarinho_STATE_DIR = originalStateDir;
       }
       fs.rmSync(testStateDir, { recursive: true, force: true });
     });

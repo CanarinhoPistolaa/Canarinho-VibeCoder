@@ -287,11 +287,11 @@ describe("validateLoopArgv", () => {
 // ── renderShellCommand ─────────────────────────────────────────────
 
 describe("renderShellCommand", () => {
-  it("renders a simple command with tamandua prefix", () => {
+  it("renders a simple command with canarinho prefix", () => {
     const cmd = renderShellCommand(["autoresearch", "loop", "--prompt"]);
     assert.equal(
       cmd,
-      "tamandua 'autoresearch' 'loop' '--prompt'",
+      "canarinho 'autoresearch' 'loop' '--prompt'",
     );
   });
 
@@ -320,9 +320,9 @@ describe("renderShellCommand", () => {
     assert.ok(cmd.includes("'it'\\''s ready'"), `got: ${cmd}`);
   });
 
-  it("works with binaryName omitted (defaults to tamandua)", () => {
+  it("works with binaryName omitted (defaults to canarinho)", () => {
     const cmd = renderShellCommand(["autoresearch", "init"]);
-    assert.ok(cmd.startsWith("tamandua "));
+    assert.ok(cmd.startsWith("canarinho "));
     assert.ok(cmd.includes("'autoresearch'"));
   });
 });
@@ -342,7 +342,7 @@ describe("renderWizardCommands", () => {
     assert.equal(result.needsInit, false);
     assert.equal(
       result.display,
-      "tamandua 'autoresearch' 'loop' '--prompt'",
+      "canarinho 'autoresearch' 'loop' '--prompt'",
     );
     assert.deepEqual(result.loopArgv, ["autoresearch", "loop", "--prompt"]);
     assert.equal(result.initArgv, undefined);
@@ -371,10 +371,10 @@ describe("renderWizardCommands", () => {
     assert.equal(result.needsInit, true);
     assert.ok(result.display.includes(" ; "), `got: ${result.display}`);
     assert.ok(
-      result.display.includes("tamandua 'autoresearch' 'init'"),
+      result.display.includes("canarinho 'autoresearch' 'init'"),
     );
     assert.ok(
-      result.display.includes("tamandua 'autoresearch' 'loop' '--prompt'"),
+      result.display.includes("canarinho 'autoresearch' 'loop' '--prompt'"),
     );
     assert.deepEqual(result.initArgv, ready.initArgv);
     assert.deepEqual(result.loopArgv, ready.loopArgv);

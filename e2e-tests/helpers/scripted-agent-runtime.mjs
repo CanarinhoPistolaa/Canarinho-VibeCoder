@@ -7,7 +7,7 @@
  * Unlike the static canned fake-pi used by unit tests, this runtime actually
  * executes the work protocol that the prompt describes:
  *
- *   1. Parse workflow/agent/run IDs and the tamandua CLI path from the prompt
+ *   1. Parse workflow/agent/run IDs and the canarinho CLI path from the prompt
  *   2. Defensive `step peek` — the dispatch motor only spawns a harness when
  *      a pending step exists, so NO_WORK here is a motor bug or a rare race;
  *      it is journaled as phase "heartbeat" (the N2 tripwire) and answered
@@ -18,12 +18,12 @@
  *   4. Emit pi-shaped JSON events (tool_execution_end with {stepId, runId}
  *      for token attribution, message_end with usage.totalTokens)
  *
- * Behaviors come from a JSON file (TAMANDUA_SCRIPTED_BEHAVIORS), keyed by the
+ * Behaviors come from a JSON file (canarinho_SCRIPTED_BEHAVIORS), keyed by the
  * short agent id (the part after "<workflowId>_"). Each agent maps to one
  * behavior or an array consumed per work invocation (last entry repeats), so
  * tests can script "fail once, then succeed" sequences.
  *
- * Every invocation appends a JSON line to TAMANDUA_SCRIPTED_STATE/invocations.jsonl
+ * Every invocation appends a JSON line to canarinho_SCRIPTED_STATE/invocations.jsonl
  * so tests can assert exactly how many rounds ran, which agents did work, and
  * what each round observed.
  *
@@ -53,8 +53,8 @@ import {
 } from "./scripted-agent-runtime-shared.mjs";
 
 const prompt = process.argv[process.argv.length - 1] ?? "";
-const behaviorsPath = process.env.TAMANDUA_SCRIPTED_BEHAVIORS ?? "";
-const stateDir = process.env.TAMANDUA_SCRIPTED_STATE ?? "";
+const behaviorsPath = process.env.canarinho_SCRIPTED_BEHAVIORS ?? "";
+const stateDir = process.env.canarinho_SCRIPTED_STATE ?? "";
 
 // ── State-dir logging (test diagnostics) ────────────────────────────
 
@@ -140,7 +140,7 @@ function substitute(text, inputVars) {
 
 // ── Main ────────────────────────────────────────────────────────────
 
-const base = { workflowId, agentId, shortAgent, runId, cwd: process.cwd(), jobId: process.env.TAMANDUA_WORKER_JOB_ID ?? null };
+const base = { workflowId, agentId, shortAgent, runId, cwd: process.cwd(), jobId: process.env.canarinho_WORKER_JOB_ID ?? null };
 
 // Phase 1: defensive peek. The dispatch motor decides HAS_WORK in-process
 // before ever spawning this runtime, so NO_WORK here means a motor bug or a

@@ -101,15 +101,15 @@ async function getAvailablePort(): Promise<number> {
 // ── Isolated MCP helpers ───────────────────────────────────────────
 
 function createTempHome(): string {
-  return fs.mkdtempSync(path.join(os.tmpdir(), "tamandua-daemonctl-mcp-"));
+  return fs.mkdtempSync(path.join(os.tmpdir(), "canarinho-daemonctl-mcp-"));
 }
 
 function getIsolatedMcpPidFile(homeDir: string): string {
-  return path.join(homeDir, ".tamandua", "mcp.pid");
+  return path.join(homeDir, ".canarinho", "mcp.pid");
 }
 
 function getIsolatedMcpPortFile(homeDir: string): string {
-  return path.join(homeDir, ".tamandua", "mcp-port");
+  return path.join(homeDir, ".canarinho", "mcp-port");
 }
 
 function readIsolatedMcpPort(homeDir: string): number {
@@ -161,15 +161,15 @@ function cleanupIsolatedMcpFiles(homeDir: string): void {
 // ── Isolated control plane helpers ────────────────────────────────
 
 function createControlPlaneTempHome(): string {
-  return fs.mkdtempSync(path.join(os.tmpdir(), "tamandua-daemonctl-cp-"));
+  return fs.mkdtempSync(path.join(os.tmpdir(), "canarinho-daemonctl-cp-"));
 }
 
 function getIsolatedControlPlanePidFile(homeDir: string): string {
-  return path.join(homeDir, ".tamandua", "control-plane.pid");
+  return path.join(homeDir, ".canarinho", "control-plane.pid");
 }
 
 function getIsolatedControlPlanePortFile(homeDir: string): string {
-  return path.join(homeDir, ".tamandua", "control-plane-port");
+  return path.join(homeDir, ".canarinho", "control-plane-port");
 }
 
 function readIsolatedControlPlanePort(homeDir: string): number {
@@ -458,20 +458,20 @@ describe("daemonctl MCP lifecycle", { concurrency: 1 }, () => {
   });
 
   // Verify file path helper exports — these return real HOME paths (path-string-only assertions)
-  it("getMcpPidFile() and getMcpPortFile() return paths within .tamandua", () => {
-    const prevGuard = process.env.TAMANDUA_TEST_GUARD;
-    process.env.TAMANDUA_TEST_GUARD = "0";
+  it("getMcpPidFile() and getMcpPortFile() return paths within .canarinho", () => {
+    const prevGuard = process.env.canarinho_TEST_GUARD;
+    process.env.canarinho_TEST_GUARD = "0";
     try {
       const pidFile = getMcpPidFile();
       const portFile = getMcpPortFile();
 
-      assert.ok(pidFile.includes(".tamandua"));
+      assert.ok(pidFile.includes(".canarinho"));
       assert.ok(pidFile.includes("mcp.pid"));
-      assert.ok(portFile.includes(".tamandua"));
+      assert.ok(portFile.includes(".canarinho"));
       assert.ok(portFile.includes("mcp-port"));
     } finally {
-      if (prevGuard === undefined) delete process.env.TAMANDUA_TEST_GUARD;
-      else process.env.TAMANDUA_TEST_GUARD = prevGuard;
+      if (prevGuard === undefined) delete process.env.canarinho_TEST_GUARD;
+      else process.env.canarinho_TEST_GUARD = prevGuard;
     }
   });
 });
@@ -481,45 +481,45 @@ describe("daemonctl MCP lifecycle", { concurrency: 1 }, () => {
 const CONTROL_STANDALONE_SCRIPT = path.resolve(__dirname, "..", "..", "dist", "server", "control-standalone.js");
 
 describe("daemonctl control plane file paths", () => {
-  it("CONTROL_PLANE_PID_FILE points to ~/.tamandua/control-plane.pid", async () => {
+  it("CONTROL_PLANE_PID_FILE points to ~/.canarinho/control-plane.pid", async () => {
     const { CONTROL_PLANE_PID_FILE } = await import("../../dist/server/daemonctl.js");
-    assert.ok(CONTROL_PLANE_PID_FILE.includes(".tamandua"));
+    assert.ok(CONTROL_PLANE_PID_FILE.includes(".canarinho"));
     assert.ok(CONTROL_PLANE_PID_FILE.endsWith("control-plane.pid"));
   });
 
-  it("CONTROL_PLANE_PORT_FILE points to ~/.tamandua/control-plane-port", async () => {
+  it("CONTROL_PLANE_PORT_FILE points to ~/.canarinho/control-plane-port", async () => {
     const { CONTROL_PLANE_PORT_FILE } = await import("../../dist/server/daemonctl.js");
-    assert.ok(CONTROL_PLANE_PORT_FILE.includes(".tamandua"));
+    assert.ok(CONTROL_PLANE_PORT_FILE.includes(".canarinho"));
     assert.ok(CONTROL_PLANE_PORT_FILE.endsWith("control-plane-port"));
   });
 
-  it("CONTROL_PLANE_LOG_FILE points to ~/.tamandua/control-plane.log", async () => {
+  it("CONTROL_PLANE_LOG_FILE points to ~/.canarinho/control-plane.log", async () => {
     const { CONTROL_PLANE_LOG_FILE } = await import("../../dist/server/daemonctl.js");
-    assert.ok(CONTROL_PLANE_LOG_FILE.includes(".tamandua"));
+    assert.ok(CONTROL_PLANE_LOG_FILE.includes(".canarinho"));
     assert.ok(CONTROL_PLANE_LOG_FILE.endsWith("control-plane.log"));
   });
 
   it("getControlPlanePidFile() returns CONTROL_PLANE_PID_FILE", async () => {
-    const prevGuard = process.env.TAMANDUA_TEST_GUARD;
-    process.env.TAMANDUA_TEST_GUARD = "0";
+    const prevGuard = process.env.canarinho_TEST_GUARD;
+    process.env.canarinho_TEST_GUARD = "0";
     try {
       const { getControlPlanePidFile, CONTROL_PLANE_PID_FILE } = await import("../../dist/server/daemonctl.js");
       assert.equal(getControlPlanePidFile(), CONTROL_PLANE_PID_FILE);
     } finally {
-      if (prevGuard === undefined) delete process.env.TAMANDUA_TEST_GUARD;
-      else process.env.TAMANDUA_TEST_GUARD = prevGuard;
+      if (prevGuard === undefined) delete process.env.canarinho_TEST_GUARD;
+      else process.env.canarinho_TEST_GUARD = prevGuard;
     }
   });
 
   it("getControlPlanePortFile() returns CONTROL_PLANE_PORT_FILE", async () => {
-    const prevGuard = process.env.TAMANDUA_TEST_GUARD;
-    process.env.TAMANDUA_TEST_GUARD = "0";
+    const prevGuard = process.env.canarinho_TEST_GUARD;
+    process.env.canarinho_TEST_GUARD = "0";
     try {
       const { getControlPlanePortFile, CONTROL_PLANE_PORT_FILE } = await import("../../dist/server/daemonctl.js");
       assert.equal(getControlPlanePortFile(), CONTROL_PLANE_PORT_FILE);
     } finally {
-      if (prevGuard === undefined) delete process.env.TAMANDUA_TEST_GUARD;
-      else process.env.TAMANDUA_TEST_GUARD = prevGuard;
+      if (prevGuard === undefined) delete process.env.canarinho_TEST_GUARD;
+      else process.env.canarinho_TEST_GUARD = prevGuard;
     }
   });
 
@@ -769,7 +769,7 @@ describe("daemonctl control plane lifecycle", { concurrency: 1 }, () => {
       assert.equal(stopped, true);
 
       // Stop attribution: the stop must leave a breadcrumb in lifecycle.log
-      const lifecyclePath = path.join(tempHome, ".tamandua", "lifecycle.log");
+      const lifecyclePath = path.join(tempHome, ".canarinho", "lifecycle.log");
       assert.ok(fs.existsSync(lifecyclePath), "stopControlPlane should write a lifecycle.log breadcrumb");
       const breadcrumb = JSON.parse(fs.readFileSync(lifecyclePath, "utf-8").trim().split("\n").at(-1)!);
       assert.equal(breadcrumb.action, "stop.control-plane");
@@ -861,7 +861,7 @@ describe("daemonctl control plane lifecycle", { concurrency: 1 }, () => {
     const server = await new Promise<http.Server>((resolve, reject) => {
       const s = http.createServer((_req, res) => {
         res.writeHead(404, { "content-type": "text/plain" });
-        res.end("not tamandua");
+        res.end("not canarinho");
       });
       s.once("error", reject);
       s.listen(0, "127.0.0.1", () => resolve(s));
@@ -873,7 +873,7 @@ describe("daemonctl control plane lifecycle", { concurrency: 1 }, () => {
 
       await assert.rejects(
         () => startControlPlane(address.port, { homeDir: tempHome }),
-        /not a healthy Tamandua control plane/,
+        /not a healthy canarinho control plane/,
       );
     } finally {
       await new Promise<void>((resolve) => server.close(() => resolve()));
@@ -898,11 +898,11 @@ describe("daemonctl control plane lifecycle", { concurrency: 1 }, () => {
 
 describe("recordLifecycleEvent", () => {
   it("writes a JSON breadcrumb with caller attribution on isolated HOME", () => {
-    const tempHome = fs.mkdtempSync(path.join(os.tmpdir(), "tamandua-lifecycle-"));
+    const tempHome = fs.mkdtempSync(path.join(os.tmpdir(), "canarinho-lifecycle-"));
     try {
       recordLifecycleEvent("stop.daemon", 12345, { homeDir: tempHome });
 
-      const file = path.join(tempHome, ".tamandua", "lifecycle.log");
+      const file = path.join(tempHome, ".canarinho", "lifecycle.log");
       assert.ok(fs.existsSync(file), "lifecycle.log should be created");
       const entry = JSON.parse(fs.readFileSync(file, "utf-8").trim());
       assert.equal(entry.action, "stop.daemon");
@@ -917,12 +917,12 @@ describe("recordLifecycleEvent", () => {
   });
 
   it("appends — multiple events accumulate as one JSON line each", () => {
-    const tempHome = fs.mkdtempSync(path.join(os.tmpdir(), "tamandua-lifecycle-"));
+    const tempHome = fs.mkdtempSync(path.join(os.tmpdir(), "canarinho-lifecycle-"));
     try {
       recordLifecycleEvent("stop.mcp", 111, { homeDir: tempHome });
       recordLifecycleEvent("restart.daemon", 222, { homeDir: tempHome });
 
-      const file = path.join(tempHome, ".tamandua", "lifecycle.log");
+      const file = path.join(tempHome, ".canarinho", "lifecycle.log");
       const lines = fs.readFileSync(file, "utf-8").trim().split("\n");
       assert.equal(lines.length, 2);
       assert.equal(JSON.parse(lines[0]).action, "stop.mcp");
@@ -936,15 +936,15 @@ describe("recordLifecycleEvent", () => {
   it("guard: drops the line without throwing when a guarded process resolves the production path", () => {
     // Mirror the logger-guard contract: attribution must never break a stop,
     // and must never write production state from a guarded process.
-    const prevGuard = process.env.TAMANDUA_TEST_GUARD;
+    const prevGuard = process.env.canarinho_TEST_GUARD;
     const prevHome = process.env.HOME;
     const marker = `guard-drop-probe-${process.pid}-${Date.now()}`;
     try {
-      process.env.TAMANDUA_TEST_GUARD = "1";
+      process.env.canarinho_TEST_GUARD = "1";
       process.env.HOME = os.userInfo().homedir; // resolve the REAL state dir
       assert.doesNotThrow(() => recordLifecycleEvent(marker, 1));
 
-      const prodFile = path.join(os.userInfo().homedir, ".tamandua", "lifecycle.log");
+      const prodFile = path.join(os.userInfo().homedir, ".canarinho", "lifecycle.log");
       if (fs.existsSync(prodFile)) {
         assert.ok(
           !fs.readFileSync(prodFile, "utf-8").includes(marker),
@@ -952,8 +952,8 @@ describe("recordLifecycleEvent", () => {
         );
       }
     } finally {
-      if (prevGuard === undefined) delete process.env.TAMANDUA_TEST_GUARD;
-      else process.env.TAMANDUA_TEST_GUARD = prevGuard;
+      if (prevGuard === undefined) delete process.env.canarinho_TEST_GUARD;
+      else process.env.canarinho_TEST_GUARD = prevGuard;
       if (prevHome === undefined) delete process.env.HOME;
       else process.env.HOME = prevHome;
     }

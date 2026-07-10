@@ -18,9 +18,9 @@ import { cleanChildEnv } from "./helpers/test-env.ts";
 const repoRoot = process.cwd();
 
 function runRoundAndCapturePrompt(opts: { personaFiles?: Record<string, string> }): string {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), "tamandua-work-persona-"));
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "canarinho-work-persona-"));
   const homeDir = path.join(root, "home");
-  const stateDir = path.join(homeDir, ".tamandua");
+  const stateDir = path.join(homeDir, ".canarinho");
   fs.mkdirSync(stateDir, { recursive: true });
 
   const agentId = "wf-persona_dev";
@@ -71,7 +71,7 @@ function runRoundAndCapturePrompt(opts: { personaFiles?: Record<string, string> 
     `;
     const result = spawnSync(process.execPath, ["--input-type=module", "-e", script], {
       cwd: repoRoot,
-      env: cleanChildEnv({ HOME: homeDir, TAMANDUA_PI_BINARY: fakePi, TAMANDUA_STATE_DIR: stateDir }),
+      env: cleanChildEnv({ HOME: homeDir, canarinho_PI_BINARY: fakePi, canarinho_STATE_DIR: stateDir }),
       encoding: "utf-8",
       maxBuffer: 16 * 1024 * 1024,
     });

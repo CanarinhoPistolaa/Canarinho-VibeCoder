@@ -2,8 +2,8 @@
  * Helpers for real end-to-end workflow tests.
  *
  * These helpers manage daemon lifecycle and workflow run polling for the
- * slow real e2e tests. They use isolated HOME/TAMANDUA_STATE_DIR to avoid
- * touching live Tamandua state.
+ * slow real e2e tests. They use isolated HOME/canarinho_STATE_DIR to avoid
+ * touching live canarinho state.
  *
  * IMPORTANT: The real e2e tests using these helpers are SLOW and spend
  * real model tokens.  Do not run them as part of regular test suites.
@@ -45,20 +45,20 @@ export function isSuccessfulRunTerminalStatus(status: string): boolean {
  * "last status: running" is the most expensive possible debugging loop —
  * always attach these to timeout errors.
  */
-export function collectRunDiagnostics(tamanduaDir: string, runId?: string): string {
+export function collectRunDiagnostics(canarinhoDir: string, runId?: string): string {
   const sections: string[] = [];
 
   try {
-    const logPath = path.join(tamanduaDir, "tamandua.log");
+    const logPath = path.join(canarinhoDir, "canarinho.log");
     const lines = fs.readFileSync(logPath, "utf-8").trimEnd().split("\n");
-    sections.push(`── tamandua.log (last 60 lines) ──\n${lines.slice(-60).join("\n")}`);
+    sections.push(`── canarinho.log (last 60 lines) ──\n${lines.slice(-60).join("\n")}`);
   } catch {
-    sections.push("── tamandua.log ──\n(unreadable or missing)");
+    sections.push("── canarinho.log ──\n(unreadable or missing)");
   }
 
   if (runId) {
     try {
-      const eventsPath = path.join(tamanduaDir, "events", `${runId}.jsonl`);
+      const eventsPath = path.join(canarinhoDir, "events", `${runId}.jsonl`);
       const lines = fs.readFileSync(eventsPath, "utf-8").trimEnd().split("\n");
       sections.push(`── run events (last 25) ──\n${lines.slice(-25).join("\n")}`);
     } catch {
@@ -66,7 +66,7 @@ export function collectRunDiagnostics(tamanduaDir: string, runId?: string): stri
     }
 
     try {
-      const db = new DatabaseSync(path.join(tamanduaDir, "tamandua.db"));
+      const db = new DatabaseSync(path.join(canarinhoDir, "canarinho.db"));
       try {
         const steps = db
           .prepare("SELECT step_index, step_id, agent_id, status, retry_count FROM steps WHERE run_id = ? ORDER BY step_index")
@@ -97,15 +97,15 @@ export function collectRunDiagnostics(tamanduaDir: string, runId?: string): stri
  * the DB total is the eventually-correct number.
  */
 export async function waitForRunWorkTokens(
-  tamanduaDir: string,
+  canarinhoDir: string,
   runId: string,
   timeoutMs = 60_000,
 ): Promise<RunTokenAudit> {
   const startedAt = Date.now();
-  let audit = auditRunTokens(tamanduaDir, runId);
+  let audit = auditRunTokens(canarinhoDir, runId);
   while (audit.workTokens <= 0 && Date.now() - startedAt < timeoutMs) {
     await sleep(1_000);
-    audit = auditRunTokens(tamanduaDir, runId);
+    audit = auditRunTokens(canarinhoDir, runId);
   }
   return audit;
 }
@@ -113,7 +113,7 @@ export async function waitForRunWorkTokens(
 export interface RunTokenAudit {
   /** runs.tokens_spent — model usage attributed to this run's work. */
   workTokens: number;
-  /** tamandua_stats.system_tokens_spent — idle-poll (heartbeat) usage, global. */
+  /** canarinho_stats.system_tokens_spent — idle-poll (heartbeat) usage, global. */
   systemTokens: number;
   /** Number of run.tokens.updated events recorded for this run. */
   tokenUpdateEvents: number;
@@ -127,8 +127,8 @@ export interface RunTokenAudit {
  * point of the deterministic-motor rewrite (see tests/MOTOR-CONTRACT.md
  * N1–N3) is to change these numbers without changing run outcomes.
  */
-export function auditRunTokens(tamanduaDir: string, runId: string): RunTokenAudit {
-  const db = new DatabaseSync(path.join(tamanduaDir, "tamandua.db"));
+export function auditRunTokens(canarinhoDir: string, runId: string): RunTokenAudit {
+  const db = new DatabaseSync(path.join(canarinhoDir, "canarinho.db"));
   let workTokens = 0;
   let systemTokens = 0;
   try {
@@ -136,7 +136,7 @@ export function auditRunTokens(tamanduaDir: string, runId: string): RunTokenAudi
       | { tokens_spent: number }
       | undefined;
     workTokens = run?.tokens_spent ?? 0;
-    const stats = db.prepare("SELECT system_tokens_spent FROM tamandua_stats WHERE id = 1").get() as
+    const stats = db.prepare("SELECT system_tokens_spent FROM canarinho_stats WHERE id = 1").get() as
       | { system_tokens_spent: number }
       | undefined;
     systemTokens = stats?.system_tokens_spent ?? 0;
@@ -147,7 +147,7 @@ export function auditRunTokens(tamanduaDir: string, runId: string): RunTokenAudi
   let tokenUpdateEvents = 0;
   let terminalTokensSpent: number | null = null;
   try {
-    const eventsPath = path.join(tamanduaDir, "events", `${runId}.jsonl`);
+    const eventsPath = path.join(canarinhoDir, "events", `${runId}.jsonl`);
     const events = fs
       .readFileSync(eventsPath, "utf-8")
       .split(/\r?\n/)
@@ -168,7 +168,7 @@ export function auditRunTokens(tamanduaDir: string, runId: string): RunTokenAudi
 /**
  * Poll for a workflow run to reach a terminal status.
  *
- * Calls `tamandua workflow status <runId>` at regular intervals and
+ * Calls `canarinho workflow status <runId>` at regular intervals and
  * parses the output to extract the current status. Returns the terminal
  * status string ("completed", "failed", or "canceled") when reached.
  * "done" is also accepted as a legacy success alias.
@@ -181,7 +181,7 @@ export async function pollForRunCompletion(
   env: Record<string, string>,
   timeoutMs: number = DEFAULT_RUN_TIMEOUT_MS,
   pollIntervalMs: number = DEFAULT_POLL_INTERVAL_MS,
-  tamanduaDir?: string,
+  canarinhoDir?: string,
 ): Promise<string> {
   const startedAt = Date.now();
   let lastOutput = "";
@@ -211,7 +211,7 @@ export async function pollForRunCompletion(
     `Timeout after ${timeoutMs}ms waiting for run ${runId.slice(0, 8)} to complete.\n` +
       `Last status: ${lastStatus || "(unknown)"}\n` +
       `Last output:\n${lastOutput || "(no output)"}` +
-      (tamanduaDir ? `\n${collectRunDiagnostics(tamanduaDir, runId)}` : ""),
+      (canarinhoDir ? `\n${collectRunDiagnostics(canarinhoDir, runId)}` : ""),
   );
 }
 
@@ -219,9 +219,9 @@ export async function pollForRunCompletion(
  * Start an isolated daemon process.
  *
  * Spawns the daemon.js script with an isolated HOME directory (so all
- * PID, port, DB, and log files go to the temp ~/.tamandua directory).
+ * PID, port, DB, and log files go to the temp ~/.canarinho directory).
  *
- * The ~/.tamandua/port file in the isolated HOME must already exist
+ * The ~/.canarinho/port file in the isolated HOME must already exist
  * before calling this (createTempHome from smoke-helpers handles this).
  *
  * Waits for the daemon to print its "control plane listening" message
@@ -263,7 +263,7 @@ export function startIsolatedDaemon(
 
     const onData = (chunk: Buffer) => {
       output += chunk.toString("utf-8");
-      if (!resolved && output.includes("Tamandua control plane listening")) {
+      if (!resolved && output.includes("canarinho control plane listening")) {
         resolved = true;
         clearTimeout(timeout);
         resolve(child);
@@ -337,7 +337,7 @@ export async function stopIsolatedDaemon(child: ChildProcess): Promise<void> {
  *
  * The in-process cron timers fire only once per intervalMinutes (default
  * 5 minutes), so without nudging even an instant agent advances one step
- * per 5 minutes. `tamandua nudge` asks the daemon to launch a polling
+ * per 5 minutes. `canarinho nudge` asks the daemon to launch a polling
  * round for every scheduled agent immediately, which lets scripted-agent
  * e2e tests advance the pipeline at second scale.
  *
@@ -348,7 +348,7 @@ export async function pollForRunCompletionWithNudge(
   env: Record<string, string>,
   timeoutMs: number,
   nudgeIntervalMs = 1_500,
-  tamanduaDir?: string,
+  canarinhoDir?: string,
 ): Promise<string> {
   const startedAt = Date.now();
   let lastOutput = "";
@@ -381,7 +381,7 @@ export async function pollForRunCompletionWithNudge(
     `Timeout after ${timeoutMs}ms waiting for run ${runId.slice(0, 8)} to complete (with nudging).\n` +
       `Last status: ${lastStatus || "(unknown)"}\n` +
       `Last output:\n${lastOutput || "(no output)"}` +
-      (tamanduaDir ? `\n${collectRunDiagnostics(tamanduaDir, runId)}` : ""),
+      (canarinhoDir ? `\n${collectRunDiagnostics(canarinhoDir, runId)}` : ""),
   );
 }
 
@@ -396,14 +396,14 @@ export async function waitForRunTerminal(
   env: Record<string, string>,
   timeoutMs: number = DEFAULT_RUN_TIMEOUT_MS,
   pollIntervalMs: number = DEFAULT_POLL_INTERVAL_MS,
-  tamanduaDir?: string,
+  canarinhoDir?: string,
 ): Promise<string> {
-  const status = await pollForRunCompletion(runId, env, timeoutMs, pollIntervalMs, tamanduaDir);
+  const status = await pollForRunCompletion(runId, env, timeoutMs, pollIntervalMs, canarinhoDir);
 
   if (!isSuccessfulRunTerminalStatus(status)) {
     throw new Error(
       `Run ${runId.slice(0, 8)} reached terminal status "${status}" (expected "completed").` +
-        (tamanduaDir ? `\n${collectRunDiagnostics(tamanduaDir, runId)}` : ""),
+        (canarinhoDir ? `\n${collectRunDiagnostics(canarinhoDir, runId)}` : ""),
     );
   }
 

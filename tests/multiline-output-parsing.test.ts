@@ -17,10 +17,10 @@ import { parseOutputKeyValues } from "../dist/installer/step-ops.js";
 describe("parseOutputKeyValues — multi-line output parsing", () => {
 
   it("parses single-line KEY: value pairs", () => {
-    const output = "STATUS: done\nREPO: /Users/scout/tamandua\nVULNERABILITY_COUNT: 3";
+    const output = "STATUS: done\nREPO: /Users/scout/canarinho\nVULNERABILITY_COUNT: 3";
     const result = parseOutputKeyValues(output);
     assert.equal(result["status"], "done");
-    assert.equal(result["repo"], "/Users/scout/tamandua");
+    assert.equal(result["repo"], "/Users/scout/canarinho");
     assert.equal(result["vulnerability_count"], "3");
   });
 

@@ -3,17 +3,17 @@
  *
  * Tests verify:
  *   1. Factory creates executable wrapper script
- *   2. Returns correct env vars (TAMANDUA_HERMES_BINARY, HERMES_HOME,
- *      TAMANDUA_PI_BINARY=/usr/bin/false, TAMANDUA_SCRIPTED_BEHAVIORS,
- *      TAMANDUA_SCRIPTED_STATE)
+ *   2. Returns correct env vars (canarinho_HERMES_BINARY, HERMES_HOME,
+ *      canarinho_PI_BINARY=/usr/bin/false, canarinho_SCRIPTED_BEHAVIORS,
+ *      canarinho_SCRIPTED_STATE)
  *   3. Wrapper script invokes the hermes runtime correctly
  *   4. Factory works with same ScriptedAgentConfig shape as createScriptedAgent
  *   5. readInvocations() works correctly
  *   6. workInvocations() and heartbeats() filtering
  *   7. describe() returns readable output
  *
- * Test isolation: uses temp dirs and mock tamandua CLI (same pattern as
- * scripted-hermes-runtime.test.ts). No real tamandua DB needed.
+ * Test isolation: uses temp dirs and mock canarinho CLI (same pattern as
+ * scripted-hermes-runtime.test.ts). No real canarinho DB needed.
  */
 
 import { describe, it } from "node:test";
@@ -41,12 +41,12 @@ function makeTempDirs(): TestDirs {
   const tmp = fs.mkdtempSync(
     path.join(os.tmpdir(), "hermes-factory-test-"),
   );
-  const mockCliPath = path.join(tmp, "mock-tamandua");
+  const mockCliPath = path.join(tmp, "mock-canarinho");
   return { tmp, mockCliPath };
 }
 
 function createMockCli(dir: string, opts?: { noWork?: boolean }): string {
-  const mockPath = path.join(dir, "mock-tamandua");
+  const mockPath = path.join(dir, "mock-canarinho");
   const journalPath = path.join(dir, "mock-cli-log.jsonl");
 
   const noWorkPeek = opts?.noWork ?? false;
@@ -84,7 +84,7 @@ function createMockCli(dir: string, opts?: { noWork?: boolean }): string {
     "  log({ cmd: 'fail', stepId: args[2], reason: args.slice(3).join(' ') });",
     "  process.exit(0);",
     "} else {",
-    "  process.stderr.write('mock-tamandua: unknown command: ' + JSON.stringify(args));",
+    "  process.stderr.write('mock-canarinho: unknown command: ' + JSON.stringify(args));",
     "  process.exit(1);",
     "}",
     "",
@@ -100,7 +100,7 @@ function spawnScriptedHermes(
   env: Record<string, string>,
   opts?: { timeoutMs?: number },
 ): ReturnType<typeof spawnSync> {
-  const mockCliPath = env.TAMANDUA_SCRIPTED_MOCK_CLI ?? "";
+  const mockCliPath = env.canarinho_SCRIPTED_MOCK_CLI ?? "";
   const prompt = [
     'workflow "test-wf", agent "test-wf_doer", run "' +
       MOCK_RUN_ID +
@@ -185,13 +185,13 @@ describe("createScriptedHermes", () => {
         const agent = createScriptedHermes(dirs.tmp, defaultConfig);
 
         assert.ok(
-          typeof agent.env.TAMANDUA_HERMES_BINARY === "string",
-          "should have TAMANDUA_HERMES_BINARY",
+          typeof agent.env.canarinho_HERMES_BINARY === "string",
+          "should have canarinho_HERMES_BINARY",
         );
         assert.equal(
-          agent.env.TAMANDUA_HERMES_BINARY,
+          agent.env.canarinho_HERMES_BINARY,
           agent.binPath,
-          "TAMANDUA_HERMES_BINARY should equal binPath",
+          "canarinho_HERMES_BINARY should equal binPath",
         );
 
         assert.ok(
@@ -204,26 +204,26 @@ describe("createScriptedHermes", () => {
         );
 
         assert.equal(
-          agent.env.TAMANDUA_PI_BINARY,
+          agent.env.canarinho_PI_BINARY,
           "/usr/bin/false",
-          "TAMANDUA_PI_BINARY should be /usr/bin/false",
+          "canarinho_PI_BINARY should be /usr/bin/false",
         );
 
         assert.ok(
-          typeof agent.env.TAMANDUA_SCRIPTED_BEHAVIORS === "string",
-          "should have TAMANDUA_SCRIPTED_BEHAVIORS",
+          typeof agent.env.canarinho_SCRIPTED_BEHAVIORS === "string",
+          "should have canarinho_SCRIPTED_BEHAVIORS",
         );
         assert.ok(
-          fs.existsSync(agent.env.TAMANDUA_SCRIPTED_BEHAVIORS),
+          fs.existsSync(agent.env.canarinho_SCRIPTED_BEHAVIORS),
           "behaviors file should exist",
         );
 
         assert.ok(
-          typeof agent.env.TAMANDUA_SCRIPTED_STATE === "string",
-          "should have TAMANDUA_SCRIPTED_STATE",
+          typeof agent.env.canarinho_SCRIPTED_STATE === "string",
+          "should have canarinho_SCRIPTED_STATE",
         );
         assert.ok(
-          fs.statSync(agent.env.TAMANDUA_SCRIPTED_STATE).isDirectory(),
+          fs.statSync(agent.env.canarinho_SCRIPTED_STATE).isDirectory(),
           "state dir should exist",
         );
       } finally {
@@ -252,7 +252,7 @@ describe("createScriptedHermes", () => {
         const agent = createScriptedHermes(dirs.tmp, defaultConfig);
 
         const behaviors = JSON.parse(
-          fs.readFileSync(agent.env.TAMANDUA_SCRIPTED_BEHAVIORS, "utf-8"),
+          fs.readFileSync(agent.env.canarinho_SCRIPTED_BEHAVIORS, "utf-8"),
         );
         assert.deepStrictEqual(
           behaviors.agents.doer,
@@ -297,12 +297,12 @@ describe("createScriptedHermes", () => {
         createMockCli(dirs.tmp);
         const agent = createScriptedHermes(dirs.tmp, defaultConfig);
 
-        const mockCliPath = path.join(dirs.tmp, "mock-tamandua");
+        const mockCliPath = path.join(dirs.tmp, "mock-canarinho");
         const result = spawnScriptedHermes(agent.binPath, {
           ...agent.env,
           HERMES_HOME: agent.env.HERMES_HOME,
-          TAMANDUA_SCRIPTED_STATE: agent.env.TAMANDUA_SCRIPTED_STATE,
-          TAMANDUA_SCRIPTED_MOCK_CLI: mockCliPath,
+          canarinho_SCRIPTED_STATE: agent.env.canarinho_SCRIPTED_STATE,
+          canarinho_SCRIPTED_MOCK_CLI: mockCliPath,
           PATH:
             path.dirname(mockCliPath) +
             ":" +
@@ -345,12 +345,12 @@ describe("createScriptedHermes", () => {
         createMockCli(dirs.tmp);
         const agent = createScriptedHermes(dirs.tmp, defaultConfig);
 
-        const mockCliPath = path.join(dirs.tmp, "mock-tamandua");
+        const mockCliPath = path.join(dirs.tmp, "mock-canarinho");
         spawnScriptedHermes(agent.binPath, {
           ...agent.env,
           HERMES_HOME: agent.env.HERMES_HOME,
-          TAMANDUA_SCRIPTED_STATE: agent.env.TAMANDUA_SCRIPTED_STATE,
-          TAMANDUA_SCRIPTED_MOCK_CLI: mockCliPath,
+          canarinho_SCRIPTED_STATE: agent.env.canarinho_SCRIPTED_STATE,
+          canarinho_SCRIPTED_MOCK_CLI: mockCliPath,
           PATH:
             path.dirname(mockCliPath) +
             ":" +
@@ -382,12 +382,12 @@ describe("createScriptedHermes", () => {
           defaultTokens: 111,
         });
 
-        const mockCliPath = path.join(dirs.tmp, "mock-tamandua");
+        const mockCliPath = path.join(dirs.tmp, "mock-canarinho");
         const env = {
           ...agent.env,
           HERMES_HOME: agent.env.HERMES_HOME,
-          TAMANDUA_SCRIPTED_STATE: agent.env.TAMANDUA_SCRIPTED_STATE,
-          TAMANDUA_SCRIPTED_MOCK_CLI: mockCliPath,
+          canarinho_SCRIPTED_STATE: agent.env.canarinho_SCRIPTED_STATE,
+          canarinho_SCRIPTED_MOCK_CLI: mockCliPath,
           PATH:
             path.dirname(mockCliPath) +
             ":" +
@@ -447,7 +447,7 @@ describe("createScriptedHermes", () => {
         });
 
         // Spawn with "doer" agent
-        const mockCliPath = path.join(dirs.tmp, "mock-tamandua");
+        const mockCliPath = path.join(dirs.tmp, "mock-canarinho");
         const promptDoer = [
           'workflow "test-wf", agent "test-wf_doer", run "' +
             MOCK_RUN_ID +
@@ -477,7 +477,7 @@ describe("createScriptedHermes", () => {
               PATH: process.env.PATH ?? "",
               HOME: process.env.HOME ?? os.tmpdir(),
               ...agent.env,
-              TAMANDUA_SCRIPTED_STATE: agent.env.TAMANDUA_SCRIPTED_STATE,
+              canarinho_SCRIPTED_STATE: agent.env.canarinho_SCRIPTED_STATE,
               PATH:
                 path.dirname(mockCliPath) +
                 ":" +
@@ -517,12 +517,12 @@ describe("createScriptedHermes", () => {
         createMockCli(dirs.tmp, { noWork: true });
         const agent = createScriptedHermes(dirs.tmp, defaultConfig);
 
-        const mockCliPath = path.join(dirs.tmp, "mock-tamandua");
+        const mockCliPath = path.join(dirs.tmp, "mock-canarinho");
         spawnScriptedHermes(agent.binPath, {
           ...agent.env,
           HERMES_HOME: agent.env.HERMES_HOME,
-          TAMANDUA_SCRIPTED_STATE: agent.env.TAMANDUA_SCRIPTED_STATE,
-          TAMANDUA_SCRIPTED_MOCK_CLI: mockCliPath,
+          canarinho_SCRIPTED_STATE: agent.env.canarinho_SCRIPTED_STATE,
+          canarinho_SCRIPTED_MOCK_CLI: mockCliPath,
           PATH:
             path.dirname(mockCliPath) +
             ":" +
@@ -569,12 +569,12 @@ describe("createScriptedHermes", () => {
         createMockCli(dirs.tmp);
         const agent = createScriptedHermes(dirs.tmp, defaultConfig);
 
-        const mockCliPath = path.join(dirs.tmp, "mock-tamandua");
+        const mockCliPath = path.join(dirs.tmp, "mock-canarinho");
         spawnScriptedHermes(agent.binPath, {
           ...agent.env,
           HERMES_HOME: agent.env.HERMES_HOME,
-          TAMANDUA_SCRIPTED_STATE: agent.env.TAMANDUA_SCRIPTED_STATE,
-          TAMANDUA_SCRIPTED_MOCK_CLI: mockCliPath,
+          canarinho_SCRIPTED_STATE: agent.env.canarinho_SCRIPTED_STATE,
+          canarinho_SCRIPTED_MOCK_CLI: mockCliPath,
           PATH:
             path.dirname(mockCliPath) +
             ":" +
@@ -630,14 +630,14 @@ describe("createScriptedHermes", () => {
 
         assert.ok(agent.binPath, "should create with multi-agent config");
         assert.equal(
-          agent.env.TAMANDUA_PI_BINARY,
+          agent.env.canarinho_PI_BINARY,
           "/usr/bin/false",
-          "should still set TAMANDUA_PI_BINARY=/usr/bin/false",
+          "should still set canarinho_PI_BINARY=/usr/bin/false",
         );
 
         // Behaviors file should reflect full config
         const behaviors = JSON.parse(
-          fs.readFileSync(agent.env.TAMANDUA_SCRIPTED_BEHAVIORS, "utf-8"),
+          fs.readFileSync(agent.env.canarinho_SCRIPTED_BEHAVIORS, "utf-8"),
         );
         assert.ok(behaviors.agents.fixer, "should have fixer agent");
         assert.ok(behaviors.agents.verifier, "should have verifier agent");
@@ -663,11 +663,11 @@ describe("createScriptedHermes", () => {
         // Set up a second factory pointing at the same stateDir
         // (not using createScriptedAgent directly to avoid importing pi runtime,
         // but the interface is the same)
-        const mockCliPath = path.join(dirs.tmp, "mock-tamandua");
+        const mockCliPath = path.join(dirs.tmp, "mock-canarinho");
         spawnScriptedHermes(hermesAgent.binPath, {
           ...hermesAgent.env,
           HERMES_HOME: hermesAgent.env.HERMES_HOME,
-          TAMANDUA_SCRIPTED_STATE: hermesAgent.env.TAMANDUA_SCRIPTED_STATE,
+          canarinho_SCRIPTED_STATE: hermesAgent.env.canarinho_SCRIPTED_STATE,
           PATH:
             path.dirname(mockCliPath) +
             ":" +
@@ -682,7 +682,7 @@ describe("createScriptedHermes", () => {
         spawnScriptedHermes(hermesAgent.binPath, {
           ...hermesAgent.env,
           HERMES_HOME: hermesAgent.env.HERMES_HOME,
-          TAMANDUA_SCRIPTED_STATE: hermesAgent.env.TAMANDUA_SCRIPTED_STATE,
+          canarinho_SCRIPTED_STATE: hermesAgent.env.canarinho_SCRIPTED_STATE,
           PATH:
             path.dirname(mockCliPath) +
             ":" +

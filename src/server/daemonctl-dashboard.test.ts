@@ -16,8 +16,8 @@ describe("daemonctl dashboard helpers", () => {
   let tempHome: string;
 
   beforeEach(() => {
-    tempHome = fs.mkdtempSync(path.join(os.tmpdir(), "tamandua-dctl-"));
-    fs.mkdirSync(path.join(tempHome, ".tamandua"), { recursive: true });
+    tempHome = fs.mkdtempSync(path.join(os.tmpdir(), "canarinho-dctl-"));
+    fs.mkdirSync(path.join(tempHome, ".canarinho"), { recursive: true });
   });
 
   afterEach(() => {
@@ -26,23 +26,23 @@ describe("daemonctl dashboard helpers", () => {
   });
 
   describe("path helpers", () => {
-    it("getPidFile returns path ending with tamandua.pid", () => {
+    it("getPidFile returns path ending with canarinho.pid", () => {
       const p = getPidFile({ homeDir: tempHome });
-      assert.ok(p.includes(".tamandua"));
-      assert.ok(p.endsWith("tamandua.pid"));
+      assert.ok(p.includes(".canarinho"));
+      assert.ok(p.endsWith("canarinho.pid"));
       assert.ok(p.startsWith(tempHome));
     });
 
     it("getPortFile returns path ending with port", () => {
       const p = getPortFile({ homeDir: tempHome });
-      assert.ok(p.includes(".tamandua"));
+      assert.ok(p.includes(".canarinho"));
       assert.ok(p.endsWith("port"));
       assert.ok(p.startsWith(tempHome));
     });
 
     it("getLogFile returns path ending with dashboard.log", () => {
       const p = getLogFile({ homeDir: tempHome });
-      assert.ok(p.includes(".tamandua"));
+      assert.ok(p.includes(".canarinho"));
       assert.ok(p.endsWith("dashboard.log"));
       assert.ok(p.startsWith(tempHome));
     });

@@ -18,23 +18,23 @@ describe("symlink", () => {
 
   beforeEach(() => {
     originalHome = process.env.HOME;
-    originalBinDir = process.env.TAMANDUA_BIN_DIR;
-    originalStateDir = process.env.TAMANDUA_STATE_DIR;
-    tempHome = fs.mkdtempSync(path.join(os.tmpdir(), "tamandua-symlink-"));
+    originalBinDir = process.env.canarinho_BIN_DIR;
+    originalStateDir = process.env.canarinho_STATE_DIR;
+    tempHome = fs.mkdtempSync(path.join(os.tmpdir(), "canarinho-symlink-"));
     localBin = path.join(tempHome, ".local", "bin");
     fs.mkdirSync(localBin, { recursive: true });
     process.env.HOME = tempHome;
-    delete process.env.TAMANDUA_BIN_DIR;
-    process.env.TAMANDUA_STATE_DIR = tempHome; // points .tamandua to tempHome
+    delete process.env.canarinho_BIN_DIR;
+    process.env.canarinho_STATE_DIR = tempHome; // points .canarinho to tempHome
   });
 
   afterEach(() => {
     if (originalHome) process.env.HOME = originalHome;
     else delete process.env.HOME;
-    if (originalBinDir) process.env.TAMANDUA_BIN_DIR = originalBinDir;
-    else delete process.env.TAMANDUA_BIN_DIR;
-    if (originalStateDir) process.env.TAMANDUA_STATE_DIR = originalStateDir;
-    else delete process.env.TAMANDUA_STATE_DIR;
+    if (originalBinDir) process.env.canarinho_BIN_DIR = originalBinDir;
+    else delete process.env.canarinho_BIN_DIR;
+    if (originalStateDir) process.env.canarinho_STATE_DIR = originalStateDir;
+    else delete process.env.canarinho_STATE_DIR;
     fs.rmSync(tempHome, { recursive: true, force: true });
   });
 
@@ -47,7 +47,7 @@ describe("symlink", () => {
       const linkPath = ensureCliSymlink();
       const target = fs.readlinkSync(linkPath);
 
-      assert.equal(path.basename(target), "tamandua");
+      assert.equal(path.basename(target), "canarinho");
       assert.equal(path.basename(path.dirname(target)), "bin");
       assert.equal(isCliSymlinked(), true);
     });
@@ -61,7 +61,7 @@ describe("symlink", () => {
     it("removes an existing symlink", () => {
       const fakeCli = path.join(tempHome, "fake-cli");
       fs.writeFileSync(fakeCli, "#!/usr/bin/env node\n", { mode: 0o755 });
-      const linkPath = path.join(localBin, "tamandua");
+      const linkPath = path.join(localBin, "canarinho");
       fs.symlinkSync(fakeCli, linkPath);
 
       // Verify symlink exists
@@ -74,7 +74,7 @@ describe("symlink", () => {
     });
 
     it("ignores regular file at symlink path (does not throw)", () => {
-      const linkPath = path.join(localBin, "tamandua");
+      const linkPath = path.join(localBin, "canarinho");
       fs.writeFileSync(linkPath, "not a symlink");
       // removeCliSymlink should not throw for a regular file (lstat succeeds, isSymbolicLink is false)
       assert.doesNotThrow(() => removeCliSymlink());
@@ -90,7 +90,7 @@ describe("symlink", () => {
       // and creates the symlink. The target will be the real dist/cli/cli.js.
       // Since we're in a temp home, we need ~/.local/bin to exist.
       const result = ensureCliSymlink();
-      const linkPath = path.join(localBin, "tamandua");
+      const linkPath = path.join(localBin, "canarinho");
       assert.ok(fs.existsSync(linkPath), "symlink should be created");
       assert.ok(fs.lstatSync(linkPath).isSymbolicLink(), "should be a symlink");
       assert.ok(typeof result === "string");
@@ -104,7 +104,7 @@ describe("symlink", () => {
     });
 
     it("replaces symlink pointing to wrong target", () => {
-      const linkPath = path.join(localBin, "tamandua");
+      const linkPath = path.join(localBin, "canarinho");
       const wrongTarget = path.join(tempHome, "wrong-cli");
       fs.writeFileSync(wrongTarget, "fake", { mode: 0o755 });
 
@@ -119,7 +119,7 @@ describe("symlink", () => {
     });
 
     it("replaces regular file at symlink path (EINVAL path)", () => {
-      const linkPath = path.join(localBin, "tamandua");
+      const linkPath = path.join(localBin, "canarinho");
 
       // Remove existing symlink if any
       try { fs.unlinkSync(linkPath); } catch { /* ok */ }
@@ -134,32 +134,32 @@ describe("symlink", () => {
       assert.ok(fs.lstatSync(linkPath).isSymbolicLink(), "should now be a symlink");
     });
 
-    it("respects TAMANDUA_BIN_DIR env var", () => {
+    it("respects canarinho_BIN_DIR env var", () => {
       const customBinDir = path.join(tempHome, "custom-bin");
       fs.mkdirSync(customBinDir, { recursive: true });
-      process.env.TAMANDUA_BIN_DIR = customBinDir;
+      process.env.canarinho_BIN_DIR = customBinDir;
 
       try {
         const result = ensureCliSymlink();
-        const linkPath = path.join(customBinDir, "tamandua");
+        const linkPath = path.join(customBinDir, "canarinho");
         assert.ok(fs.existsSync(linkPath), "symlink should exist in custom bin dir");
-        assert.ok(result.includes("tamandua"));
+        assert.ok(result.includes("canarinho"));
       } finally {
-        delete process.env.TAMANDUA_BIN_DIR;
+        delete process.env.canarinho_BIN_DIR;
       }
     });
   });
 
   describe("resolveBinDir fallback", () => {
-    it("falls back to .tamandua/bin when .local/bin is inaccessible", () => {
+    it("falls back to .canarinho/bin when .local/bin is inaccessible", () => {
       // Create a temp home WITHOUT write permissions to .local
-      const noLocalHome = fs.mkdtempSync(path.join(os.tmpdir(), "tamandua-nolocal-"));
+      const noLocalHome = fs.mkdtempSync(path.join(os.tmpdir(), "canarinho-nolocal-"));
       const origHome = process.env.HOME;
 
       try {
         process.env.HOME = noLocalHome;
         // isCliSymlinked calls resolveBinDir internally.
-        // Without ~/.local/bin, it should fall back to .tamandua/bin.
+        // Without ~/.local/bin, it should fall back to .canarinho/bin.
         // We just verify it doesn't throw.
         const result = isCliSymlinked();
         assert.equal(typeof result, "boolean");

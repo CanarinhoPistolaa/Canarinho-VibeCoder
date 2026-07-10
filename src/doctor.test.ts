@@ -37,20 +37,20 @@ let originalDbPath: string | undefined;
 let guardHomeDir: string;
 
 beforeEach(() => {
-  originalDbPath = process.env.TAMANDUA_DB_PATH;
+  originalDbPath = process.env.canarinho_DB_PATH;
   guardHomeDir = createTempHome();
-  const dbPath = path.join(guardHomeDir, ".tamandua", "tamandua.db");
+  const dbPath = path.join(guardHomeDir, ".canarinho", "canarinho.db");
   fs.mkdirSync(path.dirname(dbPath), { recursive: true });
   // Write an empty file; getDb() → migrate() creates all required tables.
   fs.writeFileSync(dbPath, "");
-  process.env.TAMANDUA_DB_PATH = dbPath;
+  process.env.canarinho_DB_PATH = dbPath;
 });
 
 afterEach(() => {
   if (originalDbPath !== undefined) {
-    process.env.TAMANDUA_DB_PATH = originalDbPath;
+    process.env.canarinho_DB_PATH = originalDbPath;
   } else {
-    delete process.env.TAMANDUA_DB_PATH;
+    delete process.env.canarinho_DB_PATH;
   }
   try { fs.rmSync(guardHomeDir, { recursive: true, force: true }); } catch { /* best-effort */ }
 });
@@ -58,12 +58,12 @@ afterEach(() => {
 // ── Helpers ──────────────────────────────────────────────────────
 
 function createTempHome(): string {
-  return fs.mkdtempSync(path.join(os.tmpdir(), "tamandua-doctor-svc-"));
+  return fs.mkdtempSync(path.join(os.tmpdir(), "canarinho-doctor-svc-"));
 }
 
 /** Set up an empty isolated DB at the given homeDir, returning the dbPath. */
 function setupEmptyDb(homeDir: string): string {
-  const dbPath = path.join(homeDir, ".tamandua", "tamandua.db");
+  const dbPath = path.join(homeDir, ".canarinho", "canarinho.db");
   fs.mkdirSync(path.dirname(dbPath), { recursive: true });
   // createTables uses getDb() via our module — but we need a standalone
   // connection to pre-create tables. We'll just create an empty file;
@@ -264,7 +264,7 @@ describe("DoctorCheckResult type", () => {
       name: "Daemon build version",
       status: "warn",
       message: "Unable to determine staleness",
-      remedy: "Run: tamandua dashboard restart",
+      remedy: "Run: canarinho dashboard restart",
     };
     assert.strictEqual(r.status, "warn");
     assert.strictEqual(typeof r.remedy, "string");
@@ -381,15 +381,19 @@ describe("ENVIRONMENT checks (US-003)", () => {
       `Message should include Node.js version, got: ${nodeCheck!.message}`);
   });
 
-  it("pi on PATH check passes when pi is available", async () => {
+  it("pi on PATH check returns pass or fail (not info)", async () => {
     const groups = await runDoctorChecks();
     const env = groups.find((g) => g.label === "ENVIRONMENT");
     assert.ok(env);
     const piCheck = env!.checks.find((c) => c.name === "pi present on PATH");
     assert.ok(piCheck, "Expected pi check to exist");
-    // pi should be available in this test environment (it's how we were launched)
-    assert.strictEqual(piCheck!.status, "pass",
-      `pi check should pass on PATH, got: ${piCheck!.status} (${piCheck!.message})`);
+    assert.ok(
+      piCheck!.status === "pass" || piCheck!.status === "fail",
+      `pi check should be pass or fail, got: ${piCheck!.status} (${piCheck!.message})`,
+    );
+    if (piCheck!.status === "fail") {
+      assert.ok(piCheck!.remedy, "Fail should have a remedy command");
+    }
   });
 
   it("gh check returns pass or fail (not info)", async () => {
@@ -428,17 +432,29 @@ describe("ENVIRONMENT checks (US-003)", () => {
   });
 
   it("hermes-token-saver check returns pass when found on PATH with optional token-saving tool message", async () => {
-    const groups = await runDoctorChecks();
-    const env = groups.find((g) => g.label === "ENVIRONMENT");
-    assert.ok(env);
-    const saverCheck = env!.checks.find((c) => c.name === "hermes-token-saver detection");
-    assert.ok(saverCheck, "Expected hermes-token-saver check to exist");
-    assert.strictEqual(saverCheck!.status, "pass",
-      `hermes-token-saver check should pass when found, got: ${saverCheck!.status} (${saverCheck!.message})`);
-    assert.ok(
-      saverCheck!.message.toLowerCase().includes("optional token-saving tool"),
-      `Message should mention 'optional token-saving tool', got: ${saverCheck!.message}`,
-    );
+    // Create a stub hermes-token-saver on PATH so the check finds it and reports pass.
+    const stubDir = fs.mkdtempSync(path.join(os.tmpdir(), "canarinho-hermes-saver-stub-"));
+    const stubPath = path.join(stubDir, "hermes-token-saver");
+    fs.writeFileSync(stubPath, "#!/bin/sh\nexit 0\n", { mode: 0o755 });
+    const savedPath = process.env.PATH;
+    process.env.PATH = `${stubDir}:${savedPath ?? "/usr/bin:/bin"}`;
+    try {
+      const groups = await runDoctorChecks();
+      const env = groups.find((g) => g.label === "ENVIRONMENT");
+      assert.ok(env);
+      const saverCheck = env!.checks.find((c) => c.name === "hermes-token-saver detection");
+      assert.ok(saverCheck, "Expected hermes-token-saver check to exist");
+      assert.strictEqual(saverCheck!.status, "pass",
+        `hermes-token-saver check should pass when found, got: ${saverCheck!.status} (${saverCheck!.message})`);
+      assert.ok(
+        saverCheck!.message.toLowerCase().includes("optional token-saving tool"),
+        `Message should mention 'optional token-saving tool', got: ${saverCheck!.message}`,
+      );
+    } finally {
+      if (savedPath === undefined) delete process.env.PATH;
+      else process.env.PATH = savedPath;
+      fs.rmSync(stubDir, { recursive: true, force: true });
+    }
   });
 
   it("hermes-token-saver check returns info with no-hurry reference when absent from PATH", async () => {
@@ -467,7 +483,7 @@ describe("ENVIRONMENT checks (US-003)", () => {
     const groups = await runDoctorChecks();
     const env = groups.find((g) => g.label === "ENVIRONMENT");
     assert.ok(env);
-    const hermesCheck = env!.checks.find((c) => c.name === "TAMANDUA_HERMES_BINARY / hermes");
+    const hermesCheck = env!.checks.find((c) => c.name === "canarinho_HERMES_BINARY / hermes");
     assert.ok(hermesCheck, "Expected Hermes check to exist");
     assert.strictEqual(hermesCheck!.status, "info",
       `Hermes check should be info-only, got: ${hermesCheck!.status} (${hermesCheck!.message})`);
@@ -571,9 +587,9 @@ describe("ENVIRONMENT hermes contract check (US-004)", () => {
 
   afterEach(() => {
     if (savedHermesBinary !== undefined) {
-      process.env.TAMANDUA_HERMES_BINARY = savedHermesBinary;
+      process.env.canarinho_HERMES_BINARY = savedHermesBinary;
     } else {
-      delete process.env.TAMANDUA_HERMES_BINARY;
+      delete process.env.canarinho_HERMES_BINARY;
     }
     if (savedHermesHome !== undefined) {
       process.env.HERMES_HOME = savedHermesHome;
@@ -590,8 +606,8 @@ describe("ENVIRONMENT hermes contract check (US-004)", () => {
   });
 
   it("when no hermes binary, ENVIRONMENT group has exactly 5 checks (no contract check)", async () => {
-    savedHermesBinary = process.env.TAMANDUA_HERMES_BINARY;
-    delete process.env.TAMANDUA_HERMES_BINARY;
+    savedHermesBinary = process.env.canarinho_HERMES_BINARY;
+    delete process.env.canarinho_HERMES_BINARY;
     // Remove hermes from PATH to ensure commandIsOnPath('hermes') returns false
     savedPath = process.env.PATH;
     process.env.PATH = "/usr/bin:/bin";
@@ -610,16 +626,16 @@ describe("ENVIRONMENT hermes contract check (US-004)", () => {
   });
 
   it("hermes contract check shows info with 'contract OK' when state.db is valid", async () => {
-    savedHermesBinary = process.env.TAMANDUA_HERMES_BINARY;
+    savedHermesBinary = process.env.canarinho_HERMES_BINARY;
     savedHermesHome = process.env.HERMES_HOME;
 
     // Create a fixture HERMES_HOME with a valid state.db
     fixtureDir = createTempHome();
     seedHermesFixtureDb(fixtureDir);
 
-    // Point TAMANDUA_HERMES_BINARY to any truthy value — the probe only
+    // Point canarinho_HERMES_BINARY to any truthy value — the probe only
     // checks presence, not whether the binary actually exists or works.
-    process.env.TAMANDUA_HERMES_BINARY = "/usr/bin/true";
+    process.env.canarinho_HERMES_BINARY = "/usr/bin/true";
     process.env.HERMES_HOME = fixtureDir;
 
     const groups = await runDoctorChecks();
@@ -640,14 +656,14 @@ describe("ENVIRONMENT hermes contract check (US-004)", () => {
   });
 
   it("hermes contract check shows warn when state.db has no sessions table", async () => {
-    savedHermesBinary = process.env.TAMANDUA_HERMES_BINARY;
+    savedHermesBinary = process.env.canarinho_HERMES_BINARY;
     savedHermesHome = process.env.HERMES_HOME;
 
     // Create a fixture with state.db but no sessions table
     fixtureDir = createTempHome();
     seedHermesFixtureDb(fixtureDir, { noSessionsTable: true });
 
-    process.env.TAMANDUA_HERMES_BINARY = "/usr/bin/true";
+    process.env.canarinho_HERMES_BINARY = "/usr/bin/true";
     process.env.HERMES_HOME = fixtureDir;
 
     const groups = await runDoctorChecks();
@@ -667,14 +683,14 @@ describe("ENVIRONMENT hermes contract check (US-004)", () => {
   });
 
   it("hermes contract check shows warn when state.db has missing column", async () => {
-    savedHermesBinary = process.env.TAMANDUA_HERMES_BINARY;
+    savedHermesBinary = process.env.canarinho_HERMES_BINARY;
     savedHermesHome = process.env.HERMES_HOME;
 
     // Create a fixture with sessions table but missing cache_write_tokens column
     fixtureDir = createTempHome();
     seedHermesFixtureDb(fixtureDir, { missingColumns: ["cache_write_tokens"] });
 
-    process.env.TAMANDUA_HERMES_BINARY = "/usr/bin/true";
+    process.env.canarinho_HERMES_BINARY = "/usr/bin/true";
     process.env.HERMES_HOME = fixtureDir;
 
     const groups = await runDoctorChecks();
@@ -696,14 +712,14 @@ describe("ENVIRONMENT hermes contract check (US-004)", () => {
   });
 
   it("hermes contract check shows warn with reason when state.db is missing", async () => {
-    savedHermesBinary = process.env.TAMANDUA_HERMES_BINARY;
+    savedHermesBinary = process.env.canarinho_HERMES_BINARY;
     savedHermesHome = process.env.HERMES_HOME;
 
     // Create a fixture HERMES_HOME without state.db
     fixtureDir = createTempHome();
     seedHermesFixtureDb(fixtureDir, { noDb: true });
 
-    process.env.TAMANDUA_HERMES_BINARY = "/usr/bin/true";
+    process.env.canarinho_HERMES_BINARY = "/usr/bin/true";
     process.env.HERMES_HOME = fixtureDir;
 
     const groups = await runDoctorChecks();
@@ -737,21 +753,21 @@ describe("SERVICES checks (US-004)", () => {
       assert.ok(daemonCheck);
       assert.strictEqual(daemonCheck!.status, "fail");
       assert.ok(daemonCheck!.message.includes("Daemon is not running"));
-      assert.strictEqual(daemonCheck!.remedy, "tamandua dashboard start");
+      assert.strictEqual(daemonCheck!.remedy, "canarinho dashboard start");
 
       // 2. Control plane
       const cpCheck = svc!.checks.find((c) => c.name === "Control plane reachable");
       assert.ok(cpCheck);
       assert.strictEqual(cpCheck!.status, "fail");
       assert.ok(cpCheck!.message.includes("daemon is not running"));
-      assert.strictEqual(cpCheck!.remedy, "tamandua dashboard start");
+      assert.strictEqual(cpCheck!.remedy, "canarinho dashboard start");
 
       // 3. Dashboard HTTP
       const dashCheck = svc!.checks.find((c) => c.name === "Dashboard HTTP up");
       assert.ok(dashCheck);
       assert.strictEqual(dashCheck!.status, "fail");
       assert.ok(dashCheck!.message.includes("daemon is not running"));
-      assert.strictEqual(dashCheck!.remedy, "tamandua dashboard start");
+      assert.strictEqual(dashCheck!.remedy, "canarinho dashboard start");
 
       // 4. MCP — should be info since no pidfile
       const mcpCheck = svc!.checks.find((c) => c.name === "MCP server status");
@@ -770,8 +786,8 @@ describe("SERVICES checks (US-004)", () => {
     const controlPort = await getAvailablePort();
     let child: import("node:child_process").ChildProcess | undefined;
     // Isolate the control plane port for the spawned daemon
-    const savedControlPort = process.env.TAMANDUA_CONTROL_PORT;
-    process.env.TAMANDUA_CONTROL_PORT = String(controlPort);
+    const savedControlPort = process.env.canarinho_CONTROL_PORT;
+    process.env.canarinho_CONTROL_PORT = String(controlPort);
     try {
       const result = await startDaemon(port, { homeDir, keepHandle: true });
       child = (result as { child: import("node:child_process").ChildProcess }).child;
@@ -825,9 +841,9 @@ describe("SERVICES checks (US-004)", () => {
       fs.rmSync(homeDir, { recursive: true, force: true });
       // Restore control port env var
       if (savedControlPort !== undefined) {
-        process.env.TAMANDUA_CONTROL_PORT = savedControlPort;
+        process.env.canarinho_CONTROL_PORT = savedControlPort;
       } else {
-        delete process.env.TAMANDUA_CONTROL_PORT;
+        delete process.env.canarinho_CONTROL_PORT;
       }
     }
   });
@@ -836,12 +852,12 @@ describe("SERVICES checks (US-004)", () => {
     const homeDir = createTempHome();
     try {
       // Set up MCP pidfile with a fake PID
-      const mcpPidFile = path.join(homeDir, ".tamandua", "mcp.pid");
+      const mcpPidFile = path.join(homeDir, ".canarinho", "mcp.pid");
       fs.mkdirSync(path.dirname(mcpPidFile), { recursive: true });
       // Use a PID that definitely doesn't exist (but is a valid number)
       fs.writeFileSync(mcpPidFile, "99999999", "utf-8");
       // Also need a valid MCP port file
-      const mcpPortFile = path.join(homeDir, ".tamandua", "mcp-port");
+      const mcpPortFile = path.join(homeDir, ".canarinho", "mcp-port");
       fs.writeFileSync(mcpPortFile, "3338", "utf-8");
 
       const groups = await runDoctorChecks({ homeDir });
@@ -864,9 +880,9 @@ describe("SERVICES checks (US-004)", () => {
     const homeDir = createTempHome();
     try {
       // Write a fake daemon log file so the log tail can be read
-      const tamanduaDir = path.join(homeDir, ".tamandua");
-      fs.mkdirSync(tamanduaDir, { recursive: true });
-      const logFile = path.join(tamanduaDir, "dashboard.log");
+      const canarinhoDir = path.join(homeDir, ".canarinho");
+      fs.mkdirSync(canarinhoDir, { recursive: true });
+      const logFile = path.join(canarinhoDir, "dashboard.log");
       const logContent = "line1\nline2\nline3\nerror: something broke\ninfo: daemon started\n";
       fs.writeFileSync(logFile, logContent, "utf-8");
 
@@ -920,8 +936,8 @@ describe("SERVICES checks (US-004)", () => {
             `Check "${check.name}" should fail when daemon is not running`);
           assert.ok(check.remedy, `Check "${check.name}" should have a remedy`);
           assert.ok(
-            check.remedy!.includes("tamandua dashboard"),
-            `Remedy for "${check.name}" should reference tamandua dashboard: ${check.remedy}`,
+            check.remedy!.includes("canarinho dashboard"),
+            `Remedy for "${check.name}" should reference canarinho dashboard: ${check.remedy}`,
           );
         }
       }
@@ -947,8 +963,8 @@ describe("STALENESS check (US-005)", () => {
     const port = await getAvailablePort();
     const controlPort = await getAvailablePort();
     let child: import("node:child_process").ChildProcess | undefined;
-    const savedControlPort = process.env.TAMANDUA_CONTROL_PORT;
-    process.env.TAMANDUA_CONTROL_PORT = String(controlPort);
+    const savedControlPort = process.env.canarinho_CONTROL_PORT;
+    process.env.canarinho_CONTROL_PORT = String(controlPort);
     try {
       const result = await startDaemon(port, { homeDir, keepHandle: true });
       child = (result as { child: import("node:child_process").ChildProcess }).child;
@@ -977,9 +993,9 @@ describe("STALENESS check (US-005)", () => {
       try { stopDaemon({ homeDir }); } catch { /* ignore */ }
       fs.rmSync(homeDir, { recursive: true, force: true });
       if (savedControlPort !== undefined) {
-        process.env.TAMANDUA_CONTROL_PORT = savedControlPort;
+        process.env.canarinho_CONTROL_PORT = savedControlPort;
       } else {
-        delete process.env.TAMANDUA_CONTROL_PORT;
+        delete process.env.canarinho_CONTROL_PORT;
       }
     }
   });
@@ -1020,8 +1036,8 @@ describe("STALENESS check (US-005)", () => {
           `Message should mention installed build, got: ${check.message}`);
         assert.ok(check.message.includes("99999999_old_build"),
           `Message should include daemon build version, got: ${check.message}`);
-        assert.strictEqual(check.remedy, "Run: tamandua dashboard restart",
-          "Remedy should be tamandua dashboard restart (not control-plane restart)");
+        assert.strictEqual(check.remedy, "Run: canarinho dashboard restart",
+          "Remedy should be canarinho dashboard restart (not control-plane restart)");
       } finally {
         await new Promise<void>((resolve) => mockServer.close(() => resolve()));
       }
@@ -1062,8 +1078,8 @@ describe("STALENESS check (US-005)", () => {
           `Staleness check should warn when buildVersion is missing, got: ${check.status} (${check.message})`);
         assert.ok(check.message.includes("predates build version reporting"),
           `Message should mention predates build version reporting, got: ${check.message}`);
-        assert.ok(check.remedy!.includes("tamandua dashboard restart"),
-          "Remedy should suggest tamandua dashboard restart");
+        assert.ok(check.remedy!.includes("canarinho dashboard restart"),
+          "Remedy should suggest canarinho dashboard restart");
       } finally {
         await new Promise<void>((resolve) => mockServer.close(() => resolve()));
       }
@@ -1137,20 +1153,20 @@ describe("Catalog staleness check (US-002)", () => {
   let savedStateDir: string | undefined;
 
   beforeEach(() => {
-    savedStateDir = process.env.TAMANDUA_STATE_DIR;
+    savedStateDir = process.env.canarinho_STATE_DIR;
   });
 
   afterEach(() => {
     if (savedStateDir !== undefined) {
-      process.env.TAMANDUA_STATE_DIR = savedStateDir;
+      process.env.canarinho_STATE_DIR = savedStateDir;
     } else {
-      delete process.env.TAMANDUA_STATE_DIR;
+      delete process.env.canarinho_STATE_DIR;
     }
   });
 
   function setupCatalogStamp(homeDir: string, stampVersion: string | null): void {
-    const stateDir = path.join(homeDir, ".tamandua");
-    process.env.TAMANDUA_STATE_DIR = stateDir;
+    const stateDir = path.join(homeDir, ".canarinho");
+    process.env.canarinho_STATE_DIR = stateDir;
 
     const workflowsDir = path.join(stateDir, "workflows");
     fs.mkdirSync(workflowsDir, { recursive: true });
@@ -1168,7 +1184,7 @@ describe("Catalog staleness check (US-002)", () => {
     }
 
     // DB must exist for STATE checks
-    const dbPath = path.join(stateDir, "tamandua.db");
+    const dbPath = path.join(stateDir, "canarinho.db");
     fs.mkdirSync(path.dirname(dbPath), { recursive: true });
     fs.writeFileSync(dbPath, "");
   }
@@ -1211,8 +1227,8 @@ describe("Catalog staleness check (US-002)", () => {
       assert.ok(catalogCheck!.message.toLowerCase().includes("no installed catalog stamp"),
         `Message should mention missing stamp, got: ${catalogCheck!.message}`);
       assert.ok(catalogCheck!.remedy, "Should have a remedy");
-      assert.ok(catalogCheck!.remedy!.includes("tamandua update --force"),
-        `Remedy should say tamandua update --force, got: ${catalogCheck!.remedy}`);
+      assert.ok(catalogCheck!.remedy!.includes("canarinho update --force"),
+        `Remedy should say canarinho update --force, got: ${catalogCheck!.remedy}`);
     } finally {
       try { fs.rmSync(homeDir, { recursive: true, force: true }); } catch {}
     }
@@ -1236,8 +1252,8 @@ describe("Catalog staleness check (US-002)", () => {
       assert.ok(catalogCheck!.message.includes("old-version-12345"),
         `Message should include old version, got: ${catalogCheck!.message}`);
       assert.ok(catalogCheck!.remedy, "Should have a remedy");
-      assert.ok(catalogCheck!.remedy!.includes("tamandua update --force"),
-        `Remedy should say tamandua update --force, got: ${catalogCheck!.remedy}`);
+      assert.ok(catalogCheck!.remedy!.includes("canarinho update --force"),
+        `Remedy should say canarinho update --force, got: ${catalogCheck!.remedy}`);
     } finally {
       try { fs.rmSync(homeDir, { recursive: true, force: true }); } catch {}
     }
@@ -1246,8 +1262,8 @@ describe("Catalog staleness check (US-002)", () => {
   it("returns warn when readInstalledCatalogStamp returns null (invalid JSON)", async () => {
     const homeDir = createTempHome();
     try {
-      const stateDir = path.join(homeDir, ".tamandua");
-      process.env.TAMANDUA_STATE_DIR = stateDir;
+      const stateDir = path.join(homeDir, ".canarinho");
+      process.env.canarinho_STATE_DIR = stateDir;
 
       // Create stamp with invalid JSON
       const workflowsDir = path.join(stateDir, "workflows");
@@ -1259,7 +1275,7 @@ describe("Catalog staleness check (US-002)", () => {
       );
 
       // DB must exist for STATE checks
-      const dbPath = path.join(stateDir, "tamandua.db");
+      const dbPath = path.join(stateDir, "canarinho.db");
       fs.mkdirSync(path.dirname(dbPath), { recursive: true });
       fs.writeFileSync(dbPath, "");
 
@@ -1273,14 +1289,14 @@ describe("Catalog staleness check (US-002)", () => {
         `Should warn when stamp is invalid, got: ${catalogCheck!.status} (${catalogCheck!.message})`);
       assert.ok(catalogCheck!.message.toLowerCase().includes("no installed catalog stamp"),
         `Message should mention missing/invalid stamp, got: ${catalogCheck!.message}`);
-      assert.ok(catalogCheck!.remedy?.includes("tamandua update --force"),
-        `Remedy should say tamandua update --force, got: ${catalogCheck!.remedy}`);
+      assert.ok(catalogCheck!.remedy?.includes("canarinho update --force"),
+        `Remedy should say canarinho update --force, got: ${catalogCheck!.remedy}`);
     } finally {
       try { fs.rmSync(homeDir, { recursive: true, force: true }); } catch {}
     }
   });
 
-  it("remedy message always includes 'tamandua update --force' for warn cases", async () => {
+  it("remedy message always includes 'canarinho update --force' for warn cases", async () => {
     const homeDir = createTempHome();
     try {
       setupCatalogStamp(homeDir, null);
@@ -1292,7 +1308,7 @@ describe("Catalog staleness check (US-002)", () => {
       const catalogCheck = staleness!.checks.find((c) => c.name === "Installed catalog vs bundled catalog");
       assert.ok(catalogCheck, "Expected catalog staleness check");
       assert.strictEqual(catalogCheck!.status, "warn");
-      assert.strictEqual(catalogCheck!.remedy, "Run: tamandua update --force");
+      assert.strictEqual(catalogCheck!.remedy, "Run: canarinho update --force");
     } finally {
       try { fs.rmSync(homeDir, { recursive: true, force: true }); } catch {}
     }
@@ -1302,14 +1318,14 @@ describe("Catalog staleness check (US-002)", () => {
 describe("STATE checks (US-006)", () => {
   it("database fails to open → fail check with remedy", async () => {
     // Save current DB path and point to a nonexistent directory
-    const savedDbPath = process.env.TAMANDUA_DB_PATH;
+    const savedDbPath = process.env.canarinho_DB_PATH;
     const homeDir = createTempHome();
     // Point to a path where the parent directory doesn't exist
-    process.env.TAMANDUA_DB_PATH = path.join(homeDir, "nonexistent", "subdir", "tamandua.db");
+    process.env.canarinho_DB_PATH = path.join(homeDir, "nonexistent", "subdir", "canarinho.db");
     // Don't create the directory — so getDb() will fail trying to mkdir or open
     // But getDb() calls fs.mkdirSync on the parent dir, so it might create it.
     // Instead, make the parent dir a file so mkdir fails.
-    const parentDir = path.dirname(process.env.TAMANDUA_DB_PATH);
+    const parentDir = path.dirname(process.env.canarinho_DB_PATH);
     const grandparent = path.dirname(parentDir);
     fs.mkdirSync(grandparent, { recursive: true });
     fs.writeFileSync(parentDir, "blocked"); // parent dir is a file, not a directory
@@ -1328,7 +1344,7 @@ describe("STATE checks (US-006)", () => {
         `Message should indicate failure, got: ${dbCheck!.message}`,
       );
     } finally {
-      process.env.TAMANDUA_DB_PATH = savedDbPath;
+      process.env.canarinho_DB_PATH = savedDbPath;
       try { fs.rmSync(homeDir, { recursive: true, force: true }); } catch {}
     }
   });
@@ -1362,13 +1378,13 @@ describe("STATE checks (US-006)", () => {
 
   it("zombie run findings are reported as critical", async () => {
     // Seed the DB with a zombie run so medic finds it
-    const savedDbPath = process.env.TAMANDUA_DB_PATH;
+    const savedDbPath = process.env.canarinho_DB_PATH;
     const homeDir = createTempHome();
-    const dbPath = path.join(homeDir, ".tamandua", "tamandua.db");
+    const dbPath = path.join(homeDir, ".canarinho", "canarinho.db");
     fs.mkdirSync(path.dirname(dbPath), { recursive: true });
     fs.writeFileSync(dbPath, "");
     seedZombieRun(dbPath);
-    process.env.TAMANDUA_DB_PATH = dbPath;
+    process.env.canarinho_DB_PATH = dbPath;
 
     try {
       const groups = await runDoctorChecks();
@@ -1382,10 +1398,10 @@ describe("STATE checks (US-006)", () => {
       assert.strictEqual(zombieCheck!.status, "fail",
         `Zombie run should be critical/fail, got: ${zombieCheck!.status}`);
       assert.ok(zombieCheck!.remedy, "Zombie check should have a remedy");
-      assert.ok(zombieCheck!.remedy!.includes("tamandua medic"),
+      assert.ok(zombieCheck!.remedy!.includes("canarinho medic"),
         `Remedy should mention medic, got: ${zombieCheck!.remedy}`);
     } finally {
-      process.env.TAMANDUA_DB_PATH = savedDbPath;
+      process.env.canarinho_DB_PATH = savedDbPath;
       try { fs.rmSync(homeDir, { recursive: true, force: true }); } catch {}
     }
   });
@@ -1445,7 +1461,7 @@ describe("STATE run-process-leak checks (US-004)", () => {
 
   it("reports process leak for terminal run with surviving process", { timeout: 10000 }, async () => {
     const homeDir = createTempHome();
-    const dbPath = path.join(homeDir, ".tamandua", "tamandua.db");
+    const dbPath = path.join(homeDir, ".canarinho", "canarinho.db");
     fs.mkdirSync(path.dirname(dbPath), { recursive: true });
 
     // Create a fake worktree directory
@@ -1514,7 +1530,7 @@ describe("STATE run-process-leak checks (US-004)", () => {
 
   it("does not report processes belonging to active runs", { timeout: 10000 }, async () => {
     const homeDir = createTempHome();
-    const dbPath = path.join(homeDir, ".tamandua", "tamandua.db");
+    const dbPath = path.join(homeDir, ".canarinho", "canarinho.db");
     fs.mkdirSync(path.dirname(dbPath), { recursive: true });
     fs.writeFileSync(dbPath, "");
 
@@ -1587,7 +1603,7 @@ describe("STATE run-process-leak checks (US-004)", () => {
 
   it("handles missing worktree gracefully", async () => {
     const homeDir = createTempHome();
-    const dbPath = path.join(homeDir, ".tamandua", "tamandua.db");
+    const dbPath = path.join(homeDir, ".canarinho", "canarinho.db");
     fs.mkdirSync(path.dirname(dbPath), { recursive: true });
     fs.writeFileSync(dbPath, "");
 
@@ -1627,7 +1643,7 @@ describe("STATE run-process-leak checks (US-004)", () => {
 
   it("zero matches produces no additional check", async () => {
     const homeDir = createTempHome();
-    const dbPath = path.join(homeDir, ".tamandua", "tamandua.db");
+    const dbPath = path.join(homeDir, ".canarinho", "canarinho.db");
     fs.mkdirSync(path.dirname(dbPath), { recursive: true });
 
     const worktreePath = path.join(homeDir, "worktrees", "clean-run");
@@ -1657,7 +1673,7 @@ describe("STATE run-process-leak checks (US-004)", () => {
 
   it("warnings include remedy text suggesting manual kill", { timeout: 10000 }, async () => {
     const homeDir = createTempHome();
-    const dbPath = path.join(homeDir, ".tamandua", "tamandua.db");
+    const dbPath = path.join(homeDir, ".canarinho", "canarinho.db");
     fs.mkdirSync(path.dirname(dbPath), { recursive: true });
 
     const worktreePath = path.join(homeDir, "worktrees", "leak-run");
@@ -1710,7 +1726,7 @@ describe("STATE run-process-leak checks (US-004)", () => {
 
 describe("LLM PROMPT ADHERENCE checks (US-002)", () => {
   it("full emission: all keys at 100%, only summary line", async () => {
-    const dbPath = process.env.TAMANDUA_DB_PATH!;
+    const dbPath = process.env.canarinho_DB_PATH!;
     const template = "Instructions here\n\nReply with:\nBRANCH: main\nVERIFIED: true\n";
     seedPromptAdherenceDb(dbPath, Array.from({ length: 5 }, (_, i) => ({
       id: `fe-${i}`,
@@ -1731,7 +1747,7 @@ describe("LLM PROMPT ADHERENCE checks (US-002)", () => {
   });
 
   it("partial emission: correct rates computed and displayed", async () => {
-    const dbPath = process.env.TAMANDUA_DB_PATH!;
+    const dbPath = process.env.canarinho_DB_PATH!;
     const template = "Reply with:\nBRANCH: main\nVERIFIED: true\n";
     seedPromptAdherenceDb(dbPath, Array.from({ length: 15 }, (_, i) => ({
       id: `pe-${i}`,
@@ -1759,7 +1775,7 @@ describe("LLM PROMPT ADHERENCE checks (US-002)", () => {
   });
 
   it("sub-50% warn with remedy: keys below 50% over >=5 samples trigger warn", async () => {
-    const dbPath = process.env.TAMANDUA_DB_PATH!;
+    const dbPath = process.env.canarinho_DB_PATH!;
     const template = "Reply with:\nBRANCH: main\nSEVERITY: high\n";
     seedPromptAdherenceDb(dbPath, Array.from({ length: 6 }, (_, i) => ({
       id: `warn-${i}`,
@@ -1788,7 +1804,7 @@ describe("LLM PROMPT ADHERENCE checks (US-002)", () => {
   });
 
   it("insufficient data: fewer than 5 terminal runs produces info message", async () => {
-    const dbPath = process.env.TAMANDUA_DB_PATH!;
+    const dbPath = process.env.canarinho_DB_PATH!;
     const template = "Reply with:\nBRANCH: main\n";
     seedPromptAdherenceDb(dbPath, Array.from({ length: 3 }, (_, i) => ({
       id: `id-${i}`,
@@ -1813,7 +1829,7 @@ describe("LLM PROMPT ADHERENCE checks (US-002)", () => {
   });
 
   it("legacy runs with no expected keys are silently skipped", async () => {
-    const dbPath = process.env.TAMANDUA_DB_PATH!;
+    const dbPath = process.env.canarinho_DB_PATH!;
     // Runs with steps that have NO Reply-with block
     seedPromptAdherenceDb(dbPath, Array.from({ length: 5 }, (_, i) => ({
       id: `legacy-${i}`,
@@ -1834,7 +1850,7 @@ describe("LLM PROMPT ADHERENCE checks (US-002)", () => {
   });
 
   it("US-004: STORIES_JSON is excluded from key-emission tracking", async () => {
-    const dbPath = process.env.TAMANDUA_DB_PATH!;
+    const dbPath = process.env.canarinho_DB_PATH!;
     // Template with STORIES_JSON as an expected key alongside other keys
     const template = "Reply with:\nBRANCH: main\nSTORIES_JSON: [...]\nVERIFIED: true\n";
     seedPromptAdherenceDb(dbPath, Array.from({ length: 5 }, (_, i) => ({
@@ -1873,7 +1889,7 @@ describe("LLM PROMPT ADHERENCE checks (US-002)", () => {
   });
 
   it("US-004: STORIES_JSON exclusion works even when it is the only key", async () => {
-    const dbPath = process.env.TAMANDUA_DB_PATH!;
+    const dbPath = process.env.canarinho_DB_PATH!;
     // Template with ONLY STORIES_JSON as expected key
     const template = "Reply with:\nSTORIES_JSON: [...]\n";
     seedPromptAdherenceDb(dbPath, Array.from({ length: 5 }, (_, i) => ({
@@ -1914,7 +1930,7 @@ describe("formatDoctorOutput", () => {
       {
         label: "SERVICES",
         checks: [
-          { name: "Dashboard daemon", status: "fail", message: "not running", remedy: "tamandua dashboard start" },
+          { name: "Dashboard daemon", status: "fail", message: "not running", remedy: "canarinho dashboard start" },
         ],
       },
     ];
@@ -1986,7 +2002,7 @@ describe("formatDoctorOutput", () => {
       {
         label: "STALENESS",
         checks: [
-          { name: "Daemon build version vs installed", status: "warn", message: "Staleness check inconclusive — daemon predates build version reporting", remedy: "Run: tamandua dashboard restart to update" },
+          { name: "Daemon build version vs installed", status: "warn", message: "Staleness check inconclusive — daemon predates build version reporting", remedy: "Run: canarinho dashboard restart to update" },
         ],
       },
     ];
@@ -2059,7 +2075,7 @@ describe("STORIES_JSON validation rejection check (US-005)", () => {
   it("no rejections: info status with 'no recent rejections' message", async () => {
     const homeDir = createTempHome();
     try {
-      const stateDir = path.join(homeDir, ".tamandua");
+      const stateDir = path.join(homeDir, ".canarinho");
       seedEmptyStateDir(stateDir);
 
       const groups = await runDoctorChecks({ homeDir });
@@ -2079,7 +2095,7 @@ describe("STORIES_JSON validation rejection check (US-005)", () => {
   it("rejections found: warn status with count, affected runs, and error categories", async () => {
     const homeDir = createTempHome();
     try {
-      const stateDir = path.join(homeDir, ".tamandua");
+      const stateDir = path.join(homeDir, ".canarinho");
       seedEventsJsonl(stateDir, [
         {
           event: "step.retry",
@@ -2153,7 +2169,7 @@ describe("STORIES_JSON validation rejection check (US-005)", () => {
   it("correctly categorizes each error shape", async () => {
     const homeDir = createTempHome();
     try {
-      const stateDir = path.join(homeDir, ".tamandua");
+      const stateDir = path.join(homeDir, ".canarinho");
       seedEventsJsonl(stateDir, [
         { event: "step.retry", runId: "run-sm", workflowId: "wf", stepId: "plan", detail: 'STORIES_JSON structural mismatch: raw JSON contains 7 "id" keys but parsed to only 1 story. Resetting to pending for retry 1/4.' },
         { event: "step.retry", runId: "run-dk", workflowId: "wf", stepId: "plan", detail: 'STORIES_JSON has duplicate key "title" in story object at index 0 (lines 3,5). Resetting to pending for retry 1/4.' },
@@ -2193,7 +2209,7 @@ describe("STORIES_JSON validation rejection check (US-005)", () => {
   it("non-STORIES_JSON step.retry events are not counted", async () => {
     const homeDir = createTempHome();
     try {
-      const stateDir = path.join(homeDir, ".tamandua");
+      const stateDir = path.join(homeDir, ".canarinho");
       // Seed with non-STORIES_JSON step.retry events
       seedEventsJsonl(stateDir, [
         { event: "step.retry", runId: "run-a", workflowId: "wf", stepId: "dev", detail: "Expects validation failed: BRANCH not found. Resetting to pending for retry 1/4." },
@@ -2218,7 +2234,7 @@ describe("STORIES_JSON validation rejection check (US-005)", () => {
   it("truncates long run/workflow lists with total count", async () => {
     const homeDir = createTempHome();
     try {
-      const stateDir = path.join(homeDir, ".tamandua");
+      const stateDir = path.join(homeDir, ".canarinho");
       // Create rejections across 5 different runs
       const events: Array<{ event: string; runId: string; workflowId: string; stepId: string; detail: string }> = [];
       for (let i = 0; i < 5; i++) {

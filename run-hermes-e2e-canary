@@ -27,7 +27,7 @@
 set -euo pipefail
 cd "$(dirname "$0")"
 
-LOG="${TAMANDUA_HERMES_CANARY_E2E_LOG:-e2e-hermes-canary-test-output.log}"
+LOG="${canarinho_HERMES_CANARY_E2E_LOG:-e2e-hermes-canary-test-output.log}"
 
 npm run build
 node --test e2e-tests/workflows-hermes-canary-real.test.ts 2>&1 | tee "$LOG"

@@ -15,11 +15,11 @@ describe("medic", () => {
   let originalHome: string | undefined;
 
   beforeEach(() => {
-    originalDbPath = process.env.TAMANDUA_DB_PATH;
+    originalDbPath = process.env.canarinho_DB_PATH;
     originalHome = process.env.HOME;
-    tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "tamandua-medic-"));
-    dbPath = path.join(tempDir, ".tamandua", "tamandua.db");
-    process.env.TAMANDUA_DB_PATH = dbPath;
+    tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "canarinho-medic-"));
+    dbPath = path.join(tempDir, ".canarinho", "canarinho.db");
+    process.env.canarinho_DB_PATH = dbPath;
     // medic checks uses os.homedir() to find cron-jobs.json
     process.env.HOME = tempDir;
 
@@ -61,8 +61,8 @@ describe("medic", () => {
   });
 
   afterEach(() => {
-    if (originalDbPath) process.env.TAMANDUA_DB_PATH = originalDbPath;
-    else delete process.env.TAMANDUA_DB_PATH;
+    if (originalDbPath) process.env.canarinho_DB_PATH = originalDbPath;
+    else delete process.env.canarinho_DB_PATH;
     if (originalHome) process.env.HOME = originalHome;
     else delete process.env.HOME;
     try { db.close(); } catch {}

@@ -6,7 +6,7 @@ import { fileURLToPath } from "node:url";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const repoRoot = resolve(__dirname, "..");
-const skillPath = resolve(repoRoot, "skills/tamandua-agents/SKILL.md");
+const skillPath = resolve(repoRoot, "skills/canarinho-agents/SKILL.md");
 const skill = readFileSync(skillPath, "utf-8");
 
 describe("US-003: Verify skill file consistency with AGENTS.md", () => {
@@ -27,10 +27,10 @@ describe("US-003: Verify skill file consistency with AGENTS.md", () => {
   // AC 2: Skill still covers all existing step lifecycle guidance
   it("preserves existing step lifecycle guidance", () => {
     assert.match(skill, /### 3\) Follow the step lifecycle exactly/);
-    assert.match(skill, /tamandua step peek/);
-    assert.match(skill, /tamandua step claim/);
-    assert.match(skill, /tamandua step complete/);
-    assert.match(skill, /tamandua step fail/);
+    assert.match(skill, /canarinho step peek/);
+    assert.match(skill, /canarinho step claim/);
+    assert.match(skill, /canarinho step complete/);
+    assert.match(skill, /canarinho step fail/);
     assert.match(skill, /SAVE.*stepId.*immediately/i);
   });
 
@@ -38,11 +38,11 @@ describe("US-003: Verify skill file consistency with AGENTS.md", () => {
   it("preserves existing CLI command guidance", () => {
     assert.match(skill, /### 1\) Confirm CLI access/);
     assert.match(skill, /### 2\) Know the workflow-level commands/);
-    assert.match(skill, /tamandua workflow list/);
-    assert.match(skill, /tamandua workflow run/);
-    assert.match(skill, /tamandua workflow status/);
-    assert.match(skill, /tamandua workflow pause/);
-    assert.match(skill, /tamandua workflow resume/);
+    assert.match(skill, /canarinho workflow list/);
+    assert.match(skill, /canarinho workflow run/);
+    assert.match(skill, /canarinho workflow status/);
+    assert.match(skill, /canarinho workflow pause/);
+    assert.match(skill, /canarinho workflow resume/);
   });
 
   // AC 2: Completion contract still present
@@ -59,7 +59,7 @@ describe("US-003: Verify skill file consistency with AGENTS.md", () => {
     const frontmatterMatch = skill.match(/^---\n([\s\S]*?)\n---/);
     assert.ok(frontmatterMatch, "YAML frontmatter must be present");
     const frontmatter = frontmatterMatch[1];
-    assert.match(frontmatter, /name:\s+tamandua-agents/);
+    assert.match(frontmatter, /name:\s+canarinho-agents/);
     assert.match(frontmatter, /description:/);
   });
 

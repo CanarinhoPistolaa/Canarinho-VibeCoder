@@ -34,7 +34,7 @@ function buildFixture(fixtureName: string): {
 } {
   const src = path.join(fixturesDir, fixtureName);
   const tempDir = fs.mkdtempSync(
-    path.join(os.tmpdir(), `tamandua-fix-health-${fixtureName}-`),
+    path.join(os.tmpdir(), `canarinho-fix-health-${fixtureName}-`),
   );
 
   // Copy fixture to temp dir

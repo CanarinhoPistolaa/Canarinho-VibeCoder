@@ -104,9 +104,9 @@ describe("workflow structure", () => {
     }
   });
 
-  it("tamandua-agents skill exists with required frontmatter", () => {
+  it("canarinho-agents skill exists with required frontmatter", () => {
     const repoRoot = resolve(workflowsDir, "..");
-    const skillPath = resolve(repoRoot, "skills", "tamandua-agents", "SKILL.md");
+    const skillPath = resolve(repoRoot, "skills", "canarinho-agents", "SKILL.md");
     assert.ok(existsSync(skillPath));
 
     const content = readFileSync(skillPath, "utf-8");
@@ -119,45 +119,45 @@ describe("workflow structure", () => {
 
     assert.ok(nameMatch, "frontmatter must include name");
     assert.ok(descriptionMatch, "frontmatter must include description");
-    assert.equal(nameMatch![1].trim(), "tamandua-agents");
+    assert.equal(nameMatch![1].trim(), "canarinho-agents");
     assert.match(nameMatch![1].trim(), /^[a-z0-9]+(?:-[a-z0-9]+)*$/);
   });
 
-  it("tamandua-agents skill documents step lifecycle and stepId usage", () => {
+  it("canarinho-agents skill documents step lifecycle and stepId usage", () => {
     const repoRoot = resolve(workflowsDir, "..");
-    const skillPath = resolve(repoRoot, "skills", "tamandua-agents", "SKILL.md");
+    const skillPath = resolve(repoRoot, "skills", "canarinho-agents", "SKILL.md");
     const content = readFileSync(skillPath, "utf-8");
 
     assert.match(content, /## Instructions/);
     assert.match(content, /## Examples/);
-    assert.match(content, /tamandua workflow list/);
-    assert.match(content, /tamandua workflow run <workflow-id>/);
-    assert.match(content, /tamandua workflow status <query>/);
-    assert.match(content, /tamandua step peek <agent-id> --run-id <run-id>/);
-    assert.match(content, /tamandua step claim <agent-id> --run-id <run-id>/);
-    assert.match(content, /tamandua step complete <stepId>/);
-    assert.match(content, /tamandua step fail <stepId>/);
+    assert.match(content, /canarinho workflow list/);
+    assert.match(content, /canarinho workflow run <workflow-id>/);
+    assert.match(content, /canarinho workflow status <query>/);
+    assert.match(content, /canarinho step peek <agent-id> --run-id <run-id>/);
+    assert.match(content, /canarinho step claim <agent-id> --run-id <run-id>/);
+    assert.match(content, /canarinho step complete <stepId>/);
+    assert.match(content, /canarinho step fail <stepId>/);
     assert.match(content, /SAVE `stepId` immediately/i);
     assert.match(content, /Never call `step complete` or `step fail` with an agent ID/i);
-    assert.match(content, /tamandua workflow pause/);
-    assert.match(content, /tamandua workflow pause-all/);
+    assert.match(content, /canarinho workflow pause/);
+    assert.match(content, /canarinho workflow pause-all/);
     assert.match(content, /--drain/);
-    assert.match(content, /tamandua workflow resume-all/);
-    assert.match(content, /tamandua logs/);
-    assert.match(content, /tamandua logs-tail/);
-    assert.match(content, /tamandua dashboard/);
-    assert.match(content, /tamandua dashboard status/);
-    assert.match(content, /tamandua step stories/);
+    assert.match(content, /canarinho workflow resume-all/);
+    assert.match(content, /canarinho logs/);
+    assert.match(content, /canarinho logs-tail/);
+    assert.match(content, /canarinho dashboard/);
+    assert.match(content, /canarinho dashboard status/);
+    assert.match(content, /canarinho step stories/);
   });
 
-  it("bundled workflow agents declare tamandua-agents skill", async () => {
+  it("bundled workflow agents declare canarinho-agents skill", async () => {
     for (const id of workflowIds) {
       const spec = await loadWorkflowSpec(wfDir(id));
       for (const agent of spec.agents) {
         const skills = agent.workspace.skills ?? [];
         assert.ok(
-          skills.includes("tamandua-agents"),
-          `${id}/${agent.id}: workspace.skills must include tamandua-agents`,
+          skills.includes("canarinho-agents"),
+          `${id}/${agent.id}: workspace.skills must include canarinho-agents`,
         );
       }
     }
@@ -182,8 +182,8 @@ describe("workflow structure", () => {
         `${workflowId}/${agentId}: workspace.skills must preserve agent-browser`,
       );
       assert.ok(
-        skills.includes("tamandua-agents"),
-        `${workflowId}/${agentId}: workspace.skills must include tamandua-agents`,
+        skills.includes("canarinho-agents"),
+        `${workflowId}/${agentId}: workspace.skills must include canarinho-agents`,
       );
     }
   });
@@ -553,7 +553,7 @@ describe("workflow structure", () => {
     // Preserves existing commit message generation (git commit -F, not git commit -m)
     assert.match(content, /git commit -F/);
     assert.doesNotMatch(content, /git commit -m/);
-    assert.match(content, /Co-Authored-By: Tamandua/);
+    assert.match(content, /Co-Authored-By: canarinho/);
   });
 
   it("security-audit-merge workflow.yml finalize_merge step on_fail routes to test", async () => {
@@ -733,13 +733,13 @@ describe("US-010: Create remaining worktree workflow variants", () => {
       }
     });
 
-    it(`${id} all agents have tamandua-agents skill`, async () => {
+    it(`${id} all agents have canarinho-agents skill`, async () => {
       const spec = await loadWorkflowSpec(wfDir(id));
       for (const agent of spec.agents) {
         const skills = agent.workspace.skills ?? [];
         assert.ok(
-          skills.includes("tamandua-agents"),
-          `${id}/${agent.id}: workspace.skills must include tamandua-agents`,
+          skills.includes("canarinho-agents"),
+          `${id}/${agent.id}: workspace.skills must include canarinho-agents`,
         );
       }
     });
@@ -933,15 +933,15 @@ describe("US-009: feature-dev-merge-worktree workflow variant", () => {
     }
   });
 
-  it("all steps have valid roles and tamandua-agents skill", async () => {
+  it("all steps have valid roles and canarinho-agents skill", async () => {
     const spec = await loadWorkflowSpec(wfDir("feature-dev-merge-worktree"));
     const validRoles = new Set(["analysis", "coding", "verification", "testing", "pr", "scanning"]);
     for (const agent of spec.agents) {
       if (agent.role) assert.ok(validRoles.has(agent.role), `${agent.id}: "${agent.role}" is valid`);
       const skills = agent.workspace.skills ?? [];
       assert.ok(
-        skills.includes("tamandua-agents"),
-        `feature-dev-merge-worktree/${agent.id}: workspace.skills must include tamandua-agents`,
+        skills.includes("canarinho-agents"),
+        `feature-dev-merge-worktree/${agent.id}: workspace.skills must include canarinho-agents`,
       );
     }
   });
@@ -1099,13 +1099,13 @@ describe("US-005: do-review-do-verify workflow structure", () => {
     assert.deepEqual(stepIds, ["do", "review", "do-again", "verify"]);
   });
 
-  it("all agents have tamandua-agents skill", async () => {
+  it("all agents have canarinho-agents skill", async () => {
     const spec = await loadSpec();
     for (const agent of spec.agents) {
       const skills = agent.workspace.skills ?? [];
       assert.ok(
-        skills.includes("tamandua-agents"),
-        `do-review-do-verify/${agent.id}: workspace.skills must include tamandua-agents`,
+        skills.includes("canarinho-agents"),
+        `do-review-do-verify/${agent.id}: workspace.skills must include canarinho-agents`,
       );
     }
   });
@@ -1283,7 +1283,7 @@ describe("US-003: just-do-it dispatch step dynamic workflow selection", () => {
     assert.doesNotMatch(justDoItYml, /security-audit,\s*security-audit-merge,\s*security-audit-github-pr/);
 
     // AC 2: Instructs agent to use --json for discovery
-    assert.match(justDoItYml, /tamandua workflow list --json/);
+    assert.match(justDoItYml, /canarinho workflow list --json/);
     assert.match(justDoItYml, /Parse the JSON output/);
   });
 
@@ -1410,7 +1410,7 @@ describe("US-007: just-do-it CLI syntax and behavior validation", () => {
     // The correct flag must appear
     assert.match(dispatcherAgentsMd, /--no-hurry-please-save-tokens-mode/);
     // Command examples in AGENTS.md must not use bare --no-hurry
-    const commandLines = dispatcherAgentsMd.split("\n").filter((l) => l.includes("tamandua workflow run"));
+    const commandLines = dispatcherAgentsMd.split("\n").filter((l) => l.includes("canarinho workflow run"));
     for (const line of commandLines) {
       assert.doesNotMatch(line, /--no-hurry(?!-please-save-tokens-mode)/,
         `AGENTS.md command line should not use bare --no-hurry: ${line.trim()}`);
@@ -1419,8 +1419,8 @@ describe("US-007: just-do-it CLI syntax and behavior validation", () => {
 
   it("dispatcher AGENTS.md uses positional task text not --task flag", () => {
     // Command examples must not use --task as a flag
-    const commandLines = dispatcherAgentsMd.split("\n").filter((l) => l.includes("tamandua workflow run"));
-    assert.ok(commandLines.length > 0, "AGENTS.md should contain tamandua workflow run examples");
+    const commandLines = dispatcherAgentsMd.split("\n").filter((l) => l.includes("canarinho workflow run"));
+    assert.ok(commandLines.length > 0, "AGENTS.md should contain canarinho workflow run examples");
     for (const line of commandLines) {
       assert.doesNotMatch(line, /--task\s/,
         `AGENTS.md command line should not use --task flag: ${line.trim()}`);

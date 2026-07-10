@@ -29,7 +29,7 @@ import { DEFAULT_CONTROL_PORT } from "../../dist/server/control-server.js";
 // ── Helpers ────────────────────────────────────────────────────────
 
 function createTempHome(): string {
-  return fs.mkdtempSync(path.join(os.tmpdir(), "tamandua-cp-restart-"));
+  return fs.mkdtempSync(path.join(os.tmpdir(), "canarinho-cp-restart-"));
 }
 
 async function getAvailablePort(): Promise<number> {

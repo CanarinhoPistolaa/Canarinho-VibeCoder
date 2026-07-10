@@ -18,7 +18,7 @@ type CliResult = {
 };
 
 function createTempEnv(): { root: string; stateDir: string; homeDir: string } {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), "tamandua-dashboard-status-"));
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "canarinho-dashboard-status-"));
   const stateDir = path.join(root, "state");
   const homeDir = path.join(root, "home");
   fs.mkdirSync(stateDir, { recursive: true });
@@ -75,7 +75,7 @@ async function canBind(port: number): Promise<boolean> {
 }
 
 
-describe("tamandua dashboard status MCP visibility", () => {
+describe("canarinho dashboard status MCP visibility", () => {
   // Belt-and-suspenders: kill any leaked mcp-standalone/daemon orphans
   after(() => {
     try {
@@ -99,12 +99,12 @@ describe("tamandua dashboard status MCP visibility", () => {
               `cat /proc/${pid}/environ 2>/dev/null | tr '\\0' '\\n' | grep '^HOME='`,
               { encoding: "utf8" },
             );
-            belongsToTest = env.includes("tamandua-dashboard-status");
+            belongsToTest = env.includes("canarinho-dashboard-status");
           } else {
             const fds = execSync(`lsof -p ${pid} -Fn 2>/dev/null || true`, {
               encoding: "utf8",
             });
-            belongsToTest = fds.includes("tamandua-dashboard-status");
+            belongsToTest = fds.includes("canarinho-dashboard-status");
           }
           if (belongsToTest) {
             process.kill(Number(pid), "SIGKILL");
@@ -126,15 +126,15 @@ describe("tamandua dashboard status MCP visibility", () => {
     const tempEnv = createTempEnv();
     const cliEnv = {
       HOME: tempEnv.homeDir,
-      TAMANDUA_STATE_DIR: tempEnv.stateDir,
-      TAMANDUA_CONTROL_PORT: String(controlPort),
+      canarinho_STATE_DIR: tempEnv.stateDir,
+      canarinho_CONTROL_PORT: String(controlPort),
     };
 
     try {
       // Write an MCP port file with an unused port so the async status probe
       // (which probes the TCP port on the configured port) doesn't detect a
       // production MCP on the default port 3338.
-      const mcpPortDir = path.join(tempEnv.homeDir, ".tamandua");
+      const mcpPortDir = path.join(tempEnv.homeDir, ".canarinho");
       fs.mkdirSync(mcpPortDir, { recursive: true });
       fs.writeFileSync(path.join(mcpPortDir, "mcp-port"), String(mcpPort), "utf-8");
 
@@ -159,7 +159,7 @@ describe("tamandua dashboard status MCP visibility", () => {
   });
 
   // AC 1: Dashboard status shows MCP running independently when started via mcp start
-  it("shows MCP as independently running after tamandua mcp start", async (t) => {
+  it("shows MCP as independently running after canarinho mcp start", async (t) => {
     const mcpPort = await reserveRandomPort();
     if (!(await canBind(mcpPort))) {
       t.skip(`Port ${mcpPort} is already in use — another test may be using it`);
@@ -172,14 +172,14 @@ describe("tamandua dashboard status MCP visibility", () => {
     const tempEnv = createTempEnv();
     const cliEnv = {
       HOME: tempEnv.homeDir,
-      TAMANDUA_STATE_DIR: tempEnv.stateDir,
-      TAMANDUA_CONTROL_PORT: String(controlPort),
+      canarinho_STATE_DIR: tempEnv.stateDir,
+      canarinho_CONTROL_PORT: String(controlPort),
     };
 
     /** Write an MCP port file pointing to an unused port so the async
      * status probe doesn't detect a production MCP on the default 3338. */
     const writeUnusedMcpPort = () => {
-      const mcpPortDir = path.join(tempEnv.homeDir, ".tamandua");
+      const mcpPortDir = path.join(tempEnv.homeDir, ".canarinho");
       fs.mkdirSync(mcpPortDir, { recursive: true });
       fs.writeFileSync(path.join(mcpPortDir, "mcp-port"), String(unusedMcpPort), "utf-8");
     };
@@ -238,8 +238,8 @@ describe("tamandua dashboard status MCP visibility", () => {
     const tempEnv = createTempEnv();
     const cliEnv = {
       HOME: tempEnv.homeDir,
-      TAMANDUA_STATE_DIR: tempEnv.stateDir,
-      TAMANDUA_CONTROL_PORT: String(controlPort),
+      canarinho_STATE_DIR: tempEnv.stateDir,
+      canarinho_CONTROL_PORT: String(controlPort),
     };
 
     try {
@@ -252,9 +252,11 @@ describe("tamandua dashboard status MCP visibility", () => {
       assert.equal(htmlRes.status, 200);
       const html = await htmlRes.text();
       assert.match(html, /MCP Server/);
-      assert.match(html, /mcp-status-content/);
-      assert.match(html, /fetchMcpStatus/);
-      assert.match(html, /fetch\("\/api\/mcp-status"\)/);
+      assert.match(html, /popover-mcp-status/);
+      const jsRes = await fetch(`http://localhost:${dashboardPort}/dashboard-ui.js`);
+      const js = await jsRes.text();
+      assert.match(js, /fetchMcpStatus/);
+      assert.match(js, /fetch\("\/api\/mcp-status"\)/);
 
       // AC 3: /api/mcp-status returns { running, port, path }
       const apiRes = await fetch(`http://localhost:${dashboardPort}/api/mcp-status`);
@@ -290,13 +292,13 @@ describe("tamandua dashboard status MCP visibility", () => {
   });
 
   // AC 4: get-ready tries to start MCP when not running
-  it("tamandua get-ready starts MCP when MCP is not running", async () => {
+  it("canarinho get-ready starts MCP when MCP is not running", async () => {
     const tempEnv = createTempEnv();
     const controlPort = await reserveRandomPort();
     const cliEnv = {
       HOME: tempEnv.homeDir,
-      TAMANDUA_STATE_DIR: tempEnv.stateDir,
-      TAMANDUA_CONTROL_PORT: String(controlPort),
+      canarinho_STATE_DIR: tempEnv.stateDir,
+      canarinho_CONTROL_PORT: String(controlPort),
     };
 
     try {
@@ -305,7 +307,7 @@ describe("tamandua dashboard status MCP visibility", () => {
       // get-ready now actively attempts to start MCP (and control plane);
       // when MCP start fails (e.g., no built mcp-standalone.js), it prints
       // a Note with the recovery command instead of the old passive message.
-      assert.match(install.stdout, /MCP server already running\.|MCP server started|Note: MCP server not started[\s\S]*recover: tamandua mcp start/);
+      assert.match(install.stdout, /MCP server already running\.|MCP server started|Note: MCP server not started[\s\S]*recover: canarinho mcp start/);
     } finally {
       await runCliOnce(["uninstall", "--force"], cliEnv);
       fs.rmSync(tempEnv.root, { recursive: true, force: true });
@@ -313,7 +315,7 @@ describe("tamandua dashboard status MCP visibility", () => {
   });
 
   // AC 5: uninstall stops MCP if running
-  it("tamandua uninstall stops MCP if it was running", async (t) => {
+  it("canarinho uninstall stops MCP if it was running", async (t) => {
     const mcpPort = await reserveRandomPort();
     if (!(await canBind(mcpPort))) {
       t.skip(`Port ${mcpPort} is already in use — another test may be using it`);
@@ -325,8 +327,8 @@ describe("tamandua dashboard status MCP visibility", () => {
     const controlPort = await reserveRandomPort();
     const cliEnv = {
       HOME: tempEnv.homeDir,
-      TAMANDUA_STATE_DIR: tempEnv.stateDir,
-      TAMANDUA_CONTROL_PORT: String(controlPort),
+      canarinho_STATE_DIR: tempEnv.stateDir,
+      canarinho_CONTROL_PORT: String(controlPort),
     };
 
     try {
@@ -345,7 +347,7 @@ describe("tamandua dashboard status MCP visibility", () => {
 
       // After uninstall cleans up the MCP port file, write an unused port
       // so the async status probe doesn't detect a production MCP on 3338.
-      const mcpPortDir = path.join(tempEnv.homeDir, ".tamandua");
+      const mcpPortDir = path.join(tempEnv.homeDir, ".canarinho");
       fs.mkdirSync(mcpPortDir, { recursive: true });
       fs.writeFileSync(path.join(mcpPortDir, "mcp-port"), String(unusedMcpPort), "utf-8");
 

@@ -5,11 +5,11 @@
 # Exit code: 0 only when both lanes pass, non-zero when either fails.
 set -uo pipefail
 
-REPO_ROOT="${TAMANDUA_REPO_ROOT:-$(cd "$(dirname "$0")/.." && pwd)}"
+REPO_ROOT="${canarinho_REPO_ROOT:-$(cd "$(dirname "$0")/.." && pwd)}"
 cd "$REPO_ROOT"
 
-export TAMANDUA_TEST_GUARD="${TAMANDUA_TEST_GUARD:-1}"
-export TAMANDUA_PI_BINARY="${TAMANDUA_PI_BINARY:-/usr/bin/false}"
+export canarinho_TEST_GUARD="${canarinho_TEST_GUARD:-1}"
+export canarinho_PI_BINARY="${canarinho_PI_BINARY:-/usr/bin/false}"
 
 SERIAL_EXIT=0
 PARALLEL_EXIT=0

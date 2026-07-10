@@ -1092,7 +1092,7 @@ describe("verifier-diff lint rule — two-dot diffs prohibited in verifiers", ()
   it("synthetic: verifier persona file scan detects two-dot", () => {
     // Create a temp persona file with two-dot diff instruction
     const tmpDir = fs.mkdtempSync(
-      path.join(os.tmpdir(), "tamandua-lint-"),
+      path.join(os.tmpdir(), "canarinho-lint-"),
     );
     try {
       const personaPath = path.join(tmpDir, "AGENTS.md");
@@ -1113,7 +1113,7 @@ describe("verifier-diff lint rule — two-dot diffs prohibited in verifiers", ()
 
   it("synthetic: verifier persona file with three-dot passes", () => {
     const tmpDir = fs.mkdtempSync(
-      path.join(os.tmpdir(), "tamandua-lint-"),
+      path.join(os.tmpdir(), "canarinho-lint-"),
     );
     try {
       const personaPath = path.join(tmpDir, "AGENTS.md");

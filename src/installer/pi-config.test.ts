@@ -16,7 +16,7 @@ describe("pi-config", () => {
     originalHome = process.env.HOME;
     originalPiSettings = process.env.PI_SETTINGS_PATH;
     originalPiAuth = process.env.PI_AUTH_PATH;
-    tempHome = fs.mkdtempSync(path.join(os.tmpdir(), "tamandua-pi-config-"));
+    tempHome = fs.mkdtempSync(path.join(os.tmpdir(), "canarinho-pi-config-"));
     tempPiAgent = path.join(tempHome, ".pi", "agent");
     fs.mkdirSync(tempPiAgent, { recursive: true });
     process.env.HOME = tempHome;

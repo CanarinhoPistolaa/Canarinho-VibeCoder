@@ -1,7 +1,7 @@
 /******************************************************************************
  * ⚠️  WARNING: SLOW, EXPENSIVE REAL E2E TEST — DO NOT RUN BY DEFAULT  ⚠️
  *
- * This test runs a REAL Tamandua do-review-do-verify workflow execution with a
+ * This test runs a REAL canarinho do-review-do-verify workflow execution with a
  * LIVE daemon and scheduler processing steps through actual agent invocations
  * (pi/llm calls).
  *
@@ -30,8 +30,8 @@
  * TEST ISOLATION:
  *   - Uses temp HOME isolation via createTempHome()
  *   - Uses random ports — no default ports (3334/3338/3339)
- *   - Daemon runs in isolated HOME/TAMANDUA_STATE_DIR
- *   - All .tamandua state (DB, events, logs, PID/port files) is in the
+ *   - Daemon runs in isolated HOME/canarinho_STATE_DIR
+ *   - All .canarinho state (DB, events, logs, PID/port files) is in the
  *     isolated temp HOME and removed by cleanupTempHome()
  *   - after() hook guarantees cleanup on failure
  *
@@ -168,7 +168,7 @@ describe(
             ],
             baseEnv(env.homeDir, env.controlPort),
           );
-          const runId = resolveFullRunId(runIdPrefix, env.tamanduaDir);
+          const runId = resolveFullRunId(runIdPrefix, env.canarinhoDir);
 
           // ── Wait for completion ──────────────────────────────────
           await waitForRunTerminal(
@@ -176,7 +176,7 @@ describe(
             baseEnv(env.homeDir, env.controlPort),
             45 * 60_000, // 45 min timeout
             10_000,       // poll every 10s
-            env.tamanduaDir, // attach log/event/step diagnostics on timeout
+            env.canarinhoDir, // attach log/event/step diagnostics on timeout
           );
 
           // ── Verify run status ────────────────────────────────────
@@ -188,7 +188,7 @@ describe(
           assert.match(statusOut, /Status:\s+completed/i);
 
           // ── Token accounting audit (MOTOR-CONTRACT.md C14/C15) ───
-          const audit = auditRunTokens(env.tamanduaDir, runId);
+          const audit = auditRunTokens(env.canarinhoDir, runId);
           assert.ok(
             audit.workTokens > 0,
             `run should have attributed work tokens, got ${audit.workTokens}`,
@@ -262,7 +262,7 @@ ${testOutput.substring(0, 500)}`,
           // steps, and no step output has unresolved templates.
           // Key flow: do → (changes, report) → review → (feedback, issues)
           // → do-again → (changes, report) → verify → (verdict, details)
-          const dbPath = path.join(env.tamanduaDir, "tamandua.db");
+          const dbPath = path.join(env.canarinhoDir, "canarinho.db");
           const db = new DatabaseSync(dbPath);
           try {
             // 1. Assert runs.context has expected keys

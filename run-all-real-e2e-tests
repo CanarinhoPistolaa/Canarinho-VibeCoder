@@ -2,10 +2,10 @@
 ##############################################################################
 # WARNING: THIS IS A SLOW, EXPENSIVE E2E TEST — USE DELIBERATELY
 ##############################################################################
-# This script runs the REAL Tamandua end-to-end workflow tests.
+# This script runs the REAL canarinho end-to-end workflow tests.
 #
 # COST/TIME WARNING:
-#   - Invokes REAL Tamandua agents with REAL model invocations
+#   - Invokes REAL canarinho agents with REAL model invocations
 #   - Spends REAL API tokens (may cost money)
 #   - Expected runtime: 30+ minutes per workflow (3 workflows tested)
 #   - Runs a full daemon + scheduler + agent pipeline end-to-end
@@ -16,7 +16,7 @@
 #   - do-review-do-verify
 #
 # When to use:
-#   - Verifying the full Tamandua pipeline works end-to-end
+#   - Verifying the full canarinho pipeline works end-to-end
 #   - Validating daemon, scheduler, agent, step execution, and merge
 #   - After major changes to the agent polling/scheduling infrastructure
 #
@@ -32,7 +32,7 @@
 set -euo pipefail
 cd "$(dirname "$0")"
 
-LOG="${TAMANDUA_REAL_E2E_LOG:-e2e-real-test-output.log}"
+LOG="${canarinho_REAL_E2E_LOG:-e2e-real-test-output.log}"
 
 npm run build
 node --test e2e-tests/workflows-e2e.test.ts e2e-tests/workflows-do-review-do-verify-real.test.ts 2>&1 | tee "$LOG"

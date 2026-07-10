@@ -10,15 +10,16 @@ describe("computeHasFrontendChanges", () => {
   let tmpDir: string;
 
   beforeEach(() => {
-    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "tamandua-test-"));
-    // Init a git repo with a main branch
-    execSync("git init && git checkout -b main", { cwd: tmpDir });
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "canarinho-test-"));
+    execSync('git init -b main', { cwd: tmpDir });
+    execSync('git config user.email "test@example.com"', { cwd: tmpDir });
+    execSync('git config user.name "Test"', { cwd: tmpDir });
     fs.writeFileSync(path.join(tmpDir, "README.md"), "# test");
     execSync("git add . && git commit -m 'init'", { cwd: tmpDir });
   });
 
   afterEach(() => {
-    fs.rmSync(tmpDir, { recursive: true, force: true });
+    try { fs.rmSync(tmpDir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 }); } catch { /* best-effort */ }
   });
 
   it("returns 'true' when branch has frontend file changes", () => {

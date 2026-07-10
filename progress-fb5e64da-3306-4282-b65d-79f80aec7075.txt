@@ -5,12 +5,12 @@ Started: 2026-07-03T23:07:00Z
 
 ## Codebase Patterns
 - DB migration pattern: PRAGMA table_info → Set of col names → ALTER TABLE ADD COLUMN if missing
-- Test isolation pattern: isolated HOME + TAMANDUA_DB_PATH, spawnSync with --input-type=module, cleanChildEnv
+- Test isolation pattern: isolated HOME + canarinho_DB_PATH, spawnSync with --input-type=module, cleanChildEnv
 - Subprocess-spawned migration tests go in tests/; in-process DB tests in src/db.test.ts
 - step-ops.ts functions: failStep is async (calls getOnFailPolicy → loadWorkflowSpec → fs.readFile)
 - getOnFailPolicy reads workflow YAML via resolveWorkflowDir(<state>/workflows/<id>/workflow.yml)
 - claimStep surfaces retry_feedback from step.output (now always when output is non-null, not just on retry_count>0)
-- Workflow tests need temp workflow YAML files in $TAMANDUA_STATE_DIR/workflows/<id>/workflow.yml
+- Workflow tests need temp workflow YAML files in $canarinho_STATE_DIR/workflows/<id>/workflow.yml
 - Nesting describe blocks: save env vars in before() hook, not at module eval time, to capture outer describe's isolation
 - Synchronous variant pattern: when an async function (getOnFailPolicy, rerouteStep) needs to be called from a sync context (completeStep, recoverOrphanedStepsForAgent), create a Sync variant that uses readFileSync/loadWorkflowSpecSync instead of the async file reads
 - RETR test workflow: test-reroute with produce → consume pipeline, consume declares on_fail.retry_step: produce

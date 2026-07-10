@@ -22,19 +22,19 @@ let tempHome: string;
 let saved: Record<string, string | undefined>;
 
 beforeEach(() => {
-  tempHome = fs.mkdtempSync(path.join(os.tmpdir(), "tamandua-dead-worker-"));
-  const stateDir = path.join(tempHome, ".tamandua");
+  tempHome = fs.mkdtempSync(path.join(os.tmpdir(), "canarinho-dead-worker-"));
+  const stateDir = path.join(tempHome, ".canarinho");
   fs.mkdirSync(stateDir, { recursive: true });
   saved = {
     HOME: process.env.HOME,
-    TAMANDUA_STATE_DIR: process.env.TAMANDUA_STATE_DIR,
-    TAMANDUA_DB_PATH: process.env.TAMANDUA_DB_PATH,
-    TAMANDUA_CONTROL_PORT: process.env.TAMANDUA_CONTROL_PORT,
+    canarinho_STATE_DIR: process.env.canarinho_STATE_DIR,
+    canarinho_DB_PATH: process.env.canarinho_DB_PATH,
+    canarinho_CONTROL_PORT: process.env.canarinho_CONTROL_PORT,
   };
   process.env.HOME = tempHome;
-  process.env.TAMANDUA_STATE_DIR = stateDir;
-  process.env.TAMANDUA_DB_PATH = path.join(stateDir, "tamandua.db");
-  process.env.TAMANDUA_CONTROL_PORT = "1"; // dead control plane — nudges no-op
+  process.env.canarinho_STATE_DIR = stateDir;
+  process.env.canarinho_DB_PATH = path.join(stateDir, "canarinho.db");
+  process.env.canarinho_CONTROL_PORT = "1"; // dead control plane — nudges no-op
 });
 
 afterEach(() => {
@@ -73,7 +73,7 @@ function seedRunWithRunningStep(opts: {
   ).run(
     stepId, runId,
     opts.retryCount ?? 0, opts.maxRetries ?? 3,
-    opts.claimPid, opts.claimPgid ?? null, opts.claimJobId ?? "tamandua-wf-dead-job",
+    opts.claimPid, opts.claimPgid ?? null, opts.claimJobId ?? "canarinho-wf-dead-job",
     now, now,
   );
   return { runId, stepId };

@@ -17,7 +17,7 @@ const bundledIds = readdirSync(workflowsDir, { withFileTypes: true })
   .map((d) => d.name);
 
 // Count MCP_TOOL_* constant definitions from the source file.
-// These are declared as `const MCP_TOOL_X = "tamandua.xxx";` at column 0,
+// These are declared as `const MCP_TOOL_X = "canarinho.xxx";` at column 0,
 // so ^const MCP_TOOL_ with the multiline flag is precise.
 const mcpToolCount = (mcpServerContent.match(/^const MCP_TOOL_\w+ = /gm) || []).length;
 
@@ -79,11 +79,11 @@ describe("www/index.html content sync", () => {
     );
   });
 
-  // Regression test: DDOC — tamandua doctor appears in commands table
-  it("includes tamandua doctor in the Everyday Commands table", () => {
+  // Regression test: DDOC — canarinho doctor appears in commands table
+  it("includes canarinho doctor in the Everyday Commands table", () => {
     assert.ok(
-      wwwContent.includes("tamandua doctor"),
-      "www/index.html Everyday Commands table must include tamandua doctor row",
+      wwwContent.includes("canarinho doctor"),
+      "www/index.html Everyday Commands table must include canarinho doctor row",
     );
   });
 
@@ -121,35 +121,35 @@ describe("www/index.html content sync", () => {
 
   // Regression test: DOVW — SKILL.md warns about overwrite semantics
   it("SKILL.md warns about workflow file overwrite on install/update", () => {
-    const skillPath = join(sourcePath, "skills", "tamandua-agents", "SKILL.md");
+    const skillPath = join(sourcePath, "skills", "canarinho-agents", "SKILL.md");
     const skillContent = readFileSync(skillPath, "utf-8");
     assert.ok(
       skillContent.includes("local edits are silently overwritten"),
-      "skills/tamandua-agents/SKILL.md must warn that local edits are silently overwritten",
+      "skills/canarinho-agents/SKILL.md must warn that local edits are silently overwritten",
     );
   });
 
   // Regression test: DDOC — SKILL.md includes doctor section
-  it("SKILL.md includes Troubleshooting with tamandua doctor section", () => {
-    const skillPath = join(sourcePath, "skills", "tamandua-agents", "SKILL.md");
+  it("SKILL.md includes Troubleshooting with canarinho doctor section", () => {
+    const skillPath = join(sourcePath, "skills", "canarinho-agents", "SKILL.md");
     const skillContent = readFileSync(skillPath, "utf-8");
     assert.ok(
-      skillContent.includes("Troubleshooting with tamandua doctor"),
-      "skills/tamandua-agents/SKILL.md must include 'Troubleshooting with tamandua doctor' section",
+      skillContent.includes("Troubleshooting with canarinho doctor"),
+      "skills/canarinho-agents/SKILL.md must include 'Troubleshooting with canarinho doctor' section",
     );
   });
 
   // Regression test: DRTR — SKILL.md covers on_fail routing
   it("SKILL.md documents on-failure routing and rerouting", () => {
-    const skillPath = join(sourcePath, "skills", "tamandua-agents", "SKILL.md");
+    const skillPath = join(sourcePath, "skills", "canarinho-agents", "SKILL.md");
     const skillContent = readFileSync(skillPath, "utf-8");
     assert.ok(
       skillContent.includes("max_reroutes"),
-      "skills/tamandua-agents/SKILL.md must document max_reroutes",
+      "skills/canarinho-agents/SKILL.md must document max_reroutes",
     );
     assert.ok(
       skillContent.includes("step.rerouted"),
-      "skills/tamandua-agents/SKILL.md must document step.rerouted event",
+      "skills/canarinho-agents/SKILL.md must document step.rerouted event",
     );
   });
 });

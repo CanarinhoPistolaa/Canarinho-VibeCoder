@@ -41,7 +41,7 @@
 
   function parseTimestamp(ts) {
     if (!ts) return NaN;
-    // Tamandua mixes ISO-Z and naive space-separated UTC strings.
+    // canarinho mixes ISO-Z and naive space-separated UTC strings.
     const iso = /Z$/.test(ts) ? ts : ts.replace(" ", "T") + "Z";
     return Date.parse(iso);
   }

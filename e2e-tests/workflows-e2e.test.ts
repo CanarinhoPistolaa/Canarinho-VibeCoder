@@ -1,7 +1,7 @@
 /******************************************************************************
  * ⚠️  WARNING: SLOW, EXPENSIVE REAL E2E TEST — DO NOT RUN BY DEFAULT  ⚠️
  *
- * This test runs REAL Tamandua workflow executions with a LIVE daemon and
+ * This test runs REAL canarinho workflow executions with a LIVE daemon and
  * scheduler processing steps through actual agent invocations (pi/llm calls).
  *
  * COST/TIME WARNING:
@@ -12,7 +12,7 @@
  *
  * WHEN TO RUN:
  *   - After major changes to the daemon, scheduler, or agent polling infra
- *   - To validate the full Tamandua pipeline end-to-end
+ *   - To validate the full canarinho pipeline end-to-end
  *   - Only via: ./run-all-real-e2e-tests
  *
  * WHEN NOT TO RUN:
@@ -29,10 +29,10 @@
  * TEST ISOLATION:
  *   - Uses temp HOME isolation via createTempHome()
  *   - Uses reserveDistinctRandomPorts() — no default ports (3334/3338/3339)
- *   - Daemon runs in isolated HOME/TAMANDUA_STATE_DIR
+ *   - Daemon runs in isolated HOME/canarinho_STATE_DIR
  *   - Worktree directories are created under the isolated HOME (os.homedir()
  *     respects HOME env var), so cleanupTempHome() removes them
- *   - All .tamandua state (DB, events, logs, PID/port files) is in the
+ *   - All .canarinho state (DB, events, logs, PID/port files) is in the
  *     isolated temp HOME and removed by cleanupTempHome()
  *   - after() hook + per-test finally blocks guarantee cleanup on failure
  *
@@ -197,7 +197,7 @@ describe(
             ],
             baseEnv(env.homeDir, env.controlPort),
           );
-          const runId = resolveFullRunId(runIdPrefix, env.tamanduaDir);
+          const runId = resolveFullRunId(runIdPrefix, env.canarinhoDir);
 
           // ── Wait for completion ──────────────────────────────────
           await waitForRunTerminal(
@@ -205,7 +205,7 @@ describe(
             baseEnv(env.homeDir, env.controlPort),
             45 * 60_000, // 45 min timeout
             10_000,       // poll every 10s
-            env.tamanduaDir, // attach log/event/step diagnostics on timeout
+            env.canarinhoDir, // attach log/event/step diagnostics on timeout
           );
 
           // ── Verify run status ────────────────────────────────────
@@ -217,7 +217,7 @@ describe(
           assert.match(statusOut, /Status:\s+completed/i);
 
           // ── Token accounting audit (MOTOR-CONTRACT.md C14/C15) ───
-          const bugFixAudit = auditRunTokens(env.tamanduaDir, runId);
+          const bugFixAudit = auditRunTokens(env.canarinhoDir, runId);
           assert.ok(
             bugFixAudit.workTokens > 0,
             `bug-fix run should have attributed work tokens, got ${bugFixAudit.workTokens}`,
@@ -342,7 +342,7 @@ describe(
             ],
             baseEnv(env.homeDir, env.controlPort),
           );
-          const runId = resolveFullRunId(runIdPrefix, env.tamanduaDir);
+          const runId = resolveFullRunId(runIdPrefix, env.canarinhoDir);
 
           // ── Wait for completion ──────────────────────────────────
           await waitForRunTerminal(
@@ -350,7 +350,7 @@ describe(
             baseEnv(env.homeDir, env.controlPort),
             45 * 60_000, // 45 min timeout
             10_000,       // poll every 10s
-            env.tamanduaDir, // attach log/event/step diagnostics on timeout
+            env.canarinhoDir, // attach log/event/step diagnostics on timeout
           );
 
           // ── Verify run status ────────────────────────────────────
@@ -362,7 +362,7 @@ describe(
           assert.match(statusOut, /Status:\s+completed/i);
 
           // ── Token accounting audit (MOTOR-CONTRACT.md C14/C15) ───
-          const featureAudit = auditRunTokens(env.tamanduaDir, runId);
+          const featureAudit = auditRunTokens(env.canarinhoDir, runId);
           assert.ok(
             featureAudit.workTokens > 0,
             `feature-dev run should have attributed work tokens, got ${featureAudit.workTokens}`,
@@ -511,7 +511,7 @@ describe(
             ],
             baseEnv(env.homeDir, env.controlPort),
           );
-          const runId = resolveFullRunId(runIdPrefix, env.tamanduaDir);
+          const runId = resolveFullRunId(runIdPrefix, env.canarinhoDir);
 
           // ── Wait for completion ──────────────────────────────────
           await waitForRunTerminal(
@@ -519,7 +519,7 @@ describe(
             baseEnv(env.homeDir, env.controlPort),
             45 * 60_000, // 45 min timeout
             10_000,       // poll every 10s
-            env.tamanduaDir,
+            env.canarinhoDir,
           );
 
           // ── Verify run status ────────────────────────────────────
@@ -531,7 +531,7 @@ describe(
           assert.match(statusOut, /Status:\s+completed/i);
 
           // ── Token accounting audit ───────────────────────────────
-          const quarantineAudit = auditRunTokens(env.tamanduaDir, runId);
+          const quarantineAudit = auditRunTokens(env.canarinhoDir, runId);
           assert.ok(
             quarantineAudit.workTokens > 0,
             `quarantine run should have attributed work tokens, got ${quarantineAudit.workTokens}`,
@@ -648,7 +648,7 @@ describe(
             ],
             baseEnv(env.homeDir, env.controlPort),
           );
-          const runId = resolveFullRunId(runIdPrefix, env.tamanduaDir);
+          const runId = resolveFullRunId(runIdPrefix, env.canarinhoDir);
 
           // ── Wait for completion ──────────────────────────────
           await waitForRunTerminal(
@@ -656,7 +656,7 @@ describe(
             baseEnv(env.homeDir, env.controlPort),
             45 * 60_000, // 45 min timeout
             10_000,       // poll every 10s
-            env.tamanduaDir, // attach log/event/step diagnostics on timeout
+            env.canarinhoDir, // attach log/event/step diagnostics on timeout
           );
 
           // ── Verify run status ────────────────────────────────
@@ -668,7 +668,7 @@ describe(
           assert.match(statusOut, /Status:\s+completed/i);
 
           // ── Token accounting audit (MOTOR-CONTRACT.md C14/C15) ──
-          const securityAudit = auditRunTokens(env.tamanduaDir, runId);
+          const securityAudit = auditRunTokens(env.canarinhoDir, runId);
           assert.ok(
             securityAudit.workTokens > 0,
             `security-audit run should have attributed work tokens, got ${securityAudit.workTokens}`,
@@ -824,13 +824,13 @@ describe("real e2e do-now workflow (LIVE agent, daemon, scheduler)", () => {
             "workflow",
             "run",
             "do-now",
-            "Create a file named output.txt in the current working directory containing exactly the text: tamandua e2e test passed",
+            "Create a file named output.txt in the current working directory containing exactly the text: canarinho e2e test passed",
             "--working-directory-for-harness",
             workdir,
           ],
           baseEnv(env.homeDir, env.controlPort),
         );
-        const runId = resolveFullRunId(runIdPrefix, env.tamanduaDir);
+        const runId = resolveFullRunId(runIdPrefix, env.canarinhoDir);
 
         // Nudge-driven poll — a single-step run completes when the
         // model finishes; nudging removes the 5-minute interval dead time.
@@ -839,11 +839,11 @@ describe("real e2e do-now workflow (LIVE agent, daemon, scheduler)", () => {
           baseEnv(env.homeDir, env.controlPort),
           12 * 60_000, // 12 min for the run itself
           5_000,       // nudge every 5 s
-          env.tamanduaDir,
+          env.canarinhoDir,
         );
         assert.ok(
           isSuccessfulRunTerminalStatus(status),
-          `do-now run should complete, got "${status}"\n${collectRunDiagnostics(env.tamanduaDir, runId)}`,
+          `do-now run should complete, got "${status}"\n${collectRunDiagnostics(env.canarinhoDir, runId)}`,
         );
 
         // ── Artifact verification ─────────────────────────────────
@@ -855,12 +855,12 @@ describe("real e2e do-now workflow (LIVE agent, daemon, scheduler)", () => {
         const fileContents = fs.readFileSync(outputPath, "utf-8");
         assert.equal(
           fileContents.trim(),
-          "tamandua e2e test passed",
+          "canarinho e2e test passed",
           `output.txt should contain expected string, got: "${fileContents.trim()}"`,
         );
 
         // ── Token accounting ───────────────────────────────────────
-        const audit = await waitForRunWorkTokens(env.tamanduaDir, runId);
+        const audit = await waitForRunWorkTokens(env.canarinhoDir, runId);
         assert.ok(
           audit.workTokens > 0,
           `do-now run should have attributed work tokens, got ${audit.workTokens}`,
@@ -883,7 +883,7 @@ describe("real e2e do-now workflow (LIVE agent, daemon, scheduler)", () => {
         // ── MPRT fallback report parsing ───────────────────────────
         // do-now's execute step has no Reply-with format block, so the
         // REPORT field is parsed by the generic KEY:value parser.
-        const db = new DatabaseSync(path.join(env.tamanduaDir, "tamandua.db"));
+        const db = new DatabaseSync(path.join(env.canarinhoDir, "canarinho.db"));
         try {
           const row = db
             .prepare("SELECT context FROM runs WHERE id = ?")

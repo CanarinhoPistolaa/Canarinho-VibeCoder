@@ -19,7 +19,7 @@
  * representing the step itself.
  */
 import type { DatabaseSync } from "node:sqlite";
-import type { TamanduaEvent } from "../installer/events.js";
+import type { canarinhoEvent } from "../installer/events.js";
 
 export type VisualStatus = "todo" | "running" | "done" | "failed";
 
@@ -91,7 +91,7 @@ export interface KanbanCardDetail {
   /** Run task description. */
   task: string;
   /** Events filtered to the relevant step/story. */
-  events: TamanduaEvent[];
+  events: canarinhoEvent[];
   /** Timing computed from first and last relevant event. */
   timing?: {
     firstEvent: string;
@@ -244,7 +244,7 @@ function computeElapsed(status: string, created_at: string, updated_at: string):
   return null;
 }
 
-function extractFailureDetail(events: TamanduaEvent[]): string | undefined {
+function extractFailureDetail(events: canarinhoEvent[]): string | undefined {
   // Prefer story.failed then step.failed, most recent first.
   const sorted = [...events].sort(
     (a, b) => parseEventIsoMs(b.ts) - parseEventIsoMs(a.ts),
@@ -258,7 +258,7 @@ function extractFailureDetail(events: TamanduaEvent[]): string | undefined {
   return undefined;
 }
 
-function aggregateTokens(events: TamanduaEvent[]): NonNullable<KanbanCardDetail["tokens"]> | undefined {
+function aggregateTokens(events: canarinhoEvent[]): NonNullable<KanbanCardDetail["tokens"]> | undefined {
   const deltas: number[] = [];
   let lastTotal = 0;
   for (const e of events) {
@@ -283,7 +283,7 @@ export function buildKanbanCardDetail(
   db: DatabaseSync,
   runId: string,
   cardId: string,
-  runEvents?: TamanduaEvent[],
+  runEvents?: canarinhoEvent[],
 ): KanbanCardDetail | null {
   // ── run existence check ─────────────────────────────────────────
   const run = db.prepare(
@@ -323,11 +323,16 @@ export function buildKanbanCardDetail(
           !e.storyId),
     );
     const timing = buildTiming(events);
-    const tokens = aggregateTokens(events) ?? { total: 0, deltas: [] };
-    tokens.promptTokens = story.prompt_tokens ?? 0;
-    tokens.completionTokens = story.completion_tokens ?? 0;
-    tokens.cachedTokens = story.cached_tokens ?? 0;
-    tokens.model = loopStep?.model ?? undefined;
+    const tokenAgg = aggregateTokens(events);
+    const tokens = tokenAgg
+      ? {
+          ...tokenAgg,
+          promptTokens: story.prompt_tokens ?? 0,
+          completionTokens: story.completion_tokens ?? 0,
+          cachedTokens: story.cached_tokens ?? 0,
+          model: loopStep?.model ?? undefined,
+        }
+      : undefined;
     return {
       runId,
       cardId,
@@ -364,11 +369,16 @@ export function buildKanbanCardDetail(
 
   const events = (runEvents ?? []).filter((e) => e.stepId === cardId);
   const timing = buildTiming(events);
-  const tokens = aggregateTokens(events) ?? { total: 0, deltas: [] };
-  tokens.promptTokens = step.prompt_tokens ?? 0;
-  tokens.completionTokens = step.completion_tokens ?? 0;
-  tokens.cachedTokens = step.cached_tokens ?? 0;
-  tokens.model = step.model ?? undefined;
+  const tokenAgg = aggregateTokens(events);
+  const tokens = tokenAgg
+    ? {
+        ...tokenAgg,
+        promptTokens: step.prompt_tokens ?? 0,
+        completionTokens: step.completion_tokens ?? 0,
+        cachedTokens: step.cached_tokens ?? 0,
+        model: step.model ?? undefined,
+      }
+    : undefined;
   return {
     runId,
     cardId,
@@ -386,7 +396,7 @@ export function buildKanbanCardDetail(
   };
 }
 
-function buildTiming(events: TamanduaEvent[]): KanbanCardDetail["timing"] {
+function buildTiming(events: canarinhoEvent[]): KanbanCardDetail["timing"] {
   if (events.length === 0) return undefined;
   const sorted = [...events].sort(
     (a, b) => parseEventIsoMs(a.ts) - parseEventIsoMs(b.ts),

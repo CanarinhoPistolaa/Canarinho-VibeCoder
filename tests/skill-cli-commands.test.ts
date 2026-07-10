@@ -3,164 +3,164 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 
-const skillPath = resolve(import.meta.dirname, "..", "skills", "tamandua-agents", "SKILL.md");
+const skillPath = resolve(import.meta.dirname, "..", "skills", "canarinho-agents", "SKILL.md");
 const skillContent = readFileSync(skillPath, "utf-8");
 
 // CLI commands documented in SKILL.md that should exist in the actual CLI.
 // Format: [commandString, sectionDescription]
 const documentedCommands: [string, string][] = [
   // Section 1: CLI access
-  ["tamandua version", "version command"],
-  ["tamandua source-path", "source path command"],
-  ["tamandua skill-path", "skill path command"],
+  ["canarinho version", "version command"],
+  ["canarinho source-path", "source path command"],
+  ["canarinho skill-path", "skill path command"],
 
   // Section 2: workflow-level commands
-  ["tamandua workflow list", "workflow list"],
-  ["tamandua workflow install", "workflow install"],
-  ["tamandua workflow uninstall", "workflow uninstall"],
-  ["tamandua workflow run", "workflow run"],
-  ["tamandua workflow status", "workflow status"],
-  ["tamandua workflow runs", "workflow runs"],
-  ["tamandua workflow pause", "workflow pause"],
-  ["tamandua workflow pause-all", "workflow pause-all"],
-  ["tamandua workflow resume", "workflow resume"],
-  ["tamandua workflow resume-all", "workflow resume-all"],
-  ["tamandua workflow stop", "workflow stop"],
-  ["tamandua workflow autoresearch", "workflow autoresearch"],
+  ["canarinho workflow list", "workflow list"],
+  ["canarinho workflow install", "workflow install"],
+  ["canarinho workflow uninstall", "workflow uninstall"],
+  ["canarinho workflow run", "workflow run"],
+  ["canarinho workflow status", "workflow status"],
+  ["canarinho workflow runs", "workflow runs"],
+  ["canarinho workflow pause", "workflow pause"],
+  ["canarinho workflow pause-all", "workflow pause-all"],
+  ["canarinho workflow resume", "workflow resume"],
+  ["canarinho workflow resume-all", "workflow resume-all"],
+  ["canarinho workflow stop", "workflow stop"],
+  ["canarinho workflow autoresearch", "workflow autoresearch"],
 
   // Section 2.2: logs
-  ["tamandua logs", "logs command"],
-  ["tamandua logs-tail", "logs-tail command"],
+  ["canarinho logs", "logs command"],
+  ["canarinho logs-tail", "logs-tail command"],
 
   // Section 2.3: dashboard
-  ["tamandua dashboard start", "dashboard start"],
-  ["tamandua dashboard stop", "dashboard stop"],
-  ["tamandua dashboard status", "dashboard status"],
+  ["canarinho dashboard start", "dashboard start"],
+  ["canarinho dashboard stop", "dashboard stop"],
+  ["canarinho dashboard status", "dashboard status"],
 
   // Section 2.3: MCP
-  ["tamandua mcp start", "mcp start"],
-  ["tamandua mcp stop", "mcp stop"],
-  ["tamandua mcp status", "mcp status"],
+  ["canarinho mcp start", "mcp start"],
+  ["canarinho mcp stop", "mcp stop"],
+  ["canarinho mcp status", "mcp status"],
 
   // Section 2.4: get-ready
-  ["tamandua get-ready", "get-ready command"],
+  ["canarinho get-ready", "get-ready command"],
 
   // Section 2.6: system status
-  ["tamandua status", "status command"],
+  ["canarinho status", "status command"],
 
   // Section 2.7: worktree
-  ["tamandua worktree list", "worktree list"],
-  ["tamandua worktree status", "worktree status"],
-  ["tamandua worktree remove", "worktree remove"],
-  ["tamandua worktree prune", "worktree prune"],
+  ["canarinho worktree list", "worktree list"],
+  ["canarinho worktree status", "worktree status"],
+  ["canarinho worktree remove", "worktree remove"],
+  ["canarinho worktree prune", "worktree prune"],
 
   // Section 2.8: control-plane
-  ["tamandua control-plane start", "control-plane start"],
-  ["tamandua control-plane stop", "control-plane stop"],
-  ["tamandua control-plane status", "control-plane status"],
+  ["canarinho control-plane start", "control-plane start"],
+  ["canarinho control-plane stop", "control-plane stop"],
+  ["canarinho control-plane status", "control-plane status"],
 
   // Section 2.9: uninstall
-  ["tamandua uninstall", "uninstall command"],
+  ["canarinho uninstall", "uninstall command"],
 
   // Section 2.10: autoresearch core
-  ["tamandua autoresearch init", "autoresearch init"],
-  ["tamandua autoresearch run-experiment", "autoresearch run-experiment"],
-  ["tamandua autoresearch log-experiment", "autoresearch log-experiment"],
+  ["canarinho autoresearch init", "autoresearch init"],
+  ["canarinho autoresearch run-experiment", "autoresearch run-experiment"],
+  ["canarinho autoresearch log-experiment", "autoresearch log-experiment"],
 
   // Section 2.11: autoresearch loop
-  ["tamandua autoresearch loop", "autoresearch loop"],
-  ["tamandua autoresearch run-loop-iteration", "autoresearch run-loop-iteration"],
+  ["canarinho autoresearch loop", "autoresearch loop"],
+  ["canarinho autoresearch run-loop-iteration", "autoresearch run-loop-iteration"],
 
   // Section 2.12: autoresearch monitoring and setup
-  ["tamandua autoresearch status", "autoresearch status"],
-  ["tamandua autoresearch next", "autoresearch next"],
-  ["tamandua autoresearch prune", "autoresearch prune"],
-  ["tamandua autoresearch wizard", "autoresearch wizard"],
+  ["canarinho autoresearch status", "autoresearch status"],
+  ["canarinho autoresearch next", "autoresearch next"],
+  ["canarinho autoresearch prune", "autoresearch prune"],
+  ["canarinho autoresearch wizard", "autoresearch wizard"],
 
   // Section 2: update
-  ["tamandua update", "update command"],
+  ["canarinho update", "update command"],
 
   // Section 3: step lifecycle
-  ["tamandua step peek", "step peek"],
-  ["tamandua step claim", "step claim"],
-  ["tamandua step complete", "step complete"],
-  ["tamandua step fail", "step fail"],
-  ["tamandua step stories", "step stories"],
+  ["canarinho step peek", "step peek"],
+  ["canarinho step claim", "step claim"],
+  ["canarinho step complete", "step complete"],
+  ["canarinho step fail", "step fail"],
+  ["canarinho step stories", "step stories"],
 ];
 
 // Actual CLI commands verified from src/cli/cli.ts
 // These are the command groups handled by main()
 const actualCommands: string[] = [
   // Top-level / standalone
-  "tamandua version",
-  "tamandua tamandua",
-  "tamandua skill-path",
-  "tamandua source-path",
-  "tamandua update",
-  "tamandua get-ready",
-  "tamandua uninstall",
-  "tamandua status",
-  "tamandua logs",
-  "tamandua logs-tail",
-  "tamandua doctor",
+  "canarinho version",
+  "canarinho canarinho",
+  "canarinho skill-path",
+  "canarinho source-path",
+  "canarinho update",
+  "canarinho get-ready",
+  "canarinho uninstall",
+  "canarinho status",
+  "canarinho logs",
+  "canarinho logs-tail",
+  "canarinho doctor",
 
   // dashboard
-  "tamandua dashboard start",
-  "tamandua dashboard stop",
-  "tamandua dashboard status",
+  "canarinho dashboard start",
+  "canarinho dashboard stop",
+  "canarinho dashboard status",
 
   // mcp
-  "tamandua mcp start",
-  "tamandua mcp stop",
-  "tamandua mcp status",
+  "canarinho mcp start",
+  "canarinho mcp stop",
+  "canarinho mcp status",
 
   // control-plane
-  "tamandua control-plane start",
-  "tamandua control-plane stop",
-  "tamandua control-plane status",
+  "canarinho control-plane start",
+  "canarinho control-plane stop",
+  "canarinho control-plane status",
 
   // autoresearch
-  "tamandua autoresearch init",
-  "tamandua autoresearch run-experiment",
-  "tamandua autoresearch log-experiment",
-  "tamandua autoresearch loop",
-  "tamandua autoresearch run-loop-iteration",
-  "tamandua autoresearch status",
-  "tamandua autoresearch next",
-  "tamandua autoresearch prune",
-  "tamandua autoresearch wizard",
+  "canarinho autoresearch init",
+  "canarinho autoresearch run-experiment",
+  "canarinho autoresearch log-experiment",
+  "canarinho autoresearch loop",
+  "canarinho autoresearch run-loop-iteration",
+  "canarinho autoresearch status",
+  "canarinho autoresearch next",
+  "canarinho autoresearch prune",
+  "canarinho autoresearch wizard",
 
   // step
-  "tamandua step peek",
-  "tamandua step claim",
-  "tamandua step complete",
-  "tamandua step fail",
-  "tamandua step stories",
+  "canarinho step peek",
+  "canarinho step claim",
+  "canarinho step complete",
+  "canarinho step fail",
+  "canarinho step stories",
 
   // workflow
-  "tamandua workflow list",
-  "tamandua workflow runs",
-  "tamandua workflow install",
-  "tamandua workflow uninstall",
-  "tamandua workflow run",
-  "tamandua workflow status",
-  "tamandua workflow stop",
-  "tamandua workflow autoresearch",
-  "tamandua workflow pause",
-  "tamandua workflow resume",
-  "tamandua workflow pause-all",
-  "tamandua workflow resume-all",
+  "canarinho workflow list",
+  "canarinho workflow runs",
+  "canarinho workflow install",
+  "canarinho workflow uninstall",
+  "canarinho workflow run",
+  "canarinho workflow status",
+  "canarinho workflow stop",
+  "canarinho workflow autoresearch",
+  "canarinho workflow pause",
+  "canarinho workflow resume",
+  "canarinho workflow pause-all",
+  "canarinho workflow resume-all",
 
   // worktree
-  "tamandua worktree list",
-  "tamandua worktree status",
-  "tamandua worktree remove",
-  "tamandua worktree prune",
+  "canarinho worktree list",
+  "canarinho worktree status",
+  "canarinho worktree remove",
+  "canarinho worktree prune",
 ];
 
 // Commands intentionally not documented in SKILL.md (easter eggs, etc.)
 const excludedFromSkill: Set<string> = new Set([
-  "tamandua tamandua", // ASCII art easter egg
+  "canarinho canarinho", // ASCII art easter egg
 ]);
 
 describe("SKILL.md command reference completeness", () => {
@@ -246,8 +246,8 @@ describe("SKILL.md step command accuracy", () => {
   it("step lifecycle is documented in order: peek → claim → execute → complete/fail", () => {
     const peekIdx = skillContent.indexOf("step peek");
     const claimIdx = skillContent.indexOf("step claim");
-    const completeIdx = skillContent.indexOf("tamandua step complete");
-    const failIdx = skillContent.indexOf("tamandua step fail");
+    const completeIdx = skillContent.indexOf("canarinho step complete");
+    const failIdx = skillContent.indexOf("canarinho step fail");
 
     assert.ok(peekIdx < claimIdx, "step peek must appear before step claim in documentation");
     assert.ok(claimIdx < completeIdx, "step claim must appear before step complete");
@@ -439,56 +439,56 @@ describe("SKILL.md workflow install and uninstall documented", () => {
 });
 
 describe("SKILL.md top-level maintenance commands", () => {
-  it("documents tamandua status", () => {
+  it("documents canarinho status", () => {
     assert.ok(
-      skillContent.includes("tamandua status"),
-      "SKILL.md must document tamandua status"
+      skillContent.includes("canarinho status"),
+      "SKILL.md must document canarinho status"
     );
   });
 
-  it("documents tamandua uninstall", () => {
+  it("documents canarinho uninstall", () => {
     assert.ok(
-      skillContent.includes("tamandua uninstall"),
-      "SKILL.md must document tamandua uninstall"
+      skillContent.includes("canarinho uninstall"),
+      "SKILL.md must document canarinho uninstall"
     );
   });
 
-  it("documents tamandua update", () => {
+  it("documents canarinho update", () => {
     assert.ok(
-      skillContent.includes("tamandua update"),
-      "SKILL.md must document tamandua update"
+      skillContent.includes("canarinho update"),
+      "SKILL.md must document canarinho update"
     );
   });
 
-  it("documents tamandua get-ready", () => {
+  it("documents canarinho get-ready", () => {
     assert.ok(
-      skillContent.includes("tamandua get-ready"),
-      "SKILL.md must document tamandua get-ready"
+      skillContent.includes("canarinho get-ready"),
+      "SKILL.md must document canarinho get-ready"
     );
   });
 
-  it("documents tamandua skill-path", () => {
+  it("documents canarinho skill-path", () => {
     assert.ok(
-      skillContent.includes("tamandua skill-path"),
-      "SKILL.md must document tamandua skill-path"
+      skillContent.includes("canarinho skill-path"),
+      "SKILL.md must document canarinho skill-path"
     );
   });
 
-  it("documents tamandua source-path", () => {
+  it("documents canarinho source-path", () => {
     assert.ok(
-      skillContent.includes("tamandua source-path"),
-      "SKILL.md must document tamandua source-path"
+      skillContent.includes("canarinho source-path"),
+      "SKILL.md must document canarinho source-path"
     );
   });
 });
 
 describe("SKILL.md logs commands documented", () => {
   it("documents logs with selector syntax", () => {
-    assert.ok(skillContent.includes("tamandua logs"), "SKILL.md must document logs");
+    assert.ok(skillContent.includes("canarinho logs"), "SKILL.md must document logs");
   });
 
   it("documents logs-tail with selector syntax", () => {
-    assert.ok(skillContent.includes("tamandua logs-tail"), "SKILL.md must document logs-tail");
+    assert.ok(skillContent.includes("canarinho logs-tail"), "SKILL.md must document logs-tail");
   });
 
   it("documents logs-tail live following behavior", () => {

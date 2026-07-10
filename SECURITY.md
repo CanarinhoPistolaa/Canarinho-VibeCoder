@@ -2,15 +2,15 @@
 
 ## Reporting a Vulnerability
 
-If you discover a security vulnerability in Tamandua, please report it privately by opening a GitHub security advisory.
+If you discover a security vulnerability in canarinho, please report it privately by opening a GitHub security advisory.
 
 ## Security Model
 
-Tamandua runs AI agents that execute code on your machine. We take security seriously.
+canarinho runs AI agents that execute code on your machine. We take security seriously.
 
 ### Workflow Safety
 
-- **Curated repo only** — Tamandua only installs workflows from the official repository. No arbitrary remote sources.
+- **Curated repo only** — canarinho only installs workflows from the official repository. No arbitrary remote sources.
 - **Prompt injection review** — Every bundled workflow is reviewed for prompt injection attacks before being merged.
 - **No external commands in YAML** — Workflow steps use template placeholders (`{{key}}`), not shell interpolation, preventing command injection through workflow input.
 
@@ -25,7 +25,7 @@ Tamandua runs AI agents that execute code on your machine. We take security seri
 
 ### Data Storage
 
-- All state is stored locally under `~/.tamandua/`
+- All state is stored locally under `~/.canarinho/`
 - No data is sent to remote servers except through the configured AI provider
 - API keys are read from pi's existing config (`~/.pi/agent/auth.json`)
 - No credentials are stored in workflow definitions
@@ -38,7 +38,7 @@ Tamandua runs AI agents that execute code on your machine. We take security seri
 
 ## Dependencies
 
-Tamandua has minimal dependencies:
+canarinho has minimal dependencies:
 - `yaml` for parsing workflow definitions
 - `json5` for reading OpenClaw config (fallback compatibility)
 

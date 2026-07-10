@@ -10,7 +10,7 @@ import { describe, it } from "node:test";
 const repoRoot = process.cwd();
 
 function createTempHome() {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), "tamandua-system-tokens-"));
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "canarinho-system-tokens-"));
   const homeDir = path.join(root, "home");
   fs.mkdirSync(homeDir, { recursive: true });
   return { root, homeDir };
@@ -43,8 +43,8 @@ function runNodeScript(script: string, env: Record<string, string>) {
   return JSON.parse(lastLine) as Record<string, unknown>;
 }
 
-describe("tamandua_stats migration", () => {
-  it("creates tamandua_stats table with default system_tokens_spent=0 on fresh DB", () => {
+describe("canarinho_stats migration", () => {
+  it("creates canarinho_stats table with default system_tokens_spent=0 on fresh DB", () => {
     const temp = createTempHome();
 
     try {
@@ -53,7 +53,7 @@ describe("tamandua_stats migration", () => {
           import { getDb, getSystemTokenSpend } from "./dist/db.js";
 
           const db = getDb();
-          const cols = db.prepare("PRAGMA table_info(tamandua_stats)").all();
+          const cols = db.prepare("PRAGMA table_info(canarinho_stats)").all();
           const systemTokens = getSystemTokenSpend();
           console.log(JSON.stringify({ cols, systemTokens }));
         `,
@@ -78,7 +78,7 @@ describe("tamandua_stats migration", () => {
     }
   });
 
-  it("tamandua_stats is a singleton — only one row with id=1", () => {
+  it("canarinho_stats is a singleton — only one row with id=1", () => {
     const temp = createTempHome();
 
     try {
@@ -87,7 +87,7 @@ describe("tamandua_stats migration", () => {
           import { getDb } from "./dist/db.js";
 
           const db = getDb();
-          const rows = db.prepare("SELECT id, system_tokens_spent FROM tamandua_stats").all();
+          const rows = db.prepare("SELECT id, system_tokens_spent FROM canarinho_stats").all();
           console.log(JSON.stringify({ rows }));
         `,
         { HOME: temp.homeDir },
@@ -106,8 +106,8 @@ describe("tamandua_stats migration", () => {
     const temp = createTempHome();
 
     try {
-      const dbDir = path.join(temp.homeDir, ".tamandua");
-      const dbPath = path.join(dbDir, "tamandua.db");
+      const dbDir = path.join(temp.homeDir, ".canarinho");
+      const dbPath = path.join(dbDir, "canarinho.db");
       fs.mkdirSync(dbDir, { recursive: true });
 
       const legacyDb = new DatabaseSync(dbPath);
@@ -161,8 +161,8 @@ describe("tamandua_stats migration", () => {
 
     try {
       // First migration (open DB, trigger migrate)
-      const dbDir = path.join(temp.homeDir, ".tamandua");
-      const dbPath = path.join(dbDir, "tamandua.db");
+      const dbDir = path.join(temp.homeDir, ".canarinho");
+      const dbPath = path.join(dbDir, "canarinho.db");
       fs.mkdirSync(dbDir, { recursive: true });
       const firstDb = new DatabaseSync(dbPath);
       // Create the minimal schema that migrate() expects (runs table already exists),
@@ -199,11 +199,11 @@ describe("tamandua_stats migration", () => {
           created_at TEXT NOT NULL,
           updated_at TEXT NOT NULL
         );
-        CREATE TABLE IF NOT EXISTS tamandua_stats (
+        CREATE TABLE IF NOT EXISTS canarinho_stats (
           id INTEGER PRIMARY KEY DEFAULT 1 CHECK (id = 1),
           system_tokens_spent INTEGER NOT NULL DEFAULT 0
         );
-        INSERT OR IGNORE INTO tamandua_stats (id, system_tokens_spent) VALUES (1, 0);
+        INSERT OR IGNORE INTO canarinho_stats (id, system_tokens_spent) VALUES (1, 0);
       `);
       firstDb.close();
 
@@ -213,8 +213,8 @@ describe("tamandua_stats migration", () => {
           import { getDb, getSystemTokenSpend } from "./dist/db.js";
 
           const db = getDb();
-          const cols = db.prepare("PRAGMA table_info(tamandua_stats)").all();
-          const rows = db.prepare("SELECT id, system_tokens_spent FROM tamandua_stats").all();
+          const cols = db.prepare("PRAGMA table_info(canarinho_stats)").all();
+          const rows = db.prepare("SELECT id, system_tokens_spent FROM canarinho_stats").all();
           const systemTokens = getSystemTokenSpend();
           console.log(JSON.stringify({ cols, rows, systemTokens }));
         `,

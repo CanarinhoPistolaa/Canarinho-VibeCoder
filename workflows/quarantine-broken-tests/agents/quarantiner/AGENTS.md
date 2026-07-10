@@ -132,5 +132,5 @@ Before committing:
 - Your changes are limited to disabling tests — do NOT modify application code
 - Do NOT fix the failing tests — your job is to quarantine them, not fix them
 - Preserve test output for the verifier to inspect
-- Every commit message MUST end with: `Co-Authored-By: Tamandua <tamandua@tetradactyla.org>`
+- Every commit message MUST end with: `Co-Authored-By: canarinho <canarinho@tetradactyla.org>`
 - Run `{{build_cmd}}` before running tests if the build step is required

@@ -47,25 +47,25 @@ import type { WorkflowSpec } from "../dist/installer/types.js";
 // ── Environment isolation ───────────────────────────────────────────
 // getDb/emitEvent/logger resolve their paths lazily (first call), so
 // setting env here — after the hoisted imports but before any test body
-// runs — isolates all state. TAMANDUA_CONTROL_PORT points at port 1
+// runs — isolates all state. canarinho_CONTROL_PORT points at port 1
 // (nothing listens there) so completion-triggered control-plane
 // notifications fail fast instead of reaching a live daemon.
 
-const _savedStateDir = process.env.TAMANDUA_STATE_DIR;
-const _savedDbPath = process.env.TAMANDUA_DB_PATH;
-const _savedControlPort = process.env.TAMANDUA_CONTROL_PORT;
-const _isolationDir = fs.mkdtempSync(path.join(os.tmpdir(), "tamandua-graph-sim-"));
-process.env.TAMANDUA_STATE_DIR = _isolationDir;
-process.env.TAMANDUA_DB_PATH = path.join(_isolationDir, "tamandua.db");
-process.env.TAMANDUA_CONTROL_PORT = "1";
+const _savedStateDir = process.env.canarinho_STATE_DIR;
+const _savedDbPath = process.env.canarinho_DB_PATH;
+const _savedControlPort = process.env.canarinho_CONTROL_PORT;
+const _isolationDir = fs.mkdtempSync(path.join(os.tmpdir(), "canarinho-graph-sim-"));
+process.env.canarinho_STATE_DIR = _isolationDir;
+process.env.canarinho_DB_PATH = path.join(_isolationDir, "canarinho.db");
+process.env.canarinho_CONTROL_PORT = "1";
 
 process.on("exit", () => {
-  if (_savedStateDir === undefined) delete process.env.TAMANDUA_STATE_DIR;
-  else process.env.TAMANDUA_STATE_DIR = _savedStateDir;
-  if (_savedDbPath === undefined) delete process.env.TAMANDUA_DB_PATH;
-  else process.env.TAMANDUA_DB_PATH = _savedDbPath;
-  if (_savedControlPort === undefined) delete process.env.TAMANDUA_CONTROL_PORT;
-  else process.env.TAMANDUA_CONTROL_PORT = _savedControlPort;
+  if (_savedStateDir === undefined) delete process.env.canarinho_STATE_DIR;
+  else process.env.canarinho_STATE_DIR = _savedStateDir;
+  if (_savedDbPath === undefined) delete process.env.canarinho_DB_PATH;
+  else process.env.canarinho_DB_PATH = _savedDbPath;
+  if (_savedControlPort === undefined) delete process.env.canarinho_CONTROL_PORT;
+  else process.env.canarinho_CONTROL_PORT = _savedControlPort;
   try { fs.rmSync(_isolationDir, { recursive: true, force: true }); } catch { /* best effort */ }
 });
 

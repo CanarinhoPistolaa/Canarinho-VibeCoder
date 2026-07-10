@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
-# Run the SCRIPTED-AGENT full-pipeline Tamandua e2e tests.
+# Run the SCRIPTED-AGENT full-pipeline canarinho e2e tests.
 #
 # This tier drives the REAL daemon → scheduler → harness spawn → step-ops →
-# pipeline-advance → worktree/merge path, but with TAMANDUA_PI_BINARY pointed
+# pipeline-advance → worktree/merge path, but with canarinho_PI_BINARY pointed
 # at a deterministic scripted agent (e2e-tests/helpers/scripted-agent.ts).
 # No models are invoked and NO tokens are spent. Expect ~30-60 seconds.
 #
@@ -18,7 +18,7 @@
 set -euo pipefail
 cd "$(dirname "$0")"
 
-LOG="${TAMANDUA_SCRIPTED_E2E_LOG:-e2e-scripted-test-output.log}"
+LOG="${canarinho_SCRIPTED_E2E_LOG:-e2e-scripted-test-output.log}"
 
 npm run build
 node --test e2e-tests/workflows-scripted.test.ts e2e-tests/workflows-scripted-hermes.test.ts e2e-tests/autoresearch-scripted.test.ts e2e-tests/fixture-health.test.ts 2>&1 | tee "$LOG"

@@ -12,7 +12,7 @@
     .form-grid .span-2 { grid-column: span 2; }
     .form-group { display: flex; flex-direction: column; gap: 4px; }
     .form-group label {
-      font-size: 11px; font-weight: 600; color: var(--ink-soft);
+      font-size: 12px; font-weight: 600; color: var(--ink-soft);
       text-transform: uppercase; letter-spacing: 0.5px;
     }
     .form-group label .req { color: var(--red); }
@@ -26,7 +26,7 @@
       outline: none; border-color: var(--accent);
     }
     .form-group textarea { min-height: 70px; resize: vertical; font-family: "SF Mono","Fira Code",monospace; font-size: 12px; }
-    .form-group .hint { font-size: 10px; color: var(--ink-soft); }
+    .form-group .hint { font-size: 12px; color: var(--ink-soft); }
     .form-row { display: flex; gap: 10px; align-items: flex-end; }
     .form-row .form-group { flex: 1; }
 
@@ -82,24 +82,26 @@
     .tag-input .tag {
       display: inline-flex; align-items: center; gap: 3px;
       padding: 1px 7px; border-radius: 3px; background: var(--bg-panel);
-      font-size: 11px;
+      font-size: 12px;
     }
     .tag-input input { border: none; background: transparent; color: var(--ink); font-family: inherit; font-size: 12px; flex: 1; min-width: 60px; outline: none; padding: 3px 4px; }
 
     .kv-row { display: flex; gap: 4px; align-items: center; margin-bottom: 4px; }
     .kv-row input { flex: 1; }
     .kv-row span { color: var(--ink-soft); }
-    .step-order { width: 24px; text-align: center; color: var(--ink-soft); font-size: 11px; font-weight: 600; }
+    .step-order { width: 24px; text-align: center; color: var(--ink-soft); font-size: 12px; font-weight: 600; }
     .empty-hint { text-align: center; padding: 20px; color: var(--ink-soft); font-style: italic; font-size: 13px; }
 
-    .btn-sm { padding: 3px 8px; font-size: 11px; }
+    .btn-sm { padding: 6px 12px; font-size: 12px; }
     .btn-danger { border-color: rgba(248,113,113,0.3); }
     .btn-danger:hover { border-color: var(--red); color: var(--red); background: rgba(248,113,113,0.08); }
+    .field-error { display: block; font-size: 12px; margin-top: 2px; }
+    .btn-loading { opacity: 0.7; pointer-events: none; }
   </style>
 </head>
 <body>
   <header>
-    <img class="brand-logo" src="/brand-logo.png" alt="Canarinho VibeCoder" style="height:28px;width:auto;">
+    <img class="brand-logo" src="/brand-logo.png" alt="Canarinho VibeCoder" width="28" height="28">
     <h1 class="brand-text"><a href="/" style="color:inherit;text-decoration:none;">Canarinho VibeCoder</a></h1>
     <span class="subtitle" id="page-title">New Workflow</span>
     <span class="status-dot" title="Connected"></span>
@@ -113,7 +115,7 @@
           <div class="form-grid">
             <div class="form-group">
               <label>ID <span class="req">*</span></label>
-              <input type="text" id="wf-id" class="mono" placeholder="my-custom-workflow">
+              <input type="text" id="wf-id" class="mono" placeholder="my-custom-workflow"><span class="field-error" id="wf-id-error" style="display:none;color:var(--red);font-size:12px;margin-top:2px;"></span>
               <span class="hint">kebab-case, único</span>
             </div>
             <div class="form-group">
@@ -157,7 +159,7 @@
 
         <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:8px">
           <a href="/workflows" class="action-btn" style="text-decoration:none;">Cancel</a>
-          <button class="action-btn" onclick="saveWorkflow()" style="background:var(--accent);color:var(--bg);border-color:var(--accent);font-weight:600;">Save Workflow</button>
+          <button class="action-btn" onclick="saveWorkflow()" style="background:var(--accent);color:var(--bg);border-color:var(--accent);font-weight:600;">Save Workflow</button><span class="field-error" id="save-feedback" style="display:none;color:var(--red);font-size:12px;margin-top:4px;margin-left:8px;"></span>
         </div>
       </div>
 
@@ -176,7 +178,7 @@
       <div class="form-grid">
         <div class="form-group">
           <label>ID <span class="req">*</span></label>
-          <input type="text" id="agent-id" class="mono" placeholder="builder">
+          <input type="text" id="agent-id" class="mono" placeholder="builder"><span class="field-error" id="agent-id-error" style="display:none;color:var(--red);font-size:12px;margin-top:2px;"></span>
         </div>
         <div class="form-group">
           <label>Name</label>
@@ -236,6 +238,7 @@
   <div class="modal-overlay" id="import-agent-modal">
     <div class="modal" style="max-width:720px;">
       <h3>Import Agent from Another Workflow</h3>
+      <span class="field-error" id="import-agent-error" style="display:none;color:var(--red);font-size:12px;margin-bottom:8px;"></span>
       <div id="import-agent-list" style="max-height:50vh;overflow-y:auto;">
         <div class="empty-hint">Loading agents...</div>
       </div>
@@ -253,11 +256,11 @@
       <div class="form-grid">
         <div class="form-group">
           <label>ID <span class="req">*</span></label>
-          <input type="text" id="step-id" class="mono" placeholder="build">
+          <input type="text" id="step-id" class="mono" placeholder="build"><span class="field-error" id="step-id-error" style="display:none;color:var(--red);font-size:12px;margin-top:2px;"></span>
         </div>
         <div class="form-group">
           <label>Agent <span class="req">*</span></label>
-          <select id="step-agent"></select>
+          <select id="step-agent"></select><span class="field-error" id="step-agent-error" style="display:none;color:var(--red);font-size:12px;margin-top:2px;"></span>
         </div>
         <div class="form-group">
           <label>Type</label>
@@ -328,7 +331,7 @@
 
     // ── Init ──
     (function() {
-      var theme = localStorage.getItem('tamandua-theme') || 'canarinho';
+      var theme = localStorage.getItem('canarinho-theme') || 'canarinho';
       document.documentElement.setAttribute('data-theme', theme);
       var id = getWorkflowIdFromPath();
       var cloneId = getParam('clone');
@@ -408,12 +411,13 @@
     function renderContext() {
       var el = document.getElementById('wf-context');
       el.innerHTML = CONTEXT.map(function(c,i) {
-        return '<div class="kv-row"><input class="mono" value="'+esc(c.key)+'" onchange="CONTEXT['+i+'].key=this.value;updatePreview()" placeholder="key"><span>=</span><input class="mono" value="'+esc(c.value)+'" onchange="CONTEXT['+i+'].value=this.value;updatePreview()" placeholder="value"><button class="action-btn btn-sm btn-danger" onclick="removeContextRow('+i+')">✕</button></div>';
+        return '<div class="kv-row"><input class="mono" value="'+esc(c.key)+'" onchange="CONTEXT['+i+'].key=this.value;updatePreview()" placeholder="key"><span>=</span><input class="mono" value="'+esc(c.value)+'" onchange="CONTEXT['+i+'].value=this.value;updatePreview()" placeholder="value"><button class="action-btn btn-sm btn-danger" onclick="removeContextRow('+i+')"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button></div>';
       }).join('');
     }
 
     // ── Agents ──
     function openAgentModal(idx) {
+      clearFieldErrors();
       document.getElementById('agent-edit-idx').value = idx !== undefined ? idx : '';
       document.getElementById('agent-modal-title').textContent = idx !== undefined ? 'Edit Agent' : 'New Agent';
       if (idx !== undefined) {
@@ -452,9 +456,21 @@
       return tags;
     }
 
+    
+    function showFieldError(fieldId, message) {
+      var el = document.getElementById(fieldId + '-error');
+      if (el) { el.textContent = message; el.style.display = 'block'; }
+    }
+    function clearFieldErrors() {
+      document.querySelectorAll('.field-error').forEach(function(el) {
+        el.textContent = '';
+        el.style.display = 'none';
+      });
+    }
+
     function saveAgent() {
       var id = document.getElementById('agent-id').value.trim();
-      if (!id) { alert('Agent ID is required'); return; }
+      if (!id) { showFieldError('agent-id', 'Agent ID is required'); return; }
       var data = {
         id: id,
         name: document.getElementById('agent-name').value.trim(),
@@ -485,6 +501,7 @@
     function deleteAgent(i) { AGENTS.splice(i,1); renderAll(); }
 
     function openImportAgentModal() {
+      clearFieldErrors();
       openModal('import-agent-modal');
       var el = document.getElementById('import-agent-list');
       el.innerHTML = '<div class="empty-hint">Loading agents...</div>';
@@ -499,9 +516,9 @@
           el.innerHTML = '<table style="width:100%"><thead><tr><th>Agent</th><th>Role</th><th>Source</th><th>Description</th><th></th></tr></thead><tbody>' +
             data.agents.map(function(a, i) {
               return '<tr>' +
-                '<td><span class="mono" style="color:var(--ink-strong)">' + esc(a.id) + '</span><br><span style="font-size:11px;color:var(--ink-soft)">' + esc(a.name) + '</span></td>' +
-                '<td><span class="badge badge-completed" style="font-size:10px">' + esc(a.role) + '</span></td>' +
-                '<td><span class="mono" style="font-size:11px;color:var(--accent)">' + esc(a.source) + '</span></td>' +
+                '<td><span class="mono" style="color:var(--ink-strong)">' + esc(a.id) + '</span><br><span style="font-size:12px;color:var(--ink-soft)">' + esc(a.name) + '</span></td>' +
+                '<td><span class="badge badge-completed" style="font-size:12px">' + esc(a.role) + '</span></td>' +
+                '<td><span class="mono" style="font-size:12px;color:var(--accent)">' + esc(a.source) + '</span></td>' +
                 '<td style="max-width:200px;font-size:12px;color:var(--ink-soft)">' + esc(a.description || '—') + '</td>' +
                 '<td><button class="action-btn btn-sm" onclick="importAgent(' + i + ')">Import</button></td>' +
               '</tr>';
@@ -515,7 +532,7 @@
       if (!a) return;
       var alreadyExists = AGENTS.some(function(existing) { return existing.id === a.id; });
       if (alreadyExists) {
-        alert('Agent "' + a.id + '" already exists in this workflow.');
+        showFieldError('import-agent', 'Agent "' + a.id + '" already exists in this workflow.');
         return;
       }
       AGENTS.push({
@@ -540,15 +557,16 @@
       el.innerHTML = '<table style="width:100%;table-layout:fixed"><thead><tr><th>ID</th><th>Role</th><th>Model</th><th>Workspace</th><th style="width:80px"></th></tr></thead><tbody>' +
         AGENTS.map(function(a,i) {
           return '<tr><td><span class="mono" style="color:var(--ink-strong)">'+esc(a.id)+'</span></td>' +
-            '<td><span class="badge badge-completed" style="font-size:10px">'+esc(a.role)+'</span></td>' +
+            '<td><span class="badge badge-completed" style="font-size:12px">'+esc(a.role)+'</span></td>' +
             '<td style="color:var(--ink-soft);font-size:12px">'+(a.model||'default')+'</td>' +
-            '<td><span class="mono" style="font-size:11px;color:var(--ink-soft)">'+esc(a.baseDir)+'</span></td>' +
-            '<td style="text-align:right"><button class="action-btn btn-sm" onclick="openAgentModal('+i+')">Edit</button> <button class="action-btn btn-sm btn-danger" onclick="deleteAgent('+i+')">✕</button></td></tr>';
+            '<td><span class="mono" style="font-size:12px;color:var(--ink-soft)">'+esc(a.baseDir)+'</span></td>' +
+            '<td style="text-align:right"><button class="action-btn btn-sm" onclick="openAgentModal('+i+')">Edit</button> <button class="action-btn btn-sm btn-danger" onclick="deleteAgent('+i+')"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button></td></tr>';
         }).join('') + '</tbody></table>';
     }
 
     // ── Steps ──
     function openStepModal(idx) {
+      clearFieldErrors();
       document.getElementById('step-edit-idx').value = idx !== undefined ? idx : '';
       document.getElementById('step-modal-title').textContent = idx !== undefined ? 'Edit Step' : 'New Step';
       populateAgentDropdowns();
@@ -591,9 +609,9 @@
 
     function saveStep() {
       var id = document.getElementById('step-id').value.trim();
-      if (!id) { alert('Step ID is required'); return; }
+      if (!id) { showFieldError('step-id', 'Step ID is required'); return; }
       var agent = document.getElementById('step-agent').value;
-      if (!agent) { alert('Agent is required'); return; }
+      if (!agent) { showFieldError('step-agent', 'Agent is required'); return; }
       var type = document.getElementById('step-type').value;
       var loop = null;
       if (type === 'loop') {
@@ -634,10 +652,10 @@
           return '<tr><td class="step-order">'+(i+1)+'</td>' +
             '<td><span class="mono" style="color:var(--ink-strong)">'+esc(s.id)+'</span></td>' +
             '<td><span class="mono" style="color:var(--blue)">'+esc(s.agent)+'</span></td>' +
-            '<td>'+(s.type==='loop'?'<span style="color:var(--accent);font-size:11px;font-weight:600">loop</span>':'single')+'</td>' +
-            '<td><code style="font-size:11px">'+esc(s.expects)+'</code></td>' +
+            '<td>'+(s.type==='loop'?'<span style="color:var(--accent);font-size:12px;font-weight:600">loop</span>':'single')+'</td>' +
+            '<td><code style="font-size:12px">'+esc(s.expects)+'</code></td>' +
             '<td class="step-order">'+s.max_retries+'</td>' +
-            '<td style="text-align:right"><button class="action-btn btn-sm" onclick="openStepModal('+i+')">Edit</button> <button class="action-btn btn-sm btn-danger" onclick="deleteStep('+i+')">✕</button></td></tr>';
+            '<td style="text-align:right"><button class="action-btn btn-sm" onclick="openStepModal('+i+')">Edit</button> <button class="action-btn btn-sm btn-danger" onclick="deleteStep('+i+')"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button></td></tr>';
         }).join('') + '</tbody></table>';
     }
 
@@ -726,7 +744,14 @@
 
     function saveWorkflow() {
       var data = buildData();
-      if (!data.id) { alert('Workflow ID is required'); return; }
+      if (!data.id) { showFieldError('wf-id', 'Workflow ID is required'); return; }
+      var saveBtn = document.querySelector('button[onclick="saveWorkflow()"]');
+      var feedback = document.getElementById('save-feedback');
+      var origText = saveBtn.textContent;
+      saveBtn.textContent = 'Saving...';
+      saveBtn.disabled = true;
+      saveBtn.classList.add('btn-loading');
+      if (feedback) { feedback.style.display = 'none'; }
       var url = IS_EDIT ? '/api/workflows/' + encodeURIComponent(EDIT_ID) : '/api/workflows';
       var method = IS_EDIT ? 'PUT' : 'POST';
       fetch(url, {
@@ -741,7 +766,12 @@
       .then(function() {
         window.location.href = '/workflows';
       })
-      .catch(function(err) { alert('Failed to save: ' + err.message); });
+      .catch(function(err) {
+        saveBtn.textContent = origText;
+        saveBtn.disabled = false;
+        saveBtn.classList.remove('btn-loading');
+        if (feedback) { feedback.textContent = 'Failed to save: ' + err.message; feedback.style.display = 'block'; }
+      });
     }
 
     function renderAll() {

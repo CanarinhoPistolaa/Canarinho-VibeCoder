@@ -5,15 +5,15 @@ import os from "node:os";
 import path from "node:path";
 import { logger, readRecentLogs, getLogPath, log, formatEntry } from "../../dist/lib/logger.js";
 
-const originalStateDir = process.env.TAMANDUA_STATE_DIR;
-const testStateDir = fs.mkdtempSync(path.join(os.tmpdir(), "tamandua-logger-"));
-process.env.TAMANDUA_STATE_DIR = testStateDir;
+const originalStateDir = process.env.canarinho_STATE_DIR;
+const testStateDir = fs.mkdtempSync(path.join(os.tmpdir(), "canarinho-logger-"));
+process.env.canarinho_STATE_DIR = testStateDir;
 
 after(() => {
   if (originalStateDir === undefined) {
-    delete process.env.TAMANDUA_STATE_DIR;
+    delete process.env.canarinho_STATE_DIR;
   } else {
-    process.env.TAMANDUA_STATE_DIR = originalStateDir;
+    process.env.canarinho_STATE_DIR = originalStateDir;
   }
   fs.rmSync(testStateDir, { recursive: true, force: true });
 });
@@ -46,7 +46,7 @@ describe("logger", () => {
   });
 
   it("getLogPath returns the isolated state log path", () => {
-    assert.equal(logPath, path.join(testStateDir, "tamandua.log"));
+    assert.equal(logPath, path.join(testStateDir, "canarinho.log"));
   });
 
   it("logger.error writes an error-level message", () => {
@@ -55,45 +55,45 @@ describe("logger", () => {
     assert.ok(content.includes("ERROR") || content.includes("error"));
   });
 
-  it("logger.debug is dropped by default (no TAMANDUA_DEBUG)", () => {
-    const prevDebug = process.env.TAMANDUA_DEBUG;
-    delete process.env.TAMANDUA_DEBUG;
+  it("logger.debug is dropped by default (no canarinho_DEBUG)", () => {
+    const prevDebug = process.env.canarinho_DEBUG;
+    delete process.env.canarinho_DEBUG;
     try {
       logger.debug("suppressed debug msg");
       const content = fs.existsSync(logPath) ? fs.readFileSync(logPath, "utf-8") : "";
       assert.ok(!content.includes("suppressed debug msg"));
     } finally {
-      if (prevDebug !== undefined) process.env.TAMANDUA_DEBUG = prevDebug;
+      if (prevDebug !== undefined) process.env.canarinho_DEBUG = prevDebug;
     }
   });
 
-  it("logger.debug writes a DEBUG line when TAMANDUA_DEBUG=1", () => {
-    const prevDebug = process.env.TAMANDUA_DEBUG;
-    process.env.TAMANDUA_DEBUG = "1";
+  it("logger.debug writes a DEBUG line when canarinho_DEBUG=1", () => {
+    const prevDebug = process.env.canarinho_DEBUG;
+    process.env.canarinho_DEBUG = "1";
     try {
       logger.debug("enabled debug msg");
       const content = fs.readFileSync(logPath, "utf-8");
       const line = content.split("\n").find((l) => l.includes("enabled debug msg"));
-      assert.ok(line, "debug line should be written when TAMANDUA_DEBUG=1");
+      assert.ok(line, "debug line should be written when canarinho_DEBUG=1");
       assert.ok(line!.includes("DEBUG"), "line should carry the DEBUG level");
     } finally {
-      if (prevDebug === undefined) delete process.env.TAMANDUA_DEBUG;
-      else process.env.TAMANDUA_DEBUG = prevDebug;
+      if (prevDebug === undefined) delete process.env.canarinho_DEBUG;
+      else process.env.canarinho_DEBUG = prevDebug;
     }
   });
 
-  it("logger.debug treats TAMANDUA_DEBUG=0/false as disabled", () => {
-    const prevDebug = process.env.TAMANDUA_DEBUG;
+  it("logger.debug treats canarinho_DEBUG=0/false as disabled", () => {
+    const prevDebug = process.env.canarinho_DEBUG;
     try {
       for (const off of ["0", "false", ""]) {
-        process.env.TAMANDUA_DEBUG = off;
+        process.env.canarinho_DEBUG = off;
         logger.debug(`disabled debug msg ${off}`);
       }
       const content = fs.existsSync(logPath) ? fs.readFileSync(logPath, "utf-8") : "";
       assert.ok(!content.includes("disabled debug msg"));
     } finally {
-      if (prevDebug === undefined) delete process.env.TAMANDUA_DEBUG;
-      else process.env.TAMANDUA_DEBUG = prevDebug;
+      if (prevDebug === undefined) delete process.env.canarinho_DEBUG;
+      else process.env.canarinho_DEBUG = prevDebug;
     }
   });
 
@@ -186,35 +186,35 @@ describe("logger", () => {
     assert.ok(Array.isArray(lines), "should return an array");
   });
 
-  it("test-guard: does not fire when TAMANDUA_STATE_DIR isolates into a temp dir (guard active, path isolated)", () => {
-    // The test module already sets TAMANDUA_STATE_DIR to a temp dir.
-    // Set TAMANDUA_TEST_GUARD=1 to activate the guard — it should NOT throw
-    // because the resolved log path is under the temp dir, not real ~/.tamandua.
-    const prevGuard = process.env.TAMANDUA_TEST_GUARD;
-    process.env.TAMANDUA_TEST_GUARD = "1";
+  it("test-guard: does not fire when canarinho_STATE_DIR isolates into a temp dir (guard active, path isolated)", () => {
+    // The test module already sets canarinho_STATE_DIR to a temp dir.
+    // Set canarinho_TEST_GUARD=1 to activate the guard — it should NOT throw
+    // because the resolved log path is under the temp dir, not real ~/.canarinho.
+    const prevGuard = process.env.canarinho_TEST_GUARD;
+    process.env.canarinho_TEST_GUARD = "1";
     try {
       assert.doesNotThrow(() => {
         logger.info("isolated log write — guard should not fire");
-      }, "guard must not fire when TAMANDUA_STATE_DIR isolates the log path");
+      }, "guard must not fire when canarinho_STATE_DIR isolates the log path");
     } finally {
-      process.env.TAMANDUA_TEST_GUARD = prevGuard;
+      process.env.canarinho_TEST_GUARD = prevGuard;
     }
   });
 
   it("test-guard: drops the line without throwing when guard is active and path resolves into real state dir", () => {
-    // Simulate a test process that forgot to set TAMANDUA_STATE_DIR and
-    // os.homedir() returns the real user home → log path is real ~/.tamandua/tamandua.log.
+    // Simulate a test process that forgot to set canarinho_STATE_DIR and
+    // os.homedir() returns the real user home → log path is real ~/.canarinho/canarinho.log.
     // The guard must PROTECT the production log (no write) but must NOT throw:
     // production timers (sweeps, cron teardowns) fire after tests restore env,
     // and a throwing logger turns every late write into an unhandledRejection.
-    const prevGuard = process.env.TAMANDUA_TEST_GUARD;
-    const prevStateDir = process.env.TAMANDUA_STATE_DIR;
+    const prevGuard = process.env.canarinho_TEST_GUARD;
+    const prevStateDir = process.env.canarinho_STATE_DIR;
     try {
-      process.env.TAMANDUA_TEST_GUARD = "1";
-      // Point TAMANDUA_STATE_DIR into the real state dir to trigger the guard.
-      const realStateRoot = path.join(os.userInfo().homedir, ".tamandua");
+      process.env.canarinho_TEST_GUARD = "1";
+      // Point canarinho_STATE_DIR into the real state dir to trigger the guard.
+      const realStateRoot = path.join(os.userInfo().homedir, ".canarinho");
       const leakedDir = path.join(realStateRoot, "leaked-from-test");
-      process.env.TAMANDUA_STATE_DIR = leakedDir;
+      process.env.canarinho_STATE_DIR = leakedDir;
 
       assert.doesNotThrow(
         () => logger.info("should be blocked by guard"),
@@ -222,40 +222,40 @@ describe("logger", () => {
       );
       // The blocked write must not have created/written the leaked log file.
       assert.ok(
-        !fs.existsSync(path.join(leakedDir, "tamandua.log")),
+        !fs.existsSync(path.join(leakedDir, "canarinho.log")),
         "guard must prevent the write into the real state dir",
       );
     } finally {
-      process.env.TAMANDUA_TEST_GUARD = prevGuard;
-      process.env.TAMANDUA_STATE_DIR = prevStateDir;
+      process.env.canarinho_TEST_GUARD = prevGuard;
+      process.env.canarinho_STATE_DIR = prevStateDir;
     }
   });
 
   it("test-guard: blocks writes using os.userInfo().homedir, not os.homedir() (HOME-spoof resistance)", () => {
-    // Set HOME to a temp dir (spoof) but TAMANDUA_STATE_DIR to the real state dir.
+    // Set HOME to a temp dir (spoof) but canarinho_STATE_DIR to the real state dir.
     // The guard must still detect the violation (via os.userInfo().homedir) and
     // silently drop the write.
-    const prevGuard = process.env.TAMANDUA_TEST_GUARD;
-    const prevStateDir = process.env.TAMANDUA_STATE_DIR;
+    const prevGuard = process.env.canarinho_TEST_GUARD;
+    const prevStateDir = process.env.canarinho_STATE_DIR;
     const prevHome = process.env.HOME;
     try {
-      process.env.TAMANDUA_TEST_GUARD = "1";
+      process.env.canarinho_TEST_GUARD = "1";
       process.env.HOME = path.join(os.tmpdir(), "spoofed-home-" + Date.now());
-      const realStateRoot = path.join(os.userInfo().homedir, ".tamandua");
+      const realStateRoot = path.join(os.userInfo().homedir, ".canarinho");
       const spoofDir = path.join(realStateRoot, "spoofed-leak");
-      process.env.TAMANDUA_STATE_DIR = spoofDir;
+      process.env.canarinho_STATE_DIR = spoofDir;
 
       assert.doesNotThrow(
         () => logger.info("should be blocked even with spoofed HOME"),
         "guard must use os.userInfo().homedir and drop the line without throwing",
       );
       assert.ok(
-        !fs.existsSync(path.join(spoofDir, "tamandua.log")),
+        !fs.existsSync(path.join(spoofDir, "canarinho.log")),
         "guard must prevent the write even with spoofed HOME",
       );
     } finally {
-      process.env.TAMANDUA_TEST_GUARD = prevGuard;
-      process.env.TAMANDUA_STATE_DIR = prevStateDir;
+      process.env.canarinho_TEST_GUARD = prevGuard;
+      process.env.canarinho_STATE_DIR = prevStateDir;
       if (prevHome === undefined) {
         delete process.env.HOME;
       } else {
@@ -266,13 +266,13 @@ describe("logger", () => {
 
   it("readRecentLogs returns empty array for non-existent log file", async () => {
     // Create a fresh temp dir with no log file yet
-    const emptyDir = fs.mkdtempSync(path.join(os.tmpdir(), "tamandua-logger-empty-"));
+    const emptyDir = fs.mkdtempSync(path.join(os.tmpdir(), "canarinho-logger-empty-"));
     try {
-      process.env.TAMANDUA_STATE_DIR = emptyDir;
+      process.env.canarinho_STATE_DIR = emptyDir;
       const lines = await readRecentLogs(10);
       assert.deepEqual(lines, []);
     } finally {
-      process.env.TAMANDUA_STATE_DIR = testStateDir;
+      process.env.canarinho_STATE_DIR = testStateDir;
       fs.rmSync(emptyDir, { recursive: true, force: true });
     }
   });

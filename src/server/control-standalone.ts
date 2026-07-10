@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * Tamandua Control Plane Standalone Server
+ * canarinho Control Plane Standalone Server
  *
  * Starts just the control plane HTTP server as a detached process (outside the dashboard daemon).
  *
@@ -8,11 +8,11 @@
  *
  * Port resolution order:
  *   1. CLI argument (process.argv[2])
- *   2. TAMANDUA_CONTROL_PORT env var
+ *   2. canarinho_CONTROL_PORT env var
  *   3. Default: 3339 (DEFAULT_CONTROL_PORT)
  *
- * - Writes PID file on start (~/.tamandua/control-plane.pid)
- * - Writes port file on start (~/.tamandua/control-plane-port)
+ * - Writes PID file on start (~/.canarinho/control-plane.pid)
+ * - Writes port file on start (~/.canarinho/control-plane-port)
  * - Cleans up PID and port files on exit (only if PID matches own process)
  */
 import fs from "node:fs";
@@ -27,8 +27,8 @@ import {
   getControlPort,
 } from "./control-server.js";
 
-const CONTROL_PLANE_PID_FILE = path.join(os.homedir(), ".tamandua", "control-plane.pid");
-const CONTROL_PLANE_PORT_FILE = path.join(os.homedir(), ".tamandua", "control-plane-port");
+const CONTROL_PLANE_PID_FILE = path.join(os.homedir(), ".canarinho", "control-plane.pid");
+const CONTROL_PLANE_PORT_FILE = path.join(os.homedir(), ".canarinho", "control-plane-port");
 
 function resolvePort(): number {
   // 1. CLI argument
@@ -38,7 +38,7 @@ function resolvePort(): number {
   }
 
   // 2. Environment variable
-  const envPort = parseInt(process.env.TAMANDUA_CONTROL_PORT ?? "", 10);
+  const envPort = parseInt(process.env.canarinho_CONTROL_PORT ?? "", 10);
   if (!isNaN(envPort) && envPort > 0 && envPort < 65536) {
     return envPort;
   }
@@ -93,7 +93,7 @@ async function shutdown(signal: string, exitCode: number): Promise<void> {
   isShuttingDown = true;
 
   console.log(
-    `Tamandua control plane received ${signal}, shutting down...`,
+    `canarinho control plane received ${signal}, shutting down...`,
   );
 
   if (controlServer) {
@@ -173,7 +173,7 @@ async function bootstrap(): Promise<void> {
     process.exit(1);
   }
 
-  console.log(`Tamandua control plane started on port ${port} (pid ${process.pid})`);
+  console.log(`canarinho control plane started on port ${port} (pid ${process.pid})`);
 }
 
 void bootstrap();

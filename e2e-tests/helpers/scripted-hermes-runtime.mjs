@@ -10,7 +10,7 @@
  * (hermes-usage.ts → lookupHermesSessionTokens) can read token counts.
  *
  * Work protocol (shared with scripted-agent-runtime.mjs):
- *   1. Parse workflow/agent/run IDs and the tamandua CLI path from the prompt
+ *   1. Parse workflow/agent/run IDs and the canarinho CLI path from the prompt
  *   2. Defensive `step peek` — NO_WORK here is a motor bug or race; journaled
  *      as "heartbeat" and answered with NO_WORK_AVAILABLE
  *   3. Run `step claim`, look up this agent's scripted behavior, apply file
@@ -19,7 +19,7 @@
  *   4. Write fake session row to $HERMES_HOME/state.db with configurable token
  *      counts so the scheduler can attribute per-round tokens
  *
- * Behaviors come from a JSON file (TAMANDUA_SCRIPTED_BEHAVIORS), keyed by the
+ * Behaviors come from a JSON file (canarinho_SCRIPTED_BEHAVIORS), keyed by the
  * short agent id. Same format as the pi runtime.
  *
  * Chaos modes (behavior.mode): "work" (default), "hang", "hang-after-claim",
@@ -54,8 +54,8 @@ import {
 // We don't validate the exact sequence — hermes adheres to this contract.
 const prompt = process.argv[process.argv.length - 1] ?? "";
 
-const behaviorsPath = process.env.TAMANDUA_SCRIPTED_BEHAVIORS ?? "";
-const stateDir = process.env.TAMANDUA_SCRIPTED_STATE ?? "";
+const behaviorsPath = process.env.canarinho_SCRIPTED_BEHAVIORS ?? "";
+const stateDir = process.env.canarinho_SCRIPTED_STATE ?? "";
 
 // ── State-dir logging (test diagnostics) ────────────────────────────
 
@@ -200,7 +200,7 @@ const base = {
   shortAgent,
   runId,
   cwd: process.cwd(),
-  jobId: process.env.TAMANDUA_WORKER_JOB_ID ?? null,
+  jobId: process.env.canarinho_WORKER_JOB_ID ?? null,
 };
 
 // Phase 1: defensive peek (same as pi runtime).

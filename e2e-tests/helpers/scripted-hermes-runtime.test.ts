@@ -9,8 +9,8 @@
  *   4. All chaos modes (work, hang, die-before-claim, die-after-claim, no-status, garbage)
  *   5. Behavior consumption and work protocol
  *
- * Test isolation: each test creates its own temp dirs with a mock tamandua
- * CLI that returns canned responses, so no real tamandua DB is needed.
+ * Test isolation: each test creates its own temp dirs with a mock canarinho
+ * CLI that returns canned responses, so no real canarinho DB is needed.
  */
 
 import { describe, it } from "node:test";
@@ -42,7 +42,7 @@ function makeTempDirs(): TestDirs {
   const stateDir = path.join(tmp, "scripted-state");
   const hermesHome = path.join(tmp, "hermes-home");
   const behaviorsPath = path.join(tmp, "behaviors.json");
-  const mockCliPath = path.join(tmp, "mock-tamandua");
+  const mockCliPath = path.join(tmp, "mock-canarinho");
   fs.mkdirSync(stateDir, { recursive: true });
   fs.mkdirSync(hermesHome, { recursive: true });
   return { tmp, stateDir, hermesHome, behaviorsPath, mockCliPath };
@@ -53,7 +53,7 @@ function writeBehaviors(behaviorsPath: string, config: Record<string, unknown>) 
 }
 
 /**
- * Create a mock tamandua CLI that returns canned, deterministic responses.
+ * Create a mock canarinho CLI that returns canned, deterministic responses.
  *
  * step peek → prints "HAS_WORK" (or "NO_WORK")
  * step claim → prints JSON stepId/runId/input
@@ -61,7 +61,7 @@ function writeBehaviors(behaviorsPath: string, config: Record<string, unknown>) 
  * step fail → exits 0
  */
 function createMockCli(dir: string, opts?: { noWork?: boolean }): string {
-  const mockPath = path.join(dir, "mock-tamandua");
+  const mockPath = path.join(dir, "mock-canarinho");
   const journalPath = path.join(dir, "mock-cli-log.jsonl");
 
   const noWorkPeek = opts?.noWork ?? false;
@@ -100,7 +100,7 @@ function createMockCli(dir: string, opts?: { noWork?: boolean }): string {
     "  log({ cmd: 'fail', stepId: args[2], reason: args.slice(3).join(' ') });",
     "  process.exit(0);",
     "} else {",
-    "  process.stderr.write('mock-tamandua: unknown command: ' + JSON.stringify(args));",
+    "  process.stderr.write('mock-canarinho: unknown command: ' + JSON.stringify(args));",
     "  process.exit(1);",
     "}",
     "",
@@ -188,8 +188,8 @@ describe("scripted-hermes-runtime", () => {
 
         const result = spawnHermes(dirs.mockCliPath, {
           HERMES_HOME: dirs.hermesHome,
-          TAMANDUA_SCRIPTED_BEHAVIORS: dirs.behaviorsPath,
-          TAMANDUA_SCRIPTED_STATE: dirs.stateDir,
+          canarinho_SCRIPTED_BEHAVIORS: dirs.behaviorsPath,
+          canarinho_SCRIPTED_STATE: dirs.stateDir,
         });
 
         const stdout = result.stdout.trim();
@@ -234,8 +234,8 @@ describe("scripted-hermes-runtime", () => {
         for (let i = 0; i < 3; i++) {
           const r = spawnHermes(dirs.mockCliPath, {
             HERMES_HOME: dirs.hermesHome,
-            TAMANDUA_SCRIPTED_BEHAVIORS: dirs.behaviorsPath,
-            TAMANDUA_SCRIPTED_STATE: dirs.stateDir,
+            canarinho_SCRIPTED_BEHAVIORS: dirs.behaviorsPath,
+            canarinho_SCRIPTED_STATE: dirs.stateDir,
           });
           const stderrTrimmed = r.stderr.trim();
           const match = /^session_id:\s*([0-9a-f-]{36})$/.exec(stderrTrimmed);
@@ -273,8 +273,8 @@ describe("scripted-hermes-runtime", () => {
 
         const result = spawnHermes(dirs.mockCliPath, {
           HERMES_HOME: dirs.hermesHome,
-          TAMANDUA_SCRIPTED_BEHAVIORS: dirs.behaviorsPath,
-          TAMANDUA_SCRIPTED_STATE: dirs.stateDir,
+          canarinho_SCRIPTED_BEHAVIORS: dirs.behaviorsPath,
+          canarinho_SCRIPTED_STATE: dirs.stateDir,
         });
 
         const stdout = result.stdout.trim();
@@ -314,8 +314,8 @@ describe("scripted-hermes-runtime", () => {
 
         spawnHermes(dirs.mockCliPath, {
           HERMES_HOME: dirs.hermesHome,
-          TAMANDUA_SCRIPTED_BEHAVIORS: dirs.behaviorsPath,
-          TAMANDUA_SCRIPTED_STATE: dirs.stateDir,
+          canarinho_SCRIPTED_BEHAVIORS: dirs.behaviorsPath,
+          canarinho_SCRIPTED_STATE: dirs.stateDir,
         });
 
         const dbPath = path.join(dirs.hermesHome, "state.db");
@@ -349,8 +349,8 @@ describe("scripted-hermes-runtime", () => {
 
         spawnHermes(dirs.mockCliPath, {
           HERMES_HOME: dirs.hermesHome,
-          TAMANDUA_SCRIPTED_BEHAVIORS: dirs.behaviorsPath,
-          TAMANDUA_SCRIPTED_STATE: dirs.stateDir,
+          canarinho_SCRIPTED_BEHAVIORS: dirs.behaviorsPath,
+          canarinho_SCRIPTED_STATE: dirs.stateDir,
         });
 
         const dbPath = path.join(dirs.hermesHome, "state.db");
@@ -396,8 +396,8 @@ describe("scripted-hermes-runtime", () => {
         });
 
         const result = spawnHermes(dirs.mockCliPath, {
-          TAMANDUA_SCRIPTED_BEHAVIORS: dirs.behaviorsPath,
-          TAMANDUA_SCRIPTED_STATE: dirs.stateDir,
+          canarinho_SCRIPTED_BEHAVIORS: dirs.behaviorsPath,
+          canarinho_SCRIPTED_STATE: dirs.stateDir,
         });
 
         const stdout = result.stdout.trim();
@@ -427,8 +427,8 @@ describe("scripted-hermes-runtime", () => {
 
         const result = spawnHermes(dirs.mockCliPath, {
           HERMES_HOME: nonWriteable,
-          TAMANDUA_SCRIPTED_BEHAVIORS: dirs.behaviorsPath,
-          TAMANDUA_SCRIPTED_STATE: dirs.stateDir,
+          canarinho_SCRIPTED_BEHAVIORS: dirs.behaviorsPath,
+          canarinho_SCRIPTED_STATE: dirs.stateDir,
         });
 
         const stdout = result.stdout.trim();
@@ -462,8 +462,8 @@ describe("scripted-hermes-runtime", () => {
 
         const result = spawnHermes(dirs.mockCliPath, {
           HERMES_HOME: dirs.hermesHome,
-          TAMANDUA_SCRIPTED_BEHAVIORS: dirs.behaviorsPath,
-          TAMANDUA_SCRIPTED_STATE: dirs.stateDir,
+          canarinho_SCRIPTED_BEHAVIORS: dirs.behaviorsPath,
+          canarinho_SCRIPTED_STATE: dirs.stateDir,
         });
 
         const stdout = result.stdout.trim();
@@ -492,8 +492,8 @@ describe("scripted-hermes-runtime", () => {
 
         const result = spawnHermes(dirs.mockCliPath, {
           HERMES_HOME: dirs.hermesHome,
-          TAMANDUA_SCRIPTED_BEHAVIORS: dirs.behaviorsPath,
-          TAMANDUA_SCRIPTED_STATE: dirs.stateDir,
+          canarinho_SCRIPTED_BEHAVIORS: dirs.behaviorsPath,
+          canarinho_SCRIPTED_STATE: dirs.stateDir,
         });
 
         const stdout = result.stdout.trim();
@@ -529,8 +529,8 @@ describe("scripted-hermes-runtime", () => {
 
         const result = spawnHermes(dirs.mockCliPath, {
           HERMES_HOME: dirs.hermesHome,
-          TAMANDUA_SCRIPTED_BEHAVIORS: dirs.behaviorsPath,
-          TAMANDUA_SCRIPTED_STATE: dirs.stateDir,
+          canarinho_SCRIPTED_BEHAVIORS: dirs.behaviorsPath,
+          canarinho_SCRIPTED_STATE: dirs.stateDir,
         });
 
         assert.equal(
@@ -557,8 +557,8 @@ describe("scripted-hermes-runtime", () => {
 
         const result = spawnHermes(dirs.mockCliPath, {
           HERMES_HOME: dirs.hermesHome,
-          TAMANDUA_SCRIPTED_BEHAVIORS: dirs.behaviorsPath,
-          TAMANDUA_SCRIPTED_STATE: dirs.stateDir,
+          canarinho_SCRIPTED_BEHAVIORS: dirs.behaviorsPath,
+          canarinho_SCRIPTED_STATE: dirs.stateDir,
         });
 
         assert.equal(
@@ -583,8 +583,8 @@ describe("scripted-hermes-runtime", () => {
           dirs.mockCliPath,
           {
             HERMES_HOME: dirs.hermesHome,
-            TAMANDUA_SCRIPTED_BEHAVIORS: dirs.behaviorsPath,
-            TAMANDUA_SCRIPTED_STATE: dirs.stateDir,
+            canarinho_SCRIPTED_BEHAVIORS: dirs.behaviorsPath,
+            canarinho_SCRIPTED_STATE: dirs.stateDir,
           },
           { timeoutMs: 2000 },
         );
@@ -617,8 +617,8 @@ describe("scripted-hermes-runtime", () => {
 
         const r1 = spawnHermes(dirs.mockCliPath, {
           HERMES_HOME: dirs.hermesHome,
-          TAMANDUA_SCRIPTED_BEHAVIORS: dirs.behaviorsPath,
-          TAMANDUA_SCRIPTED_STATE: dirs.stateDir,
+          canarinho_SCRIPTED_BEHAVIORS: dirs.behaviorsPath,
+          canarinho_SCRIPTED_STATE: dirs.stateDir,
         });
         assert.ok(
           r1.stdout.includes("ROUND: first"),
@@ -627,8 +627,8 @@ describe("scripted-hermes-runtime", () => {
 
         const r2 = spawnHermes(dirs.mockCliPath, {
           HERMES_HOME: dirs.hermesHome,
-          TAMANDUA_SCRIPTED_BEHAVIORS: dirs.behaviorsPath,
-          TAMANDUA_SCRIPTED_STATE: dirs.stateDir,
+          canarinho_SCRIPTED_BEHAVIORS: dirs.behaviorsPath,
+          canarinho_SCRIPTED_STATE: dirs.stateDir,
         });
         assert.ok(
           r2.stdout.includes("ROUND: second"),
@@ -637,8 +637,8 @@ describe("scripted-hermes-runtime", () => {
 
         const r3 = spawnHermes(dirs.mockCliPath, {
           HERMES_HOME: dirs.hermesHome,
-          TAMANDUA_SCRIPTED_BEHAVIORS: dirs.behaviorsPath,
-          TAMANDUA_SCRIPTED_STATE: dirs.stateDir,
+          canarinho_SCRIPTED_BEHAVIORS: dirs.behaviorsPath,
+          canarinho_SCRIPTED_STATE: dirs.stateDir,
         });
         assert.ok(
           r3.stdout.includes("ROUND: second"),
@@ -659,8 +659,8 @@ describe("scripted-hermes-runtime", () => {
 
         spawnHermes(dirs.mockCliPath, {
           HERMES_HOME: dirs.hermesHome,
-          TAMANDUA_SCRIPTED_BEHAVIORS: dirs.behaviorsPath,
-          TAMANDUA_SCRIPTED_STATE: dirs.stateDir,
+          canarinho_SCRIPTED_BEHAVIORS: dirs.behaviorsPath,
+          canarinho_SCRIPTED_STATE: dirs.stateDir,
         });
 
         const rows = readStateDb(path.join(dirs.hermesHome, "state.db"));
@@ -684,8 +684,8 @@ describe("scripted-hermes-runtime", () => {
 
         spawnHermes(dirs.mockCliPath, {
           HERMES_HOME: dirs.hermesHome,
-          TAMANDUA_SCRIPTED_BEHAVIORS: dirs.behaviorsPath,
-          TAMANDUA_SCRIPTED_STATE: dirs.stateDir,
+          canarinho_SCRIPTED_BEHAVIORS: dirs.behaviorsPath,
+          canarinho_SCRIPTED_STATE: dirs.stateDir,
         });
 
         const rows = readStateDb(path.join(dirs.hermesHome, "state.db"));
@@ -714,8 +714,8 @@ describe("scripted-hermes-runtime", () => {
 
         const result = spawnHermes(dirs.mockCliPath, {
           HERMES_HOME: dirs.hermesHome,
-          TAMANDUA_SCRIPTED_BEHAVIORS: dirs.behaviorsPath,
-          TAMANDUA_SCRIPTED_STATE: dirs.stateDir,
+          canarinho_SCRIPTED_BEHAVIORS: dirs.behaviorsPath,
+          canarinho_SCRIPTED_STATE: dirs.stateDir,
         });
 
         const stdout = result.stdout.trim();
@@ -751,8 +751,8 @@ describe("scripted-hermes-runtime", () => {
 
         spawnHermes(dirs.mockCliPath, {
           HERMES_HOME: dirs.hermesHome,
-          TAMANDUA_SCRIPTED_BEHAVIORS: dirs.behaviorsPath,
-          TAMANDUA_SCRIPTED_STATE: dirs.stateDir,
+          canarinho_SCRIPTED_BEHAVIORS: dirs.behaviorsPath,
+          canarinho_SCRIPTED_STATE: dirs.stateDir,
         });
 
         const journalPath = path.join(dirs.stateDir, "invocations.jsonl");
@@ -794,8 +794,8 @@ describe("scripted-hermes-runtime", () => {
               PATH: process.env.PATH ?? "",
               HOME: process.env.HOME ?? os.tmpdir(),
               HERMES_HOME: dirs.hermesHome,
-              TAMANDUA_SCRIPTED_BEHAVIORS: dirs.behaviorsPath,
-              TAMANDUA_SCRIPTED_STATE: dirs.stateDir,
+              canarinho_SCRIPTED_BEHAVIORS: dirs.behaviorsPath,
+              canarinho_SCRIPTED_STATE: dirs.stateDir,
             },
             timeout: 10_000,
             maxBuffer: 16 * 1024 * 1024,
@@ -818,8 +818,8 @@ describe("scripted-hermes-runtime", () => {
 
         const result = spawnHermes(dirs.mockCliPath, {
           HERMES_HOME: dirs.hermesHome,
-          TAMANDUA_SCRIPTED_BEHAVIORS: dirs.behaviorsPath,
-          TAMANDUA_SCRIPTED_STATE: dirs.stateDir,
+          canarinho_SCRIPTED_BEHAVIORS: dirs.behaviorsPath,
+          canarinho_SCRIPTED_STATE: dirs.stateDir,
         });
 
         const stdout = result.stdout.trim();
@@ -851,8 +851,8 @@ describe("scripted-hermes-runtime", () => {
 
         spawnHermes(dirs.mockCliPath, {
           HERMES_HOME: dirs.hermesHome,
-          TAMANDUA_SCRIPTED_BEHAVIORS: dirs.behaviorsPath,
-          TAMANDUA_SCRIPTED_STATE: dirs.stateDir,
+          canarinho_SCRIPTED_BEHAVIORS: dirs.behaviorsPath,
+          canarinho_SCRIPTED_STATE: dirs.stateDir,
         });
 
         const rows = readStateDb(path.join(dirs.hermesHome, "state.db"));
@@ -875,8 +875,8 @@ describe("scripted-hermes-runtime", () => {
 
         const result = spawnHermes(dirs.mockCliPath, {
           HERMES_HOME: dirs.hermesHome,
-          TAMANDUA_SCRIPTED_BEHAVIORS: dirs.behaviorsPath,
-          TAMANDUA_SCRIPTED_STATE: dirs.stateDir,
+          canarinho_SCRIPTED_BEHAVIORS: dirs.behaviorsPath,
+          canarinho_SCRIPTED_STATE: dirs.stateDir,
         });
 
         // Exits with the configured exitCode (130 = KeyboardInterrupt)

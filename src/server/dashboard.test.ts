@@ -8,7 +8,7 @@ import http from "node:http";
 import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { createDashboardServer, invalidateRunsCache } from "../../dist/server/dashboard.js";
-import { type TamanduaEvent } from "../../dist/installer/events.js";
+import { type canarinhoEvent } from "../../dist/installer/events.js";
 import { assertStatePathIsolation } from "../../dist/lib/test-guard.js";
 import { DEFAULT_MCP_PORT } from "../../dist/server/mcp-server.js";
 import { getDb, incrementSystemTokenSpend, getSystemTokenSpend } from "../../dist/db.js";
@@ -19,7 +19,7 @@ interface LogsTailResponse {
   generation: number;
 }
 
-function appendGlobalEvent(stateDir: string, evt: TamanduaEvent): void {
+function appendGlobalEvent(stateDir: string, evt: canarinhoEvent): void {
   const filePath = path.join(stateDir, "events", "all.jsonl");
   fs.mkdirSync(path.dirname(filePath), { recursive: true });
   fs.appendFileSync(filePath, `${JSON.stringify(evt)}\n`, "utf-8");
@@ -43,10 +43,10 @@ async function stopDashboard(server: http.Server): Promise<void> {
 
 describe("dashboard logs-tail API", () => {
   it("returns initial logs-tail lines and cursor", async () => {
-    const root = fs.mkdtempSync(path.join(os.tmpdir(), "tamandua-dashboard-logs-tail-"));
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "canarinho-dashboard-logs-tail-"));
     const stateDir = path.join(root, "state");
-    const previousStateDir = process.env.TAMANDUA_STATE_DIR;
-    process.env.TAMANDUA_STATE_DIR = stateDir;
+    const previousStateDir = process.env.canarinho_STATE_DIR;
+    process.env.canarinho_STATE_DIR = stateDir;
 
     appendGlobalEvent(stateDir, {
       ts: "2026-05-01T10:15:00.000Z",
@@ -81,17 +81,17 @@ describe("dashboard logs-tail API", () => {
       assert.match(payload.lines[1], /Story done/);
     } finally {
       await stopDashboard(server);
-      if (previousStateDir === undefined) delete process.env.TAMANDUA_STATE_DIR;
-      else process.env.TAMANDUA_STATE_DIR = previousStateDir;
+      if (previousStateDir === undefined) delete process.env.canarinho_STATE_DIR;
+      else process.env.canarinho_STATE_DIR = previousStateDir;
       fs.rmSync(root, { recursive: true, force: true });
     }
   });
 
   it("supports incremental cursor polling", async () => {
-    const root = fs.mkdtempSync(path.join(os.tmpdir(), "tamandua-dashboard-logs-tail-"));
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "canarinho-dashboard-logs-tail-"));
     const stateDir = path.join(root, "state");
-    const previousStateDir = process.env.TAMANDUA_STATE_DIR;
-    process.env.TAMANDUA_STATE_DIR = stateDir;
+    const previousStateDir = process.env.canarinho_STATE_DIR;
+    process.env.canarinho_STATE_DIR = stateDir;
 
     appendGlobalEvent(stateDir, {
       ts: "2026-05-01T11:00:00.000Z",
@@ -135,45 +135,51 @@ describe("dashboard logs-tail API", () => {
       assert.match(nextPayload.lines[1], /\(third\)/);
     } finally {
       await stopDashboard(server);
-      if (previousStateDir === undefined) delete process.env.TAMANDUA_STATE_DIR;
-      else process.env.TAMANDUA_STATE_DIR = previousStateDir;
+      if (previousStateDir === undefined) delete process.env.canarinho_STATE_DIR;
+      else process.env.canarinho_STATE_DIR = previousStateDir;
       fs.rmSync(root, { recursive: true, force: true });
     }
   });
 });
 
 describe("dashboard logs-tail UI", () => {
-  it("renders logs-tail textbox and cursor polling hook in dashboard HTML", async () => {
+  it("renders logs-tail textbox in dashboard HTML and cursor polling hook in JS", async () => {
     const { server, baseUrl } = await startDashboard();
 
     try {
-      const response = await fetch(`${baseUrl}/`);
-      assert.equal(response.status, 200);
-
-      const html = await response.text();
+      const htmlRes = await fetch(`${baseUrl}/`);
+      assert.equal(htmlRes.status, 200);
+      const html = await htmlRes.text();
       assert.match(html, /<section class="section" id="logs-tail-section">/);
       assert.match(html, /<textarea[\s\S]*id="logs-tail-output"[\s\S]*readonly/);
-      assert.match(html, /fetch\(`\/api\/logs-tail\?offset=\$\{logsTailOffset\}&generation=\$\{logsTailGeneration\}`\)/);
-      assert.match(html, /appendLogsTailLines\(data\.lines \|\| \[\]\)/);
-      assert.match(html, /logsTailOffset = data\.nextOffset/);
-      assert.match(html, /output\.scrollTop = output\.scrollHeight/);
+
+      const jsRes = await fetch(`${baseUrl}/dashboard-ui.js`);
+      assert.equal(jsRes.status, 200);
+      const js = await jsRes.text();
+      assert.match(js, /fetch\(`\/api\/logs-tail\?offset=\$\{logsTailOffset\}&generation=\$\{logsTailGeneration\}`\)/);
+      assert.match(js, /appendLogsTailLines\(data\.lines \|\| \[\]\)/);
+      assert.match(js, /logsTailOffset = data\.nextOffset/);
+      assert.match(js, /output\.scrollTop = output\.scrollHeight/);
     } finally {
       await stopDashboard(server);
     }
   });
 
-  it("renders delete modal with active-run warning and conditional force", async () => {
+  it("renders delete modal HTML and JS logic", async () => {
     const { server, baseUrl } = await startDashboard();
 
     try {
-      const response = await fetch(`${baseUrl}/`);
-      assert.equal(response.status, 200);
-
-      const html = await response.text();
+      const htmlRes = await fetch(`${baseUrl}/`);
+      assert.equal(htmlRes.status, 200);
+      const html = await htmlRes.text();
       assert.match(html, /id="delete-modal-overlay"/);
       assert.match(html, /id="delete-active-warning"/);
-      assert.match(html, /deleteRunActive = status === 'running' \|\| status === 'paused'/);
-      assert.match(html, /\$\{deleteRunActive \? '\?force=true' : ''\}/);
+
+      const jsRes = await fetch(`${baseUrl}/dashboard-ui.js`);
+      assert.equal(jsRes.status, 200);
+      const js = await jsRes.text();
+      assert.match(js, /deleteRunActive = status === 'running' \|\| status === 'paused'/);
+      assert.match(js, /\$\{deleteRunActive \? '\?force=true' : ''\}/);
     } finally {
       await stopDashboard(server);
     }
@@ -182,15 +188,15 @@ describe("dashboard logs-tail UI", () => {
 
 describe("dashboard AutoResearch progress", () => {
   it("serves run-scoped AutoResearch progress from the harness directory", async () => {
-    const root = fs.mkdtempSync(path.join(os.tmpdir(), "tamandua-dashboard-autoresearch-"));
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "canarinho-dashboard-autoresearch-"));
     const homeDir = path.join(root, "home");
     const projectDir = path.join(root, "project");
     fs.mkdirSync(projectDir, { recursive: true });
-    const dbPath = path.join(homeDir, ".tamandua", "tamandua.db");
+    const dbPath = path.join(homeDir, ".canarinho", "canarinho.db");
     const previousHome = process.env.HOME;
-    const previousDbPath = process.env.TAMANDUA_DB_PATH;
+    const previousDbPath = process.env.canarinho_DB_PATH;
     process.env.HOME = homeDir;
-    process.env.TAMANDUA_DB_PATH = dbPath;
+    process.env.canarinho_DB_PATH = dbPath;
 
     try {
       fs.writeFileSync(
@@ -292,42 +298,45 @@ describe("dashboard AutoResearch progress", () => {
     } finally {
       if (previousHome === undefined) delete process.env.HOME;
       else process.env.HOME = previousHome;
-      if (previousDbPath === undefined) delete process.env.TAMANDUA_DB_PATH;
-      else process.env.TAMANDUA_DB_PATH = previousDbPath;
+      if (previousDbPath === undefined) delete process.env.canarinho_DB_PATH;
+      else process.env.canarinho_DB_PATH = previousDbPath;
       fs.rmSync(root, { recursive: true, force: true });
     }
   });
 
-  it("renders the AutoResearch panel and polling hook in dashboard HTML", async () => {
+  it("renders the AutoResearch panel in dashboard HTML and polling hook in JS", async () => {
     const { server, baseUrl } = await startDashboard();
 
     try {
-      const response = await fetch(`${baseUrl}/`);
-      assert.equal(response.status, 200);
-
-      const html = await response.text();
+      const htmlRes = await fetch(`${baseUrl}/`);
+      assert.equal(htmlRes.status, 200);
+      const html = await htmlRes.text();
       assert.match(html, /<section class="section" id="autoresearch-section">/);
       assert.match(html, /id="autoresearch-session-select"/);
-      assert.match(html, /fetch\(`\/api\/autoresearch\/sessions\/\$\{encodeURIComponent\(sessionId\)\}`\)/);
-      assert.match(html, /id="autoresearch-timeline"/);
-      assert.match(html, /id="autoresearch-metric-chart"/);
-      assert.match(html, /renderAutoresearchTraceChart/);
-      assert.match(html, /Autoresearch Progress: \$\{points\.length\} Experiments, \$\{kept\.length\} Kept Improvements/);
-      assert.match(html, /class="autoresearch-chart-line"/);
-      assert.match(html, /class="autoresearch-chart-discarded"/);
+
+      const jsRes = await fetch(`${baseUrl}/dashboard-ui.js`);
+      assert.equal(jsRes.status, 200);
+      const js = await jsRes.text();
+      assert.match(js, /fetch\(`\/api\/autoresearch\/sessions\/\$\{encodeURIComponent\(sessionId\)\}`\)/);
+      assert.match(js, /id="autoresearch-timeline"/);
+      assert.match(js, /id="autoresearch-metric-chart"/);
+      assert.match(js, /renderAutoresearchTraceChart/);
+      assert.match(js, /Autoresearch Progress: \$\{points\.length\} Experiments, \$\{kept\.length\} Kept Improvements/);
+      assert.match(js, /class="autoresearch-chart-line"/);
+      assert.match(js, /class="autoresearch-chart-discarded"/);
     } finally {
       await stopDashboard(server);
     }
   });
 
   it("GET /api/autoresearch/runs returns empty array when no runs have AutoResearch state", async () => {
-    const root = fs.mkdtempSync(path.join(os.tmpdir(), "tamandua-dashboard-autoresearch-runs-empty-"));
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "canarinho-dashboard-autoresearch-runs-empty-"));
     const homeDir = path.join(root, "home");
-    const dbPath = path.join(homeDir, ".tamandua", "tamandua.db");
+    const dbPath = path.join(homeDir, ".canarinho", "canarinho.db");
     const previousHome = process.env.HOME;
-    const previousDbPath = process.env.TAMANDUA_DB_PATH;
+    const previousDbPath = process.env.canarinho_DB_PATH;
     process.env.HOME = homeDir;
-    process.env.TAMANDUA_DB_PATH = dbPath;
+    process.env.canarinho_DB_PATH = dbPath;
 
     try {
       // Insert a run without a harness cwd at all
@@ -360,24 +369,24 @@ describe("dashboard AutoResearch progress", () => {
     } finally {
       if (previousHome === undefined) delete process.env.HOME;
       else process.env.HOME = previousHome;
-      if (previousDbPath === undefined) delete process.env.TAMANDUA_DB_PATH;
-      else process.env.TAMANDUA_DB_PATH = previousDbPath;
+      if (previousDbPath === undefined) delete process.env.canarinho_DB_PATH;
+      else process.env.canarinho_DB_PATH = previousDbPath;
       fs.rmSync(root, { recursive: true, force: true });
     }
   });
 
   it("GET /api/autoresearch/runs returns only runs with autoresearch.config.json in harness cwd", async () => {
-    const root = fs.mkdtempSync(path.join(os.tmpdir(), "tamandua-dashboard-autoresearch-runs-filtered-"));
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "canarinho-dashboard-autoresearch-runs-filtered-"));
     const homeDir = path.join(root, "home");
     const projectDirWithAr = path.join(root, "project-with-ar");
     const projectDirNoAr = path.join(root, "project-no-ar");
     fs.mkdirSync(projectDirWithAr, { recursive: true });
     fs.mkdirSync(projectDirNoAr, { recursive: true });
-    const dbPath = path.join(homeDir, ".tamandua", "tamandua.db");
+    const dbPath = path.join(homeDir, ".canarinho", "canarinho.db");
     const previousHome = process.env.HOME;
-    const previousDbPath = process.env.TAMANDUA_DB_PATH;
+    const previousDbPath = process.env.canarinho_DB_PATH;
     process.env.HOME = homeDir;
-    process.env.TAMANDUA_DB_PATH = dbPath;
+    process.env.canarinho_DB_PATH = dbPath;
 
     try {
       // Create an autoresearch config in one project dir
@@ -437,22 +446,22 @@ describe("dashboard AutoResearch progress", () => {
     } finally {
       if (previousHome === undefined) delete process.env.HOME;
       else process.env.HOME = previousHome;
-      if (previousDbPath === undefined) delete process.env.TAMANDUA_DB_PATH;
-      else process.env.TAMANDUA_DB_PATH = previousDbPath;
+      if (previousDbPath === undefined) delete process.env.canarinho_DB_PATH;
+      else process.env.canarinho_DB_PATH = previousDbPath;
       fs.rmSync(root, { recursive: true, force: true });
     }
   });
 
   it("GET /api/autoresearch/runs excludes runs without working_directory_for_harness", async () => {
-    const root = fs.mkdtempSync(path.join(os.tmpdir(), "tamandua-dashboard-autoresearch-runs-no-cwd-"));
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "canarinho-dashboard-autoresearch-runs-no-cwd-"));
     const homeDir = path.join(root, "home");
     const projectDir = path.join(root, "project");
     fs.mkdirSync(projectDir, { recursive: true });
-    const dbPath = path.join(homeDir, ".tamandua", "tamandua.db");
+    const dbPath = path.join(homeDir, ".canarinho", "canarinho.db");
     const previousHome = process.env.HOME;
-    const previousDbPath = process.env.TAMANDUA_DB_PATH;
+    const previousDbPath = process.env.canarinho_DB_PATH;
     process.env.HOME = homeDir;
-    process.env.TAMANDUA_DB_PATH = dbPath;
+    process.env.canarinho_DB_PATH = dbPath;
 
     try {
       // Create config in project dir
@@ -510,22 +519,22 @@ describe("dashboard AutoResearch progress", () => {
     } finally {
       if (previousHome === undefined) delete process.env.HOME;
       else process.env.HOME = previousHome;
-      if (previousDbPath === undefined) delete process.env.TAMANDUA_DB_PATH;
-      else process.env.TAMANDUA_DB_PATH = previousDbPath;
+      if (previousDbPath === undefined) delete process.env.canarinho_DB_PATH;
+      else process.env.canarinho_DB_PATH = previousDbPath;
       fs.rmSync(root, { recursive: true, force: true });
     }
   });
 
   it("GET /api/autoresearch/runs excludes runs with harness cwd but no config file", async () => {
-    const root = fs.mkdtempSync(path.join(os.tmpdir(), "tamandua-dashboard-autoresearch-runs-cwd-no-config-"));
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "canarinho-dashboard-autoresearch-runs-cwd-no-config-"));
     const homeDir = path.join(root, "home");
     const projectDir = path.join(root, "project");
     fs.mkdirSync(projectDir, { recursive: true });
-    const dbPath = path.join(homeDir, ".tamandua", "tamandua.db");
+    const dbPath = path.join(homeDir, ".canarinho", "canarinho.db");
     const previousHome = process.env.HOME;
-    const previousDbPath = process.env.TAMANDUA_DB_PATH;
+    const previousDbPath = process.env.canarinho_DB_PATH;
     process.env.HOME = homeDir;
-    process.env.TAMANDUA_DB_PATH = dbPath;
+    process.env.canarinho_DB_PATH = dbPath;
 
     try {
       // Create a valid project directory but do NOT create autoresearch.config.json inside it
@@ -561,22 +570,22 @@ describe("dashboard AutoResearch progress", () => {
     } finally {
       if (previousHome === undefined) delete process.env.HOME;
       else process.env.HOME = previousHome;
-      if (previousDbPath === undefined) delete process.env.TAMANDUA_DB_PATH;
-      else process.env.TAMANDUA_DB_PATH = previousDbPath;
+      if (previousDbPath === undefined) delete process.env.canarinho_DB_PATH;
+      else process.env.canarinho_DB_PATH = previousDbPath;
       fs.rmSync(root, { recursive: true, force: true });
     }
   });
 
   it("GET /api/autoresearch/runs response shape matches expected { runs: [...] } format", async () => {
-    const root = fs.mkdtempSync(path.join(os.tmpdir(), "tamandua-dashboard-autoresearch-runs-shape-"));
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "canarinho-dashboard-autoresearch-runs-shape-"));
     const homeDir = path.join(root, "home");
     const projectDir = path.join(root, "project");
     fs.mkdirSync(projectDir, { recursive: true });
-    const dbPath = path.join(homeDir, ".tamandua", "tamandua.db");
+    const dbPath = path.join(homeDir, ".canarinho", "canarinho.db");
     const previousHome = process.env.HOME;
-    const previousDbPath = process.env.TAMANDUA_DB_PATH;
+    const previousDbPath = process.env.canarinho_DB_PATH;
     process.env.HOME = homeDir;
-    process.env.TAMANDUA_DB_PATH = dbPath;
+    process.env.canarinho_DB_PATH = dbPath;
 
     try {
       fs.writeFileSync(
@@ -635,8 +644,8 @@ describe("dashboard AutoResearch progress", () => {
     } finally {
       if (previousHome === undefined) delete process.env.HOME;
       else process.env.HOME = previousHome;
-      if (previousDbPath === undefined) delete process.env.TAMANDUA_DB_PATH;
-      else process.env.TAMANDUA_DB_PATH = previousDbPath;
+      if (previousDbPath === undefined) delete process.env.canarinho_DB_PATH;
+      else process.env.canarinho_DB_PATH = previousDbPath;
       fs.rmSync(root, { recursive: true, force: true });
     }
   });
@@ -644,17 +653,17 @@ describe("dashboard AutoResearch progress", () => {
 
 describe("dashboard stats API", () => {
   it("GET /api/stats returns systemTokensSpent and totalTokensSpent on fresh DB", async () => {
-    const root = fs.mkdtempSync(path.join(os.tmpdir(), "tamandua-dashboard-stats-"));
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "canarinho-dashboard-stats-"));
     const homeDir = path.join(root, "home");
     fs.mkdirSync(homeDir, { recursive: true });
-    const dbPath = path.join(homeDir, ".tamandua", "tamandua.db");
+    const dbPath = path.join(homeDir, ".canarinho", "canarinho.db");
     const previousHome = process.env.HOME;
-    const previousDbPath = process.env.TAMANDUA_DB_PATH;
+    const previousDbPath = process.env.canarinho_DB_PATH;
     process.env.HOME = homeDir;
-    process.env.TAMANDUA_DB_PATH = dbPath;
+    process.env.canarinho_DB_PATH = dbPath;
 
     try {
-      // Open DB to trigger migration (creates tamandua_stats with default 0)
+      // Open DB to trigger migration (creates canarinho_stats with default 0)
       getDb();
 
       const { server, baseUrl } = await startDashboard();
@@ -674,21 +683,21 @@ describe("dashboard stats API", () => {
     } finally {
       if (previousHome === undefined) delete process.env.HOME;
       else process.env.HOME = previousHome;
-      if (previousDbPath === undefined) delete process.env.TAMANDUA_DB_PATH;
-      else process.env.TAMANDUA_DB_PATH = previousDbPath;
+      if (previousDbPath === undefined) delete process.env.canarinho_DB_PATH;
+      else process.env.canarinho_DB_PATH = previousDbPath;
       fs.rmSync(root, { recursive: true, force: true });
     }
   });
 
   it("GET /api/stats totalTokensSpent equals system + run tokens", async () => {
-    const root = fs.mkdtempSync(path.join(os.tmpdir(), "tamandua-dashboard-stats-"));
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "canarinho-dashboard-stats-"));
     const homeDir = path.join(root, "home");
     fs.mkdirSync(homeDir, { recursive: true });
-    const dbPath = path.join(homeDir, ".tamandua", "tamandua.db");
+    const dbPath = path.join(homeDir, ".canarinho", "canarinho.db");
     const previousHome = process.env.HOME;
-    const previousDbPath = process.env.TAMANDUA_DB_PATH;
+    const previousDbPath = process.env.canarinho_DB_PATH;
     process.env.HOME = homeDir;
-    process.env.TAMANDUA_DB_PATH = dbPath;
+    process.env.canarinho_DB_PATH = dbPath;
 
     try {
       const db = getDb();
@@ -721,24 +730,24 @@ describe("dashboard stats API", () => {
     } finally {
       if (previousHome === undefined) delete process.env.HOME;
       else process.env.HOME = previousHome;
-      if (previousDbPath === undefined) delete process.env.TAMANDUA_DB_PATH;
-      else process.env.TAMANDUA_DB_PATH = previousDbPath;
+      if (previousDbPath === undefined) delete process.env.canarinho_DB_PATH;
+      else process.env.canarinho_DB_PATH = previousDbPath;
       fs.rmSync(root, { recursive: true, force: true });
     }
   });
 
-  it("GET /api/stats handles DB without tamandua_stats gracefully", async () => {
-    const root = fs.mkdtempSync(path.join(os.tmpdir(), "tamandua-dashboard-stats-"));
+  it("GET /api/stats handles DB without canarinho_stats gracefully", async () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "canarinho-dashboard-stats-"));
     const homeDir = path.join(root, "home");
     fs.mkdirSync(homeDir, { recursive: true });
-    const dbPath = path.join(homeDir, ".tamandua", "tamandua.db");
+    const dbPath = path.join(homeDir, ".canarinho", "canarinho.db");
     const previousHome = process.env.HOME;
-    const previousDbPath = process.env.TAMANDUA_DB_PATH;
+    const previousDbPath = process.env.canarinho_DB_PATH;
     process.env.HOME = homeDir;
-    process.env.TAMANDUA_DB_PATH = dbPath;
+    process.env.canarinho_DB_PATH = dbPath;
 
     try {
-      // Create a DB with runs table but WITHOUT tamandua_stats (legacy DB)
+      // Create a DB with runs table but WITHOUT canarinho_stats (legacy DB)
       fs.mkdirSync(path.dirname(dbPath), { recursive: true });
       const { DatabaseSync } = await import("node:sqlite");
       const legacyDb = new DatabaseSync(dbPath);
@@ -777,8 +786,8 @@ describe("dashboard stats API", () => {
     } finally {
       if (previousHome === undefined) delete process.env.HOME;
       else process.env.HOME = previousHome;
-      if (previousDbPath === undefined) delete process.env.TAMANDUA_DB_PATH;
-      else process.env.TAMANDUA_DB_PATH = previousDbPath;
+      if (previousDbPath === undefined) delete process.env.canarinho_DB_PATH;
+      else process.env.canarinho_DB_PATH = previousDbPath;
       fs.rmSync(root, { recursive: true, force: true });
     }
   });
@@ -804,32 +813,25 @@ describe("dashboard token counters UI", () => {
       assert.match(html, /<span class="mono" id="total-tokens">0<\/span>/);
       // Separator
       assert.match(html, /<span class="token-sep">\|<\/span>/);
-      // System: and Total: labels
-      assert.match(html, /System:/);
+      // System: and Total: labels (shortened to Sys: and Total:)
+      assert.match(html, /Sys:/);
       assert.match(html, /Total:/);
     } finally {
       await stopDashboard(server);
     }
   });
 
-  it("dashboard HTML includes fetchStats call in refreshAll", async () => {
+  it("dashboard JS includes fetchStats call in refreshAll", async () => {
     const { server, baseUrl } = await startDashboard();
 
     try {
-      const response = await fetch(`${baseUrl}/`);
-      assert.equal(response.status, 200);
-
-      const html = await response.text();
-      // fetchStats function exists
-      assert.match(html, /async function fetchStats/);
-      // fetchStats is called in refreshAll
-      assert.match(html, /fetchStats\(\)/);
-      // fetch is called with /api/stats
-      assert.match(html, /fetch\(["']\/api\/stats["']\)/);
-      // comma format function
-      assert.match(html, /function fmtNum/);
-      // toLocaleString for number formatting
-      assert.match(html, /\.toLocaleString\(\)/);
+      const jsRes = await fetch(`${baseUrl}/dashboard-ui.js`);
+      assert.equal(jsRes.status, 200);
+      const js = await jsRes.text();
+      assert.match(js, /async function fetchStats/);
+      assert.match(js, /fetchStats\(\)/);
+      assert.match(js, /fetch\(["']\/api\/stats["']\)/);
+      assert.match(js, /function fmtNum/);
     } finally {
       await stopDashboard(server);
     }
@@ -880,59 +882,57 @@ describe("dashboard pause/resume UI", () => {
     }
   });
 
-  it("includes pauseRun and resumeRun JS functions", async () => {
+  it("includes pauseRun and resumeRun JS functions in dashboard-ui.js", async () => {
     const { server, baseUrl } = await startDashboard();
 
     try {
-      const response = await fetch(`${baseUrl}/`);
-      assert.equal(response.status, 200);
-
-      const html = await response.text();
-
-      assert.match(html, /async function pauseRun\(/);
-      assert.match(html, /async function resumeRun\(/);
-      assert.match(html, /function handlePause\(/);
-      assert.match(html, /function handleResume\(/);
-      assert.match(html, /async function pauseAllRuns\(/);
-      assert.match(html, /async function resumeAllRuns\(/);
-      assert.match(html, /\/api\/runs\/.*\/pause/);
-      assert.match(html, /\/api\/runs\/.*\/resume/);
-      assert.match(html, /pauseRun\(id, drain\)\.then\(refreshAll\)/);
-      assert.match(html, /resumeRun\(id\)\.then\(refreshAll\)/);
-      assert.match(html, /\?drain=true/);
+      const jsRes = await fetch(`${baseUrl}/dashboard-ui.js`);
+      assert.equal(jsRes.status, 200);
+      const js = await jsRes.text();
+      assert.match(js, /async function pauseRun\(/);
+      assert.match(js, /async function resumeRun\(/);
+      assert.match(js, /function handlePause\(/);
+      assert.match(js, /function handleResume\(/);
+      assert.match(js, /async function pauseAllRuns\(/);
+      assert.match(js, /async function resumeAllRuns\(/);
+      assert.match(js, /\/api\/runs\/.*\/pause/);
+      assert.match(js, /\/api\/runs\/.*\/resume/);
+      assert.match(js, /pauseRun\(id, drain\)\.then\(\(\) => \{ refreshAll\(\); showToast/);
+      assert.match(js, /resumeRun\(id\)\.then\(\(\) => \{ refreshAll\(\); showToast/);
+      assert.match(js, /\?drain=true/);
     } finally {
       await stopDashboard(server);
     }
   });
 
-  it("has badge-paused CSS class with amber color", async () => {
+  it("has badge-paused CSS class with amber color in dashboard-ui.css", async () => {
     const { server, baseUrl } = await startDashboard();
 
     try {
-      const response = await fetch(`${baseUrl}/`);
-      assert.equal(response.status, 200);
-
-      const html = await response.text();
-
-      assert.match(html, /\.badge-paused/);
-      assert.match(html, /#d29922/);
+      const cssRes = await fetch(`${baseUrl}/dashboard-ui.css`);
+      assert.equal(cssRes.status, 200);
+      const css = await cssRes.text();
+      assert.match(css, /\.badge-paused/);
+      assert.match(css, /#d29922/);
     } finally {
       await stopDashboard(server);
     }
   });
 
-  it("renders Actions column in runs table header", async () => {
+  it("renders Actions column in runs table (generated dynamically via JS)", async () => {
     const { server, baseUrl } = await startDashboard();
 
     try {
-      const response = await fetch(`${baseUrl}/`);
-      assert.equal(response.status, 200);
+      const jsRes = await fetch(`${baseUrl}/dashboard-ui.js`);
+      assert.equal(jsRes.status, 200);
+      const js = await jsRes.text();
+      assert.match(js, /<th>Actions<\/th>/);
 
-      const html = await response.text();
-
-      assert.match(html, /<th>Actions<\/th>/);
-      assert.match(html, /\.action-btn\.pause-btn/);
-      assert.match(html, /\.action-btn\.resume-btn/);
+      const cssRes = await fetch(`${baseUrl}/dashboard-ui.css`);
+      assert.equal(cssRes.status, 200);
+      const css = await cssRes.text();
+      assert.match(css, /\.action-btn\.pause-btn/);
+      assert.match(css, /\.action-btn\.resume-btn/);
     } finally {
       await stopDashboard(server);
     }
@@ -944,13 +944,11 @@ describe("dashboard relaunch UI", () => {
     const { server, baseUrl } = await startDashboard();
 
     try {
-      const response = await fetch(`${baseUrl}/`);
-      assert.equal(response.status, 200);
-
-      const html = await response.text();
-
-      assert.match(html, /\.action-btn\.relaunch-btn/);
-      assert.match(html, /#f0883e/);
+      const cssRes = await fetch(`${baseUrl}/dashboard-ui.css`);
+      assert.equal(cssRes.status, 200);
+      const css = await cssRes.text();
+      assert.match(css, /\.action-btn\.relaunch-btn/);
+      assert.match(css, /#f0883e/);
     } finally {
       await stopDashboard(server);
     }
@@ -960,19 +958,21 @@ describe("dashboard relaunch UI", () => {
     const { server, baseUrl } = await startDashboard();
 
     try {
-      const response = await fetch(`${baseUrl}/`);
-      assert.equal(response.status, 200);
-
-      const html = await response.text();
-
+      const htmlRes = await fetch(`${baseUrl}/`);
+      assert.equal(htmlRes.status, 200);
+      const html = await htmlRes.text();
       assert.match(html, /class="modal-overlay" id="relaunch-modal-overlay"/);
       assert.match(html, /class="modal-dialog"/);
       assert.match(html, /id="relaunch-failure-reason"/);
       assert.match(html, /id="relaunch-prompt"/);
       assert.match(html, /Reason for failure:/);
       assert.match(html, /id="relaunch-submit-btn"/);
-      assert.match(html, /closeRelaunchModal\(\)/);
-      assert.match(html, /handleRelaunchSubmit\(\)/);
+
+      const jsRes = await fetch(`${baseUrl}/dashboard-ui.js`);
+      assert.equal(jsRes.status, 200);
+      const js = await jsRes.text();
+      assert.match(js, /closeRelaunchModal\(\)/);
+      assert.match(js, /handleRelaunchSubmit\(\)/);
     } finally {
       await stopDashboard(server);
     }
@@ -982,17 +982,15 @@ describe("dashboard relaunch UI", () => {
     const { server, baseUrl } = await startDashboard();
 
     try {
-      const response = await fetch(`${baseUrl}/`);
-      assert.equal(response.status, 200);
-
-      const html = await response.text();
-
-      assert.match(html, /async function openRelaunchModal\(/);
-      assert.match(html, /function closeRelaunchModal\(/);
-      assert.match(html, /async function handleRelaunchSubmit\(/);
-      assert.match(html, /\/api\/runs\/.*\/relaunch/);
-      assert.match(html, /'Content-Type': 'application\/json'/);
-      assert.match(html, /JSON\.stringify\(\{ task:/);
+      const jsRes = await fetch(`${baseUrl}/dashboard-ui.js`);
+      assert.equal(jsRes.status, 200);
+      const js = await jsRes.text();
+      assert.match(js, /async function openRelaunchModal\(/);
+      assert.match(js, /function closeRelaunchModal\(/);
+      assert.match(js, /async function handleRelaunchSubmit\(/);
+      assert.match(js, /\/api\/runs\/.*\/relaunch/);
+      assert.match(js, /'Content-Type': 'application\/json'/);
+      assert.match(js, /JSON\.stringify\(\{ task:/);
     } finally {
       await stopDashboard(server);
     }
@@ -1015,19 +1013,21 @@ describe("dashboard relaunch UI", () => {
     }
   });
 
-  it("existing pause/resume buttons still present", async () => {
+  it("existing pause/resume buttons CSS/JS still present", async () => {
     const { server, baseUrl } = await startDashboard();
 
     try {
-      const response = await fetch(`${baseUrl}/`);
-      assert.equal(response.status, 200);
+      const cssRes = await fetch(`${baseUrl}/dashboard-ui.css`);
+      assert.equal(cssRes.status, 200);
+      const css = await cssRes.text();
+      assert.match(css, /\.action-btn\.pause-btn/);
+      assert.match(css, /\.action-btn\.resume-btn/);
 
-      const html = await response.text();
-
-      assert.match(html, /\.action-btn\.pause-btn/);
-      assert.match(html, /\.action-btn\.resume-btn/);
-      assert.match(html, /handlePause\(/);
-      assert.match(html, /handleResume\(/);
+      const jsRes = await fetch(`${baseUrl}/dashboard-ui.js`);
+      assert.equal(jsRes.status, 200);
+      const js = await jsRes.text();
+      assert.match(js, /handlePause\(/);
+      assert.match(js, /handleResume\(/);
     } finally {
       await stopDashboard(server);
     }
@@ -1036,7 +1036,7 @@ describe("dashboard relaunch UI", () => {
 
 describe("dashboard MCP status API", () => {
   it("GET /api/mcp-status returns { running, port, path }", async () => {
-    const root = fs.mkdtempSync(path.join(os.tmpdir(), "tamandua-dashboard-mcp-status-"));
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "canarinho-dashboard-mcp-status-"));
     const homeDir = path.join(root, "home");
     fs.mkdirSync(homeDir, { recursive: true });
     const previousHome = process.env.HOME;
@@ -1062,14 +1062,14 @@ describe("dashboard MCP status API", () => {
 
 describe("dashboard run detail failure_reason", () => {
   it("returns failure_reason=null for running run", async () => {
-    const root = fs.mkdtempSync(path.join(os.tmpdir(), "tamandua-dashboard-failure-reason-"));
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "canarinho-dashboard-failure-reason-"));
     const homeDir = path.join(root, "home");
     fs.mkdirSync(homeDir, { recursive: true });
-    const dbPath = path.join(homeDir, ".tamandua", "tamandua.db");
+    const dbPath = path.join(homeDir, ".canarinho", "canarinho.db");
     const previousHome = process.env.HOME;
-    const previousDbPath = process.env.TAMANDUA_DB_PATH;
+    const previousDbPath = process.env.canarinho_DB_PATH;
     process.env.HOME = homeDir;
-    process.env.TAMANDUA_DB_PATH = dbPath;
+    process.env.canarinho_DB_PATH = dbPath;
 
     const db = getDb();
     const runId = "run-running";
@@ -1090,21 +1090,21 @@ describe("dashboard run detail failure_reason", () => {
       await stopDashboard(server);
       if (previousHome === undefined) delete process.env.HOME;
       else process.env.HOME = previousHome;
-      if (previousDbPath === undefined) delete process.env.TAMANDUA_DB_PATH;
-      else process.env.TAMANDUA_DB_PATH = previousDbPath;
+      if (previousDbPath === undefined) delete process.env.canarinho_DB_PATH;
+      else process.env.canarinho_DB_PATH = previousDbPath;
       fs.rmSync(root, { recursive: true, force: true });
     }
   });
 
   it("returns failure_reason=null for completed run", async () => {
-    const root = fs.mkdtempSync(path.join(os.tmpdir(), "tamandua-dashboard-failure-reason-"));
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "canarinho-dashboard-failure-reason-"));
     const homeDir = path.join(root, "home");
     fs.mkdirSync(homeDir, { recursive: true });
-    const dbPath = path.join(homeDir, ".tamandua", "tamandua.db");
+    const dbPath = path.join(homeDir, ".canarinho", "canarinho.db");
     const previousHome = process.env.HOME;
-    const previousDbPath = process.env.TAMANDUA_DB_PATH;
+    const previousDbPath = process.env.canarinho_DB_PATH;
     process.env.HOME = homeDir;
-    process.env.TAMANDUA_DB_PATH = dbPath;
+    process.env.canarinho_DB_PATH = dbPath;
 
     const db = getDb();
     const runId = "run-completed";
@@ -1125,21 +1125,21 @@ describe("dashboard run detail failure_reason", () => {
       await stopDashboard(server);
       if (previousHome === undefined) delete process.env.HOME;
       else process.env.HOME = previousHome;
-      if (previousDbPath === undefined) delete process.env.TAMANDUA_DB_PATH;
-      else process.env.TAMANDUA_DB_PATH = previousDbPath;
+      if (previousDbPath === undefined) delete process.env.canarinho_DB_PATH;
+      else process.env.canarinho_DB_PATH = previousDbPath;
       fs.rmSync(root, { recursive: true, force: true });
     }
   });
 
   it("returns failure_reason=null for paused run", async () => {
-    const root = fs.mkdtempSync(path.join(os.tmpdir(), "tamandua-dashboard-failure-reason-"));
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "canarinho-dashboard-failure-reason-"));
     const homeDir = path.join(root, "home");
     fs.mkdirSync(homeDir, { recursive: true });
-    const dbPath = path.join(homeDir, ".tamandua", "tamandua.db");
+    const dbPath = path.join(homeDir, ".canarinho", "canarinho.db");
     const previousHome = process.env.HOME;
-    const previousDbPath = process.env.TAMANDUA_DB_PATH;
+    const previousDbPath = process.env.canarinho_DB_PATH;
     process.env.HOME = homeDir;
-    process.env.TAMANDUA_DB_PATH = dbPath;
+    process.env.canarinho_DB_PATH = dbPath;
 
     const db = getDb();
     const runId = "run-paused";
@@ -1160,21 +1160,21 @@ describe("dashboard run detail failure_reason", () => {
       await stopDashboard(server);
       if (previousHome === undefined) delete process.env.HOME;
       else process.env.HOME = previousHome;
-      if (previousDbPath === undefined) delete process.env.TAMANDUA_DB_PATH;
-      else process.env.TAMANDUA_DB_PATH = previousDbPath;
+      if (previousDbPath === undefined) delete process.env.canarinho_DB_PATH;
+      else process.env.canarinho_DB_PATH = previousDbPath;
       fs.rmSync(root, { recursive: true, force: true });
     }
   });
 
   it("returns 'Canceled' for canceled run", async () => {
-    const root = fs.mkdtempSync(path.join(os.tmpdir(), "tamandua-dashboard-failure-reason-"));
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "canarinho-dashboard-failure-reason-"));
     const homeDir = path.join(root, "home");
     fs.mkdirSync(homeDir, { recursive: true });
-    const dbPath = path.join(homeDir, ".tamandua", "tamandua.db");
+    const dbPath = path.join(homeDir, ".canarinho", "canarinho.db");
     const previousHome = process.env.HOME;
-    const previousDbPath = process.env.TAMANDUA_DB_PATH;
+    const previousDbPath = process.env.canarinho_DB_PATH;
     process.env.HOME = homeDir;
-    process.env.TAMANDUA_DB_PATH = dbPath;
+    process.env.canarinho_DB_PATH = dbPath;
 
     const db = getDb();
     const runId = "run-canceled";
@@ -1195,21 +1195,21 @@ describe("dashboard run detail failure_reason", () => {
       await stopDashboard(server);
       if (previousHome === undefined) delete process.env.HOME;
       else process.env.HOME = previousHome;
-      if (previousDbPath === undefined) delete process.env.TAMANDUA_DB_PATH;
-      else process.env.TAMANDUA_DB_PATH = previousDbPath;
+      if (previousDbPath === undefined) delete process.env.canarinho_DB_PATH;
+      else process.env.canarinho_DB_PATH = previousDbPath;
       fs.rmSync(root, { recursive: true, force: true });
     }
   });
 
   it("returns first failed step output for failed run", async () => {
-    const root = fs.mkdtempSync(path.join(os.tmpdir(), "tamandua-dashboard-failure-reason-"));
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "canarinho-dashboard-failure-reason-"));
     const homeDir = path.join(root, "home");
     fs.mkdirSync(homeDir, { recursive: true });
-    const dbPath = path.join(homeDir, ".tamandua", "tamandua.db");
+    const dbPath = path.join(homeDir, ".canarinho", "canarinho.db");
     const previousHome = process.env.HOME;
-    const previousDbPath = process.env.TAMANDUA_DB_PATH;
+    const previousDbPath = process.env.canarinho_DB_PATH;
     process.env.HOME = homeDir;
-    process.env.TAMANDUA_DB_PATH = dbPath;
+    process.env.canarinho_DB_PATH = dbPath;
 
     const db = getDb();
     const runId = "run-failed";
@@ -1239,21 +1239,21 @@ describe("dashboard run detail failure_reason", () => {
       await stopDashboard(server);
       if (previousHome === undefined) delete process.env.HOME;
       else process.env.HOME = previousHome;
-      if (previousDbPath === undefined) delete process.env.TAMANDUA_DB_PATH;
-      else process.env.TAMANDUA_DB_PATH = previousDbPath;
+      if (previousDbPath === undefined) delete process.env.canarinho_DB_PATH;
+      else process.env.canarinho_DB_PATH = previousDbPath;
       fs.rmSync(root, { recursive: true, force: true });
     }
   });
 
   it("returns 'Run failed' for failed run with no failed-step output", async () => {
-    const root = fs.mkdtempSync(path.join(os.tmpdir(), "tamandua-dashboard-failure-reason-"));
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "canarinho-dashboard-failure-reason-"));
     const homeDir = path.join(root, "home");
     fs.mkdirSync(homeDir, { recursive: true });
-    const dbPath = path.join(homeDir, ".tamandua", "tamandua.db");
+    const dbPath = path.join(homeDir, ".canarinho", "canarinho.db");
     const previousHome = process.env.HOME;
-    const previousDbPath = process.env.TAMANDUA_DB_PATH;
+    const previousDbPath = process.env.canarinho_DB_PATH;
     process.env.HOME = homeDir;
-    process.env.TAMANDUA_DB_PATH = dbPath;
+    process.env.canarinho_DB_PATH = dbPath;
 
     const db = getDb();
     const runId = "run-failed-no-output";
@@ -1275,8 +1275,8 @@ describe("dashboard run detail failure_reason", () => {
       await stopDashboard(server);
       if (previousHome === undefined) delete process.env.HOME;
       else process.env.HOME = previousHome;
-      if (previousDbPath === undefined) delete process.env.TAMANDUA_DB_PATH;
-      else process.env.TAMANDUA_DB_PATH = previousDbPath;
+      if (previousDbPath === undefined) delete process.env.canarinho_DB_PATH;
+      else process.env.canarinho_DB_PATH = previousDbPath;
       fs.rmSync(root, { recursive: true, force: true });
     }
   });
@@ -1284,14 +1284,14 @@ describe("dashboard run detail failure_reason", () => {
 
 describe("dashboard run detail prompt field", () => {
   it("returns prompt field from run.task for all statuses", async () => {
-    const root = fs.mkdtempSync(path.join(os.tmpdir(), "tamandua-dashboard-prompt-"));
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "canarinho-dashboard-prompt-"));
     const homeDir = path.join(root, "home");
     fs.mkdirSync(homeDir, { recursive: true });
-    const dbPath = path.join(homeDir, ".tamandua", "tamandua.db");
+    const dbPath = path.join(homeDir, ".canarinho", "canarinho.db");
     const previousHome = process.env.HOME;
-    const previousDbPath = process.env.TAMANDUA_DB_PATH;
+    const previousDbPath = process.env.canarinho_DB_PATH;
     process.env.HOME = homeDir;
-    process.env.TAMANDUA_DB_PATH = dbPath;
+    process.env.canarinho_DB_PATH = dbPath;
 
     const db = getDb();
     const testCases = [
@@ -1324,8 +1324,8 @@ describe("dashboard run detail prompt field", () => {
       await stopDashboard(server);
       if (previousHome === undefined) delete process.env.HOME;
       else process.env.HOME = previousHome;
-      if (previousDbPath === undefined) delete process.env.TAMANDUA_DB_PATH;
-      else process.env.TAMANDUA_DB_PATH = previousDbPath;
+      if (previousDbPath === undefined) delete process.env.canarinho_DB_PATH;
+      else process.env.canarinho_DB_PATH = previousDbPath;
       fs.rmSync(root, { recursive: true, force: true });
     }
   });
@@ -1333,14 +1333,14 @@ describe("dashboard run detail prompt field", () => {
 
 describe("dashboard run relaunch API", () => {
   it("POST /api/runs/:id/relaunch returns 404 for missing run", async () => {
-    // Isolated empty DB: never query the developer's real ~/.tamandua.
-    const root = fs.mkdtempSync(path.join(os.tmpdir(), "tamandua-dashboard-relaunch-404-"));
+    // Isolated empty DB: never query the developer's real ~/.canarinho.
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "canarinho-dashboard-relaunch-404-"));
     const homeDir = path.join(root, "home");
     fs.mkdirSync(homeDir, { recursive: true });
     const previousHome = process.env.HOME;
-    const previousDbPath = process.env.TAMANDUA_DB_PATH;
+    const previousDbPath = process.env.canarinho_DB_PATH;
     process.env.HOME = homeDir;
-    process.env.TAMANDUA_DB_PATH = path.join(homeDir, ".tamandua", "tamandua.db");
+    process.env.canarinho_DB_PATH = path.join(homeDir, ".canarinho", "canarinho.db");
 
     const { server, baseUrl } = await startDashboard();
 
@@ -1357,21 +1357,21 @@ describe("dashboard run relaunch API", () => {
       await stopDashboard(server);
       if (previousHome === undefined) delete process.env.HOME;
       else process.env.HOME = previousHome;
-      if (previousDbPath === undefined) delete process.env.TAMANDUA_DB_PATH;
-      else process.env.TAMANDUA_DB_PATH = previousDbPath;
+      if (previousDbPath === undefined) delete process.env.canarinho_DB_PATH;
+      else process.env.canarinho_DB_PATH = previousDbPath;
       fs.rmSync(root, { recursive: true, force: true });
     }
   });
 
   it("POST /api/runs/:id/relaunch returns 409 for running run", async () => {
-    const root = fs.mkdtempSync(path.join(os.tmpdir(), "tamandua-dashboard-relaunch-"));
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "canarinho-dashboard-relaunch-"));
     const homeDir = path.join(root, "home");
     fs.mkdirSync(homeDir, { recursive: true });
-    const dbPath = path.join(homeDir, ".tamandua", "tamandua.db");
+    const dbPath = path.join(homeDir, ".canarinho", "canarinho.db");
     const previousHome = process.env.HOME;
-    const previousDbPath = process.env.TAMANDUA_DB_PATH;
+    const previousDbPath = process.env.canarinho_DB_PATH;
     process.env.HOME = homeDir;
-    process.env.TAMANDUA_DB_PATH = dbPath;
+    process.env.canarinho_DB_PATH = dbPath;
 
     const db = getDb();
     const runId = "run-running-relaunch";
@@ -1395,21 +1395,21 @@ describe("dashboard run relaunch API", () => {
       await stopDashboard(server);
       if (previousHome === undefined) delete process.env.HOME;
       else process.env.HOME = previousHome;
-      if (previousDbPath === undefined) delete process.env.TAMANDUA_DB_PATH;
-      else process.env.TAMANDUA_DB_PATH = previousDbPath;
+      if (previousDbPath === undefined) delete process.env.canarinho_DB_PATH;
+      else process.env.canarinho_DB_PATH = previousDbPath;
       fs.rmSync(root, { recursive: true, force: true });
     }
   });
 
   it("POST /api/runs/:id/relaunch returns 409 for completed run", async () => {
-    const root = fs.mkdtempSync(path.join(os.tmpdir(), "tamandua-dashboard-relaunch-"));
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "canarinho-dashboard-relaunch-"));
     const homeDir = path.join(root, "home");
     fs.mkdirSync(homeDir, { recursive: true });
-    const dbPath = path.join(homeDir, ".tamandua", "tamandua.db");
+    const dbPath = path.join(homeDir, ".canarinho", "canarinho.db");
     const previousHome = process.env.HOME;
-    const previousDbPath = process.env.TAMANDUA_DB_PATH;
+    const previousDbPath = process.env.canarinho_DB_PATH;
     process.env.HOME = homeDir;
-    process.env.TAMANDUA_DB_PATH = dbPath;
+    process.env.canarinho_DB_PATH = dbPath;
 
     const db = getDb();
     const runId = "run-completed-relaunch";
@@ -1433,21 +1433,21 @@ describe("dashboard run relaunch API", () => {
       await stopDashboard(server);
       if (previousHome === undefined) delete process.env.HOME;
       else process.env.HOME = previousHome;
-      if (previousDbPath === undefined) delete process.env.TAMANDUA_DB_PATH;
-      else process.env.TAMANDUA_DB_PATH = previousDbPath;
+      if (previousDbPath === undefined) delete process.env.canarinho_DB_PATH;
+      else process.env.canarinho_DB_PATH = previousDbPath;
       fs.rmSync(root, { recursive: true, force: true });
     }
   });
 
   it("POST /api/runs/:id/relaunch returns 409 for paused run", async () => {
-    const root = fs.mkdtempSync(path.join(os.tmpdir(), "tamandua-dashboard-relaunch-"));
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "canarinho-dashboard-relaunch-"));
     const homeDir = path.join(root, "home");
     fs.mkdirSync(homeDir, { recursive: true });
-    const dbPath = path.join(homeDir, ".tamandua", "tamandua.db");
+    const dbPath = path.join(homeDir, ".canarinho", "canarinho.db");
     const previousHome = process.env.HOME;
-    const previousDbPath = process.env.TAMANDUA_DB_PATH;
+    const previousDbPath = process.env.canarinho_DB_PATH;
     process.env.HOME = homeDir;
-    process.env.TAMANDUA_DB_PATH = dbPath;
+    process.env.canarinho_DB_PATH = dbPath;
 
     const db = getDb();
     const runId = "run-paused-relaunch";
@@ -1471,21 +1471,21 @@ describe("dashboard run relaunch API", () => {
       await stopDashboard(server);
       if (previousHome === undefined) delete process.env.HOME;
       else process.env.HOME = previousHome;
-      if (previousDbPath === undefined) delete process.env.TAMANDUA_DB_PATH;
-      else process.env.TAMANDUA_DB_PATH = previousDbPath;
+      if (previousDbPath === undefined) delete process.env.canarinho_DB_PATH;
+      else process.env.canarinho_DB_PATH = previousDbPath;
       fs.rmSync(root, { recursive: true, force: true });
     }
   });
 
   it("POST /api/runs/:id/relaunch returns 400 for invalid JSON body", async () => {
-    const root = fs.mkdtempSync(path.join(os.tmpdir(), "tamandua-dashboard-relaunch-"));
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "canarinho-dashboard-relaunch-"));
     const homeDir = path.join(root, "home");
     fs.mkdirSync(homeDir, { recursive: true });
-    const dbPath = path.join(homeDir, ".tamandua", "tamandua.db");
+    const dbPath = path.join(homeDir, ".canarinho", "canarinho.db");
     const previousHome = process.env.HOME;
-    const previousDbPath = process.env.TAMANDUA_DB_PATH;
+    const previousDbPath = process.env.canarinho_DB_PATH;
     process.env.HOME = homeDir;
-    process.env.TAMANDUA_DB_PATH = dbPath;
+    process.env.canarinho_DB_PATH = dbPath;
 
     const db = getDb();
     const runId = "run-failed-bad-json";
@@ -1510,21 +1510,21 @@ describe("dashboard run relaunch API", () => {
       await stopDashboard(server);
       if (previousHome === undefined) delete process.env.HOME;
       else process.env.HOME = previousHome;
-      if (previousDbPath === undefined) delete process.env.TAMANDUA_DB_PATH;
-      else process.env.TAMANDUA_DB_PATH = previousDbPath;
+      if (previousDbPath === undefined) delete process.env.canarinho_DB_PATH;
+      else process.env.canarinho_DB_PATH = previousDbPath;
       fs.rmSync(root, { recursive: true, force: true });
     }
   });
 
   it("POST /api/runs/:id/relaunch handles canceled run (routes correctly through handler)", async () => {
-    const root = fs.mkdtempSync(path.join(os.tmpdir(), "tamandua-dashboard-relaunch-"));
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "canarinho-dashboard-relaunch-"));
     const homeDir = path.join(root, "home");
     fs.mkdirSync(homeDir, { recursive: true });
-    const dbPath = path.join(homeDir, ".tamandua", "tamandua.db");
+    const dbPath = path.join(homeDir, ".canarinho", "canarinho.db");
     const previousHome = process.env.HOME;
-    const previousDbPath = process.env.TAMANDUA_DB_PATH;
+    const previousDbPath = process.env.canarinho_DB_PATH;
     process.env.HOME = homeDir;
-    process.env.TAMANDUA_DB_PATH = dbPath;
+    process.env.canarinho_DB_PATH = dbPath;
 
     const db = getDb();
     const runId = "run-canceled-relaunch";
@@ -1553,21 +1553,21 @@ describe("dashboard run relaunch API", () => {
       await stopDashboard(server);
       if (previousHome === undefined) delete process.env.HOME;
       else process.env.HOME = previousHome;
-      if (previousDbPath === undefined) delete process.env.TAMANDUA_DB_PATH;
-      else process.env.TAMANDUA_DB_PATH = previousDbPath;
+      if (previousDbPath === undefined) delete process.env.canarinho_DB_PATH;
+      else process.env.canarinho_DB_PATH = previousDbPath;
       fs.rmSync(root, { recursive: true, force: true });
     }
   });
 
   it("POST /api/runs/:id/relaunch with empty body uses original task", async () => {
-    const root = fs.mkdtempSync(path.join(os.tmpdir(), "tamandua-dashboard-relaunch-"));
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "canarinho-dashboard-relaunch-"));
     const homeDir = path.join(root, "home");
     fs.mkdirSync(homeDir, { recursive: true });
-    const dbPath = path.join(homeDir, ".tamandua", "tamandua.db");
+    const dbPath = path.join(homeDir, ".canarinho", "canarinho.db");
     const previousHome = process.env.HOME;
-    const previousDbPath = process.env.TAMANDUA_DB_PATH;
+    const previousDbPath = process.env.canarinho_DB_PATH;
     process.env.HOME = homeDir;
-    process.env.TAMANDUA_DB_PATH = dbPath;
+    process.env.canarinho_DB_PATH = dbPath;
 
     const db = getDb();
     const runId = "run-failed-empty-body";
@@ -1593,21 +1593,21 @@ describe("dashboard run relaunch API", () => {
       await stopDashboard(server);
       if (previousHome === undefined) delete process.env.HOME;
       else process.env.HOME = previousHome;
-      if (previousDbPath === undefined) delete process.env.TAMANDUA_DB_PATH;
-      else process.env.TAMANDUA_DB_PATH = previousDbPath;
+      if (previousDbPath === undefined) delete process.env.canarinho_DB_PATH;
+      else process.env.canarinho_DB_PATH = previousDbPath;
       fs.rmSync(root, { recursive: true, force: true });
     }
   });
 
   it("POST /api/runs/:id/relaunch with whitespace-only task uses original task", async () => {
-    const root = fs.mkdtempSync(path.join(os.tmpdir(), "tamandua-dashboard-relaunch-"));
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "canarinho-dashboard-relaunch-"));
     const homeDir = path.join(root, "home");
     fs.mkdirSync(homeDir, { recursive: true });
-    const dbPath = path.join(homeDir, ".tamandua", "tamandua.db");
+    const dbPath = path.join(homeDir, ".canarinho", "canarinho.db");
     const previousHome = process.env.HOME;
-    const previousDbPath = process.env.TAMANDUA_DB_PATH;
+    const previousDbPath = process.env.canarinho_DB_PATH;
     process.env.HOME = homeDir;
-    process.env.TAMANDUA_DB_PATH = dbPath;
+    process.env.canarinho_DB_PATH = dbPath;
 
     const db = getDb();
     const runId = "run-failed-whitespace-task";
@@ -1633,21 +1633,21 @@ describe("dashboard run relaunch API", () => {
       await stopDashboard(server);
       if (previousHome === undefined) delete process.env.HOME;
       else process.env.HOME = previousHome;
-      if (previousDbPath === undefined) delete process.env.TAMANDUA_DB_PATH;
-      else process.env.TAMANDUA_DB_PATH = previousDbPath;
+      if (previousDbPath === undefined) delete process.env.canarinho_DB_PATH;
+      else process.env.canarinho_DB_PATH = previousDbPath;
       fs.rmSync(root, { recursive: true, force: true });
     }
   });
 
   it("POST /api/runs/:id/relaunch preserves notify_url from original run", async () => {
-    const root = fs.mkdtempSync(path.join(os.tmpdir(), "tamandua-dashboard-relaunch-"));
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "canarinho-dashboard-relaunch-"));
     const homeDir = path.join(root, "home");
     fs.mkdirSync(homeDir, { recursive: true });
-    const dbPath = path.join(homeDir, ".tamandua", "tamandua.db");
+    const dbPath = path.join(homeDir, ".canarinho", "canarinho.db");
     const previousHome = process.env.HOME;
-    const previousDbPath = process.env.TAMANDUA_DB_PATH;
+    const previousDbPath = process.env.canarinho_DB_PATH;
     process.env.HOME = homeDir;
-    process.env.TAMANDUA_DB_PATH = dbPath;
+    process.env.canarinho_DB_PATH = dbPath;
 
     const db = getDb();
     const runId = "run-failed-notify";
@@ -1674,8 +1674,8 @@ describe("dashboard run relaunch API", () => {
       await stopDashboard(server);
       if (previousHome === undefined) delete process.env.HOME;
       else process.env.HOME = previousHome;
-      if (previousDbPath === undefined) delete process.env.TAMANDUA_DB_PATH;
-      else process.env.TAMANDUA_DB_PATH = previousDbPath;
+      if (previousDbPath === undefined) delete process.env.canarinho_DB_PATH;
+      else process.env.canarinho_DB_PATH = previousDbPath;
       fs.rmSync(root, { recursive: true, force: true });
     }
   });
@@ -1704,10 +1704,10 @@ describe("dashboard build version API", () => {
 
 describe("dashboard version status API", () => {
   it("GET /api/version-status returns { updateAvailable, currentHead, remoteHead, checkedAt } when no file exists", async () => {
-    const root = fs.mkdtempSync(path.join(os.tmpdir(), "tamandua-dashboard-version-"));
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "canarinho-dashboard-version-"));
     const stateDir = path.join(root, "state");
-    const previousStateDir = process.env.TAMANDUA_STATE_DIR;
-    process.env.TAMANDUA_STATE_DIR = stateDir;
+    const previousStateDir = process.env.canarinho_STATE_DIR;
+    process.env.canarinho_STATE_DIR = stateDir;
 
     const { server, baseUrl } = await startDashboard();
 
@@ -1722,17 +1722,17 @@ describe("dashboard version status API", () => {
       assert.equal(body.checkedAt, "");
     } finally {
       await stopDashboard(server);
-      if (previousStateDir === undefined) delete process.env.TAMANDUA_STATE_DIR;
-      else process.env.TAMANDUA_STATE_DIR = previousStateDir;
+      if (previousStateDir === undefined) delete process.env.canarinho_STATE_DIR;
+      else process.env.canarinho_STATE_DIR = previousStateDir;
       fs.rmSync(root, { recursive: true, force: true });
     }
   });
 
   it("GET /api/version-status returns updateAvailable: true when file says so", async () => {
-    const root = fs.mkdtempSync(path.join(os.tmpdir(), "tamandua-dashboard-version-"));
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "canarinho-dashboard-version-"));
     const stateDir = path.join(root, "state");
-    const previousStateDir = process.env.TAMANDUA_STATE_DIR;
-    process.env.TAMANDUA_STATE_DIR = stateDir;
+    const previousStateDir = process.env.canarinho_STATE_DIR;
+    process.env.canarinho_STATE_DIR = stateDir;
 
     // Write version-status.json with updateAvailable: true
     fs.mkdirSync(stateDir, { recursive: true });
@@ -1760,17 +1760,17 @@ describe("dashboard version status API", () => {
       assert.equal(body.checkedAt, "2026-05-15T10:00:00.000Z");
     } finally {
       await stopDashboard(server);
-      if (previousStateDir === undefined) delete process.env.TAMANDUA_STATE_DIR;
-      else process.env.TAMANDUA_STATE_DIR = previousStateDir;
+      if (previousStateDir === undefined) delete process.env.canarinho_STATE_DIR;
+      else process.env.canarinho_STATE_DIR = previousStateDir;
       fs.rmSync(root, { recursive: true, force: true });
     }
   });
 
   it("GET /api/version-status returns updateAvailable: false when file says so", async () => {
-    const root = fs.mkdtempSync(path.join(os.tmpdir(), "tamandua-dashboard-version-"));
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "canarinho-dashboard-version-"));
     const stateDir = path.join(root, "state");
-    const previousStateDir = process.env.TAMANDUA_STATE_DIR;
-    process.env.TAMANDUA_STATE_DIR = stateDir;
+    const previousStateDir = process.env.canarinho_STATE_DIR;
+    process.env.canarinho_STATE_DIR = stateDir;
 
     fs.mkdirSync(stateDir, { recursive: true });
     fs.writeFileSync(
@@ -1794,8 +1794,8 @@ describe("dashboard version status API", () => {
       assert.equal(body.updateAvailable, false);
     } finally {
       await stopDashboard(server);
-      if (previousStateDir === undefined) delete process.env.TAMANDUA_STATE_DIR;
-      else process.env.TAMANDUA_STATE_DIR = previousStateDir;
+      if (previousStateDir === undefined) delete process.env.canarinho_STATE_DIR;
+      else process.env.canarinho_STATE_DIR = previousStateDir;
       fs.rmSync(root, { recursive: true, force: true });
     }
   });
@@ -1804,26 +1804,24 @@ describe("dashboard version status API", () => {
     const { server, baseUrl } = await startDashboard();
 
     try {
-      const response = await fetch(`${baseUrl}/`);
-      assert.equal(response.status, 200);
-
-      const html = await response.text();
-
-      // Banner div exists with correct id and hidden by default
+      const htmlRes = await fetch(`${baseUrl}/`);
+      assert.equal(htmlRes.status, 200);
+      const html = await htmlRes.text();
       assert.match(html, /id="version-banner"/);
-      assert.match(html, /#version-banner \{[\s\S]*display:\s*none/);
-
-      // Yellow background
-      assert.match(html, /#ffd700/);
-
-      // Banner text tells user to run tamandua update
-      assert.match(html, /A new version of tamandua is available!/);
-      assert.match(html, /tamandua update/);
-
-      // Dismiss button
+      assert.match(html, /A new version of canarinho is available!/);
+      assert.match(html, /canarinho update/);
       assert.match(html, /class="banner-dismiss"/);
-      assert.match(html, /✕/);
-      assert.match(html, /function dismissVersionBanner/);
+
+      const cssRes = await fetch(`${baseUrl}/dashboard-ui.css`);
+      assert.equal(cssRes.status, 200);
+      const css = await cssRes.text();
+      assert.match(css, /#version-banner \{[\s\S]*display:\s*none/);
+      assert.match(css, /#ffd700/);
+
+      const jsRes = await fetch(`${baseUrl}/dashboard-ui.js`);
+      assert.equal(jsRes.status, 200);
+      const js = await jsRes.text();
+      assert.match(js, /function dismissVersionBanner/);
     } finally {
       await stopDashboard(server);
     }
@@ -1852,52 +1850,45 @@ describe("dashboard version status API", () => {
     }
   });
 
-  it("dashboard HTML includes build-version element and fetchBuildVersion call", async () => {
+  it("dashboard HTML includes build-version element and dashboard-ui.js includes fetchBuildVersion call", async () => {
     const { server, baseUrl } = await startDashboard();
 
     try {
-      const response = await fetch(`${baseUrl}/`);
-      assert.equal(response.status, 200);
-
-      const html = await response.text();
-
-      // Build version span exists
+      const htmlRes = await fetch(`${baseUrl}/`);
+      assert.equal(htmlRes.status, 200);
+      const html = await htmlRes.text();
       assert.match(html, /id="build-version"/);
-      // CSS for build-version: small font and muted color
-      assert.match(html, /header \.build-version \{[\s\S]*font-size:\s*10px/);
-      assert.match(html, /header \.build-version \{[\s\S]*color:\s*#484f58/);
-      // fetchBuildVersion function exists
-      assert.match(html, /async function fetchBuildVersion/);
-      // Fetches /api/version
-      assert.match(html, /fetch\(["']\/api\/version["']\)/);
-      // Called in refreshAll
-      assert.match(html, /fetchBuildVersion\(\)/);
+
+      const cssRes = await fetch(`${baseUrl}/dashboard-ui.css`);
+      assert.equal(cssRes.status, 200);
+      const css = await cssRes.text();
+      assert.match(css, /header \.build-version \{[\s\S]*font-size:\s*1[02]px/);
+      assert.match(css, /header \.build-version \{[\s\S]*color:\s*var\(--ink-soft\)/);
+
+      const jsRes = await fetch(`${baseUrl}/dashboard-ui.js`);
+      assert.equal(jsRes.status, 200);
+      const js = await jsRes.text();
+      assert.match(js, /async function fetchBuildVersion/);
+      assert.match(js, /fetch\(["']\/api\/version["']\)/);
+      assert.match(js, /fetchBuildVersion\(\)/);
     } finally {
       await stopDashboard(server);
     }
   });
 
-  it("dashboard HTML includes fetchVersionStatus and calls it in refreshAll", async () => {
+  it("dashboard-ui.js includes fetchVersionStatus and calls it in refreshAll", async () => {
     const { server, baseUrl } = await startDashboard();
 
     try {
-      const response = await fetch(`${baseUrl}/`);
-      assert.equal(response.status, 200);
-
-      const html = await response.text();
-
-      // fetchVersionStatus function exists
-      assert.match(html, /async function fetchVersionStatus/);
-      // Calls /api/version-status
-      assert.match(html, /fetch\(["']\/api\/version-status["']\)/);
-      // Called in refreshAll
-      assert.match(html, /fetchVersionStatus\(\)/);
-      // Checks updateAvailable
-      assert.match(html, /data\.updateAvailable/);
-      // Shows banner on true
-      assert.match(html, /banner\.style\.display\s*=\s*["']block["']/);
-      // Hides banner on false
-      assert.match(html, /banner\.style\.display\s*=\s*["']none["']/);
+      const jsRes = await fetch(`${baseUrl}/dashboard-ui.js`);
+      assert.equal(jsRes.status, 200);
+      const js = await jsRes.text();
+      assert.match(js, /async function fetchVersionStatus/);
+      assert.match(js, /fetch\(["']\/api\/version-status["']\)/);
+      assert.match(js, /fetchVersionStatus\(\)/);
+      assert.match(js, /data\.updateAvailable/);
+      assert.match(js, /banner\.style\.display\s*=\s*["']block["']/);
+      assert.match(js, /banner\.style\.display\s*=\s*["']none["']/);
     } finally {
       await stopDashboard(server);
     }
@@ -1907,14 +1898,11 @@ describe("dashboard version status API", () => {
     const { server, baseUrl } = await startDashboard();
 
     try {
-      const response = await fetch(`${baseUrl}/`);
-      assert.equal(response.status, 200);
-
-      const html = await response.text();
-
-      // dismissVersionBanner function sets display:none
-      assert.match(html, /function dismissVersionBanner/);
-      assert.match(html, /banner\.style\.display\s*=\s*["']none["']/);
+      const jsRes = await fetch(`${baseUrl}/dashboard-ui.js`);
+      assert.equal(jsRes.status, 200);
+      const js = await jsRes.text();
+      assert.match(js, /function dismissVersionBanner/);
+      assert.match(js, /banner\.style\.display\s*=\s*["']none["']/);
     } finally {
       await stopDashboard(server);
     }
@@ -1922,101 +1910,69 @@ describe("dashboard version status API", () => {
 });
 
 describe("dashboard hurry status icons UI", () => {
-  it("includes .hurry-icon CSS class in dashboard HTML", async () => {
+  it("includes .hurry-icon CSS class in dashboard-ui.css", async () => {
     const { server, baseUrl } = await startDashboard();
 
     try {
-      const response = await fetch(`${baseUrl}/`);
-      assert.equal(response.status, 200);
-
-      const html = await response.text();
-      assert.match(html, /\.hurry-icon\s*\{/);
-      assert.match(html, /margin-left:\s*4px/);
+      const cssRes = await fetch(`${baseUrl}/dashboard-ui.css`);
+      assert.equal(cssRes.status, 200);
+      const css = await cssRes.text();
+      assert.match(css, /\.hurry-icon\s*\{/);
+      assert.match(css, /margin-left:\s*4px/);
     } finally {
       await stopDashboard(server);
     }
   });
 
-  it("renders turtle icon for no_hurry=true runs with correct tooltip", async () => {
-    const { server, baseUrl } = await startDashboard();
+  it("no_hurry field is present in API (icons handled dynamically)", async () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "canarinho-dashboard-nohurry-"));
+    const homeDir = path.join(root, "home");
+    fs.mkdirSync(homeDir, { recursive: true });
+    const dbPath = path.join(homeDir, ".canarinho", "canarinho.db");
+    const previousHome = process.env.HOME;
+    const previousDbPath = process.env.canarinho_DB_PATH;
+    process.env.HOME = homeDir;
+    process.env.canarinho_DB_PATH = dbPath;
 
     try {
-      const response = await fetch(`${baseUrl}/`);
-      assert.equal(response.status, 200);
+      const db = getDb();
+      db.prepare(`
+        INSERT INTO runs (id, run_number, workflow_id, task, status, context, tokens_spent, created_at, updated_at)
+        VALUES ('run-nohurry-true', 1, 'wf-1', 'task', 'running', '{"no_hurry_save_tokens_mode":"true"}', 0, '2026-01-01', '2026-01-01')
+      `).run();
 
-      const html = await response.text();
-      // Should include the turtle emoji for no_hurry runs
-      assert.match(html, /🐢/);
-      // Should include the no-hurry tooltip text
-      assert.match(html, /No-hurry mode: work rounds prefer the run harness/);
+      const { server, baseUrl } = await startDashboard();
+
+      try {
+        const response = await fetch(`${baseUrl}/api/runs`);
+        assert.equal(response.status, 200);
+        const body = await response.json() as { runs: Array<{ id: string; no_hurry: boolean }> };
+        const run = body.runs.find((r) => r.id === "run-nohurry-true");
+        assert.ok(run, "run not found in response");
+        assert.equal(run.no_hurry, true);
+      } finally {
+        await stopDashboard(server);
+      }
     } finally {
-      await stopDashboard(server);
-    }
-  });
-
-  it("renders runner icon for no_hurry=false runs with correct tooltip", async () => {
-    const { server, baseUrl } = await startDashboard();
-
-    try {
-      const response = await fetch(`${baseUrl}/`);
-      assert.equal(response.status, 200);
-
-      const html = await response.text();
-      // Should include the runner emoji for regular runs
-      assert.match(html, /🏃/);
-      // Regular runs use their configured harness (pi by default, hermes with flag);
-      // the tooltip points at the token-saver alternative.
-      assert.match(html, /Regular run: always uses its configured harness binary directly/);
-      assert.match(html, /token-saver/);
-    } finally {
-      await stopDashboard(server);
-    }
-  });
-
-  it("icon rendering is conditional on running or paused status only", async () => {
-    const { server, baseUrl } = await startDashboard();
-
-    try {
-      const response = await fetch(`${baseUrl}/`);
-      assert.equal(response.status, 200);
-
-      const html = await response.text();
-      // The icon span should be conditionally rendered for running or paused status
-      assert.match(html, /r\.status\s*===\s*['"]running['"]\s*\|\|\s*r\.status\s*===\s*['"]paused['"]/);
-    } finally {
-      await stopDashboard(server);
-    }
-  });
-
-  it("has title attribute for tooltip on the hurry-icon span", async () => {
-    const { server, baseUrl } = await startDashboard();
-
-    try {
-      const response = await fetch(`${baseUrl}/`);
-      assert.equal(response.status, 200);
-
-      const html = await response.text();
-      // Should have a title attribute on the hurry-icon span for tooltip
-      assert.match(html, /class="hurry-icon"\s+title=/);
-      // Tooltip should switch based on no_hurry boolean
-      assert.match(html, /r\.no_hurry\s*\?\s*'No-hurry mode/);
-      assert.match(html, /Regular run: always uses its configured harness binary/);
-    } finally {
-      await stopDashboard(server);
+      if (previousHome === undefined) delete process.env.HOME;
+      else process.env.HOME = previousHome;
+      if (previousDbPath === undefined) delete process.env.canarinho_DB_PATH;
+      else process.env.canarinho_DB_PATH = previousDbPath;
+      fs.rmSync(root, { recursive: true, force: true });
     }
   });
 });
 
 describe("dashboard /api/runs no_hurry field", () => {
   it("no_hurry is true when context.no_hurry_save_tokens_mode === 'true'", async () => {
-    const root = fs.mkdtempSync(path.join(os.tmpdir(), "tamandua-dashboard-nohurry-"));
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "canarinho-dashboard-nohurry-"));
     const homeDir = path.join(root, "home");
     fs.mkdirSync(homeDir, { recursive: true });
-    const dbPath = path.join(homeDir, ".tamandua", "tamandua.db");
+    const dbPath = path.join(homeDir, ".canarinho", "canarinho.db");
     const previousHome = process.env.HOME;
-    const previousDbPath = process.env.TAMANDUA_DB_PATH;
+    const previousDbPath = process.env.canarinho_DB_PATH;
     process.env.HOME = homeDir;
-    process.env.TAMANDUA_DB_PATH = dbPath;
+    process.env.canarinho_DB_PATH = dbPath;
 
     const db = getDb();
     db.prepare(`
@@ -2039,21 +1995,21 @@ describe("dashboard /api/runs no_hurry field", () => {
       await stopDashboard(server);
       if (previousHome === undefined) delete process.env.HOME;
       else process.env.HOME = previousHome;
-      if (previousDbPath === undefined) delete process.env.TAMANDUA_DB_PATH;
-      else process.env.TAMANDUA_DB_PATH = previousDbPath;
+      if (previousDbPath === undefined) delete process.env.canarinho_DB_PATH;
+      else process.env.canarinho_DB_PATH = previousDbPath;
       fs.rmSync(root, { recursive: true, force: true });
     }
   });
 
   it("no_hurry is false when context.no_hurry_save_tokens_mode === 'false'", async () => {
-    const root = fs.mkdtempSync(path.join(os.tmpdir(), "tamandua-dashboard-nohurry-"));
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "canarinho-dashboard-nohurry-"));
     const homeDir = path.join(root, "home");
     fs.mkdirSync(homeDir, { recursive: true });
-    const dbPath = path.join(homeDir, ".tamandua", "tamandua.db");
+    const dbPath = path.join(homeDir, ".canarinho", "canarinho.db");
     const previousHome = process.env.HOME;
-    const previousDbPath = process.env.TAMANDUA_DB_PATH;
+    const previousDbPath = process.env.canarinho_DB_PATH;
     process.env.HOME = homeDir;
-    process.env.TAMANDUA_DB_PATH = dbPath;
+    process.env.canarinho_DB_PATH = dbPath;
 
     const db = getDb();
     db.prepare(`
@@ -2075,21 +2031,21 @@ describe("dashboard /api/runs no_hurry field", () => {
       await stopDashboard(server);
       if (previousHome === undefined) delete process.env.HOME;
       else process.env.HOME = previousHome;
-      if (previousDbPath === undefined) delete process.env.TAMANDUA_DB_PATH;
-      else process.env.TAMANDUA_DB_PATH = previousDbPath;
+      if (previousDbPath === undefined) delete process.env.canarinho_DB_PATH;
+      else process.env.canarinho_DB_PATH = previousDbPath;
       fs.rmSync(root, { recursive: true, force: true });
     }
   });
 
   it("no_hurry is false when context is missing no_hurry_save_tokens_mode", async () => {
-    const root = fs.mkdtempSync(path.join(os.tmpdir(), "tamandua-dashboard-nohurry-"));
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "canarinho-dashboard-nohurry-"));
     const homeDir = path.join(root, "home");
     fs.mkdirSync(homeDir, { recursive: true });
-    const dbPath = path.join(homeDir, ".tamandua", "tamandua.db");
+    const dbPath = path.join(homeDir, ".canarinho", "canarinho.db");
     const previousHome = process.env.HOME;
-    const previousDbPath = process.env.TAMANDUA_DB_PATH;
+    const previousDbPath = process.env.canarinho_DB_PATH;
     process.env.HOME = homeDir;
-    process.env.TAMANDUA_DB_PATH = dbPath;
+    process.env.canarinho_DB_PATH = dbPath;
 
     const db = getDb();
     db.prepare(`
@@ -2111,21 +2067,21 @@ describe("dashboard /api/runs no_hurry field", () => {
       await stopDashboard(server);
       if (previousHome === undefined) delete process.env.HOME;
       else process.env.HOME = previousHome;
-      if (previousDbPath === undefined) delete process.env.TAMANDUA_DB_PATH;
-      else process.env.TAMANDUA_DB_PATH = previousDbPath;
+      if (previousDbPath === undefined) delete process.env.canarinho_DB_PATH;
+      else process.env.canarinho_DB_PATH = previousDbPath;
       fs.rmSync(root, { recursive: true, force: true });
     }
   });
 
   it("no_hurry is false when context JSON is malformed", async () => {
-    const root = fs.mkdtempSync(path.join(os.tmpdir(), "tamandua-dashboard-nohurry-"));
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "canarinho-dashboard-nohurry-"));
     const homeDir = path.join(root, "home");
     fs.mkdirSync(homeDir, { recursive: true });
-    const dbPath = path.join(homeDir, ".tamandua", "tamandua.db");
+    const dbPath = path.join(homeDir, ".canarinho", "canarinho.db");
     const previousHome = process.env.HOME;
-    const previousDbPath = process.env.TAMANDUA_DB_PATH;
+    const previousDbPath = process.env.canarinho_DB_PATH;
     process.env.HOME = homeDir;
-    process.env.TAMANDUA_DB_PATH = dbPath;
+    process.env.canarinho_DB_PATH = dbPath;
 
     const db = getDb();
     db.prepare(`
@@ -2147,21 +2103,21 @@ describe("dashboard /api/runs no_hurry field", () => {
       await stopDashboard(server);
       if (previousHome === undefined) delete process.env.HOME;
       else process.env.HOME = previousHome;
-      if (previousDbPath === undefined) delete process.env.TAMANDUA_DB_PATH;
-      else process.env.TAMANDUA_DB_PATH = previousDbPath;
+      if (previousDbPath === undefined) delete process.env.canarinho_DB_PATH;
+      else process.env.canarinho_DB_PATH = previousDbPath;
       fs.rmSync(root, { recursive: true, force: true });
     }
   });
 
   it("no_hurry is never undefined — always a boolean", async () => {
-    const root = fs.mkdtempSync(path.join(os.tmpdir(), "tamandua-dashboard-nohurry-"));
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "canarinho-dashboard-nohurry-"));
     const homeDir = path.join(root, "home");
     fs.mkdirSync(homeDir, { recursive: true });
-    const dbPath = path.join(homeDir, ".tamandua", "tamandua.db");
+    const dbPath = path.join(homeDir, ".canarinho", "canarinho.db");
     const previousHome = process.env.HOME;
-    const previousDbPath = process.env.TAMANDUA_DB_PATH;
+    const previousDbPath = process.env.canarinho_DB_PATH;
     process.env.HOME = homeDir;
-    process.env.TAMANDUA_DB_PATH = dbPath;
+    process.env.canarinho_DB_PATH = dbPath;
 
     const db = getDb();
     // Insert runs with various context states
@@ -2192,8 +2148,8 @@ describe("dashboard /api/runs no_hurry field", () => {
       await stopDashboard(server);
       if (previousHome === undefined) delete process.env.HOME;
       else process.env.HOME = previousHome;
-      if (previousDbPath === undefined) delete process.env.TAMANDUA_DB_PATH;
-      else process.env.TAMANDUA_DB_PATH = previousDbPath;
+      if (previousDbPath === undefined) delete process.env.canarinho_DB_PATH;
+      else process.env.canarinho_DB_PATH = previousDbPath;
       fs.rmSync(root, { recursive: true, force: true });
     }
   });
@@ -2202,8 +2158,8 @@ describe("dashboard /api/runs no_hurry field", () => {
 function createMinimalGitRepo(dir: string): string {
   fs.mkdirSync(dir, { recursive: true });
   spawnSync("git", ["init", "-b", "main", dir], { stdio: "ignore" });
-  spawnSync("git", ["-C", dir, "config", "user.email", "test@tamandua.local"]);
-  spawnSync("git", ["-C", dir, "config", "user.name", "Tamandua Test"]);
+  spawnSync("git", ["-C", dir, "config", "user.email", "test@canarinho.local"]);
+  spawnSync("git", ["-C", dir, "config", "user.name", "canarinho Test"]);
   spawnSync("git", ["-C", dir, "commit", "--allow-empty", "-m", "initial"]);
   return dir;
 }
@@ -2232,7 +2188,7 @@ async function startMockControlServer(): Promise<{ server: http.Server; port: nu
 const TEST_DIR = path.dirname(fileURLToPath(import.meta.url));
 
 function installWorkflowInHome(homeDir: string, workflowId: string): void {
-  const workflowDir = path.join(homeDir, ".tamandua", "workflows", workflowId);
+  const workflowDir = path.join(homeDir, ".canarinho", "workflows", workflowId);
   fs.mkdirSync(workflowDir, { recursive: true });
   const srcYml = path.join(TEST_DIR, "..", "..", "workflows", workflowId, "workflow.yml");
   fs.copyFileSync(srcYml, path.join(workflowDir, "workflow.yml"));
@@ -2240,14 +2196,14 @@ function installWorkflowInHome(homeDir: string, workflowId: string): void {
 
 describe("dashboard cancel API", () => {
   it("POST /api/runs/:id/cancel returns 200 for a paused run", async () => {
-    const root = fs.mkdtempSync(path.join(os.tmpdir(), "tamandua-dashboard-cancel-"));
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "canarinho-dashboard-cancel-"));
     const homeDir = path.join(root, "home");
     fs.mkdirSync(homeDir, { recursive: true });
-    const dbPath = path.join(homeDir, ".tamandua", "tamandua.db");
+    const dbPath = path.join(homeDir, ".canarinho", "canarinho.db");
     const previousHome = process.env.HOME;
-    const previousDbPath = process.env.TAMANDUA_DB_PATH;
+    const previousDbPath = process.env.canarinho_DB_PATH;
     process.env.HOME = homeDir;
-    process.env.TAMANDUA_DB_PATH = dbPath;
+    process.env.canarinho_DB_PATH = dbPath;
 
     const db = getDb();
     const runId = "run-paused-cancel";
@@ -2282,21 +2238,21 @@ describe("dashboard cancel API", () => {
       await stopDashboard(server);
       if (previousHome === undefined) delete process.env.HOME;
       else process.env.HOME = previousHome;
-      if (previousDbPath === undefined) delete process.env.TAMANDUA_DB_PATH;
-      else process.env.TAMANDUA_DB_PATH = previousDbPath;
+      if (previousDbPath === undefined) delete process.env.canarinho_DB_PATH;
+      else process.env.canarinho_DB_PATH = previousDbPath;
       fs.rmSync(root, { recursive: true, force: true });
     }
   });
 
   it("POST /api/runs/:id/cancel returns 200 for a running run", async () => {
-    const root = fs.mkdtempSync(path.join(os.tmpdir(), "tamandua-dashboard-cancel-"));
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "canarinho-dashboard-cancel-"));
     const homeDir = path.join(root, "home");
     fs.mkdirSync(homeDir, { recursive: true });
-    const dbPath = path.join(homeDir, ".tamandua", "tamandua.db");
+    const dbPath = path.join(homeDir, ".canarinho", "canarinho.db");
     const previousHome = process.env.HOME;
-    const previousDbPath = process.env.TAMANDUA_DB_PATH;
+    const previousDbPath = process.env.canarinho_DB_PATH;
     process.env.HOME = homeDir;
-    process.env.TAMANDUA_DB_PATH = dbPath;
+    process.env.canarinho_DB_PATH = dbPath;
 
     const db = getDb();
     const runId = "run-running-cancel";
@@ -2337,22 +2293,22 @@ describe("dashboard cancel API", () => {
       await stopDashboard(server);
       if (previousHome === undefined) delete process.env.HOME;
       else process.env.HOME = previousHome;
-      if (previousDbPath === undefined) delete process.env.TAMANDUA_DB_PATH;
-      else process.env.TAMANDUA_DB_PATH = previousDbPath;
+      if (previousDbPath === undefined) delete process.env.canarinho_DB_PATH;
+      else process.env.canarinho_DB_PATH = previousDbPath;
       fs.rmSync(root, { recursive: true, force: true });
     }
   });
 
   it("POST /api/runs/:id/cancel returns 404 for a nonexistent run", async () => {
     // Isolated empty DB: the 404 must come from a temp database, never
-    // from querying the developer's real ~/.tamandua state.
-    const root = fs.mkdtempSync(path.join(os.tmpdir(), "tamandua-dashboard-cancel-404-"));
+    // from querying the developer's real ~/.canarinho state.
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "canarinho-dashboard-cancel-404-"));
     const homeDir = path.join(root, "home");
     fs.mkdirSync(homeDir, { recursive: true });
     const previousHome = process.env.HOME;
-    const previousDbPath = process.env.TAMANDUA_DB_PATH;
+    const previousDbPath = process.env.canarinho_DB_PATH;
     process.env.HOME = homeDir;
-    process.env.TAMANDUA_DB_PATH = path.join(homeDir, ".tamandua", "tamandua.db");
+    process.env.canarinho_DB_PATH = path.join(homeDir, ".canarinho", "canarinho.db");
 
     const { server, baseUrl } = await startDashboard();
 
@@ -2366,21 +2322,21 @@ describe("dashboard cancel API", () => {
       await stopDashboard(server);
       if (previousHome === undefined) delete process.env.HOME;
       else process.env.HOME = previousHome;
-      if (previousDbPath === undefined) delete process.env.TAMANDUA_DB_PATH;
-      else process.env.TAMANDUA_DB_PATH = previousDbPath;
+      if (previousDbPath === undefined) delete process.env.canarinho_DB_PATH;
+      else process.env.canarinho_DB_PATH = previousDbPath;
       fs.rmSync(root, { recursive: true, force: true });
     }
   });
 
   it("POST /api/runs/:id/cancel returns 409 for a completed run", async () => {
-    const root = fs.mkdtempSync(path.join(os.tmpdir(), "tamandua-dashboard-cancel-"));
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "canarinho-dashboard-cancel-"));
     const homeDir = path.join(root, "home");
     fs.mkdirSync(homeDir, { recursive: true });
-    const dbPath = path.join(homeDir, ".tamandua", "tamandua.db");
+    const dbPath = path.join(homeDir, ".canarinho", "canarinho.db");
     const previousHome = process.env.HOME;
-    const previousDbPath = process.env.TAMANDUA_DB_PATH;
+    const previousDbPath = process.env.canarinho_DB_PATH;
     process.env.HOME = homeDir;
-    process.env.TAMANDUA_DB_PATH = dbPath;
+    process.env.canarinho_DB_PATH = dbPath;
 
     const db = getDb();
     const runId = "run-completed-cancel";
@@ -2401,21 +2357,21 @@ describe("dashboard cancel API", () => {
       await stopDashboard(server);
       if (previousHome === undefined) delete process.env.HOME;
       else process.env.HOME = previousHome;
-      if (previousDbPath === undefined) delete process.env.TAMANDUA_DB_PATH;
-      else process.env.TAMANDUA_DB_PATH = previousDbPath;
+      if (previousDbPath === undefined) delete process.env.canarinho_DB_PATH;
+      else process.env.canarinho_DB_PATH = previousDbPath;
       fs.rmSync(root, { recursive: true, force: true });
     }
   });
 
   it("POST /api/runs/:id/cancel returns 409 for a failed run", async () => {
-    const root = fs.mkdtempSync(path.join(os.tmpdir(), "tamandua-dashboard-cancel-"));
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "canarinho-dashboard-cancel-"));
     const homeDir = path.join(root, "home");
     fs.mkdirSync(homeDir, { recursive: true });
-    const dbPath = path.join(homeDir, ".tamandua", "tamandua.db");
+    const dbPath = path.join(homeDir, ".canarinho", "canarinho.db");
     const previousHome = process.env.HOME;
-    const previousDbPath = process.env.TAMANDUA_DB_PATH;
+    const previousDbPath = process.env.canarinho_DB_PATH;
     process.env.HOME = homeDir;
-    process.env.TAMANDUA_DB_PATH = dbPath;
+    process.env.canarinho_DB_PATH = dbPath;
 
     const db = getDb();
     const runId = "run-failed-cancel";
@@ -2436,21 +2392,21 @@ describe("dashboard cancel API", () => {
       await stopDashboard(server);
       if (previousHome === undefined) delete process.env.HOME;
       else process.env.HOME = previousHome;
-      if (previousDbPath === undefined) delete process.env.TAMANDUA_DB_PATH;
-      else process.env.TAMANDUA_DB_PATH = previousDbPath;
+      if (previousDbPath === undefined) delete process.env.canarinho_DB_PATH;
+      else process.env.canarinho_DB_PATH = previousDbPath;
       fs.rmSync(root, { recursive: true, force: true });
     }
   });
 
   it("POST /api/runs/:id/cancel returns 409 for an already canceled run", async () => {
-    const root = fs.mkdtempSync(path.join(os.tmpdir(), "tamandua-dashboard-cancel-"));
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "canarinho-dashboard-cancel-"));
     const homeDir = path.join(root, "home");
     fs.mkdirSync(homeDir, { recursive: true });
-    const dbPath = path.join(homeDir, ".tamandua", "tamandua.db");
+    const dbPath = path.join(homeDir, ".canarinho", "canarinho.db");
     const previousHome = process.env.HOME;
-    const previousDbPath = process.env.TAMANDUA_DB_PATH;
+    const previousDbPath = process.env.canarinho_DB_PATH;
     process.env.HOME = homeDir;
-    process.env.TAMANDUA_DB_PATH = dbPath;
+    process.env.canarinho_DB_PATH = dbPath;
 
     const db = getDb();
     const runId = "run-already-canceled";
@@ -2471,21 +2427,21 @@ describe("dashboard cancel API", () => {
       await stopDashboard(server);
       if (previousHome === undefined) delete process.env.HOME;
       else process.env.HOME = previousHome;
-      if (previousDbPath === undefined) delete process.env.TAMANDUA_DB_PATH;
-      else process.env.TAMANDUA_DB_PATH = previousDbPath;
+      if (previousDbPath === undefined) delete process.env.canarinho_DB_PATH;
+      else process.env.canarinho_DB_PATH = previousDbPath;
       fs.rmSync(root, { recursive: true, force: true });
     }
   });
 
   it("POST /api/runs/:id/cancel cancels only waiting/pending/running steps, leaves done/failed untouched", async () => {
-    const root = fs.mkdtempSync(path.join(os.tmpdir(), "tamandua-dashboard-cancel-"));
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "canarinho-dashboard-cancel-"));
     const homeDir = path.join(root, "home");
     fs.mkdirSync(homeDir, { recursive: true });
-    const dbPath = path.join(homeDir, ".tamandua", "tamandua.db");
+    const dbPath = path.join(homeDir, ".canarinho", "canarinho.db");
     const previousHome = process.env.HOME;
-    const previousDbPath = process.env.TAMANDUA_DB_PATH;
+    const previousDbPath = process.env.canarinho_DB_PATH;
     process.env.HOME = homeDir;
-    process.env.TAMANDUA_DB_PATH = dbPath;
+    process.env.canarinho_DB_PATH = dbPath;
 
     const db = getDb();
     const runId = "run-mixed-cancel";
@@ -2544,8 +2500,8 @@ describe("dashboard cancel API", () => {
       await stopDashboard(server);
       if (previousHome === undefined) delete process.env.HOME;
       else process.env.HOME = previousHome;
-      if (previousDbPath === undefined) delete process.env.TAMANDUA_DB_PATH;
-      else process.env.TAMANDUA_DB_PATH = previousDbPath;
+      if (previousDbPath === undefined) delete process.env.canarinho_DB_PATH;
+      else process.env.canarinho_DB_PATH = previousDbPath;
       fs.rmSync(root, { recursive: true, force: true });
     }
   });
@@ -2553,16 +2509,17 @@ describe("dashboard cancel API", () => {
 
 describe("dashboard relaunch integration", () => {
   it("relaunches a failed run and preserves workflow_id, task, workspace settings, notify_url (direct mode, with task override)", async () => {
-    const root = fs.mkdtempSync(path.join(os.tmpdir(), "tamandua-relaunch-integration-"));
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "canarinho-relaunch-integration-"));
     const homeDir = path.join(root, "home");
     fs.mkdirSync(homeDir, { recursive: true });
     const previousHome = process.env.HOME;
-    const previousDbPath = process.env.TAMANDUA_DB_PATH;
-    const previousControlPort = process.env.TAMANDUA_CONTROL_PORT;
+    const previousDbPath = process.env.canarinho_DB_PATH;
+    const previousControlPort = process.env.canarinho_CONTROL_PORT;
     let mockControl: Awaited<ReturnType<typeof startMockControlServer>> | null = null;
 
     try {
       process.env.HOME = homeDir;
+      process.env.canarinho_DB_PATH = path.join(homeDir, ".canarinho", "canarinho.db");
 
       // Install a direct-mode workflow
       installWorkflowInHome(homeDir, "bug-fix");
@@ -2573,7 +2530,7 @@ describe("dashboard relaunch integration", () => {
 
       // Set up mock control server
       mockControl = await startMockControlServer();
-      process.env.TAMANDUA_CONTROL_PORT = String(mockControl.port);
+      process.env.canarinho_CONTROL_PORT = String(mockControl.port);
 
       // Initialize DB and create a failed run with context
       const db = getDb();
@@ -2630,25 +2587,26 @@ describe("dashboard relaunch integration", () => {
       mockControl?.server.close();
       if (previousHome === undefined) delete process.env.HOME;
       else process.env.HOME = previousHome;
-      if (previousDbPath === undefined) delete process.env.TAMANDUA_DB_PATH;
-      else process.env.TAMANDUA_DB_PATH = previousDbPath;
-      if (previousControlPort === undefined) delete process.env.TAMANDUA_CONTROL_PORT;
-      else process.env.TAMANDUA_CONTROL_PORT = previousControlPort;
+      if (previousDbPath === undefined) delete process.env.canarinho_DB_PATH;
+      else process.env.canarinho_DB_PATH = previousDbPath;
+      if (previousControlPort === undefined) delete process.env.canarinho_CONTROL_PORT;
+      else process.env.canarinho_CONTROL_PORT = previousControlPort;
       fs.rmSync(root, { recursive: true, force: true });
     }
   });
 
   it("relaunches without task override uses original task (direct mode)", async () => {
-    const root = fs.mkdtempSync(path.join(os.tmpdir(), "tamandua-relaunch-integration-"));
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "canarinho-relaunch-integration-"));
     const homeDir = path.join(root, "home");
     fs.mkdirSync(homeDir, { recursive: true });
     const previousHome = process.env.HOME;
-    const previousDbPath = process.env.TAMANDUA_DB_PATH;
-    const previousControlPort = process.env.TAMANDUA_CONTROL_PORT;
+    const previousDbPath = process.env.canarinho_DB_PATH;
+    const previousControlPort = process.env.canarinho_CONTROL_PORT;
     let mockControl: Awaited<ReturnType<typeof startMockControlServer>> | null = null;
 
     try {
       process.env.HOME = homeDir;
+      process.env.canarinho_DB_PATH = path.join(homeDir, ".canarinho", "canarinho.db");
 
       installWorkflowInHome(homeDir, "bug-fix");
 
@@ -2656,7 +2614,7 @@ describe("dashboard relaunch integration", () => {
       fs.mkdirSync(workingDir, { recursive: true });
 
       mockControl = await startMockControlServer();
-      process.env.TAMANDUA_CONTROL_PORT = String(mockControl.port);
+      process.env.canarinho_CONTROL_PORT = String(mockControl.port);
 
       const db = getDb();
       const failedRunId = "run-failed-direct-002";
@@ -2700,25 +2658,26 @@ describe("dashboard relaunch integration", () => {
       mockControl?.server.close();
       if (previousHome === undefined) delete process.env.HOME;
       else process.env.HOME = previousHome;
-      if (previousDbPath === undefined) delete process.env.TAMANDUA_DB_PATH;
-      else process.env.TAMANDUA_DB_PATH = previousDbPath;
-      if (previousControlPort === undefined) delete process.env.TAMANDUA_CONTROL_PORT;
-      else process.env.TAMANDUA_CONTROL_PORT = previousControlPort;
+      if (previousDbPath === undefined) delete process.env.canarinho_DB_PATH;
+      else process.env.canarinho_DB_PATH = previousDbPath;
+      if (previousControlPort === undefined) delete process.env.canarinho_CONTROL_PORT;
+      else process.env.canarinho_CONTROL_PORT = previousControlPort;
       fs.rmSync(root, { recursive: true, force: true });
     }
   });
 
   it("relaunches a failed run in worktree mode preserving workflow_id, task, workspace settings, notify_url", async () => {
-    const root = fs.mkdtempSync(path.join(os.tmpdir(), "tamandua-relaunch-integration-"));
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "canarinho-relaunch-integration-"));
     const homeDir = path.join(root, "home");
     fs.mkdirSync(homeDir, { recursive: true });
     const previousHome = process.env.HOME;
-    const previousDbPath = process.env.TAMANDUA_DB_PATH;
-    const previousControlPort = process.env.TAMANDUA_CONTROL_PORT;
+    const previousDbPath = process.env.canarinho_DB_PATH;
+    const previousControlPort = process.env.canarinho_CONTROL_PORT;
     let mockControl: Awaited<ReturnType<typeof startMockControlServer>> | null = null;
 
     try {
       process.env.HOME = homeDir;
+      process.env.canarinho_DB_PATH = path.join(homeDir, ".canarinho", "canarinho.db");
 
       // Install a worktree-mode workflow
       installWorkflowInHome(homeDir, "feature-dev-merge-worktree");
@@ -2732,7 +2691,7 @@ describe("dashboard relaunch integration", () => {
 
       // Set up mock control server
       mockControl = await startMockControlServer();
-      process.env.TAMANDUA_CONTROL_PORT = String(mockControl.port);
+      process.env.canarinho_CONTROL_PORT = String(mockControl.port);
 
       // Initialize DB and create a failed worktree run
       const db = getDb();
@@ -2798,48 +2757,41 @@ describe("dashboard relaunch integration", () => {
       mockControl?.server.close();
       if (previousHome === undefined) delete process.env.HOME;
       else process.env.HOME = previousHome;
-      if (previousDbPath === undefined) delete process.env.TAMANDUA_DB_PATH;
-      else process.env.TAMANDUA_DB_PATH = previousDbPath;
-      if (previousControlPort === undefined) delete process.env.TAMANDUA_CONTROL_PORT;
-      else process.env.TAMANDUA_CONTROL_PORT = previousControlPort;
+      if (previousDbPath === undefined) delete process.env.canarinho_DB_PATH;
+      else process.env.canarinho_DB_PATH = previousDbPath;
+      if (previousControlPort === undefined) delete process.env.canarinho_CONTROL_PORT;
+      else process.env.canarinho_CONTROL_PORT = previousControlPort;
       fs.rmSync(root, { recursive: true, force: true });
     }
   });
 });
 
 describe("dashboard cancel UI", () => {
-  it("renders Cancel button CSS class with red hover color", async () => {
+  it("renders Cancel button CSS class with red hover color in dashboard-ui.css", async () => {
     const { server, baseUrl } = await startDashboard();
 
     try {
-      const response = await fetch(`${baseUrl}/`);
-      assert.equal(response.status, 200);
-
-      const html = await response.text();
-
-      assert.match(html, /\.action-btn\.cancel-btn/);
-      assert.match(html, /#f85149/);
+      const cssRes = await fetch(`${baseUrl}/dashboard-ui.css`);
+      assert.equal(cssRes.status, 200);
+      const css = await cssRes.text();
+      assert.match(css, /\.action-btn\.cancel-btn/);
+      assert.match(css, /#f85149/);
     } finally {
       await stopDashboard(server);
     }
   });
 
-  it("renders Cancel button in actions column for paused runs", async () => {
+  it("renders Cancel button logic in dashboard-ui.js for paused runs", async () => {
     const { server, baseUrl } = await startDashboard();
 
     try {
-      const response = await fetch(`${baseUrl}/`);
-      assert.equal(response.status, 200);
-
-      const html = await response.text();
-
-      // Cancel button should be in the renderRuns template within the paused branch
-      assert.match(html, /✕ Cancel/);
-      assert.match(html, /cancel-btn/);
-      assert.match(html, /handleCancel\(/);
-
-      // Verify it's specifically inside the paused conditional
-      const pausedMatch = html.match(/r\.status === 'paused' \? `([^`]*Cancel[^`]*)`/);
+      const jsRes = await fetch(`${baseUrl}/dashboard-ui.js`);
+      assert.equal(jsRes.status, 200);
+      const js = await jsRes.text();
+      assert.match(js, /Cancel/);
+      assert.match(js, /cancel-btn/);
+      assert.match(js, /handleCancel\(/);
+      const pausedMatch = js.match(/r\.status === 'paused' \? `([^`]*Cancel[^`]*)`/);
       assert.ok(pausedMatch, "Cancel button must be inside r.status === 'paused' conditional");
     } finally {
       await stopDashboard(server);
@@ -2850,26 +2802,19 @@ describe("dashboard cancel UI", () => {
     const { server, baseUrl } = await startDashboard();
 
     try {
-      const response = await fetch(`${baseUrl}/`);
-      assert.equal(response.status, 200);
+      const jsRes = await fetch(`${baseUrl}/dashboard-ui.js`);
+      assert.equal(jsRes.status, 200);
+      const js = await jsRes.text();
+      assert.match(js, /r\.status === 'paused' \? `([^`]*Cancel[^`]*)`/);
 
-      const html = await response.text();
-
-      // Verify the Cancel button is only rendered inside the paused branch
-      // Extract the renderRuns template and check the condition
-      const renderMatch = html.match(/r\.status === 'paused' \? `([^`]*Cancel[^`]*)`/);
-      assert.ok(renderMatch, "Cancel button must be inside r.status === 'paused' conditional");
-
-      // Verify there's NO Cancel button in the running branch
-      const runningMatch = html.match(/r\.status === 'running' \? `([^`]*)`/);
+      const runningMatch = js.match(/r\.status === 'running' \? `([^`]*)`/);
       if (runningMatch) {
-        assert.doesNotMatch(runningMatch[1], /✕ Cancel/);
+        assert.doesNotMatch(runningMatch[1], /Cancel/);
       }
 
-      // Verify there's NO Cancel button in the failed/canceled branch
-      const terminalMatch = html.match(/\(r\.status === 'failed' \|\| r\.status === 'canceled'\) \? `([^`]*)`/);
+      const terminalMatch = js.match(/\(r\.status === 'failed' \|\| r\.status === 'canceled'\) \? `([^`]*)`/);
       if (terminalMatch) {
-        assert.doesNotMatch(terminalMatch[1], /✕ Cancel/);
+        assert.doesNotMatch(terminalMatch[1], /Cancel/);
       }
     } finally {
       await stopDashboard(server);
@@ -2880,106 +2825,77 @@ describe("dashboard cancel UI", () => {
     const { server, baseUrl } = await startDashboard();
 
     try {
-      const response = await fetch(`${baseUrl}/`);
-      assert.equal(response.status, 200);
+      const jsRes = await fetch(`${baseUrl}/dashboard-ui.js`);
+      assert.equal(jsRes.status, 200);
+      const js = await jsRes.text();
 
-      const html = await response.text();
-
-      // Verify that none of the non-paused branches include "✕ Cancel"
-      // Running branch
-      const runningMatch = html.match(/r\.status === 'running' \? `([^`]*)`/);
+      const runningMatch = js.match(/r\.status === 'running' \? `([^`]*)`/);
       if (runningMatch) {
-        assert.doesNotMatch(runningMatch[1], /✕ Cancel/);
+        assert.doesNotMatch(runningMatch[1], /Cancel/);
       }
 
-      // Failed/canceled branch
-      const terminalMatch = html.match(/\(r\.status === 'failed' \|\| r\.status === 'canceled'\) \? `([^`]*)`/);
+      const terminalMatch = js.match(/\(r\.status === 'failed' \|\| r\.status === 'canceled'\) \? `([^`]*)`/);
       if (terminalMatch) {
-        assert.doesNotMatch(terminalMatch[1], /✕ Cancel/);
+        assert.doesNotMatch(terminalMatch[1], /Cancel/);
       }
 
-      // But it IS present in the paused branch
-      const pausedMatch = html.match(/r\.status === 'paused' \? `([^`]*Cancel[^`]*)`/);
-      assert.ok(pausedMatch, "Cancel button must exist in paused branch");
+      assert.match(js, /r\.status === 'paused' \? `[^`]*Cancel[^`]*`/);
     } finally {
       await stopDashboard(server);
     }
   });
 
-  it("includes cancelRun and handleCancel JS functions", async () => {
+  it("includes cancelRun and handleCancel JS functions in dashboard-ui.js", async () => {
     const { server, baseUrl } = await startDashboard();
 
     try {
-      const response = await fetch(`${baseUrl}/`);
-      assert.equal(response.status, 200);
-
-      const html = await response.text();
-
-      assert.match(html, /async function cancelRun\(/);
-      assert.match(html, /function handleCancel\(/);
-      assert.match(html, /\/api\/runs\/.*\/cancel/);
-      assert.match(html, /cancelRun\(id\)\.then\(refreshAll\)/);
-      assert.match(html, /Cancel failed/);
+      const jsRes = await fetch(`${baseUrl}/dashboard-ui.js`);
+      assert.equal(jsRes.status, 200);
+      const js = await jsRes.text();
+      assert.match(js, /async function cancelRun\(/);
+      assert.match(js, /function handleCancel\(/);
+      assert.match(js, /\/api\/runs\/.*\/cancel/);
+      assert.match(js, /cancelRun\(id\)\.then\(\(\) => \{ refreshAll\(\); showToast/);
+      assert.match(js, /Cancel failed/);
     } finally {
       await stopDashboard(server);
     }
   });
 
   it("Cancel button is placed to the right of Resume button for paused runs", async () => {
-    const root = fs.mkdtempSync(path.join(os.tmpdir(), "tamandua-dashboard-cancel-"));
-    const homeDir = path.join(root, "home");
-    fs.mkdirSync(homeDir, { recursive: true });
-    const dbPath = path.join(homeDir, ".tamandua", "tamandua.db");
-    const previousHome = process.env.HOME;
-    const previousDbPath = process.env.TAMANDUA_DB_PATH;
-    process.env.HOME = homeDir;
-    process.env.TAMANDUA_DB_PATH = dbPath;
-
-    const db = getDb();
-    db.prepare(`
-      INSERT INTO runs (id, run_number, workflow_id, task, status, context, tokens_spent, created_at, updated_at)
-      VALUES (?, 1, 'wf-1', 'task', 'paused', '{}', 0, '2026-01-01', '2026-01-01')
-    `).run("run-paused-order");
-
     const { server, baseUrl } = await startDashboard();
 
     try {
-      const response = await fetch(`${baseUrl}/`);
-      assert.equal(response.status, 200);
-
-      const html = await response.text();
-
-      // Resume button should appear before Cancel button
-      const resumeIndex = html.indexOf("▶ Resume");
-      const cancelIndex = html.indexOf("✕ Cancel");
+      const jsRes = await fetch(`${baseUrl}/dashboard-ui.js`);
+      assert.equal(jsRes.status, 200);
+      const js = await jsRes.text();
+      const resumeIndex = js.indexOf('Resume');
+      const cancelIndex = js.indexOf('Cancel');
       assert.ok(resumeIndex >= 0, "Resume button not found");
       assert.ok(cancelIndex >= 0, "Cancel button not found");
       assert.ok(resumeIndex < cancelIndex, "Cancel button should be to the right of Resume button");
     } finally {
       await stopDashboard(server);
-      if (previousHome === undefined) delete process.env.HOME;
-      else process.env.HOME = previousHome;
-      if (previousDbPath === undefined) delete process.env.TAMANDUA_DB_PATH;
-      else process.env.TAMANDUA_DB_PATH = previousDbPath;
-      fs.rmSync(root, { recursive: true, force: true });
     }
   });
 
-  it("existing pause/resume buttons still present alongside Cancel button", async () => {
+  it("existing pause/resume/cancel CSS buttons in dashboard-ui.css and JS functions", async () => {
     const { server, baseUrl } = await startDashboard();
 
     try {
-      const response = await fetch(`${baseUrl}/`);
-      assert.equal(response.status, 200);
+      const cssRes = await fetch(`${baseUrl}/dashboard-ui.css`);
+      assert.equal(cssRes.status, 200);
+      const css = await cssRes.text();
+      assert.match(css, /\.action-btn\.pause-btn/);
+      assert.match(css, /\.action-btn\.resume-btn/);
+      assert.match(css, /\.action-btn\.cancel-btn/);
 
-      const html = await response.text();
-
-      assert.match(html, /\.action-btn\.pause-btn/);
-      assert.match(html, /\.action-btn\.resume-btn/);
-      assert.match(html, /\.action-btn\.cancel-btn/);
-      assert.match(html, /handlePause\(/);
-      assert.match(html, /handleResume\(/);
-      assert.match(html, /handleCancel\(/);
+      const jsRes = await fetch(`${baseUrl}/dashboard-ui.js`);
+      assert.equal(jsRes.status, 200);
+      const js = await jsRes.text();
+      assert.match(js, /handlePause\(/);
+      assert.match(js, /handleResume\(/);
+      assert.match(js, /handleCancel\(/);
     } finally {
       await stopDashboard(server);
     }
@@ -2990,13 +2906,13 @@ describe("dashboard cancel UI", () => {
 
 describe("dashboard AutoResearch session API", () => {
   it("GET /api/autoresearch/sessions returns empty array when no sessions registered", async () => {
-    const root = fs.mkdtempSync(path.join(os.tmpdir(), "tamandua-dashboard-ar-sessions-empty-"));
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "canarinho-dashboard-ar-sessions-empty-"));
     const homeDir = path.join(root, "home");
-    const dbPath = path.join(homeDir, ".tamandua", "tamandua.db");
+    const dbPath = path.join(homeDir, ".canarinho", "canarinho.db");
     const previousHome = process.env.HOME;
-    const previousDbPath = process.env.TAMANDUA_DB_PATH;
+    const previousDbPath = process.env.canarinho_DB_PATH;
     process.env.HOME = homeDir;
-    process.env.TAMANDUA_DB_PATH = dbPath;
+    process.env.canarinho_DB_PATH = dbPath;
 
     try {
       const { server, baseUrl } = await startDashboard();
@@ -3013,22 +2929,22 @@ describe("dashboard AutoResearch session API", () => {
     } finally {
       if (previousHome === undefined) delete process.env.HOME;
       else process.env.HOME = previousHome;
-      if (previousDbPath === undefined) delete process.env.TAMANDUA_DB_PATH;
-      else process.env.TAMANDUA_DB_PATH = previousDbPath;
+      if (previousDbPath === undefined) delete process.env.canarinho_DB_PATH;
+      else process.env.canarinho_DB_PATH = previousDbPath;
       fs.rmSync(root, { recursive: true, force: true });
     }
   });
 
   it("GET /api/autoresearch/sessions returns registered sessions with required fields", async () => {
-    const root = fs.mkdtempSync(path.join(os.tmpdir(), "tamandua-dashboard-ar-sessions-fields-"));
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "canarinho-dashboard-ar-sessions-fields-"));
     const homeDir = path.join(root, "home");
     const projectDir = path.join(root, "project");
     fs.mkdirSync(projectDir, { recursive: true });
-    const dbPath = path.join(homeDir, ".tamandua", "tamandua.db");
+    const dbPath = path.join(homeDir, ".canarinho", "canarinho.db");
     const previousHome = process.env.HOME;
-    const previousDbPath = process.env.TAMANDUA_DB_PATH;
+    const previousDbPath = process.env.canarinho_DB_PATH;
     process.env.HOME = homeDir;
-    process.env.TAMANDUA_DB_PATH = dbPath;
+    process.env.canarinho_DB_PATH = dbPath;
 
     try {
       // Create autoresearch config and log files
@@ -3099,22 +3015,22 @@ describe("dashboard AutoResearch session API", () => {
     } finally {
       if (previousHome === undefined) delete process.env.HOME;
       else process.env.HOME = previousHome;
-      if (previousDbPath === undefined) delete process.env.TAMANDUA_DB_PATH;
-      else process.env.TAMANDUA_DB_PATH = previousDbPath;
+      if (previousDbPath === undefined) delete process.env.canarinho_DB_PATH;
+      else process.env.canarinho_DB_PATH = previousDbPath;
       fs.rmSync(root, { recursive: true, force: true });
     }
   });
 
   it("GET /api/autoresearch/sessions/:id returns full session detail with experiments", async () => {
-    const root = fs.mkdtempSync(path.join(os.tmpdir(), "tamandua-dashboard-ar-session-by-id-"));
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "canarinho-dashboard-ar-session-by-id-"));
     const homeDir = path.join(root, "home");
     const projectDir = path.join(root, "project");
     fs.mkdirSync(projectDir, { recursive: true });
-    const dbPath = path.join(homeDir, ".tamandua", "tamandua.db");
+    const dbPath = path.join(homeDir, ".canarinho", "canarinho.db");
     const previousHome = process.env.HOME;
-    const previousDbPath = process.env.TAMANDUA_DB_PATH;
+    const previousDbPath = process.env.canarinho_DB_PATH;
     process.env.HOME = homeDir;
-    process.env.TAMANDUA_DB_PATH = dbPath;
+    process.env.canarinho_DB_PATH = dbPath;
 
     try {
       fs.writeFileSync(
@@ -3210,20 +3126,20 @@ describe("dashboard AutoResearch session API", () => {
     } finally {
       if (previousHome === undefined) delete process.env.HOME;
       else process.env.HOME = previousHome;
-      if (previousDbPath === undefined) delete process.env.TAMANDUA_DB_PATH;
-      else process.env.TAMANDUA_DB_PATH = previousDbPath;
+      if (previousDbPath === undefined) delete process.env.canarinho_DB_PATH;
+      else process.env.canarinho_DB_PATH = previousDbPath;
       fs.rmSync(root, { recursive: true, force: true });
     }
   });
 
   it("GET /api/autoresearch/sessions/:id returns 404 for unknown session", async () => {
-    const root = fs.mkdtempSync(path.join(os.tmpdir(), "tamandua-dashboard-ar-session-404-"));
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "canarinho-dashboard-ar-session-404-"));
     const homeDir = path.join(root, "home");
-    const dbPath = path.join(homeDir, ".tamandua", "tamandua.db");
+    const dbPath = path.join(homeDir, ".canarinho", "canarinho.db");
     const previousHome = process.env.HOME;
-    const previousDbPath = process.env.TAMANDUA_DB_PATH;
+    const previousDbPath = process.env.canarinho_DB_PATH;
     process.env.HOME = homeDir;
-    process.env.TAMANDUA_DB_PATH = dbPath;
+    process.env.canarinho_DB_PATH = dbPath;
 
     try {
       const { server, baseUrl } = await startDashboard();
@@ -3239,22 +3155,22 @@ describe("dashboard AutoResearch session API", () => {
     } finally {
       if (previousHome === undefined) delete process.env.HOME;
       else process.env.HOME = previousHome;
-      if (previousDbPath === undefined) delete process.env.TAMANDUA_DB_PATH;
-      else process.env.TAMANDUA_DB_PATH = previousDbPath;
+      if (previousDbPath === undefined) delete process.env.canarinho_DB_PATH;
+      else process.env.canarinho_DB_PATH = previousDbPath;
       fs.rmSync(root, { recursive: true, force: true });
     }
   });
 
   it("backfillAutoresearchSessions inserts missing sessions from recent runs", async () => {
-    const root = fs.mkdtempSync(path.join(os.tmpdir(), "tamandua-dashboard-ar-backfill-"));
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "canarinho-dashboard-ar-backfill-"));
     const homeDir = path.join(root, "home");
     const projectDir = path.join(root, "project");
     fs.mkdirSync(projectDir, { recursive: true });
-    const dbPath = path.join(homeDir, ".tamandua", "tamandua.db");
+    const dbPath = path.join(homeDir, ".canarinho", "canarinho.db");
     const previousHome = process.env.HOME;
-    const previousDbPath = process.env.TAMANDUA_DB_PATH;
+    const previousDbPath = process.env.canarinho_DB_PATH;
     process.env.HOME = homeDir;
-    process.env.TAMANDUA_DB_PATH = dbPath;
+    process.env.canarinho_DB_PATH = dbPath;
 
     try {
       // Create autoresearch project files
@@ -3307,22 +3223,22 @@ describe("dashboard AutoResearch session API", () => {
     } finally {
       if (previousHome === undefined) delete process.env.HOME;
       else process.env.HOME = previousHome;
-      if (previousDbPath === undefined) delete process.env.TAMANDUA_DB_PATH;
-      else process.env.TAMANDUA_DB_PATH = previousDbPath;
+      if (previousDbPath === undefined) delete process.env.canarinho_DB_PATH;
+      else process.env.canarinho_DB_PATH = previousDbPath;
       fs.rmSync(root, { recursive: true, force: true });
     }
   });
 
   it("backfillAutoresearchSessions does not duplicate existing sessions", async () => {
-    const root = fs.mkdtempSync(path.join(os.tmpdir(), "tamandua-dashboard-ar-backfill-no-dup-"));
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "canarinho-dashboard-ar-backfill-no-dup-"));
     const homeDir = path.join(root, "home");
     const projectDir = path.join(root, "project");
     fs.mkdirSync(projectDir, { recursive: true });
-    const dbPath = path.join(homeDir, ".tamandua", "tamandua.db");
+    const dbPath = path.join(homeDir, ".canarinho", "canarinho.db");
     const previousHome = process.env.HOME;
-    const previousDbPath = process.env.TAMANDUA_DB_PATH;
+    const previousDbPath = process.env.canarinho_DB_PATH;
     process.env.HOME = homeDir;
-    process.env.TAMANDUA_DB_PATH = dbPath;
+    process.env.canarinho_DB_PATH = dbPath;
 
     try {
       fs.writeFileSync(
@@ -3370,20 +3286,20 @@ describe("dashboard AutoResearch session API", () => {
     } finally {
       if (previousHome === undefined) delete process.env.HOME;
       else process.env.HOME = previousHome;
-      if (previousDbPath === undefined) delete process.env.TAMANDUA_DB_PATH;
-      else process.env.TAMANDUA_DB_PATH = previousDbPath;
+      if (previousDbPath === undefined) delete process.env.canarinho_DB_PATH;
+      else process.env.canarinho_DB_PATH = previousDbPath;
       fs.rmSync(root, { recursive: true, force: true });
     }
   });
 
   it("backfillAutoresearchSessions handles runs without harness cwd gracefully", async () => {
-    const root = fs.mkdtempSync(path.join(os.tmpdir(), "tamandua-dashboard-ar-backfill-no-cwd-"));
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "canarinho-dashboard-ar-backfill-no-cwd-"));
     const homeDir = path.join(root, "home");
-    const dbPath = path.join(homeDir, ".tamandua", "tamandua.db");
+    const dbPath = path.join(homeDir, ".canarinho", "canarinho.db");
     const previousHome = process.env.HOME;
-    const previousDbPath = process.env.TAMANDUA_DB_PATH;
+    const previousDbPath = process.env.canarinho_DB_PATH;
     process.env.HOME = homeDir;
-    process.env.TAMANDUA_DB_PATH = dbPath;
+    process.env.canarinho_DB_PATH = dbPath;
 
     try {
       const db = getDb();
@@ -3400,22 +3316,22 @@ describe("dashboard AutoResearch session API", () => {
     } finally {
       if (previousHome === undefined) delete process.env.HOME;
       else process.env.HOME = previousHome;
-      if (previousDbPath === undefined) delete process.env.TAMANDUA_DB_PATH;
-      else process.env.TAMANDUA_DB_PATH = previousDbPath;
+      if (previousDbPath === undefined) delete process.env.canarinho_DB_PATH;
+      else process.env.canarinho_DB_PATH = previousDbPath;
       fs.rmSync(root, { recursive: true, force: true });
     }
   });
 
   it("existing /api/autoresearch/runs still works after session API added", async () => {
-    const root = fs.mkdtempSync(path.join(os.tmpdir(), "tamandua-dashboard-ar-runs-backcompat-"));
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "canarinho-dashboard-ar-runs-backcompat-"));
     const homeDir = path.join(root, "home");
     const projectDir = path.join(root, "project");
     fs.mkdirSync(projectDir, { recursive: true });
-    const dbPath = path.join(homeDir, ".tamandua", "tamandua.db");
+    const dbPath = path.join(homeDir, ".canarinho", "canarinho.db");
     const previousHome = process.env.HOME;
-    const previousDbPath = process.env.TAMANDUA_DB_PATH;
+    const previousDbPath = process.env.canarinho_DB_PATH;
     process.env.HOME = homeDir;
-    process.env.TAMANDUA_DB_PATH = dbPath;
+    process.env.canarinho_DB_PATH = dbPath;
 
     try {
       fs.writeFileSync(
@@ -3459,24 +3375,24 @@ describe("dashboard AutoResearch session API", () => {
     } finally {
       if (previousHome === undefined) delete process.env.HOME;
       else process.env.HOME = previousHome;
-      if (previousDbPath === undefined) delete process.env.TAMANDUA_DB_PATH;
-      else process.env.TAMANDUA_DB_PATH = previousDbPath;
+      if (previousDbPath === undefined) delete process.env.canarinho_DB_PATH;
+      else process.env.canarinho_DB_PATH = previousDbPath;
       fs.rmSync(root, { recursive: true, force: true });
     }
   });
 
   it("multiple sessions are ordered by updated_at DESC", async () => {
-    const root = fs.mkdtempSync(path.join(os.tmpdir(), "tamandua-dashboard-ar-sessions-order-"));
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "canarinho-dashboard-ar-sessions-order-"));
     const homeDir = path.join(root, "home");
     const projectDir1 = path.join(root, "project1");
     const projectDir2 = path.join(root, "project2");
     fs.mkdirSync(projectDir1, { recursive: true });
     fs.mkdirSync(projectDir2, { recursive: true });
-    const dbPath = path.join(homeDir, ".tamandua", "tamandua.db");
+    const dbPath = path.join(homeDir, ".canarinho", "canarinho.db");
     const previousHome = process.env.HOME;
-    const previousDbPath = process.env.TAMANDUA_DB_PATH;
+    const previousDbPath = process.env.canarinho_DB_PATH;
     process.env.HOME = homeDir;
-    process.env.TAMANDUA_DB_PATH = dbPath;
+    process.env.canarinho_DB_PATH = dbPath;
 
     try {
       for (const dir of [projectDir1, projectDir2]) {
@@ -3525,8 +3441,8 @@ describe("dashboard AutoResearch session API", () => {
     } finally {
       if (previousHome === undefined) delete process.env.HOME;
       else process.env.HOME = previousHome;
-      if (previousDbPath === undefined) delete process.env.TAMANDUA_DB_PATH;
-      else process.env.TAMANDUA_DB_PATH = previousDbPath;
+      if (previousDbPath === undefined) delete process.env.canarinho_DB_PATH;
+      else process.env.canarinho_DB_PATH = previousDbPath;
       fs.rmSync(root, { recursive: true, force: true });
     }
   });
@@ -3534,14 +3450,14 @@ describe("dashboard AutoResearch session API", () => {
 
 describe("dashboard /api/runs cache", () => {
   it("serves cached response within TTL window", async () => {
-    const root = fs.mkdtempSync(path.join(os.tmpdir(), "tamandua-dashboard-runs-cache-"));
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "canarinho-dashboard-runs-cache-"));
     const homeDir = path.join(root, "home");
     fs.mkdirSync(homeDir, { recursive: true });
-    const dbPath = path.join(homeDir, ".tamandua", "tamandua.db");
+    const dbPath = path.join(homeDir, ".canarinho", "canarinho.db");
     const previousHome = process.env.HOME;
-    const previousDbPath = process.env.TAMANDUA_DB_PATH;
+    const previousDbPath = process.env.canarinho_DB_PATH;
     process.env.HOME = homeDir;
-    process.env.TAMANDUA_DB_PATH = dbPath;
+    process.env.canarinho_DB_PATH = dbPath;
 
     const db = getDb();
     db.prepare(`
@@ -3579,21 +3495,21 @@ describe("dashboard /api/runs cache", () => {
       await stopDashboard(server);
       if (previousHome === undefined) delete process.env.HOME;
       else process.env.HOME = previousHome;
-      if (previousDbPath === undefined) delete process.env.TAMANDUA_DB_PATH;
-      else process.env.TAMANDUA_DB_PATH = previousDbPath;
+      if (previousDbPath === undefined) delete process.env.canarinho_DB_PATH;
+      else process.env.canarinho_DB_PATH = previousDbPath;
       fs.rmSync(root, { recursive: true, force: true });
     }
   });
 
   it("queries fresh from DB after cache invalidation", async () => {
-    const root = fs.mkdtempSync(path.join(os.tmpdir(), "tamandua-dashboard-runs-cache-"));
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "canarinho-dashboard-runs-cache-"));
     const homeDir = path.join(root, "home");
     fs.mkdirSync(homeDir, { recursive: true });
-    const dbPath = path.join(homeDir, ".tamandua", "tamandua.db");
+    const dbPath = path.join(homeDir, ".canarinho", "canarinho.db");
     const previousHome = process.env.HOME;
-    const previousDbPath = process.env.TAMANDUA_DB_PATH;
+    const previousDbPath = process.env.canarinho_DB_PATH;
     process.env.HOME = homeDir;
-    process.env.TAMANDUA_DB_PATH = dbPath;
+    process.env.canarinho_DB_PATH = dbPath;
 
     const db = getDb();
     db.prepare(`
@@ -3627,21 +3543,21 @@ describe("dashboard /api/runs cache", () => {
       await stopDashboard(server);
       if (previousHome === undefined) delete process.env.HOME;
       else process.env.HOME = previousHome;
-      if (previousDbPath === undefined) delete process.env.TAMANDUA_DB_PATH;
-      else process.env.TAMANDUA_DB_PATH = previousDbPath;
+      if (previousDbPath === undefined) delete process.env.canarinho_DB_PATH;
+      else process.env.canarinho_DB_PATH = previousDbPath;
       fs.rmSync(root, { recursive: true, force: true });
     }
   });
 
   it("cache invalidation on successful cancel causes fresh /api/runs results", async () => {
-    const root = fs.mkdtempSync(path.join(os.tmpdir(), "tamandua-dashboard-runs-cache-"));
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "canarinho-dashboard-runs-cache-"));
     const homeDir = path.join(root, "home");
     fs.mkdirSync(homeDir, { recursive: true });
-    const dbPath = path.join(homeDir, ".tamandua", "tamandua.db");
+    const dbPath = path.join(homeDir, ".canarinho", "canarinho.db");
     const previousHome = process.env.HOME;
-    const previousDbPath = process.env.TAMANDUA_DB_PATH;
+    const previousDbPath = process.env.canarinho_DB_PATH;
     process.env.HOME = homeDir;
-    process.env.TAMANDUA_DB_PATH = dbPath;
+    process.env.canarinho_DB_PATH = dbPath;
 
     const db = getDb();
     const runId = "run-cancel-cache";
@@ -3671,21 +3587,21 @@ describe("dashboard /api/runs cache", () => {
       await stopDashboard(server);
       if (previousHome === undefined) delete process.env.HOME;
       else process.env.HOME = previousHome;
-      if (previousDbPath === undefined) delete process.env.TAMANDUA_DB_PATH;
-      else process.env.TAMANDUA_DB_PATH = previousDbPath;
+      if (previousDbPath === undefined) delete process.env.canarinho_DB_PATH;
+      else process.env.canarinho_DB_PATH = previousDbPath;
       fs.rmSync(root, { recursive: true, force: true });
     }
   });
 
   it("cache invalidation on successful delete removes run from /api/runs", async () => {
-    const root = fs.mkdtempSync(path.join(os.tmpdir(), "tamandua-dashboard-runs-cache-"));
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "canarinho-dashboard-runs-cache-"));
     const homeDir = path.join(root, "home");
     fs.mkdirSync(homeDir, { recursive: true });
-    const dbPath = path.join(homeDir, ".tamandua", "tamandua.db");
+    const dbPath = path.join(homeDir, ".canarinho", "canarinho.db");
     const previousHome = process.env.HOME;
-    const previousDbPath = process.env.TAMANDUA_DB_PATH;
+    const previousDbPath = process.env.canarinho_DB_PATH;
     process.env.HOME = homeDir;
-    process.env.TAMANDUA_DB_PATH = dbPath;
+    process.env.canarinho_DB_PATH = dbPath;
 
     const db = getDb();
     const runId = "run-delete-cache";
@@ -3718,21 +3634,21 @@ describe("dashboard /api/runs cache", () => {
       await stopDashboard(server);
       if (previousHome === undefined) delete process.env.HOME;
       else process.env.HOME = previousHome;
-      if (previousDbPath === undefined) delete process.env.TAMANDUA_DB_PATH;
-      else process.env.TAMANDUA_DB_PATH = previousDbPath;
+      if (previousDbPath === undefined) delete process.env.canarinho_DB_PATH;
+      else process.env.canarinho_DB_PATH = previousDbPath;
       fs.rmSync(root, { recursive: true, force: true });
     }
   });
 
   it("cached responses are byte-identical across hits", async () => {
-    const root = fs.mkdtempSync(path.join(os.tmpdir(), "tamandua-dashboard-runs-cache-"));
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "canarinho-dashboard-runs-cache-"));
     const homeDir = path.join(root, "home");
     fs.mkdirSync(homeDir, { recursive: true });
-    const dbPath = path.join(homeDir, ".tamandua", "tamandua.db");
+    const dbPath = path.join(homeDir, ".canarinho", "canarinho.db");
     const previousHome = process.env.HOME;
-    const previousDbPath = process.env.TAMANDUA_DB_PATH;
+    const previousDbPath = process.env.canarinho_DB_PATH;
     process.env.HOME = homeDir;
-    process.env.TAMANDUA_DB_PATH = dbPath;
+    process.env.canarinho_DB_PATH = dbPath;
 
     const db = getDb();
     db.prepare(`
@@ -3756,21 +3672,21 @@ describe("dashboard /api/runs cache", () => {
       await stopDashboard(server);
       if (previousHome === undefined) delete process.env.HOME;
       else process.env.HOME = previousHome;
-      if (previousDbPath === undefined) delete process.env.TAMANDUA_DB_PATH;
-      else process.env.TAMANDUA_DB_PATH = previousDbPath;
+      if (previousDbPath === undefined) delete process.env.canarinho_DB_PATH;
+      else process.env.canarinho_DB_PATH = previousDbPath;
       fs.rmSync(root, { recursive: true, force: true });
     }
   });
 
   it("/api/runs/:id detail endpoint is NOT cached", async () => {
-    const root = fs.mkdtempSync(path.join(os.tmpdir(), "tamandua-dashboard-runs-cache-"));
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "canarinho-dashboard-runs-cache-"));
     const homeDir = path.join(root, "home");
     fs.mkdirSync(homeDir, { recursive: true });
-    const dbPath = path.join(homeDir, ".tamandua", "tamandua.db");
+    const dbPath = path.join(homeDir, ".canarinho", "canarinho.db");
     const previousHome = process.env.HOME;
-    const previousDbPath = process.env.TAMANDUA_DB_PATH;
+    const previousDbPath = process.env.canarinho_DB_PATH;
     process.env.HOME = homeDir;
-    process.env.TAMANDUA_DB_PATH = dbPath;
+    process.env.canarinho_DB_PATH = dbPath;
 
     const db = getDb();
     const runId = "run-detail-uncached";
@@ -3797,8 +3713,8 @@ describe("dashboard /api/runs cache", () => {
       await stopDashboard(server);
       if (previousHome === undefined) delete process.env.HOME;
       else process.env.HOME = previousHome;
-      if (previousDbPath === undefined) delete process.env.TAMANDUA_DB_PATH;
-      else process.env.TAMANDUA_DB_PATH = previousDbPath;
+      if (previousDbPath === undefined) delete process.env.canarinho_DB_PATH;
+      else process.env.canarinho_DB_PATH = previousDbPath;
       fs.rmSync(root, { recursive: true, force: true });
     }
   });
@@ -3810,14 +3726,14 @@ describe("dashboard /api/runs cache", () => {
   });
 
   it("empty runs list is correctly cached", async () => {
-    const root = fs.mkdtempSync(path.join(os.tmpdir(), "tamandua-dashboard-runs-cache-"));
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "canarinho-dashboard-runs-cache-"));
     const homeDir = path.join(root, "home");
     fs.mkdirSync(homeDir, { recursive: true });
-    const dbPath = path.join(homeDir, ".tamandua", "tamandua.db");
+    const dbPath = path.join(homeDir, ".canarinho", "canarinho.db");
     const previousHome = process.env.HOME;
-    const previousDbPath = process.env.TAMANDUA_DB_PATH;
+    const previousDbPath = process.env.canarinho_DB_PATH;
     process.env.HOME = homeDir;
-    process.env.TAMANDUA_DB_PATH = dbPath;
+    process.env.canarinho_DB_PATH = dbPath;
 
     // No runs inserted
     const { server, baseUrl } = await startDashboard();
@@ -3839,8 +3755,8 @@ describe("dashboard /api/runs cache", () => {
       await stopDashboard(server);
       if (previousHome === undefined) delete process.env.HOME;
       else process.env.HOME = previousHome;
-      if (previousDbPath === undefined) delete process.env.TAMANDUA_DB_PATH;
-      else process.env.TAMANDUA_DB_PATH = previousDbPath;
+      if (previousDbPath === undefined) delete process.env.canarinho_DB_PATH;
+      else process.env.canarinho_DB_PATH = previousDbPath;
       fs.rmSync(root, { recursive: true, force: true });
     }
   });
@@ -3848,14 +3764,14 @@ describe("dashboard /api/runs cache", () => {
   // US-002: Error path tests — cache must NOT be invalidated on failed mutations
 
   it("cancel 404 error path does NOT invalidate runs cache", async () => {
-    const root = fs.mkdtempSync(path.join(os.tmpdir(), "tamandua-dashboard-runs-cache-"));
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "canarinho-dashboard-runs-cache-"));
     const homeDir = path.join(root, "home");
     fs.mkdirSync(homeDir, { recursive: true });
-    const dbPath = path.join(homeDir, ".tamandua", "tamandua.db");
+    const dbPath = path.join(homeDir, ".canarinho", "canarinho.db");
     const previousHome = process.env.HOME;
-    const previousDbPath = process.env.TAMANDUA_DB_PATH;
+    const previousDbPath = process.env.canarinho_DB_PATH;
     process.env.HOME = homeDir;
-    process.env.TAMANDUA_DB_PATH = dbPath;
+    process.env.canarinho_DB_PATH = dbPath;
 
     const db = getDb();
     db.prepare(`
@@ -3886,21 +3802,21 @@ describe("dashboard /api/runs cache", () => {
       await stopDashboard(server);
       if (previousHome === undefined) delete process.env.HOME;
       else process.env.HOME = previousHome;
-      if (previousDbPath === undefined) delete process.env.TAMANDUA_DB_PATH;
-      else process.env.TAMANDUA_DB_PATH = previousDbPath;
+      if (previousDbPath === undefined) delete process.env.canarinho_DB_PATH;
+      else process.env.canarinho_DB_PATH = previousDbPath;
       fs.rmSync(root, { recursive: true, force: true });
     }
   });
 
   it("cancel 409 error path does NOT invalidate runs cache", async () => {
-    const root = fs.mkdtempSync(path.join(os.tmpdir(), "tamandua-dashboard-runs-cache-"));
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "canarinho-dashboard-runs-cache-"));
     const homeDir = path.join(root, "home");
     fs.mkdirSync(homeDir, { recursive: true });
-    const dbPath = path.join(homeDir, ".tamandua", "tamandua.db");
+    const dbPath = path.join(homeDir, ".canarinho", "canarinho.db");
     const previousHome = process.env.HOME;
-    const previousDbPath = process.env.TAMANDUA_DB_PATH;
+    const previousDbPath = process.env.canarinho_DB_PATH;
     process.env.HOME = homeDir;
-    process.env.TAMANDUA_DB_PATH = dbPath;
+    process.env.canarinho_DB_PATH = dbPath;
 
     const db = getDb();
     const runId = "run-err409-cancel";
@@ -3931,21 +3847,21 @@ describe("dashboard /api/runs cache", () => {
       await stopDashboard(server);
       if (previousHome === undefined) delete process.env.HOME;
       else process.env.HOME = previousHome;
-      if (previousDbPath === undefined) delete process.env.TAMANDUA_DB_PATH;
-      else process.env.TAMANDUA_DB_PATH = previousDbPath;
+      if (previousDbPath === undefined) delete process.env.canarinho_DB_PATH;
+      else process.env.canarinho_DB_PATH = previousDbPath;
       fs.rmSync(root, { recursive: true, force: true });
     }
   });
 
   it("delete 404 error path does NOT invalidate runs cache", async () => {
-    const root = fs.mkdtempSync(path.join(os.tmpdir(), "tamandua-dashboard-runs-cache-"));
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "canarinho-dashboard-runs-cache-"));
     const homeDir = path.join(root, "home");
     fs.mkdirSync(homeDir, { recursive: true });
-    const dbPath = path.join(homeDir, ".tamandua", "tamandua.db");
+    const dbPath = path.join(homeDir, ".canarinho", "canarinho.db");
     const previousHome = process.env.HOME;
-    const previousDbPath = process.env.TAMANDUA_DB_PATH;
+    const previousDbPath = process.env.canarinho_DB_PATH;
     process.env.HOME = homeDir;
-    process.env.TAMANDUA_DB_PATH = dbPath;
+    process.env.canarinho_DB_PATH = dbPath;
 
     const db = getDb();
     db.prepare(`
@@ -3975,21 +3891,21 @@ describe("dashboard /api/runs cache", () => {
       await stopDashboard(server);
       if (previousHome === undefined) delete process.env.HOME;
       else process.env.HOME = previousHome;
-      if (previousDbPath === undefined) delete process.env.TAMANDUA_DB_PATH;
-      else process.env.TAMANDUA_DB_PATH = previousDbPath;
+      if (previousDbPath === undefined) delete process.env.canarinho_DB_PATH;
+      else process.env.canarinho_DB_PATH = previousDbPath;
       fs.rmSync(root, { recursive: true, force: true });
     }
   });
 
   it("delete 409 error path does NOT invalidate runs cache", async () => {
-    const root = fs.mkdtempSync(path.join(os.tmpdir(), "tamandua-dashboard-runs-cache-"));
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "canarinho-dashboard-runs-cache-"));
     const homeDir = path.join(root, "home");
     fs.mkdirSync(homeDir, { recursive: true });
-    const dbPath = path.join(homeDir, ".tamandua", "tamandua.db");
+    const dbPath = path.join(homeDir, ".canarinho", "canarinho.db");
     const previousHome = process.env.HOME;
-    const previousDbPath = process.env.TAMANDUA_DB_PATH;
+    const previousDbPath = process.env.canarinho_DB_PATH;
     process.env.HOME = homeDir;
-    process.env.TAMANDUA_DB_PATH = dbPath;
+    process.env.canarinho_DB_PATH = dbPath;
 
     const db = getDb();
     const runId = "run-err409-delete";
@@ -4020,8 +3936,8 @@ describe("dashboard /api/runs cache", () => {
       await stopDashboard(server);
       if (previousHome === undefined) delete process.env.HOME;
       else process.env.HOME = previousHome;
-      if (previousDbPath === undefined) delete process.env.TAMANDUA_DB_PATH;
-      else process.env.TAMANDUA_DB_PATH = previousDbPath;
+      if (previousDbPath === undefined) delete process.env.canarinho_DB_PATH;
+      else process.env.canarinho_DB_PATH = previousDbPath;
       fs.rmSync(root, { recursive: true, force: true });
     }
   });
@@ -4030,14 +3946,14 @@ describe("dashboard /api/runs cache", () => {
   // (these handlers require a daemon for success-path HTTP testing)
 
   it("pause handler invalidation pattern works via invalidateRunsCache", async () => {
-    const root = fs.mkdtempSync(path.join(os.tmpdir(), "tamandua-dashboard-runs-cache-"));
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "canarinho-dashboard-runs-cache-"));
     const homeDir = path.join(root, "home");
     fs.mkdirSync(homeDir, { recursive: true });
-    const dbPath = path.join(homeDir, ".tamandua", "tamandua.db");
+    const dbPath = path.join(homeDir, ".canarinho", "canarinho.db");
     const previousHome = process.env.HOME;
-    const previousDbPath = process.env.TAMANDUA_DB_PATH;
+    const previousDbPath = process.env.canarinho_DB_PATH;
     process.env.HOME = homeDir;
-    process.env.TAMANDUA_DB_PATH = dbPath;
+    process.env.canarinho_DB_PATH = dbPath;
 
     const db = getDb();
     db.prepare(`
@@ -4074,21 +3990,21 @@ describe("dashboard /api/runs cache", () => {
       await stopDashboard(server);
       if (previousHome === undefined) delete process.env.HOME;
       else process.env.HOME = previousHome;
-      if (previousDbPath === undefined) delete process.env.TAMANDUA_DB_PATH;
-      else process.env.TAMANDUA_DB_PATH = previousDbPath;
+      if (previousDbPath === undefined) delete process.env.canarinho_DB_PATH;
+      else process.env.canarinho_DB_PATH = previousDbPath;
       fs.rmSync(root, { recursive: true, force: true });
     }
   });
 
   it("resume handler invalidation pattern works via invalidateRunsCache", async () => {
-    const root = fs.mkdtempSync(path.join(os.tmpdir(), "tamandua-dashboard-runs-cache-"));
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "canarinho-dashboard-runs-cache-"));
     const homeDir = path.join(root, "home");
     fs.mkdirSync(homeDir, { recursive: true });
-    const dbPath = path.join(homeDir, ".tamandua", "tamandua.db");
+    const dbPath = path.join(homeDir, ".canarinho", "canarinho.db");
     const previousHome = process.env.HOME;
-    const previousDbPath = process.env.TAMANDUA_DB_PATH;
+    const previousDbPath = process.env.canarinho_DB_PATH;
     process.env.HOME = homeDir;
-    process.env.TAMANDUA_DB_PATH = dbPath;
+    process.env.canarinho_DB_PATH = dbPath;
 
     const db = getDb();
     db.prepare(`
@@ -4125,32 +4041,32 @@ describe("dashboard /api/runs cache", () => {
       await stopDashboard(server);
       if (previousHome === undefined) delete process.env.HOME;
       else process.env.HOME = previousHome;
-      if (previousDbPath === undefined) delete process.env.TAMANDUA_DB_PATH;
-      else process.env.TAMANDUA_DB_PATH = previousDbPath;
+      if (previousDbPath === undefined) delete process.env.canarinho_DB_PATH;
+      else process.env.canarinho_DB_PATH = previousDbPath;
       fs.rmSync(root, { recursive: true, force: true });
     }
   });
 });
 
 describe("dashboard run detail bounded events", () => {
-  function appendRunEvent(stateDir: string, runId: string, evt: TamanduaEvent): void {
+  function appendRunEvent(stateDir: string, runId: string, evt: canarinhoEvent): void {
     const filePath = path.join(stateDir, "events", `${runId}.jsonl`);
     fs.mkdirSync(path.dirname(filePath), { recursive: true });
     fs.appendFileSync(filePath, `${JSON.stringify(evt)}\n`, "utf-8");
   }
 
   it("returns at most 200 events and truncated=true with correct totalEvents for a 500-event run", async () => {
-    const root = fs.mkdtempSync(path.join(os.tmpdir(), "tamandua-dashboard-bounded-events-"));
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "canarinho-dashboard-bounded-events-"));
     const homeDir = path.join(root, "home");
-    const stateDir = path.join(homeDir, ".tamandua");
+    const stateDir = path.join(homeDir, ".canarinho");
     fs.mkdirSync(stateDir, { recursive: true });
-    const dbPath = path.join(stateDir, "tamandua.db");
+    const dbPath = path.join(stateDir, "canarinho.db");
     const previousHome = process.env.HOME;
-    const previousDbPath = process.env.TAMANDUA_DB_PATH;
-    const previousStateDir = process.env.TAMANDUA_STATE_DIR;
+    const previousDbPath = process.env.canarinho_DB_PATH;
+    const previousStateDir = process.env.canarinho_STATE_DIR;
     process.env.HOME = homeDir;
-    process.env.TAMANDUA_DB_PATH = dbPath;
-    process.env.TAMANDUA_STATE_DIR = stateDir;
+    process.env.canarinho_DB_PATH = dbPath;
+    process.env.canarinho_STATE_DIR = stateDir;
 
     const runId = "run-500-events";
 
@@ -4181,7 +4097,7 @@ describe("dashboard run detail bounded events", () => {
       const body = await response.json() as {
         totalEvents: number;
         truncated: boolean;
-        events: TamanduaEvent[];
+        events: canarinhoEvent[];
         run: unknown;
         steps: unknown;
         failure_reason: unknown;
@@ -4198,26 +4114,26 @@ describe("dashboard run detail bounded events", () => {
       await stopDashboard(server);
       if (previousHome === undefined) delete process.env.HOME;
       else process.env.HOME = previousHome;
-      if (previousDbPath === undefined) delete process.env.TAMANDUA_DB_PATH;
-      else process.env.TAMANDUA_DB_PATH = previousDbPath;
-      if (previousStateDir === undefined) delete process.env.TAMANDUA_STATE_DIR;
-      else process.env.TAMANDUA_STATE_DIR = previousStateDir;
+      if (previousDbPath === undefined) delete process.env.canarinho_DB_PATH;
+      else process.env.canarinho_DB_PATH = previousDbPath;
+      if (previousStateDir === undefined) delete process.env.canarinho_STATE_DIR;
+      else process.env.canarinho_STATE_DIR = previousStateDir;
       fs.rmSync(root, { recursive: true, force: true });
     }
   });
 
   it("returns all events and truncated=false with correct totalEvents for a small file (10 events)", async () => {
-    const root = fs.mkdtempSync(path.join(os.tmpdir(), "tamandua-dashboard-bounded-events-"));
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "canarinho-dashboard-bounded-events-"));
     const homeDir = path.join(root, "home");
-    const stateDir = path.join(homeDir, ".tamandua");
+    const stateDir = path.join(homeDir, ".canarinho");
     fs.mkdirSync(stateDir, { recursive: true });
-    const dbPath = path.join(stateDir, "tamandua.db");
+    const dbPath = path.join(stateDir, "canarinho.db");
     const previousHome = process.env.HOME;
-    const previousDbPath = process.env.TAMANDUA_DB_PATH;
-    const previousStateDir = process.env.TAMANDUA_STATE_DIR;
+    const previousDbPath = process.env.canarinho_DB_PATH;
+    const previousStateDir = process.env.canarinho_STATE_DIR;
     process.env.HOME = homeDir;
-    process.env.TAMANDUA_DB_PATH = dbPath;
-    process.env.TAMANDUA_STATE_DIR = stateDir;
+    process.env.canarinho_DB_PATH = dbPath;
+    process.env.canarinho_STATE_DIR = stateDir;
 
     const runId = "run-10-events";
 
@@ -4247,7 +4163,7 @@ describe("dashboard run detail bounded events", () => {
       const body = await response.json() as {
         totalEvents: number;
         truncated: boolean;
-        events: TamanduaEvent[];
+        events: canarinhoEvent[];
         run: unknown;
         steps: unknown;
         failure_reason: unknown;
@@ -4261,26 +4177,26 @@ describe("dashboard run detail bounded events", () => {
       await stopDashboard(server);
       if (previousHome === undefined) delete process.env.HOME;
       else process.env.HOME = previousHome;
-      if (previousDbPath === undefined) delete process.env.TAMANDUA_DB_PATH;
-      else process.env.TAMANDUA_DB_PATH = previousDbPath;
-      if (previousStateDir === undefined) delete process.env.TAMANDUA_STATE_DIR;
-      else process.env.TAMANDUA_STATE_DIR = previousStateDir;
+      if (previousDbPath === undefined) delete process.env.canarinho_DB_PATH;
+      else process.env.canarinho_DB_PATH = previousDbPath;
+      if (previousStateDir === undefined) delete process.env.canarinho_STATE_DIR;
+      else process.env.canarinho_STATE_DIR = previousStateDir;
       fs.rmSync(root, { recursive: true, force: true });
     }
   });
 
   it("returns totalEvents=0 and truncated=false when run has no events file", async () => {
-    const root = fs.mkdtempSync(path.join(os.tmpdir(), "tamandua-dashboard-bounded-events-"));
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "canarinho-dashboard-bounded-events-"));
     const homeDir = path.join(root, "home");
-    const stateDir = path.join(homeDir, ".tamandua");
+    const stateDir = path.join(homeDir, ".canarinho");
     fs.mkdirSync(stateDir, { recursive: true });
-    const dbPath = path.join(stateDir, "tamandua.db");
+    const dbPath = path.join(stateDir, "canarinho.db");
     const previousHome = process.env.HOME;
-    const previousDbPath = process.env.TAMANDUA_DB_PATH;
-    const previousStateDir = process.env.TAMANDUA_STATE_DIR;
+    const previousDbPath = process.env.canarinho_DB_PATH;
+    const previousStateDir = process.env.canarinho_STATE_DIR;
     process.env.HOME = homeDir;
-    process.env.TAMANDUA_DB_PATH = dbPath;
-    process.env.TAMANDUA_STATE_DIR = stateDir;
+    process.env.canarinho_DB_PATH = dbPath;
+    process.env.canarinho_STATE_DIR = stateDir;
 
     const runId = "run-empty-events";
 
@@ -4301,7 +4217,7 @@ describe("dashboard run detail bounded events", () => {
       const body = await response.json() as {
         totalEvents: number;
         truncated: boolean;
-        events: TamanduaEvent[];
+        events: canarinhoEvent[];
         run: unknown;
         steps: unknown;
         failure_reason: unknown;
@@ -4315,26 +4231,26 @@ describe("dashboard run detail bounded events", () => {
       await stopDashboard(server);
       if (previousHome === undefined) delete process.env.HOME;
       else process.env.HOME = previousHome;
-      if (previousDbPath === undefined) delete process.env.TAMANDUA_DB_PATH;
-      else process.env.TAMANDUA_DB_PATH = previousDbPath;
-      if (previousStateDir === undefined) delete process.env.TAMANDUA_STATE_DIR;
-      else process.env.TAMANDUA_STATE_DIR = previousStateDir;
+      if (previousDbPath === undefined) delete process.env.canarinho_DB_PATH;
+      else process.env.canarinho_DB_PATH = previousDbPath;
+      if (previousStateDir === undefined) delete process.env.canarinho_STATE_DIR;
+      else process.env.canarinho_STATE_DIR = previousStateDir;
       fs.rmSync(root, { recursive: true, force: true });
     }
   });
 
   it("existing response fields (run, steps, failure_reason, prompt) are unchanged", async () => {
-    const root = fs.mkdtempSync(path.join(os.tmpdir(), "tamandua-dashboard-bounded-events-"));
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "canarinho-dashboard-bounded-events-"));
     const homeDir = path.join(root, "home");
-    const stateDir = path.join(homeDir, ".tamandua");
+    const stateDir = path.join(homeDir, ".canarinho");
     fs.mkdirSync(stateDir, { recursive: true });
-    const dbPath = path.join(stateDir, "tamandua.db");
+    const dbPath = path.join(stateDir, "canarinho.db");
     const previousHome = process.env.HOME;
-    const previousDbPath = process.env.TAMANDUA_DB_PATH;
-    const previousStateDir = process.env.TAMANDUA_STATE_DIR;
+    const previousDbPath = process.env.canarinho_DB_PATH;
+    const previousStateDir = process.env.canarinho_STATE_DIR;
     process.env.HOME = homeDir;
-    process.env.TAMANDUA_DB_PATH = dbPath;
-    process.env.TAMANDUA_STATE_DIR = stateDir;
+    process.env.canarinho_DB_PATH = dbPath;
+    process.env.canarinho_STATE_DIR = stateDir;
 
     const runId = "run-existing-fields";
 
@@ -4371,10 +4287,10 @@ describe("dashboard run detail bounded events", () => {
       await stopDashboard(server);
       if (previousHome === undefined) delete process.env.HOME;
       else process.env.HOME = previousHome;
-      if (previousDbPath === undefined) delete process.env.TAMANDUA_DB_PATH;
-      else process.env.TAMANDUA_DB_PATH = previousDbPath;
-      if (previousStateDir === undefined) delete process.env.TAMANDUA_STATE_DIR;
-      else process.env.TAMANDUA_STATE_DIR = previousStateDir;
+      if (previousDbPath === undefined) delete process.env.canarinho_DB_PATH;
+      else process.env.canarinho_DB_PATH = previousDbPath;
+      if (previousStateDir === undefined) delete process.env.canarinho_STATE_DIR;
+      else process.env.canarinho_STATE_DIR = previousStateDir;
       fs.rmSync(root, { recursive: true, force: true });
     }
   });

@@ -7,12 +7,12 @@ const MAX_LOG_SIZE = 5 * 1024 * 1024; // 5MB
 const MAX_ROTATED_FILES = 5;
 
 function getLogDir(): string {
-  const stateDir = process.env.TAMANDUA_STATE_DIR?.trim();
-  return stateDir ? path.resolve(stateDir) : path.join(os.homedir(), ".tamandua");
+  const stateDir = process.env.canarinho_STATE_DIR?.trim();
+  return stateDir ? path.resolve(stateDir) : path.join(os.homedir(), ".canarinho");
 }
 
 function getLogFile(): string {
-  return path.join(getLogDir(), "tamandua.log");
+  return path.join(getLogDir(), "canarinho.log");
 }
 
 function ensureDir(): void {
@@ -42,10 +42,10 @@ export type LogLevel = "debug" | "info" | "warn" | "error";
 /**
  * Debug lines are high-volume diagnostics (e.g. per-agent dispatch rounds
  * fire several times per second and were filling the 5MB log rotation).
- * They are dropped unless TAMANDUA_DEBUG is set.
+ * They are dropped unless canarinho_DEBUG is set.
  */
 function debugLoggingEnabled(): boolean {
-  const v = process.env.TAMANDUA_DEBUG?.trim().toLowerCase();
+  const v = process.env.canarinho_DEBUG?.trim().toLowerCase();
   return v !== undefined && v !== "" && v !== "0" && v !== "false";
 }
 

@@ -144,7 +144,7 @@ describe("SKILL.md timeout default", () => {
   let content: string;
 
   before(() => {
-    const skillPath = path.join(PROJECT_ROOT, "skills", "tamandua-agents", "SKILL.md");
+    const skillPath = path.join(PROJECT_ROOT, "skills", "canarinho-agents", "SKILL.md");
     assert.ok(fs.existsSync(skillPath), `SKILL.md must exist at ${skillPath}`);
     content = fs.readFileSync(skillPath, "utf-8");
   });

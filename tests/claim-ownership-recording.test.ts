@@ -21,17 +21,17 @@ import type { WorkerOwnership } from "../dist/installer/step-ops.js";
 import { getDb } from "../dist/db.js";
 
 // ── Environment isolation ──────────────────────────────────────────────
-const _savedStateDir = process.env.TAMANDUA_STATE_DIR;
-const _savedDbPath = process.env.TAMANDUA_DB_PATH;
-const _testIsolationDir = fs.mkdtempSync(path.join(os.tmpdir(), "tamandua-claim-ownership-"));
-process.env.TAMANDUA_STATE_DIR = _testIsolationDir;
-process.env.TAMANDUA_DB_PATH = path.join(_testIsolationDir, "tamandua.db");
+const _savedStateDir = process.env.canarinho_STATE_DIR;
+const _savedDbPath = process.env.canarinho_DB_PATH;
+const _testIsolationDir = fs.mkdtempSync(path.join(os.tmpdir(), "canarinho-claim-ownership-"));
+process.env.canarinho_STATE_DIR = _testIsolationDir;
+process.env.canarinho_DB_PATH = path.join(_testIsolationDir, "canarinho.db");
 
 process.on("exit", () => {
-  if (_savedStateDir === undefined) delete process.env.TAMANDUA_STATE_DIR;
-  else process.env.TAMANDUA_STATE_DIR = _savedStateDir;
-  if (_savedDbPath === undefined) delete process.env.TAMANDUA_DB_PATH;
-  else process.env.TAMANDUA_DB_PATH = _savedDbPath;
+  if (_savedStateDir === undefined) delete process.env.canarinho_STATE_DIR;
+  else process.env.canarinho_STATE_DIR = _savedStateDir;
+  if (_savedDbPath === undefined) delete process.env.canarinho_DB_PATH;
+  else process.env.canarinho_DB_PATH = _savedDbPath;
   try { fs.rmSync(_testIsolationDir, { recursive: true, force: true }); } catch { /* best effort */ }
 });
 
@@ -137,7 +137,7 @@ describe("claimStep ownership recording", () => {
   // ── Test 1: Ownership recording on single-step claim ──────────────────
   it("records worker ownership metadata when claiming a single step", () => {
     const ownership: WorkerOwnership = {
-      jobId: "tamandua-test-123",
+      jobId: "canarinho-test-123",
       pid: 12345,
     };
 
@@ -147,7 +147,7 @@ describe("claimStep ownership recording", () => {
 
     const step = queryStep(singleStepId);
     assert.equal(step.status, "running");
-    assert.equal(step.claim_job_id, "tamandua-test-123");
+    assert.equal(step.claim_job_id, "canarinho-test-123");
     assert.equal(step.claim_pid, 12345);
     assert.equal(step.claim_pgid, null, "pgid should be null when not provided");
     assert.ok(step.claim_updated_at, "claim_updated_at should be set");
@@ -156,7 +156,7 @@ describe("claimStep ownership recording", () => {
   // ── Test 2: Ownership recording on loop-step story claim ──────────────
   it("records worker ownership metadata on loop step story claim", () => {
     const ownership: WorkerOwnership = {
-      jobId: "tamandua-loop-test-456",
+      jobId: "canarinho-loop-test-456",
       pid: 99999,
     };
 
@@ -166,7 +166,7 @@ describe("claimStep ownership recording", () => {
 
     const step = queryStep(loopStepId);
     assert.equal(step.status, "running");
-    assert.equal(step.claim_job_id, "tamandua-loop-test-456");
+    assert.equal(step.claim_job_id, "canarinho-loop-test-456");
     assert.equal(step.claim_pid, 99999);
     assert.equal(step.claim_pgid, null);
     assert.ok(step.claim_updated_at, "claim_updated_at should be set on loop claim");
@@ -188,7 +188,7 @@ describe("claimStep ownership recording", () => {
   // ── Test 4: pgid is recorded when provided ────────────────────────────
   it("records claim_pgid when provided in WorkerOwnership", () => {
     const ownership: WorkerOwnership = {
-      jobId: "tamandua-test-pgid-789",
+      jobId: "canarinho-test-pgid-789",
       pid: 42,
       pgid: 99,
     };
@@ -199,7 +199,7 @@ describe("claimStep ownership recording", () => {
 
     const step = queryStep(withPgidStepId);
     assert.equal(step.status, "running");
-    assert.equal(step.claim_job_id, "tamandua-test-pgid-789");
+    assert.equal(step.claim_job_id, "canarinho-test-pgid-789");
     assert.equal(step.claim_pid, 42);
     assert.equal(step.claim_pgid, 99);
     assert.ok(step.claim_updated_at, "claim_updated_at should be set");
@@ -210,7 +210,7 @@ describe("claimStep ownership recording", () => {
     // The legacy test above already covers this, but let's explicitly
     // verify the call signature is backward-compatible
     const ownership: WorkerOwnership = {
-      jobId: "tamandua-another-000",
+      jobId: "canarinho-another-000",
       pid: 1,
     };
 

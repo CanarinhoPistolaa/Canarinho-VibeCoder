@@ -28,6 +28,29 @@ import http from "node:http";
 import crypto from "node:crypto";
 import { fileURLToPath } from "node:url";
 
+function stopDaemonAndWait(d: ChildProcess | undefined): Promise<void> {
+  if (!d || d.exitCode !== null || !d.pid) return Promise.resolve();
+  return new Promise((resolve) => {
+    const timer = setTimeout(() => resolve(), 2000);
+    d.once("exit", () => { clearTimeout(timer); resolve(); });
+    try { process.kill(d.pid!, "SIGTERM"); } catch { /* ignore */ }
+  });
+}
+
+
+function safeRmSync(target: string): void {
+  try {
+    fs.rmSync(target, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
+  } catch {
+    try {
+      fs.rmSync(target, { recursive: true, force: true, maxRetries: 20, retryDelay: 200 });
+    } catch {
+      // best-effort; temp dir will be reaped by OS
+    }
+  }
+}
+
+
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const CLI_SCRIPT = path.resolve(__dirname, "..", "dist", "cli", "cli.js");
 const DAEMON_SCRIPT = path.resolve(__dirname, "..", "dist", "server", "daemon.js");
@@ -100,7 +123,7 @@ async function waitForControlUp(port: number, timeoutMs = 5000): Promise<void> {
 }
 
 function readDaemonSecret(homeDir: string): string {
-  const secretPath = path.join(homeDir, ".tamandua", "daemon-secret");
+  const secretPath = path.join(homeDir, ".canarinho", "daemon-secret");
   return fs.readFileSync(secretPath, "utf-8").trim();
 }
 
@@ -112,7 +135,7 @@ async function controlFetch(
   secret?: string,
 ): Promise<{ status: number; body: unknown }> {
   const headers: Record<string, string> = {};
-  if (secret) headers["x-tamandua-secret"] = secret;
+  if (secret) headers["x-canarinho-secret"] = secret;
   if (body !== undefined) headers["content-type"] = "application/json";
   const res = await fetch(`http://127.0.0.1:${controlPort}${endpoint}`, {
     method,
@@ -230,7 +253,7 @@ function seedRunAndSteps(
  * Read events for a specific run from the per-run events file.
  */
 function readRunEvents(homeDir: string, runId: string): Array<Record<string, unknown>> {
-  const eventsPath = path.join(homeDir, ".tamandua", "events", `${runId}.jsonl`);
+  const eventsPath = path.join(homeDir, ".canarinho", "events", `${runId}.jsonl`);
   if (!fs.existsSync(eventsPath)) return [];
   const content = fs.readFileSync(eventsPath, "utf-8").trim();
   if (!content) return [];
@@ -242,7 +265,7 @@ function readRunEvents(homeDir: string, runId: string): Array<Record<string, unk
  */
 function copyWorkflowDir(homeDir: string): void {
   const srcWorkflowDir = path.resolve(__dirname, "..", "workflows", "feature-dev-merge");
-  const dstWorkflowDir = path.join(homeDir, ".tamandua", "workflows", "feature-dev-merge");
+  const dstWorkflowDir = path.join(homeDir, ".canarinho", "workflows", "feature-dev-merge");
   fs.mkdirSync(path.dirname(dstWorkflowDir), { recursive: true });
   fs.cpSync(srcWorkflowDir, dstWorkflowDir, { recursive: true });
 }
@@ -260,14 +283,14 @@ describe("pause-all / resume-all integration", { concurrency: 1 }, () => {
     const dashboardPort = await getAvailablePort();
     const controlPort = await getAvailablePort();
 
-    const root = fs.mkdtempSync(path.join(os.tmpdir(), "tamandua-pa-int-test-"));
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "canarinho-pa-int-test-"));
     const homeDir = path.join(root, "home");
-    const tamanduaDir = path.join(homeDir, ".tamandua");
-    fs.mkdirSync(tamanduaDir, { recursive: true });
+    const canarinhoDir = path.join(homeDir, ".canarinho");
+    fs.mkdirSync(canarinhoDir, { recursive: true });
 
     copyWorkflowDir(homeDir);
 
-    const dbPath = path.join(tamanduaDir, "tamandua.db");
+    const dbPath = path.join(canarinhoDir, "canarinho.db");
 
     const run1 = crypto.randomUUID();
     const run2 = crypto.randomUUID();
@@ -287,7 +310,7 @@ describe("pause-all / resume-all integration", { concurrency: 1 }, () => {
     try {
       daemon = spawn("node", [DAEMON_SCRIPT, String(dashboardPort)], {
         env: cleanChildEnv({ HOME: homeDir,
-          TAMANDUA_CONTROL_PORT: String(controlPort), }),
+          canarinho_CONTROL_PORT: String(controlPort), }),
         stdio: ["ignore", "pipe", "pipe"],
       });
       daemon.stdout?.resume();
@@ -314,7 +337,7 @@ describe("pause-all / resume-all integration", { concurrency: 1 }, () => {
       // pause-all via CLI
       const result = await runCli(
         ["workflow", "pause-all"],
-        { HOME: homeDir, TAMANDUA_CONTROL_PORT: String(controlPort) },
+        { HOME: homeDir, canarinho_CONTROL_PORT: String(controlPort) },
       );
 
       assert.equal(result.exitCode, 0, `pause-all should succeed, got exit ${result.exitCode}, stderr: ${cleanStderr(result.stderr)}`);
@@ -338,10 +361,8 @@ describe("pause-all / resume-all integration", { concurrency: 1 }, () => {
       }
       db.close();
     } finally {
-      if (daemon && daemon.exitCode === null && daemon.pid) {
-        try { process.kill(daemon.pid, "SIGTERM"); } catch { /* ignore */ }
-      }
-      fs.rmSync(root, { recursive: true, force: true });
+      await stopDaemonAndWait(daemon)
+      safeRmSync(root);
     }
   });
 
@@ -355,14 +376,14 @@ describe("pause-all / resume-all integration", { concurrency: 1 }, () => {
     const dashboardPort = await getAvailablePort();
     const controlPort = await getAvailablePort();
 
-    const root = fs.mkdtempSync(path.join(os.tmpdir(), "tamandua-ra-int-test-"));
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "canarinho-ra-int-test-"));
     const homeDir = path.join(root, "home");
-    const tamanduaDir = path.join(homeDir, ".tamandua");
-    fs.mkdirSync(tamanduaDir, { recursive: true });
+    const canarinhoDir = path.join(homeDir, ".canarinho");
+    fs.mkdirSync(canarinhoDir, { recursive: true });
 
     copyWorkflowDir(homeDir);
 
-    const dbPath = path.join(tamanduaDir, "tamandua.db");
+    const dbPath = path.join(canarinhoDir, "canarinho.db");
 
     const run1 = crypto.randomUUID();
     const run2 = crypto.randomUUID();
@@ -382,7 +403,7 @@ describe("pause-all / resume-all integration", { concurrency: 1 }, () => {
     try {
       daemon = spawn("node", [DAEMON_SCRIPT, String(dashboardPort)], {
         env: cleanChildEnv({ HOME: homeDir,
-          TAMANDUA_CONTROL_PORT: String(controlPort), }),
+          canarinho_CONTROL_PORT: String(controlPort), }),
         stdio: ["ignore", "pipe", "pipe"],
       });
       daemon.stdout?.resume();
@@ -401,7 +422,7 @@ describe("pause-all / resume-all integration", { concurrency: 1 }, () => {
       // resume-all via CLI
       const result = await runCli(
         ["workflow", "resume-all"],
-        { HOME: homeDir, TAMANDUA_CONTROL_PORT: String(controlPort) },
+        { HOME: homeDir, canarinho_CONTROL_PORT: String(controlPort) },
       );
 
       assert.equal(result.exitCode, 0, `resume-all should succeed, got exit ${result.exitCode}, stderr: ${cleanStderr(result.stderr)}`);
@@ -425,10 +446,8 @@ describe("pause-all / resume-all integration", { concurrency: 1 }, () => {
       }
       db.close();
     } finally {
-      if (daemon && daemon.exitCode === null && daemon.pid) {
-        try { process.kill(daemon.pid, "SIGTERM"); } catch { /* ignore */ }
-      }
-      fs.rmSync(root, { recursive: true, force: true });
+      await stopDaemonAndWait(daemon)
+      safeRmSync(root);
     }
   });
 
@@ -442,14 +461,14 @@ describe("pause-all / resume-all integration", { concurrency: 1 }, () => {
     const dashboardPort = await getAvailablePort();
     const controlPort = await getAvailablePort();
 
-    const root = fs.mkdtempSync(path.join(os.tmpdir(), "tamandua-drain-int-test-"));
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "canarinho-drain-int-test-"));
     const homeDir = path.join(root, "home");
-    const tamanduaDir = path.join(homeDir, ".tamandua");
-    fs.mkdirSync(tamanduaDir, { recursive: true });
+    const canarinhoDir = path.join(homeDir, ".canarinho");
+    fs.mkdirSync(canarinhoDir, { recursive: true });
 
     copyWorkflowDir(homeDir);
 
-    const dbPath = path.join(tamanduaDir, "tamandua.db");
+    const dbPath = path.join(canarinhoDir, "canarinho.db");
 
     const run1 = crypto.randomUUID();
     const run2 = crypto.randomUUID();
@@ -466,7 +485,7 @@ describe("pause-all / resume-all integration", { concurrency: 1 }, () => {
     try {
       daemon = spawn("node", [DAEMON_SCRIPT, String(dashboardPort)], {
         env: cleanChildEnv({ HOME: homeDir,
-          TAMANDUA_CONTROL_PORT: String(controlPort), }),
+          canarinho_CONTROL_PORT: String(controlPort), }),
         stdio: ["ignore", "pipe", "pipe"],
       });
       daemon.stdout?.resume();
@@ -498,7 +517,7 @@ describe("pause-all / resume-all integration", { concurrency: 1 }, () => {
       // pause-all --drain via CLI
       const result = await runCli(
         ["workflow", "pause-all", "--drain"],
-        { HOME: homeDir, TAMANDUA_CONTROL_PORT: String(controlPort) },
+        { HOME: homeDir, canarinho_CONTROL_PORT: String(controlPort) },
       );
 
       assert.equal(result.exitCode, 0, `pause-all --drain should succeed, got exit ${result.exitCode}, stderr: ${cleanStderr(result.stderr)}`);
@@ -525,10 +544,8 @@ describe("pause-all / resume-all integration", { concurrency: 1 }, () => {
       assert.ok(jobsDuring.has(run1), "Expected scheduler job for run1 during drain");
       assert.ok(jobsDuring.has(run2), "Expected scheduler job for run2 during drain");
     } finally {
-      if (daemon && daemon.exitCode === null && daemon.pid) {
-        try { process.kill(daemon.pid, "SIGTERM"); } catch { /* ignore */ }
-      }
-      fs.rmSync(root, { recursive: true, force: true });
+      await stopDaemonAndWait(daemon)
+      safeRmSync(root);
     }
   });
 
@@ -542,14 +559,14 @@ describe("pause-all / resume-all integration", { concurrency: 1 }, () => {
     const dashboardPort = await getAvailablePort();
     const controlPort = await getAvailablePort();
 
-    const root = fs.mkdtempSync(path.join(os.tmpdir(), "tamandua-drain-final-test-"));
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "canarinho-drain-final-test-"));
     const homeDir = path.join(root, "home");
-    const tamanduaDir = path.join(homeDir, ".tamandua");
-    fs.mkdirSync(tamanduaDir, { recursive: true });
+    const canarinhoDir = path.join(homeDir, ".canarinho");
+    fs.mkdirSync(canarinhoDir, { recursive: true });
 
     copyWorkflowDir(homeDir);
 
-    const dbPath = path.join(tamanduaDir, "tamandua.db");
+    const dbPath = path.join(canarinhoDir, "canarinho.db");
 
     const runId = crypto.randomUUID();
     const stepId1 = crypto.randomUUID();
@@ -638,11 +655,11 @@ describe("pause-all / resume-all integration", { concurrency: 1 }, () => {
     let daemon: ChildProcess | undefined;
 
     try {
-      // Must set TAMANDUA_STATE_DIR so emitEvent() and getDb() use the same root
+      // Must set canarinho_STATE_DIR so emitEvent() and getDb() use the same root
       daemon = spawn("node", [DAEMON_SCRIPT, String(dashboardPort)], {
         env: cleanChildEnv({ HOME: homeDir,
-          TAMANDUA_CONTROL_PORT: String(controlPort),
-          TAMANDUA_STATE_DIR: tamanduaDir, }),
+          canarinho_CONTROL_PORT: String(controlPort),
+          canarinho_STATE_DIR: canarinhoDir, }),
         stdio: ["ignore", "pipe", "pipe"],
       });
       daemon.stdout?.resume();
@@ -654,7 +671,7 @@ describe("pause-all / resume-all integration", { concurrency: 1 }, () => {
       // This triggers finalizeDrainingPause internally in completeStep
       const completeResult = await runCli(
         ["step", "complete", stepId2, "STATUS: done"],
-        { HOME: homeDir, TAMANDUA_STATE_DIR: tamanduaDir },
+        { HOME: homeDir, canarinho_STATE_DIR: canarinhoDir },
       );
 
       // step complete writes to stdout, but might emit warnings
@@ -676,10 +693,8 @@ describe("pause-all / resume-all integration", { concurrency: 1 }, () => {
       );
       db.close();
     } finally {
-      if (daemon && daemon.exitCode === null && daemon.pid) {
-        try { process.kill(daemon.pid, "SIGTERM"); } catch { /* ignore */ }
-      }
-      fs.rmSync(root, { recursive: true, force: true });
+      await stopDaemonAndWait(daemon)
+      safeRmSync(root);
     }
   });
 
@@ -693,14 +708,14 @@ describe("pause-all / resume-all integration", { concurrency: 1 }, () => {
     const dashboardPort = await getAvailablePort();
     const controlPort = await getAvailablePort();
 
-    const root = fs.mkdtempSync(path.join(os.tmpdir(), "tamandua-term-int-test-"));
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "canarinho-term-int-test-"));
     const homeDir = path.join(root, "home");
-    const tamanduaDir = path.join(homeDir, ".tamandua");
-    fs.mkdirSync(tamanduaDir, { recursive: true });
+    const canarinhoDir = path.join(homeDir, ".canarinho");
+    fs.mkdirSync(canarinhoDir, { recursive: true });
 
     copyWorkflowDir(homeDir);
 
-    const dbPath = path.join(tamanduaDir, "tamandua.db");
+    const dbPath = path.join(canarinhoDir, "canarinho.db");
 
     const runningId = crypto.randomUUID();
     const completedId = crypto.randomUUID();
@@ -721,7 +736,7 @@ describe("pause-all / resume-all integration", { concurrency: 1 }, () => {
     try {
       daemon = spawn("node", [DAEMON_SCRIPT, String(dashboardPort)], {
         env: cleanChildEnv({ HOME: homeDir,
-          TAMANDUA_CONTROL_PORT: String(controlPort), }),
+          canarinho_CONTROL_PORT: String(controlPort), }),
         stdio: ["ignore", "pipe", "pipe"],
       });
       daemon.stdout?.resume();
@@ -741,7 +756,7 @@ describe("pause-all / resume-all integration", { concurrency: 1 }, () => {
       // pause-all
       const result = await runCli(
         ["workflow", "pause-all"],
-        { HOME: homeDir, TAMANDUA_CONTROL_PORT: String(controlPort) },
+        { HOME: homeDir, canarinho_CONTROL_PORT: String(controlPort) },
       );
 
       assert.equal(result.exitCode, 0, `pause-all should succeed`);
@@ -771,10 +786,8 @@ describe("pause-all / resume-all integration", { concurrency: 1 }, () => {
       );
       db.close();
     } finally {
-      if (daemon && daemon.exitCode === null && daemon.pid) {
-        try { process.kill(daemon.pid, "SIGTERM"); } catch { /* ignore */ }
-      }
-      fs.rmSync(root, { recursive: true, force: true });
+      await stopDaemonAndWait(daemon)
+      safeRmSync(root);
     }
   });
 
@@ -788,14 +801,14 @@ describe("pause-all / resume-all integration", { concurrency: 1 }, () => {
     const dashboardPort = await getAvailablePort();
     const controlPort = await getAvailablePort();
 
-    const root = fs.mkdtempSync(path.join(os.tmpdir(), "tamandua-ra-term-test-"));
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "canarinho-ra-term-test-"));
     const homeDir = path.join(root, "home");
-    const tamanduaDir = path.join(homeDir, ".tamandua");
-    fs.mkdirSync(tamanduaDir, { recursive: true });
+    const canarinhoDir = path.join(homeDir, ".canarinho");
+    fs.mkdirSync(canarinhoDir, { recursive: true });
 
     copyWorkflowDir(homeDir);
 
-    const dbPath = path.join(tamanduaDir, "tamandua.db");
+    const dbPath = path.join(canarinhoDir, "canarinho.db");
 
     const pausedId = crypto.randomUUID();
     const runningId = crypto.randomUUID();
@@ -816,7 +829,7 @@ describe("pause-all / resume-all integration", { concurrency: 1 }, () => {
     try {
       daemon = spawn("node", [DAEMON_SCRIPT, String(dashboardPort)], {
         env: cleanChildEnv({ HOME: homeDir,
-          TAMANDUA_CONTROL_PORT: String(controlPort), }),
+          canarinho_CONTROL_PORT: String(controlPort), }),
         stdio: ["ignore", "pipe", "pipe"],
       });
       daemon.stdout?.resume();
@@ -827,7 +840,7 @@ describe("pause-all / resume-all integration", { concurrency: 1 }, () => {
       // resume-all
       const result = await runCli(
         ["workflow", "resume-all"],
-        { HOME: homeDir, TAMANDUA_CONTROL_PORT: String(controlPort) },
+        { HOME: homeDir, canarinho_CONTROL_PORT: String(controlPort) },
       );
 
       assert.equal(result.exitCode, 0, `resume-all should succeed`);
@@ -861,10 +874,8 @@ describe("pause-all / resume-all integration", { concurrency: 1 }, () => {
       );
       db.close();
     } finally {
-      if (daemon && daemon.exitCode === null && daemon.pid) {
-        try { process.kill(daemon.pid, "SIGTERM"); } catch { /* ignore */ }
-      }
-      fs.rmSync(root, { recursive: true, force: true });
+      await stopDaemonAndWait(daemon)
+      safeRmSync(root);
     }
   });
 
@@ -878,14 +889,14 @@ describe("pause-all / resume-all integration", { concurrency: 1 }, () => {
     const dashboardPort = await getAvailablePort();
     const controlPort = await getAvailablePort();
 
-    const root = fs.mkdtempSync(path.join(os.tmpdir(), "tamandua-ev-pause-test-"));
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "canarinho-ev-pause-test-"));
     const homeDir = path.join(root, "home");
-    const tamanduaDir = path.join(homeDir, ".tamandua");
-    fs.mkdirSync(tamanduaDir, { recursive: true });
+    const canarinhoDir = path.join(homeDir, ".canarinho");
+    fs.mkdirSync(canarinhoDir, { recursive: true });
 
     copyWorkflowDir(homeDir);
 
-    const dbPath = path.join(tamanduaDir, "tamandua.db");
+    const dbPath = path.join(canarinhoDir, "canarinho.db");
 
     const run1 = crypto.randomUUID();
     const run2 = crypto.randomUUID();
@@ -902,7 +913,7 @@ describe("pause-all / resume-all integration", { concurrency: 1 }, () => {
     try {
       daemon = spawn("node", [DAEMON_SCRIPT, String(dashboardPort)], {
         env: cleanChildEnv({ HOME: homeDir,
-          TAMANDUA_CONTROL_PORT: String(controlPort), }),
+          canarinho_CONTROL_PORT: String(controlPort), }),
         stdio: ["ignore", "pipe", "pipe"],
       });
       daemon.stdout?.resume();
@@ -919,7 +930,7 @@ describe("pause-all / resume-all integration", { concurrency: 1 }, () => {
       // pause-all
       const result = await runCli(
         ["workflow", "pause-all"],
-        { HOME: homeDir, TAMANDUA_CONTROL_PORT: String(controlPort) },
+        { HOME: homeDir, canarinho_CONTROL_PORT: String(controlPort) },
       );
       assert.equal(result.exitCode, 0, `pause-all should succeed`);
 
@@ -934,7 +945,7 @@ describe("pause-all / resume-all integration", { concurrency: 1 }, () => {
       }
 
       // Check global events file
-      const globalEventsPath = path.join(tamanduaDir, "events", "all.jsonl");
+      const globalEventsPath = path.join(canarinhoDir, "events", "all.jsonl");
       assert.ok(fs.existsSync(globalEventsPath), "Global events file should exist");
       const globalContent = fs.readFileSync(globalEventsPath, "utf-8").trim();
       const globalLines = globalContent.split("\n");
@@ -943,10 +954,8 @@ describe("pause-all / resume-all integration", { concurrency: 1 }, () => {
       });
       assert.ok(pauseLines.length >= 2, `Expected at least 2 run.paused events in global file, got ${pauseLines.length}`);
     } finally {
-      if (daemon && daemon.exitCode === null && daemon.pid) {
-        try { process.kill(daemon.pid, "SIGTERM"); } catch { /* ignore */ }
-      }
-      fs.rmSync(root, { recursive: true, force: true });
+      await stopDaemonAndWait(daemon)
+      safeRmSync(root);
     }
   });
 
@@ -959,14 +968,14 @@ describe("pause-all / resume-all integration", { concurrency: 1 }, () => {
     const dashboardPort = await getAvailablePort();
     const controlPort = await getAvailablePort();
 
-    const root = fs.mkdtempSync(path.join(os.tmpdir(), "tamandua-ev-resume-test-"));
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "canarinho-ev-resume-test-"));
     const homeDir = path.join(root, "home");
-    const tamanduaDir = path.join(homeDir, ".tamandua");
-    fs.mkdirSync(tamanduaDir, { recursive: true });
+    const canarinhoDir = path.join(homeDir, ".canarinho");
+    fs.mkdirSync(canarinhoDir, { recursive: true });
 
     copyWorkflowDir(homeDir);
 
-    const dbPath = path.join(tamanduaDir, "tamandua.db");
+    const dbPath = path.join(canarinhoDir, "canarinho.db");
 
     const run1 = crypto.randomUUID();
     const run2 = crypto.randomUUID();
@@ -983,7 +992,7 @@ describe("pause-all / resume-all integration", { concurrency: 1 }, () => {
     try {
       daemon = spawn("node", [DAEMON_SCRIPT, String(dashboardPort)], {
         env: cleanChildEnv({ HOME: homeDir,
-          TAMANDUA_CONTROL_PORT: String(controlPort), }),
+          canarinho_CONTROL_PORT: String(controlPort), }),
         stdio: ["ignore", "pipe", "pipe"],
       });
       daemon.stdout?.resume();
@@ -994,7 +1003,7 @@ describe("pause-all / resume-all integration", { concurrency: 1 }, () => {
       // resume-all
       const result = await runCli(
         ["workflow", "resume-all"],
-        { HOME: homeDir, TAMANDUA_CONTROL_PORT: String(controlPort) },
+        { HOME: homeDir, canarinho_CONTROL_PORT: String(controlPort) },
       );
       assert.equal(result.exitCode, 0, `resume-all should succeed`);
 
@@ -1009,7 +1018,7 @@ describe("pause-all / resume-all integration", { concurrency: 1 }, () => {
       }
 
       // Check global events file
-      const globalEventsPath = path.join(tamanduaDir, "events", "all.jsonl");
+      const globalEventsPath = path.join(canarinhoDir, "events", "all.jsonl");
       assert.ok(fs.existsSync(globalEventsPath), "Global events file should exist");
       const globalContent = fs.readFileSync(globalEventsPath, "utf-8").trim();
       const globalLines = globalContent.split("\n");
@@ -1018,10 +1027,8 @@ describe("pause-all / resume-all integration", { concurrency: 1 }, () => {
       });
       assert.ok(resumeLines.length >= 2, `Expected at least 2 run.resumed events in global file, got ${resumeLines.length}`);
     } finally {
-      if (daemon && daemon.exitCode === null && daemon.pid) {
-        try { process.kill(daemon.pid, "SIGTERM"); } catch { /* ignore */ }
-      }
-      fs.rmSync(root, { recursive: true, force: true });
+      await stopDaemonAndWait(daemon)
+      safeRmSync(root);
     }
   });
 
@@ -1035,14 +1042,14 @@ describe("pause-all / resume-all integration", { concurrency: 1 }, () => {
     const dashboardPort = await getAvailablePort();
     const controlPort = await getAvailablePort();
 
-    const root = fs.mkdtempSync(path.join(os.tmpdir(), "tamandua-drain-nospawn-test-"));
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "canarinho-drain-nospawn-test-"));
     const homeDir = path.join(root, "home");
-    const tamanduaDir = path.join(homeDir, ".tamandua");
-    fs.mkdirSync(tamanduaDir, { recursive: true });
+    const canarinhoDir = path.join(homeDir, ".canarinho");
+    fs.mkdirSync(canarinhoDir, { recursive: true });
 
     copyWorkflowDir(homeDir);
 
-    const dbPath = path.join(tamanduaDir, "tamandua.db");
+    const dbPath = path.join(canarinhoDir, "canarinho.db");
 
     // Create one run that has an in-flight (running) step AND a waiting step
     const runId = crypto.randomUUID();
@@ -1119,7 +1126,7 @@ describe("pause-all / resume-all integration", { concurrency: 1 }, () => {
     try {
       daemon = spawn("node", [DAEMON_SCRIPT, String(dashboardPort)], {
         env: cleanChildEnv({ HOME: homeDir,
-          TAMANDUA_CONTROL_PORT: String(controlPort), }),
+          canarinho_CONTROL_PORT: String(controlPort), }),
         stdio: ["ignore", "pipe", "pipe"],
       });
       daemon.stdout?.resume();
@@ -1142,7 +1149,7 @@ describe("pause-all / resume-all integration", { concurrency: 1 }, () => {
       // Pause with drain via CLI
       const result = await runCli(
         ["workflow", "pause", runId.slice(0, 8), "--drain"],
-        { HOME: homeDir, TAMANDUA_CONTROL_PORT: String(controlPort) },
+        { HOME: homeDir, canarinho_CONTROL_PORT: String(controlPort) },
       );
       assert.equal(result.exitCode, 0, `pause --drain should succeed`);
 
@@ -1170,10 +1177,8 @@ describe("pause-all / resume-all integration", { concurrency: 1 }, () => {
       );
       db2.close();
     } finally {
-      if (daemon && daemon.exitCode === null && daemon.pid) {
-        try { process.kill(daemon.pid, "SIGTERM"); } catch { /* ignore */ }
-      }
-      fs.rmSync(root, { recursive: true, force: true });
+      await stopDaemonAndWait(daemon)
+      safeRmSync(root);
     }
   });
 });

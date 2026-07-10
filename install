@@ -1,5 +1,5 @@
 #!/bin/bash
-# Install tamandua globally from local checkout.
+# Install canarinho globally from local checkout.
 # Calls scripts/install.sh with --local to use the current source tree.
 set -euo pipefail
 

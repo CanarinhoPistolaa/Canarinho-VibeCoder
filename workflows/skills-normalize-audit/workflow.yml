@@ -19,7 +19,7 @@ agents:
     workspace:
       baseDir: agents/scanner
       skills:
-        - tamandua-agents
+        - canarinho-agents
       files:
         AGENTS.md: agents/scanner/AGENTS.md
         SOUL.md: agents/scanner/SOUL.md
@@ -34,7 +34,7 @@ agents:
     workspace:
       baseDir: agents/auditor
       skills:
-        - tamandua-agents
+        - canarinho-agents
       files:
         AGENTS.md: agents/auditor/AGENTS.md
         SOUL.md: agents/auditor/SOUL.md
@@ -48,7 +48,7 @@ agents:
     workspace:
       baseDir: agents/reporter
       skills:
-        - tamandua-agents
+        - canarinho-agents
       files:
         AGENTS.md: agents/reporter/AGENTS.md
         SOUL.md: agents/reporter/SOUL.md

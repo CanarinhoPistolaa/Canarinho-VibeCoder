@@ -14,7 +14,7 @@
 
 ## 3. Missing Artifact Types in Change-Review Instructions
 
-The **"Skills and Agent Instructions"** section (line 126) currently only tells developers to check `skills/tamandua-agents/SKILL.md`. The following artifacts are also affected by Tamandua changes and should be included in the review checklist:
+The **"Skills and Agent Instructions"** section (line 126) currently only tells developers to check `skills/canarinho-agents/SKILL.md`. The following artifacts are also affected by canarinho changes and should be included in the review checklist:
 
 | Artifact Type | Path | Why It Should Be Reviewed |
 |--------------|------|--------------------------|
@@ -54,7 +54,7 @@ The 6 numbered steps are very granular — lines 3 and 6 explain internal implem
 
 ## 5. "Skills and Agent Instructions" Section Scope (lines 126-138)
 
-This section is named "Skills and Agent Instructions" but only covers `skills/tamandua-agents/SKILL.md`. It should be renamed to reflect that it's about artifact-wide review obligations, not just skills. Suggested rename: **"Artifacts to Review on Changes"** or **"Change Impact Review"**.
+This section is named "Skills and Agent Instructions" but only covers `skills/canarinho-agents/SKILL.md`. It should be renamed to reflect that it's about artifact-wide review obligations, not just skills. Suggested rename: **"Artifacts to Review on Changes"** or **"Change Impact Review"**.
 
 ---
 

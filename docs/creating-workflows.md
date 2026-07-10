@@ -1,6 +1,6 @@
 # Creating Workflows
 
-This guide walks through creating a custom workflow for Tamandua.
+This guide walks through creating a custom workflow for canarinho.
 
 ## Overview
 
@@ -8,7 +8,7 @@ A workflow is a directory containing:
 - `workflow.yml` — the workflow specification
 - One subdirectory per agent (path set by `workspace.baseDir`) holding the agent's persona files (`AGENTS.md`, `IDENTITY.md`, `SOUL.md`)
 
-When installed, the workflow is copied to `~/.tamandua/workflows/<workflow-id>/` and each agent's workspace is provisioned under `~/.tamandua/workspaces/workflows/<workflow-id>_<agent-id>/`.
+When installed, the workflow is copied to `~/.canarinho/workflows/<workflow-id>/` and each agent's workspace is provisioned under `~/.canarinho/workspaces/workflows/<workflow-id>_<agent-id>/`.
 
 ## workflow.yml
 
@@ -43,7 +43,7 @@ agents:
                                # this agent's persona files. AGENTS.md, IDENTITY.md, and
                                # SOUL.md are picked up automatically from here.
       skills:                  # Optional. Skill names to install for this agent.
-        - tamandua-agents
+        - canarinho-agents
       files:                   # Optional. Extra files to copy into the workspace,
                                # or overrides for the persona files. Keys are the
                                # destination filename in the workspace; values are
@@ -110,7 +110,7 @@ You can also list extra files (or override the persona files) under `workspace.f
 Example `AGENTS.md`:
 
 ```markdown
-You are a workflow agent in the Tamandua system.
+You are a workflow agent in the canarinho system.
 Your role: Planner.
 You decompose tasks into implementable stories.
 
@@ -136,7 +136,7 @@ The context for each step is built from:
 
 | Placeholder | Description |
 |-------------|-------------|
-| `{{task}}` | The task description from `tamandua workflow run` |
+| `{{task}}` | The task description from `canarinho workflow run` |
 | `{{run_id}}` | The run UUID |
 
 ### Computed when context allows
@@ -156,7 +156,7 @@ The context for each step is built from:
 | `{{completed_stories}}` | Bullet list of completed stories, or `(none yet)` |
 | `{{stories_remaining}}` | Count of pending + running stories |
 | `{{progress}}` | Contents of the progress file (if the agent maintains one) |
-| `{{progress_file}}` | Absolute path to the progress file (e.g. `~/.tamandua/runs/<run_id>/progress.txt`) |
+| `{{progress_file}}` | Absolute path to the progress file (e.g. `~/.canarinho/runs/<run_id>/progress.txt`) |
 | `{{verify_feedback}}` | Feedback from the verify step on retry, else empty |
 
 ### From prior step `KEY: value` outputs
@@ -289,7 +289,7 @@ The contract lint test (`tests/workflow-contract-lint.test.ts`) iterates every b
 
 Verification steps MUST compare the branch against its **merge-base** with main — not against main's current tip. Use three-dot `git diff main...{{branch}}`, never two-dot `git diff main..{{branch}}`.
 
-**Why it matters:** Tamandua runs multiple workflows concurrently against the same repo. When a sibling run merges to main mid-flight, two-dot `main..{{branch}}` picks up the new main tip and makes every not-yet-merged branch appear to *remove* the sibling's changes — verifiers reject honest work as "unclaimed modifications" or "hard constraint violations." The verifier then burns its entire retry budget re-running against the same unchanged diff (deterministic failure) and reroutes to a fixer that doesn't know it needs to rebase.
+**Why it matters:** canarinho runs multiple workflows concurrently against the same repo. When a sibling run merges to main mid-flight, two-dot `main..{{branch}}` picks up the new main tip and makes every not-yet-merged branch appear to *remove* the sibling's changes — verifiers reject honest work as "unclaimed modifications" or "hard constraint violations." The verifier then burns its entire retry budget re-running against the same unchanged diff (deterministic failure) and reroutes to a fixer that doesn't know it needs to rebase.
 
 Three-dot `main...{{branch}}` compares against `merge-base(main, branch)` — Git's answer to "what did this branch change since it forked?" — which is immune to main moving during a run. Worktrees are cut from main's tip at launch, so the merge-base equals the `base_branch_sha` recorded in the run context, making the alignment exact.
 
@@ -449,7 +449,7 @@ npm run build && npm test
 
 | Role | Capabilities | Use For | Default timeout |
 |------|--------------|---------|-----------------|
-| `analysis`     | Read code, reason — no write/exec restrictions enforced by tamandua, used as a description on pi | Planner, reviewer, investigator, triager | 3600s (60m) |
+| `analysis`     | Read code, reason — no write/exec restrictions enforced by canarinho, used as a description on pi | Planner, reviewer, investigator, triager | 3600s (60m) |
 | `coding`       | Read/write/exec — primary workhorse role            | Developer, fixer, setup        | 3600s (60m) |
 | `verification` | Read + exec, no write — independent verification    | Verifier                       | 2400s (40m) |
 | `testing`      | Read + exec for E2E, no write                       | Tester                         | 3600s (60m) |
@@ -460,7 +460,7 @@ If `role` is omitted, the role is inferred from the agent id (e.g., ids containi
 
 ## Retry and Rerouting
 
-When a step fails and exhausts its retry budget (`max_retries`), Tamandua consults the `on_fail` block for recovery directives. There are two layers: **retry (in-place)** and **reroute (cross-step)**.
+When a step fails and exhausts its retry budget (`max_retries`), canarinho consults the `on_fail` block for recovery directives. There are two layers: **retry (in-place)** and **reroute (cross-step)**.
 
 ### In-Place Retries
 
@@ -475,7 +475,7 @@ The step-level `max_retries` controls how many times the agent gets to retry _it
 
 ### Cross-Step Rerouting (RETR)
 
-When a step exhausts its retries, Tamandua checks `on_fail.retry_step`. If declared, instead of failing the run, the system **reroutes** to an upstream producer step — giving it fresh context so it can produce a corrected output that the consumer can use.
+When a step exhausts its retries, canarinho checks `on_fail.retry_step`. If declared, instead of failing the run, the system **reroutes** to an upstream producer step — giving it fresh context so it can produce a corrected output that the consumer can use.
 
 ```yaml
 - id: setup
@@ -563,16 +563,16 @@ YAML uses snake_case (`fresh_session`, `verify_each`, `verify_step`); the camelC
 
 ```bash
 # List available bundled workflows
-tamandua workflow list
+canarinho workflow list
 
 # Install a bundled workflow by name
-tamandua workflow install <workflow-id>
+canarinho workflow install <workflow-id>
 
 # Install all bundled workflows at once
-tamandua workflow install --all
+canarinho workflow install --all
 
 # Run it
-tamandua workflow run <workflow-id> "your task description"
+canarinho workflow run <workflow-id> "your task description"
 ```
 
-`tamandua workflow install` only accepts the **id of a workflow bundled with this repo** (a directory under `workflows/` in the tamandua source checkout). Installing a custom workflow from a filesystem path or a remote URL is not currently supported by the CLI — to add a custom workflow, drop it into the `workflows/` directory of your tamandua checkout and reinstall.
+`canarinho workflow install` only accepts the **id of a workflow bundled with this repo** (a directory under `workflows/` in the canarinho source checkout). Installing a custom workflow from a filesystem path or a remote URL is not currently supported by the CLI — to add a custom workflow, drop it into the `workflows/` directory of your canarinho checkout and reinstall.

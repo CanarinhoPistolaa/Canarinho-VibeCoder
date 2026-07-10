@@ -2,7 +2,7 @@
 
 ## Deferred / Complex
 
-- **completeStep testing**: The `completeStep` function in step-ops.ts (~400 lines, multiple branches) is the largest uncovered block in tamandua. Testing it requires a full DB with runs, steps, stories, and workflow context. Could be done with TAMANDUA_DB_PATH isolation + pre-seeded DB state.
+- **completeStep testing**: The `completeStep` function in step-ops.ts (~400 lines, multiple branches) is the largest uncovered block in canarinho. Testing it requires a full DB with runs, steps, stories, and workflow context. Could be done with canarinho_DB_PATH isolation + pre-seeded DB state.
 
 - **claimStep loop story logic**: The story-based loop in claimStep (pick next pending story, handle retries, verify_each) is complex and largely uncovered. Needs seeded stories + steps in DB.
 
@@ -14,7 +14,7 @@
 
 - **runUpdate integration**: The `runUpdate` function orchestrates git pull + build + service restart + workflow reinstall. Testing with mocks would cover ~30+ uncovered lines.
 
-- **Filter coverage to tamandua only**: Modify measure-test-coverage.sh to only count `dist/` files, excluding pi dependencies. This would give a clean tamandua-specific metric that actually reflects our progress. Currently pi dependencies (~thousands of uncovered lines) dominate the metric.
+- **Filter coverage to canarinho only**: Modify measure-test-coverage.sh to only count `dist/` files, excluding pi dependencies. This would give a clean canarinho-specific metric that actually reflects our progress. Currently pi dependencies (~thousands of uncovered lines) dominate the metric.
 
 - **cleanupAbandonedSteps / recoverOrphanedStepsForAgent**: These functions handle timeout/abandonment recovery with complex DB logic. Testable with DB isolation + pre-seeded stuck steps.
 

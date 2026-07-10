@@ -61,10 +61,10 @@ describe("README workflow documentation", () => {
     );
   });
 
-  it("references tamandua workflow list command", () => {
+  it("references canarinho workflow list command", () => {
     assert.ok(
-      readmeContent.includes("tamandua workflow list"),
-      "README should mention tamandua workflow list"
+      readmeContent.includes("canarinho workflow list"),
+      "README should mention canarinho workflow list"
     );
   });
 
@@ -88,7 +88,7 @@ describe("README workflow pipeline and agent count accuracy", () => {
   it("feature-dev Quick Example does not show pr or review steps", () => {
     // The Quick Example section uses feature-dev, which is local-only (5 steps, no pr/review).
     // Make sure the example status output does not include pr or review steps.
-    const afterStatus = readmeContent.split("tamandua workflow status")[1];
+    const afterStatus = readmeContent.split("canarinho workflow status")[1];
     assert.ok(afterStatus, "Should find status output example");
     const statusExample = afterStatus.split("\n```")[0];
     assert.ok(statusExample, "Should extract status example block");

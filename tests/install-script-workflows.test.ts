@@ -2,9 +2,9 @@
  * Tests for scripts/install.sh bundled workflow installation (US-001).
  *
  * Validates:
- * 1. install.sh calls tamandua workflow install --all after symlink creation
+ * 1. install.sh calls canarinho workflow install --all after symlink creation
  * 2. install.sh does not fail if workflow installation fails (exit code still 0)
- * 3. Final output no longer instructs user to run tamandua get-ready manually
+ * 3. Final output no longer instructs user to run canarinho get-ready manually
  * 4. The PATH reminder line is preserved
  */
 
@@ -23,7 +23,7 @@ const INSTALL_SCRIPT = path.resolve(__dirname, "..", "scripts", "install.sh");
 const REPO_ROOT = path.resolve(__dirname, "..");
 
 function createTempHome(): string {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "tamandua-inst-sh-"));
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "canarinho-inst-sh-"));
   const piAgentDir = path.join(dir, ".pi", "agent");
   fs.mkdirSync(piAgentDir, { recursive: true });
   fs.writeFileSync(
@@ -35,7 +35,7 @@ function createTempHome(): string {
 }
 
 describe("scripts/install.sh — bundled workflow installation", () => {
-  // AC 1: install.sh calls tamandua workflow install --all after symlink creation
+  // AC 1: install.sh calls canarinho workflow install --all after symlink creation
   it("script source contains workflow install --all after symlink creation", () => {
     const content = fs.readFileSync(INSTALL_SCRIPT, "utf-8");
 
@@ -83,18 +83,18 @@ describe("scripts/install.sh — bundled workflow installation", () => {
     );
   });
 
-  // AC 3: Final output no longer instructs user to run tamandua get-ready manually
-  it("output no longer mentions 'tamandua get-ready'", () => {
+  // AC 3: Final output no longer instructs user to run canarinho get-ready manually
+  it("output no longer mentions 'canarinho get-ready'", () => {
     const content = fs.readFileSync(INSTALL_SCRIPT, "utf-8");
 
     // Should NOT instruct user to run get-ready manually
     assert.ok(
-      !content.includes("Run: tamandua get-ready"),
-      "install.sh should NOT instruct user to run 'tamandua get-ready' manually",
+      !content.includes("Run: canarinho get-ready"),
+      "install.sh should NOT instruct user to run 'canarinho get-ready' manually",
     );
     assert.ok(
-      !content.includes("tamandua get-ready"),
-      "install.sh should NOT reference 'tamandua get-ready' anywhere",
+      !content.includes("canarinho get-ready"),
+      "install.sh should NOT reference 'canarinho get-ready' anywhere",
     );
   });
 
@@ -137,14 +137,14 @@ describe("scripts/install.sh — bundled workflow installation", () => {
 
       // Output should NOT mention get-ready
       assert.ok(
-        !stdout.includes("tamandua get-ready"),
-        `Output should not mention 'tamandua get-ready'. Got: ${stdout.slice(0, 500)}`,
+        !stdout.includes("canarinho get-ready"),
+        `Output should not mention 'canarinho get-ready'. Got: ${stdout.slice(0, 500)}`,
       );
 
       // Output should mention success
       assert.ok(
-        stdout.includes("Tamandua installed successfully!"),
-        `Expected 'Tamandua installed successfully!' in output. Got: ${stdout.slice(0, 500)}`,
+        stdout.includes("canarinho installed successfully!"),
+        `Expected 'canarinho installed successfully!' in output. Got: ${stdout.slice(0, 500)}`,
       );
 
       // PATH reminder should be present
@@ -154,14 +154,14 @@ describe("scripts/install.sh — bundled workflow installation", () => {
       );
 
       // Symlink should exist and be executable
-      const symlinkPath = path.join(tempHome, ".local", "bin", "tamandua");
+      const symlinkPath = path.join(tempHome, ".local", "bin", "canarinho");
       assert.ok(
         fs.existsSync(symlinkPath),
         `Symlink should exist at ${symlinkPath}`,
       );
 
       // Workflow directories should exist
-      const workflowsRoot = path.join(tempHome, ".tamandua", "workflows");
+      const workflowsRoot = path.join(tempHome, ".canarinho", "workflows");
       assert.ok(
         fs.existsSync(workflowsRoot),
         `Workflows directory should exist at ${workflowsRoot}`,
@@ -176,7 +176,7 @@ describe("scripts/install.sh — bundled workflow installation", () => {
       );
 
       // agents.json should be populated
-      const agentsPath = path.join(tempHome, ".tamandua", "agents.json");
+      const agentsPath = path.join(tempHome, ".canarinho", "agents.json");
       assert.ok(fs.existsSync(agentsPath), "agents.json should exist");
       const agents = JSON.parse(fs.readFileSync(agentsPath, "utf-8"));
       assert.ok(Array.isArray(agents), "agents.json should be an array");

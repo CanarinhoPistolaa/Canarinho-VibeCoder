@@ -28,7 +28,7 @@ import { cleanChildEnv } from "./helpers/test-env.ts";
 const repoRoot = process.cwd();
 
 function createTempHome() {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), "tamandua-motor-acceptance-"));
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "canarinho-motor-acceptance-"));
   const homeDir = path.join(root, "home");
   fs.mkdirSync(homeDir, { recursive: true });
   return { root, homeDir };
@@ -163,20 +163,20 @@ function runDispatchRounds(opts: {
       }
 
       const run = db.prepare("SELECT tokens_spent FROM runs WHERE id = ?").get(runId);
-      const stats = db.prepare("SELECT system_tokens_spent FROM tamandua_stats WHERE id = 1").get();
+      const stats = db.prepare("SELECT system_tokens_spent FROM canarinho_stats WHERE id = 1").get();
 
       const journalPath = ${JSON.stringify(opts.journalPath)};
       const invocations = fs.existsSync(journalPath)
         ? fs.readFileSync(journalPath, "utf-8").split(/\\r?\\n/).filter(Boolean).length
         : 0;
 
-      const eventsPath = path.join(process.env.HOME, ".tamandua", "events", runId + ".jsonl");
+      const eventsPath = path.join(process.env.HOME, ".canarinho", "events", runId + ".jsonl");
       const events = fs.existsSync(eventsPath)
         ? fs.readFileSync(eventsPath, "utf-8").split(/\\r?\\n/).filter(Boolean).map((l) => JSON.parse(l))
         : [];
       const tokenEvents = events.filter((e) => e.event === "run.tokens.updated");
 
-      const logPath = path.join(process.env.HOME, ".tamandua", "tamandua.log");
+      const logPath = path.join(process.env.HOME, ".canarinho", "canarinho.log");
       const log = fs.existsSync(logPath) ? fs.readFileSync(logPath, "utf-8") : "";
 
       console.log(JSON.stringify({
@@ -191,11 +191,11 @@ function runDispatchRounds(opts: {
     `,
     {
       HOME: opts.homeDir,
-      TAMANDUA_PI_BINARY: opts.fakePiPath,
+      canarinho_PI_BINARY: opts.fakePiPath,
       // The N1 assertion counts "Dispatch round idle" lines as its probe
       // that each idle round ran; those lines are debug-level and dropped
-      // unless TAMANDUA_DEBUG is set.
-      TAMANDUA_DEBUG: "1",
+      // unless canarinho_DEBUG is set.
+      canarinho_DEBUG: "1",
     },
   );
 }

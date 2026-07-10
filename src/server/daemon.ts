@@ -1,16 +1,16 @@
 /**
- * Tamandua Dashboard Daemon
+ * canarinho Dashboard Daemon
  *
  * Runs the dashboard server, optionally alongside the MCP server.
  *
- * - Reads dashboard port from ~/.tamandua/port
+ * - Reads dashboard port from ~/.canarinho/port
  * - Dashboard listens on configured port (default fallback 3333)
  * - MCP is only started when --with-mcp is passed (default port 3338)
- * - Writes PID file on start (~/.tamandua/tamandua.pid)
+ * - Writes PID file on start (~/.canarinho/canarinho.pid)
  * - Cleans up PID file on exit
  *
  * CLI flags:
- *   [port]          Dashboard port (positional, overridden by ~/.tamandua/port)
+ *   [port]          Dashboard port (positional, overridden by ~/.canarinho/port)
  *   --with-mcp      Start MCP server alongside the dashboard
  *   --mcp-port N    Custom MCP port (only meaningful with --with-mcp)
  */
@@ -21,9 +21,9 @@ import os from "node:os";
 import { createDashboardServer } from "./dashboard.js";
 import {
   DEFAULT_MCP_PORT,
-  startTamanduaMcpServer,
-  stopTamanduaMcpServer,
-  type TamanduaMcpServer,
+  startcanarinhoMcpServer,
+  stopcanarinhoMcpServer,
+  type canarinhoMcpServer,
 } from "./mcp-server.js";
 import {
   ensureDaemonSecret,
@@ -35,8 +35,8 @@ import { shutdownAllCrons } from "../installer/agent-scheduler.js";
 import { recordLifecycleEvent } from "./daemonctl.js";
 import { runVersionCheck } from "../lib/version-check.js";
 
-const PID_FILE = path.join(os.homedir(), ".tamandua", "tamandua.pid");
-const PORT_FILE = path.join(os.homedir(), ".tamandua", "port");
+const PID_FILE = path.join(os.homedir(), ".canarinho", "canarinho.pid");
+const PORT_FILE = path.join(os.homedir(), ".canarinho", "port");
 
 interface DaemonArgs {
   withMcp: boolean;
@@ -133,7 +133,7 @@ const args = parseArgs();
 const dashboardPort = readPort(args.dashboardPort);
 
 let dashboardServer: http.Server | undefined;
-let mcpServer: TamanduaMcpServer | undefined;
+let mcpServer: canarinhoMcpServer | undefined;
 let controlServer: http.Server | undefined;
 let reconciler: { stop: () => void } | undefined;
 let isShuttingDown = false;
@@ -163,7 +163,7 @@ async function stopListeners(): Promise<void> {
   if (mcpServer) {
     const currentMcpServer = mcpServer;
     mcpServer = undefined;
-    stops.push(stopTamanduaMcpServer(currentMcpServer));
+    stops.push(stopcanarinhoMcpServer(currentMcpServer));
   }
 
   if (dashboardServer) {
@@ -187,7 +187,7 @@ async function shutdown(signal: string, exitCode: number): Promise<void> {
   if (isShuttingDown) return;
   isShuttingDown = true;
 
-  console.log(`Tamandua daemon received ${signal}, shutting down...`);
+  console.log(`canarinho daemon received ${signal}, shutting down...`);
   // Receipt-side breadcrumb: the daemon cannot know who sent the signal
   // (that's the sender-side breadcrumb's job), but it records when it died
   // and what it was, so lifecycle.log tells a complete story.
@@ -248,7 +248,7 @@ async function bootstrap(): Promise<void> {
     controlServer = await startControlServer({ port: controlPort, secret });
     reconciler = startReconciler();
     console.log(
-      `Tamandua control plane listening on http://127.0.0.1:${controlPort} (pid ${process.pid})`,
+      `canarinho control plane listening on http://127.0.0.1:${controlPort} (pid ${process.pid})`,
     );
   } catch (err) {
     console.error(
@@ -262,18 +262,18 @@ async function bootstrap(): Promise<void> {
 
   if (args.withMcp) {
     try {
-      mcpServer = await startTamanduaMcpServer(args.mcpPort);
+      mcpServer = await startcanarinhoMcpServer(args.mcpPort);
     } catch (err) {
       await failStartup(err);
       return;
     }
 
     console.log(
-      `Tamandua dashboard daemon started on port ${dashboardPort} and MCP port ${args.mcpPort} (pid ${process.pid})`,
+      `canarinho dashboard daemon started on port ${dashboardPort} and MCP port ${args.mcpPort} (pid ${process.pid})`,
     );
   } else {
     console.log(
-      `Tamandua dashboard daemon started on port ${dashboardPort} (pid ${process.pid})`,
+      `canarinho dashboard daemon started on port ${dashboardPort} (pid ${process.pid})`,
     );
   }
 

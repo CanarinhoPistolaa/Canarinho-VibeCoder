@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Build and run the FAST Tamandua end-to-end test suites (no model tokens).
+# Build and run the FAST canarinho end-to-end test suites (no model tokens).
 #
 # This is the default e2e entry point. It runs BOTH fast tiers:
 #
@@ -8,7 +8,7 @@
 #      schedulers. (~10-15 seconds)
 #   2. Scripted-agent full-pipeline test — REAL daemon + scheduler + worktree
 #      + merge pipeline driven by a deterministic scripted agent standing in
-#      for pi (TAMANDUA_PI_BINARY). No models, ZERO tokens. (~30-60 seconds)
+#      for pi (canarinho_PI_BINARY). No models, ZERO tokens. (~30-60 seconds)
 #
 # For the SLOW REAL end-to-end test that runs actual agent invocations:
 #   ./run-all-real-e2e-tests
@@ -24,7 +24,7 @@
 set -euo pipefail
 cd "$(dirname "$0")"
 
-LOG="${TAMANDUA_E2E_TEST_LOG:-e2e-test-output.log}"
+LOG="${canarinho_E2E_TEST_LOG:-e2e-test-output.log}"
 
 npm run build
 node --test e2e-tests/workflows-smoke.test.ts e2e-tests/workflows-scripted.test.ts e2e-tests/workflows-scripted-hermes.test.ts e2e-tests/autoresearch-scripted.test.ts e2e-tests/fixture-health.test.ts 2>&1 | tee "$LOG"

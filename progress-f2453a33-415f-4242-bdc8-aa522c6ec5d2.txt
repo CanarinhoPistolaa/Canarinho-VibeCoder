@@ -16,7 +16,7 @@ Started: 2026-07-04T01:26:30Z
 - Internal helpers exposed for tests use `_` prefix (e.g., `_scheduledJobCountForRun`, `_pendingSweepTimerCount`)
 - `shutdownAllCrons()` is the teardown hook for test isolation — must clear all Maps
 - The daemon-resident sweep timer pattern: schedule an unref-ed timer in removeRunCrons, dedup via Map<runId, Timeout>, import runtime deps (worktree-manager, run-cleanup) dynamically within the timer callback
-- Doctor check functions follow the `run<Category>Checks(opts?: DoctorOpts)` pattern with DB path isolation via save/restore of TAMANDUA_DB_PATH
+- Doctor check functions follow the `run<Category>Checks(opts?: DoctorOpts)` pattern with DB path isolation via save/restore of canarinho_DB_PATH
 - Doctor tests seed DBs manually (DatabaseSync + SQL) for fully isolated scenarios; temp HOME per test
 - Process-matching helpers (getProcPids, processBelongsToRun) are now exported from run-cleanup.ts and importable by doctor.ts
 - MOTOR-CONTRACT.md sections: Lifecycle & pipeline, Dispatch, Deterministic-motor guarantees, Failure & recovery, Control plane & scheduling lifecycle, Token accounting, Workspace

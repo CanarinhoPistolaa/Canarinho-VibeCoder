@@ -1,33 +1,33 @@
 #!/bin/bash
-# Install tamandua — from local checkout or from GitHub.
+# Install canarinho — from local checkout or from GitHub.
 #
 # Usage:
 #   curl ... | bash                                  # remote install (GitHub)
 #   ./scripts/install.sh                             # run from repo root
-#   ./scripts/install.sh --local /path/to/tamandua   # explicit local path
+#   ./scripts/install.sh --local /path/to/canarinho   # explicit local path
 set -euo pipefail
 
-echo "Installing Tamandua..."
+echo "Installing canarinho..."
 
 LOCAL_SOURCE=""
 if [ "${1:-}" = "--local" ]; then
   LOCAL_SOURCE="${2:-$(pwd)}"
 fi
 
-REPO="igorhvr/tamandua"
+REPO="igorhvr/canarinho"
 BRANCH="main"
 
 if [ -n "$LOCAL_SOURCE" ]; then
   # --- Local install from source checkout ---
   if [ ! -f "$LOCAL_SOURCE/package.json" ]; then
-    echo "Error: $LOCAL_SOURCE doesn't look like a tamandua checkout (no package.json)"
+    echo "Error: $LOCAL_SOURCE doesn't look like a canarinho checkout (no package.json)"
     exit 1
   fi
   REPO_DIR="$LOCAL_SOURCE"
   echo "Using local source: $REPO_DIR"
 else
   # --- Remote install (clone from GitHub) ---
-  INSTALL_DIR="${HOME}/.tamandua/repo"
+  INSTALL_DIR="${HOME}/.canarinho/repo"
 
   if [ -d "$INSTALL_DIR" ]; then
     echo "Updating existing installation..."
@@ -59,17 +59,17 @@ npm run build
 
 # Create symlink
 mkdir -p "$HOME/.local/bin"
-ln -sf "$REPO_DIR/bin/tamandua" "$HOME/.local/bin/tamandua"
-chmod +x "$HOME/.local/bin/tamandua"
+ln -sf "$REPO_DIR/bin/canarinho" "$HOME/.local/bin/canarinho"
+chmod +x "$HOME/.local/bin/canarinho"
 
 # Install bundled workflows
 set +e
-"$HOME/.local/bin/tamandua" workflow install --all 2>&1
+"$HOME/.local/bin/canarinho" workflow install --all 2>&1
 WF_INSTALL_EXIT=$?
 set -e
 
 echo ""
-echo "Tamandua installed successfully!"
+echo "canarinho installed successfully!"
 if [ $WF_INSTALL_EXIT -ne 0 ]; then
   echo "Warning: workflow installation failed (exit $WF_INSTALL_EXIT)"
 fi

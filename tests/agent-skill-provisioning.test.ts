@@ -11,17 +11,17 @@ function writeText(filePath: string, content: string): void {
 }
 
 function withStateDir<T>(stateDir: string, run: () => Promise<T>): Promise<T> {
-  const previous = process.env.TAMANDUA_STATE_DIR;
-  process.env.TAMANDUA_STATE_DIR = stateDir;
+  const previous = process.env.canarinho_STATE_DIR;
+  process.env.canarinho_STATE_DIR = stateDir;
   return run().finally(() => {
-    if (previous === undefined) delete process.env.TAMANDUA_STATE_DIR;
-    else process.env.TAMANDUA_STATE_DIR = previous;
+    if (previous === undefined) delete process.env.canarinho_STATE_DIR;
+    else process.env.canarinho_STATE_DIR = previous;
   });
 }
 
 describe("agent skill provisioning", () => {
   it("copies workflow-local agent skills into the provisioned agent directory", async () => {
-    const root = fs.mkdtempSync(path.join(os.tmpdir(), "tamandua-local-skill-"));
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "canarinho-local-skill-"));
     const stateDir = path.join(root, "state");
     const workflowDir = path.join(root, "workflow");
 
@@ -75,7 +75,7 @@ describe("agent skill provisioning", () => {
   });
 
   it("copies shared bundled skills from repository-level skills directories", async () => {
-    const root = fs.mkdtempSync(path.join(os.tmpdir(), "tamandua-shared-skill-"));
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "canarinho-shared-skill-"));
     const stateDir = path.join(root, "state");
     const workflowDir = path.join(root, "installed", "workflows", "workflow-shared");
     const bundledSourceDir = path.join(root, "bundled", "workflows", "workflow-shared");
@@ -84,11 +84,11 @@ describe("agent skill provisioning", () => {
       writeText(path.join(workflowDir, "agents", "developer", ".keep"), "");
       writeText(path.join(bundledSourceDir, "agents", "developer", ".keep"), "");
       writeText(
-        path.join(root, "bundled", "skills", "tamandua-agents", "SKILL.md"),
+        path.join(root, "bundled", "skills", "canarinho-agents", "SKILL.md"),
         "# bundled shared skill\n",
       );
       writeText(
-        path.join(root, "bundled", "skills", "tamandua-agents", "examples", "usage.md"),
+        path.join(root, "bundled", "skills", "canarinho-agents", "examples", "usage.md"),
         "shared usage",
       );
 
@@ -100,7 +100,7 @@ describe("agent skill provisioning", () => {
             workspace: {
               baseDir: "agents/developer",
               files: {},
-              skills: ["tamandua-agents"],
+              skills: ["canarinho-agents"],
             },
           },
         ],
@@ -120,7 +120,7 @@ describe("agent skill provisioning", () => {
         "agents",
         "workflow-shared_developer",
         "skills",
-        "tamandua-agents",
+        "canarinho-agents",
       );
       assert.equal(fs.existsSync(path.join(copiedSkillDir, "SKILL.md")), true);
       assert.equal(

@@ -1,15 +1,15 @@
 /**
- * Tests for tamandua control-plane CLI commands (US-004).
+ * Tests for canarinho control-plane CLI commands (US-004).
  *
  * Validates:
- * 1. tamandua control-plane start prints PID and endpoint URL
- * 2. tamandua control-plane start --port <random> starts control plane on a random port
- * 3. tamandua control-plane start <random> (positional) starts on custom port
- * 4. tamandua control-plane start when already running shows existing status without restarting
- * 5. tamandua control-plane status shows running state, PID, port, and endpoint when up
- * 6. tamandua control-plane status shows not running when down
- * 7. tamandua control-plane stop kills control plane process and prints confirmation
- * 8. tamandua control-plane stop when not running prints not running message
+ * 1. canarinho control-plane start prints PID and endpoint URL
+ * 2. canarinho control-plane start --port <random> starts control plane on a random port
+ * 3. canarinho control-plane start <random> (positional) starts on custom port
+ * 4. canarinho control-plane start when already running shows existing status without restarting
+ * 5. canarinho control-plane status shows running state, PID, port, and endpoint when up
+ * 6. canarinho control-plane status shows not running when down
+ * 7. canarinho control-plane stop kills control plane process and prints confirmation
+ * 8. canarinho control-plane stop when not running prints not running message
  *
  * All tests use isolated temp HOME directories so they do not share
  * PID/port files with parallel tests (US-004 isolation).
@@ -32,6 +32,21 @@ const CLI_SCRIPT = path.resolve(__dirname, "..", "dist", "cli", "cli.js");
 
 import { stopControlPlane } from "../dist/server/daemonctl.js";
 import { DEFAULT_CONTROL_PORT } from "../dist/server/control-server.js";
+
+function sleep(ms: number): Promise<void> { return new Promise((r) => setTimeout(r, ms)); }
+
+function safeRmSync(target: string): void {
+  try {
+    fs.rmSync(target, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
+  } catch {
+    try {
+      fs.rmSync(target, { recursive: true, force: true, maxRetries: 20, retryDelay: 200 });
+    } catch {
+      // best-effort; temp dir will be reaped by OS
+    }
+  }
+}
+
 
 // ═══════════════════════════════════════════════════════════════════
 // Helpers
@@ -146,15 +161,15 @@ function cleanStderr(stderr: string): string {
 // ═══════════════════════════════════════════════════════════════════
 
 function createTempHome(): string {
-  return fs.mkdtempSync(path.join(os.tmpdir(), "tamandua-cp-cli-"));
+  return fs.mkdtempSync(path.join(os.tmpdir(), "canarinho-cp-cli-"));
 }
 
 function getIsolatedControlPlanePidFile(homeDir: string): string {
-  return path.join(homeDir, ".tamandua", "control-plane.pid");
+  return path.join(homeDir, ".canarinho", "control-plane.pid");
 }
 
 function getIsolatedControlPlanePortFile(homeDir: string): string {
-  return path.join(homeDir, ".tamandua", "control-plane-port");
+  return path.join(homeDir, ".canarinho", "control-plane-port");
 }
 
 function readIsolatedControlPlanePort(homeDir: string): number {
@@ -201,8 +216,8 @@ function cleanupIsolatedControlPlaneFiles(homeDir: string): void {
 // Tests
 // ═══════════════════════════════════════════════════════════════════
 
-describe("tamandua control-plane CLI", { concurrency: 1 }, () => {
-  // AC 6 (partial): tamandua control-plane status shows not running when down
+describe("canarinho control-plane CLI", { concurrency: 1 }, () => {
+  // AC 6 (partial): canarinho control-plane status shows not running when down
   it("control-plane status shows not running when down", async () => {
     const tempHome = createTempHome();
     try {
@@ -214,7 +229,7 @@ describe("tamandua control-plane CLI", { concurrency: 1 }, () => {
       // configured port, so without this isolation the test would report "running"
       // if a production daemon happens to be listening on the default port 3339.
       const unusedPort = await reserveRandomPort();
-      fs.mkdirSync(path.join(tempHome, ".tamandua"), { recursive: true });
+      fs.mkdirSync(path.join(tempHome, ".canarinho"), { recursive: true });
       fs.writeFileSync(getIsolatedControlPlanePortFile(tempHome), String(unusedPort), "utf-8");
 
       const { stdout, stderr, exitCode } = await runCli(["control-plane", "status"], tempHome);
@@ -224,11 +239,12 @@ describe("tamandua control-plane CLI", { concurrency: 1 }, () => {
       assert.equal(cleanStderr(stderr), "");
     } finally {
       stopIsolatedControlPlane(tempHome);
-      fs.rmSync(tempHome, { recursive: true, force: true });
+      await sleep(300);
+      safeRmSync(tempHome);
     }
   });
 
-  // AC 1: tamandua control-plane start prints PID and endpoint URL
+  // AC 1: canarinho control-plane start prints PID and endpoint URL
   it("control-plane start prints PID and endpoint URL", async (t) => {
     if (!fs.existsSync(CLI_SCRIPT)) {
       t.skip("CLI script not built — run npm run build first");
@@ -263,11 +279,12 @@ describe("tamandua control-plane CLI", { concurrency: 1 }, () => {
 
     } finally {
       stopIsolatedControlPlane(tempHome);
-      fs.rmSync(tempHome, { recursive: true, force: true });
+      await sleep(300);
+      safeRmSync(tempHome);
     }
   });
 
-  // AC 2: tamandua control-plane start --port <random> starts on a custom port
+  // AC 2: canarinho control-plane start --port <random> starts on a custom port
   it("control-plane start --port <random> starts on a custom port", async (t) => {
     if (!fs.existsSync(CLI_SCRIPT)) {
       t.skip("CLI script not built — run npm run build first");
@@ -298,11 +315,12 @@ describe("tamandua control-plane CLI", { concurrency: 1 }, () => {
 
     } finally {
       stopIsolatedControlPlane(tempHome);
-      fs.rmSync(tempHome, { recursive: true, force: true });
+      await sleep(300);
+      safeRmSync(tempHome);
     }
   });
 
-  // AC 3: tamandua control-plane start <random> (positional) starts on custom port
+  // AC 3: canarinho control-plane start <random> (positional) starts on custom port
   it("control-plane start <random> (positional) starts on a custom port", async (t) => {
     if (!fs.existsSync(CLI_SCRIPT)) {
       t.skip("CLI script not built — run npm run build first");
@@ -331,11 +349,12 @@ describe("tamandua control-plane CLI", { concurrency: 1 }, () => {
 
     } finally {
       stopIsolatedControlPlane(tempHome);
-      fs.rmSync(tempHome, { recursive: true, force: true });
+      await sleep(300);
+      safeRmSync(tempHome);
     }
   });
 
-  // AC 4: tamandua control-plane start when already running shows existing status
+  // AC 4: canarinho control-plane start when already running shows existing status
   it("control-plane start when already running shows existing status", async (t) => {
     if (!fs.existsSync(CLI_SCRIPT)) {
       t.skip("CLI script not built — run npm run build first");
@@ -373,7 +392,8 @@ describe("tamandua control-plane CLI", { concurrency: 1 }, () => {
 
     } finally {
       stopIsolatedControlPlane(tempHome);
-      fs.rmSync(tempHome, { recursive: true, force: true });
+      await sleep(300);
+      safeRmSync(tempHome);
     }
   });
 
@@ -412,11 +432,12 @@ describe("tamandua control-plane CLI", { concurrency: 1 }, () => {
 
     } finally {
       stopIsolatedControlPlane(tempHome);
-      fs.rmSync(tempHome, { recursive: true, force: true });
+      await sleep(300);
+      safeRmSync(tempHome);
     }
   });
 
-  // AC 5: tamandua control-plane status reports running state with PID, port, endpoint
+  // AC 5: canarinho control-plane status reports running state with PID, port, endpoint
   it("control-plane status shows running state when up", async (t) => {
     if (!fs.existsSync(CLI_SCRIPT)) {
       t.skip("CLI script not built — run npm run build first");
@@ -455,11 +476,12 @@ describe("tamandua control-plane CLI", { concurrency: 1 }, () => {
 
     } finally {
       stopIsolatedControlPlane(tempHome);
-      fs.rmSync(tempHome, { recursive: true, force: true });
+      await sleep(300);
+      safeRmSync(tempHome);
     }
   });
 
-  // AC 6: tamandua control-plane stop kills process and prints confirmation
+  // AC 6: canarinho control-plane stop kills process and prints confirmation
   it("control-plane stop kills process and prints confirmation", async (t) => {
     if (!fs.existsSync(CLI_SCRIPT)) {
       t.skip("CLI script not built — run npm run build first");
@@ -502,11 +524,12 @@ describe("tamandua control-plane CLI", { concurrency: 1 }, () => {
 
     } finally {
       stopIsolatedControlPlane(tempHome);
-      fs.rmSync(tempHome, { recursive: true, force: true });
+      await sleep(300);
+      safeRmSync(tempHome);
     }
   });
 
-  // AC 7: tamandua control-plane stop when not running prints not running message
+  // AC 7: canarinho control-plane stop when not running prints not running message
   it("control-plane stop when not running prints not running", async () => {
     const tempHome = createTempHome();
     try {
@@ -519,7 +542,8 @@ describe("tamandua control-plane CLI", { concurrency: 1 }, () => {
       assert.equal(cleanStderr(stderr), "");
     } finally {
       stopIsolatedControlPlane(tempHome);
-      fs.rmSync(tempHome, { recursive: true, force: true });
+      await sleep(300);
+      safeRmSync(tempHome);
     }
   });
 });

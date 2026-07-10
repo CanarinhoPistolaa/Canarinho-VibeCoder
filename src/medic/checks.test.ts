@@ -14,11 +14,11 @@ describe("medic checks", () => {
   let originalHome: string | undefined;
 
   beforeEach(() => {
-    originalDbPath = process.env.TAMANDUA_DB_PATH;
+    originalDbPath = process.env.canarinho_DB_PATH;
     originalHome = process.env.HOME;
-    tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "tamandua-medic-checks-"));
-    dbPath = path.join(tempDir, ".tamandua", "tamandua.db");
-    process.env.TAMANDUA_DB_PATH = dbPath;
+    tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "canarinho-medic-checks-"));
+    dbPath = path.join(tempDir, ".canarinho", "canarinho.db");
+    process.env.canarinho_DB_PATH = dbPath;
     process.env.HOME = tempDir;
 
     fs.mkdirSync(path.dirname(dbPath), { recursive: true });
@@ -59,8 +59,8 @@ describe("medic checks", () => {
   });
 
   afterEach(() => {
-    if (originalDbPath) process.env.TAMANDUA_DB_PATH = originalDbPath;
-    else delete process.env.TAMANDUA_DB_PATH;
+    if (originalDbPath) process.env.canarinho_DB_PATH = originalDbPath;
+    else delete process.env.canarinho_DB_PATH;
     if (originalHome) process.env.HOME = originalHome;
     else delete process.env.HOME;
     try { db.close(); } catch {}
@@ -140,7 +140,7 @@ describe("medic checks", () => {
     });
 
     it("returns empty array when cron file is empty array", () => {
-      const cronDir = path.join(tempDir, ".tamandua");
+      const cronDir = path.join(tempDir, ".canarinho");
       fs.mkdirSync(cronDir, { recursive: true });
       fs.writeFileSync(path.join(cronDir, "cron-jobs.json"), "[]", "utf-8");
 
@@ -149,7 +149,7 @@ describe("medic checks", () => {
     });
 
     it("returns empty array when cron file has invalid JSON", () => {
-      const cronDir = path.join(tempDir, ".tamandua");
+      const cronDir = path.join(tempDir, ".canarinho");
       fs.mkdirSync(cronDir, { recursive: true });
       fs.writeFileSync(path.join(cronDir, "cron-jobs.json"), "not valid json", "utf-8");
 
@@ -158,7 +158,7 @@ describe("medic checks", () => {
     });
 
     it("detects orphaned crons (no active runs for workflow)", () => {
-      const cronDir = path.join(tempDir, ".tamandua");
+      const cronDir = path.join(tempDir, ".canarinho");
       fs.mkdirSync(cronDir, { recursive: true });
       fs.writeFileSync(
         path.join(cronDir, "cron-jobs.json"),
@@ -187,7 +187,7 @@ describe("medic checks", () => {
     });
 
     it("detects orphaned cron for paused runs too", () => {
-      const cronDir = path.join(tempDir, ".tamandua");
+      const cronDir = path.join(tempDir, ".canarinho");
       fs.mkdirSync(cronDir, { recursive: true });
       fs.writeFileSync(
         path.join(cronDir, "cron-jobs.json"),
@@ -207,7 +207,7 @@ describe("medic checks", () => {
     });
 
     it("skips cron jobs without workflowId", () => {
-      const cronDir = path.join(tempDir, ".tamandua");
+      const cronDir = path.join(tempDir, ".canarinho");
       fs.mkdirSync(cronDir, { recursive: true });
       fs.writeFileSync(
         path.join(cronDir, "cron-jobs.json"),

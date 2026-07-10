@@ -19,7 +19,7 @@ const SERIAL_SCRIPT = path.join(REPO_ROOT, "scripts", "run-serial-tests.sh");
 const PARALLEL_SCRIPT = path.join(REPO_ROOT, "scripts", "run-parallel-tests.sh");
 
 function makeTmpDir() {
-  return fs.mkdtempSync(path.join(os.tmpdir(), "tamandua-runner-test-"));
+  return fs.mkdtempSync(path.join(os.tmpdir(), "canarinho-runner-test-"));
 }
 
 function writeText(filePath, text) {
@@ -45,31 +45,31 @@ describe("run-serial-tests.sh", () => {
     );
   });
 
-  it("passes through TAMANDUA_TEST_GUARD", () => {
+  it("passes through canarinho_TEST_GUARD", () => {
     const content = fs.readFileSync(SERIAL_SCRIPT, "utf-8");
     assert.ok(
-      content.includes("TAMANDUA_TEST_GUARD"),
-      "run-serial-tests.sh must reference TAMANDUA_TEST_GUARD",
+      content.includes("canarinho_TEST_GUARD"),
+      "run-serial-tests.sh must reference canarinho_TEST_GUARD",
     );
   });
 
-  it("passes through TAMANDUA_PI_BINARY", () => {
+  it("passes through canarinho_PI_BINARY", () => {
     const content = fs.readFileSync(SERIAL_SCRIPT, "utf-8");
     assert.ok(
-      content.includes("TAMANDUA_PI_BINARY"),
-      "run-serial-tests.sh must reference TAMANDUA_PI_BINARY",
+      content.includes("canarinho_PI_BINARY"),
+      "run-serial-tests.sh must reference canarinho_PI_BINARY",
     );
   });
 
-  it("defaults TAMANDUA_TEST_GUARD to 1 when unset", () => {
+  it("defaults canarinho_TEST_GUARD to 1 when unset", () => {
     // Run a minimal bash snippet that mimics the script's defaulting logic
     const tmpDir = makeTmpDir();
     try {
       const wrapper = [
         '#!/bin/bash',
-        'unset TAMANDUA_TEST_GUARD',
-        'export TAMANDUA_TEST_GUARD="${TAMANDUA_TEST_GUARD:-1}"',
-        'echo "GUARD=$TAMANDUA_TEST_GUARD"',
+        'unset canarinho_TEST_GUARD',
+        'export canarinho_TEST_GUARD="${canarinho_TEST_GUARD:-1}"',
+        'echo "GUARD=$canarinho_TEST_GUARD"',
       ].join("\n");
       const wrapperPath = path.join(tmpDir, "test-default-guard.sh");
       fs.writeFileSync(wrapperPath, wrapper, { mode: 0o755 });
@@ -80,45 +80,45 @@ describe("run-serial-tests.sh", () => {
       });
       assert.ok(
         result.includes("GUARD=1"),
-        "TAMANDUA_TEST_GUARD should default to 1 when unset. Got: " + result.trim(),
+        "canarinho_TEST_GUARD should default to 1 when unset. Got: " + result.trim(),
       );
     } finally {
       fs.rmSync(tmpDir, { recursive: true, force: true });
     }
   });
 
-  it("accepts overriding TAMANDUA_TEST_GUARD from environment", () => {
+  it("accepts overriding canarinho_TEST_GUARD from environment", () => {
     const tmpDir = makeTmpDir();
     try {
       const wrapper = [
         '#!/bin/bash',
-        'export TAMANDUA_TEST_GUARD="${TAMANDUA_TEST_GUARD:-1}"',
-        'echo "GUARD=$TAMANDUA_TEST_GUARD"',
+        'export canarinho_TEST_GUARD="${canarinho_TEST_GUARD:-1}"',
+        'echo "GUARD=$canarinho_TEST_GUARD"',
       ].join("\n");
       const wrapperPath = path.join(tmpDir, "test-override-guard.sh");
       fs.writeFileSync(wrapperPath, wrapper, { mode: 0o755 });
       const result = execFileSync("bash", [wrapperPath], {
         encoding: "utf-8",
         stdio: "pipe",
-        env: { TAMANDUA_TEST_GUARD: "2", PATH: process.env.PATH },
+        env: { canarinho_TEST_GUARD: "2", PATH: process.env.PATH },
       });
       assert.ok(
         result.includes("GUARD=2"),
-        "TAMANDUA_TEST_GUARD should be overridable. Got: " + result.trim(),
+        "canarinho_TEST_GUARD should be overridable. Got: " + result.trim(),
       );
     } finally {
       fs.rmSync(tmpDir, { recursive: true, force: true });
     }
   });
 
-  it("defaults TAMANDUA_PI_BINARY to /usr/bin/false when unset", () => {
+  it("defaults canarinho_PI_BINARY to /usr/bin/false when unset", () => {
     const tmpDir = makeTmpDir();
     try {
       const wrapper = [
         '#!/bin/bash',
-        'unset TAMANDUA_PI_BINARY',
-        'export TAMANDUA_PI_BINARY="${TAMANDUA_PI_BINARY:-/usr/bin/false}"',
-        'echo "PI=$TAMANDUA_PI_BINARY"',
+        'unset canarinho_PI_BINARY',
+        'export canarinho_PI_BINARY="${canarinho_PI_BINARY:-/usr/bin/false}"',
+        'echo "PI=$canarinho_PI_BINARY"',
       ].join("\n");
       const wrapperPath = path.join(tmpDir, "test-default-pi.sh");
       fs.writeFileSync(wrapperPath, wrapper, { mode: 0o755 });
@@ -129,7 +129,7 @@ describe("run-serial-tests.sh", () => {
       });
       assert.ok(
         result.includes("PI=/usr/bin/false"),
-        "TAMANDUA_PI_BINARY should default to /usr/bin/false. Got: " + result.trim(),
+        "canarinho_PI_BINARY should default to /usr/bin/false. Got: " + result.trim(),
       );
     } finally {
       fs.rmSync(tmpDir, { recursive: true, force: true });
@@ -180,7 +180,7 @@ describe("run-serial-tests.sh", () => {
 
       execFileSync("bash", [SERIAL_SCRIPT], {
         cwd: tmpDir,
-        env: cleanChildEnv({ HOME: tmpDir, TAMANDUA_REPO_ROOT: tmpDir, TAMANDUA_TEST_GUARD: "0" }),
+        env: cleanChildEnv({ HOME: tmpDir, canarinho_REPO_ROOT: tmpDir, canarinho_TEST_GUARD: "0" }),
         stdio: "pipe",
         encoding: "utf-8",
       });
@@ -204,7 +204,7 @@ describe("run-serial-tests.sh", () => {
       try {
         execFileSync("bash", [SERIAL_SCRIPT], {
           cwd: tmpDir,
-          env: cleanChildEnv({ HOME: tmpDir, TAMANDUA_REPO_ROOT: tmpDir, TAMANDUA_TEST_GUARD: "0" }),
+          env: cleanChildEnv({ HOME: tmpDir, canarinho_REPO_ROOT: tmpDir, canarinho_TEST_GUARD: "0" }),
           stdio: "pipe",
           encoding: "utf-8",
         });
@@ -228,19 +228,19 @@ describe("run-parallel-tests.sh", () => {
     execSync("bash -n " + JSON.stringify(PARALLEL_SCRIPT), { stdio: "pipe" });
   });
 
-  it("passes through TAMANDUA_TEST_GUARD", () => {
+  it("passes through canarinho_TEST_GUARD", () => {
     const content = fs.readFileSync(PARALLEL_SCRIPT, "utf-8");
     assert.ok(
-      content.includes("TAMANDUA_TEST_GUARD"),
-      "run-parallel-tests.sh must reference TAMANDUA_TEST_GUARD",
+      content.includes("canarinho_TEST_GUARD"),
+      "run-parallel-tests.sh must reference canarinho_TEST_GUARD",
     );
   });
 
-  it("passes through TAMANDUA_PI_BINARY", () => {
+  it("passes through canarinho_PI_BINARY", () => {
     const content = fs.readFileSync(PARALLEL_SCRIPT, "utf-8");
     assert.ok(
-      content.includes("TAMANDUA_PI_BINARY"),
-      "run-parallel-tests.sh must reference TAMANDUA_PI_BINARY",
+      content.includes("canarinho_PI_BINARY"),
+      "run-parallel-tests.sh must reference canarinho_PI_BINARY",
     );
   });
 
@@ -281,7 +281,7 @@ describe("run-parallel-tests.sh", () => {
 
       const result = execFileSync("bash", [PARALLEL_SCRIPT], {
         cwd: tmpDir,
-        env: cleanChildEnv({ HOME: tmpDir, TAMANDUA_REPO_ROOT: tmpDir, TAMANDUA_TEST_GUARD: "0" }),
+        env: cleanChildEnv({ HOME: tmpDir, canarinho_REPO_ROOT: tmpDir, canarinho_TEST_GUARD: "0" }),
         stdio: "pipe",
         encoding: "utf-8",
       });
@@ -308,7 +308,7 @@ describe("run-parallel-tests.sh", () => {
       try {
         execFileSync("bash", [PARALLEL_SCRIPT], {
           cwd: tmpDir,
-          env: cleanChildEnv({ HOME: tmpDir, TAMANDUA_REPO_ROOT: tmpDir, TAMANDUA_TEST_GUARD: "0" }),
+          env: cleanChildEnv({ HOME: tmpDir, canarinho_REPO_ROOT: tmpDir, canarinho_TEST_GUARD: "0" }),
           stdio: "pipe",
           encoding: "utf-8",
         });
@@ -372,7 +372,7 @@ describe("run-all-lanes.sh", () => {
 
       const result = execFileSync("bash", [ALL_LANES_SCRIPT], {
         cwd: tmpDir,
-        env: cleanChildEnv({ HOME: tmpDir, TAMANDUA_REPO_ROOT: tmpDir, TAMANDUA_TEST_GUARD: "0" }),
+        env: cleanChildEnv({ HOME: tmpDir, canarinho_REPO_ROOT: tmpDir, canarinho_TEST_GUARD: "0" }),
         stdio: "pipe",
         encoding: "utf-8",
       });
@@ -400,7 +400,7 @@ describe("run-all-lanes.sh", () => {
 
       const result = execFileSync("bash", [ALL_LANES_SCRIPT], {
         cwd: tmpDir,
-        env: cleanChildEnv({ HOME: tmpDir, TAMANDUA_REPO_ROOT: tmpDir, TAMANDUA_TEST_GUARD: "0" }),
+        env: cleanChildEnv({ HOME: tmpDir, canarinho_REPO_ROOT: tmpDir, canarinho_TEST_GUARD: "0" }),
         stdio: "pipe",
         encoding: "utf-8",
       });
@@ -428,7 +428,7 @@ describe("run-all-lanes.sh", () => {
 
       const result = execFileSync("bash", [ALL_LANES_SCRIPT], {
         cwd: tmpDir,
-        env: cleanChildEnv({ HOME: tmpDir, TAMANDUA_REPO_ROOT: tmpDir, TAMANDUA_TEST_GUARD: "0" }),
+        env: cleanChildEnv({ HOME: tmpDir, canarinho_REPO_ROOT: tmpDir, canarinho_TEST_GUARD: "0" }),
         stdio: "pipe",
         encoding: "utf-8",
       });
@@ -464,7 +464,7 @@ describe("run-all-lanes.sh", () => {
       try {
         execFileSync("bash", [ALL_LANES_SCRIPT], {
           cwd: tmpDir,
-          env: cleanChildEnv({ HOME: tmpDir, TAMANDUA_REPO_ROOT: tmpDir, TAMANDUA_TEST_GUARD: "0" }),
+          env: cleanChildEnv({ HOME: tmpDir, canarinho_REPO_ROOT: tmpDir, canarinho_TEST_GUARD: "0" }),
           stdio: "pipe",
           encoding: "utf-8",
         });
@@ -499,7 +499,7 @@ describe("run-all-lanes.sh", () => {
       try {
         execFileSync("bash", [ALL_LANES_SCRIPT], {
           cwd: tmpDir,
-          env: cleanChildEnv({ HOME: tmpDir, TAMANDUA_REPO_ROOT: tmpDir, TAMANDUA_TEST_GUARD: "0" }),
+          env: cleanChildEnv({ HOME: tmpDir, canarinho_REPO_ROOT: tmpDir, canarinho_TEST_GUARD: "0" }),
           stdio: "pipe",
           encoding: "utf-8",
         });
@@ -533,7 +533,7 @@ describe("run-all-lanes.sh", () => {
       try {
         execFileSync("bash", [ALL_LANES_SCRIPT], {
           cwd: tmpDir,
-          env: cleanChildEnv({ HOME: tmpDir, TAMANDUA_REPO_ROOT: tmpDir, TAMANDUA_TEST_GUARD: "0" }),
+          env: cleanChildEnv({ HOME: tmpDir, canarinho_REPO_ROOT: tmpDir, canarinho_TEST_GUARD: "0" }),
           stdio: "pipe",
           encoding: "utf-8",
         });
@@ -566,7 +566,7 @@ describe("run-all-lanes.sh", () => {
 
       const result = execFileSync("bash", [ALL_LANES_SCRIPT], {
         cwd: tmpDir,
-        env: cleanChildEnv({ HOME: tmpDir, TAMANDUA_REPO_ROOT: tmpDir, TAMANDUA_TEST_GUARD: "0" }),
+        env: cleanChildEnv({ HOME: tmpDir, canarinho_REPO_ROOT: tmpDir, canarinho_TEST_GUARD: "0" }),
         stdio: "pipe",
         encoding: "utf-8",
       });
@@ -642,11 +642,11 @@ describe("prll-verify.sh", () => {
     );
   });
 
-  it("passes through TAMANDUA_REPO_ROOT override", () => {
+  it("passes through canarinho_REPO_ROOT override", () => {
     const content = fs.readFileSync(VERIFY_SCRIPT, "utf-8");
     assert.ok(
-      content.includes("TAMANDUA_REPO_ROOT"),
-      "prll-verify.sh must reference TAMANDUA_REPO_ROOT",
+      content.includes("canarinho_REPO_ROOT"),
+      "prll-verify.sh must reference canarinho_REPO_ROOT",
     );
   });
 
@@ -670,8 +670,8 @@ describe("prll-verify.sh", () => {
         cwd: tmpDir,
         env: cleanChildEnv({
           HOME: tmpDir,
-          TAMANDUA_REPO_ROOT: tmpDir,
-          TAMANDUA_TEST_GUARD: "0",
+          canarinho_REPO_ROOT: tmpDir,
+          canarinho_TEST_GUARD: "0",
           PRLL_RUN_COUNT: "1",
         }),
         stdio: "pipe",
@@ -716,8 +716,8 @@ describe("prll-verify.sh", () => {
         cwd: tmpDir,
         env: cleanChildEnv({
           HOME: tmpDir,
-          TAMANDUA_REPO_ROOT: tmpDir,
-          TAMANDUA_TEST_GUARD: "0",
+          canarinho_REPO_ROOT: tmpDir,
+          canarinho_TEST_GUARD: "0",
           PRLL_RUN_COUNT: "1",
         }),
         stdio: "pipe",
@@ -758,8 +758,8 @@ describe("prll-verify.sh", () => {
         cwd: tmpDir,
         env: cleanChildEnv({
           HOME: tmpDir,
-          TAMANDUA_REPO_ROOT: tmpDir,
-          TAMANDUA_TEST_GUARD: "0",
+          canarinho_REPO_ROOT: tmpDir,
+          canarinho_TEST_GUARD: "0",
           PRLL_RUN_COUNT: "1",
         }),
         stdio: "pipe",
@@ -790,8 +790,8 @@ describe("prll-verify.sh", () => {
           cwd: tmpDir,
           env: cleanChildEnv({
             HOME: tmpDir,
-            TAMANDUA_REPO_ROOT: tmpDir,
-            TAMANDUA_TEST_GUARD: "0",
+            canarinho_REPO_ROOT: tmpDir,
+            canarinho_TEST_GUARD: "0",
             PRLL_RUN_COUNT: "1",
           }),
           stdio: "pipe",
@@ -828,8 +828,8 @@ describe("prll-verify.sh", () => {
         cwd: tmpDir,
         env: cleanChildEnv({
           HOME: tmpDir,
-          TAMANDUA_REPO_ROOT: tmpDir,
-          TAMANDUA_TEST_GUARD: "0",
+          canarinho_REPO_ROOT: tmpDir,
+          canarinho_TEST_GUARD: "0",
           PRLL_RUN_COUNT: "1",
         }),
         stdio: "pipe",

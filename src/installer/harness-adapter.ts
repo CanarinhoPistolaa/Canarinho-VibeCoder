@@ -58,9 +58,9 @@ export interface HarnessAdapter {
 
   /**
    * Resolve the harness binary path.
-   * For pi: honors TAMANDUA_PI_BINARY env, pi-token-saver preference,
+   * For pi: honors canarinho_PI_BINARY env, pi-token-saver preference,
    * and PATH search.
-   * For hermes: honors TAMANDUA_HERMES_BINARY env and PATH search.
+   * For hermes: honors canarinho_HERMES_BINARY env and PATH search.
    */
   findBinary(options?: { preferTokenSaver?: boolean }): Promise<string>;
 
@@ -130,14 +130,14 @@ class PiHarnessAdapter implements HarnessAdapter {
     options?: { preferTokenSaver?: boolean },
   ): Promise<string> {
     // Prefer explicit env override
-    const envPi = process.env.TAMANDUA_PI_BINARY?.trim();
+    const envPi = process.env.canarinho_PI_BINARY?.trim();
     if (envPi) {
       try {
         fs.accessSync(envPi, fs.constants.X_OK);
         return envPi;
       } catch {
         throw new Error(
-          `TAMANDUA_PI_BINARY set but not executable: ${envPi}`,
+          `canarinho_PI_BINARY set but not executable: ${envPi}`,
         );
       }
     }
@@ -152,7 +152,7 @@ class PiHarnessAdapter implements HarnessAdapter {
     if (pi) return pi;
 
     throw new Error(
-      "pi binary not found in PATH. Install pi (https://github.com/anthropics/pi) or set TAMANDUA_PI_BINARY.",
+      "pi binary not found in PATH. Install pi (https://github.com/anthropics/pi) or set canarinho_PI_BINARY.",
     );
   }
 
@@ -352,14 +352,14 @@ class HermesHarnessAdapter implements HarnessAdapter {
     options?: { preferTokenSaver?: boolean },
   ): Promise<string> {
     // Prefer explicit env override
-    const envHermes = process.env.TAMANDUA_HERMES_BINARY?.trim();
+    const envHermes = process.env.canarinho_HERMES_BINARY?.trim();
     if (envHermes) {
       try {
         fs.accessSync(envHermes, fs.constants.X_OK);
         return envHermes;
       } catch {
         throw new Error(
-          `TAMANDUA_HERMES_BINARY set but not executable: ${envHermes}`,
+          `canarinho_HERMES_BINARY set but not executable: ${envHermes}`,
         );
       }
     }
@@ -375,7 +375,7 @@ class HermesHarnessAdapter implements HarnessAdapter {
     if (hermes) return hermes;
 
     throw new Error(
-      "hermes binary not found in PATH. Install hermes or set TAMANDUA_HERMES_BINARY.",
+      "hermes binary not found in PATH. Install hermes or set canarinho_HERMES_BINARY.",
     );
   }
 
@@ -678,7 +678,7 @@ class HermesHarnessAdapter implements HarnessAdapter {
     // This is non-fatal: the scheduler skips token lookup when sessionRef
     // is falsy, so the round completes normally.
     if (!sessionRef) {
-      const jobId = process.env.TAMANDUA_WORKER_JOB_ID;
+      const jobId = process.env.canarinho_WORKER_JOB_ID;
       const runIdMatch = jobId?.match(
         /([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})/,
       );

@@ -1,5 +1,5 @@
 /*
- * Tamandua Website Styles
+ * canarinho Website Styles
  * Dark theme CSS foundation — US-003
  *
  * Design system:
@@ -504,7 +504,7 @@ section h3 + p {
   padding: 0 var(--space-6);
 }
 
-/* Tamandua watermark accent */
+/* canarinho watermark accent */
 #hero::after {
   content: "";
   position: absolute;
@@ -513,7 +513,7 @@ section h3 + p {
   width: min(300px, 30vw);
   height: min(300px, 30vw);
   transform: translateY(-50%) rotate(-6deg);
-  background: url("assets/tamandua.png") center / contain no-repeat;
+  background: url("assets/canarinho.png") center / contain no-repeat;
   opacity: 0.06;
   pointer-events: none;
   z-index: 0;

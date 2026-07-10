@@ -1,10 +1,10 @@
 /**
- * Tests for tamandua workflow resume CLI command (US-004).
+ * Tests for canarinho workflow resume CLI command (US-004).
  *
  * Validates:
- * 1. tamandua workflow resume <paused-run-id> resumes the run and prints confirmation
+ * 1. canarinho workflow resume <paused-run-id> resumes the run and prints confirmation
  * 2. Resumed run status transitions from paused to running
- * 3. tamandua workflow resume <terminal-run-id> prints clear error
+ * 3. canarinho workflow resume <terminal-run-id> prints clear error
  * 4. Existing failed-run resume path still works
  * 5. Resume with no daemon prints daemon-unreachable error
  * 6. Resume with missing run-id prints usage error
@@ -21,6 +21,29 @@ import { DatabaseSync } from "node:sqlite";
 import { setTimeout as sleep } from "node:timers/promises";
 import http from "node:http";
 import { fileURLToPath } from "node:url";
+
+function stopDaemonAndWait(d: ChildProcess | undefined): Promise<void> {
+  if (!d || d.exitCode !== null || !d.pid) return Promise.resolve();
+  return new Promise((resolve) => {
+    const timer = setTimeout(() => resolve(), 2000);
+    d.once("exit", () => { clearTimeout(timer); resolve(); });
+    try { process.kill(d.pid!, "SIGTERM"); } catch { /* ignore */ }
+  });
+}
+
+
+function safeRmSync(target: string): void {
+  try {
+    fs.rmSync(target, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
+  } catch {
+    try {
+      fs.rmSync(target, { recursive: true, force: true, maxRetries: 20, retryDelay: 200 });
+    } catch {
+      // best-effort; temp dir will be reaped by OS
+    }
+  }
+}
+
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const CLI_SCRIPT = path.resolve(__dirname, "..", "dist", "cli", "cli.js");
@@ -153,7 +176,7 @@ async function waitForControlUp(port: number, timeoutMs = 5000): Promise<void> {
 
 // ── Tests ──────────────────────────────────────────────────────────
 
-describe("tamandua workflow resume CLI", { concurrency: 1 }, () => {
+describe("canarinho workflow resume CLI", { concurrency: 1 }, () => {
   // AC 1 + 2: Resume a paused run with daemon running works and status transitions to running
   it("resume paused run with daemon resumes the run and status shows running", async (t) => {
     if (!fs.existsSync(CLI_SCRIPT)) {
@@ -164,12 +187,12 @@ describe("tamandua workflow resume CLI", { concurrency: 1 }, () => {
     const dashboardPort = await getAvailablePort();
     const controlPort = await getAvailablePort();
 
-    const root = fs.mkdtempSync(path.join(os.tmpdir(), "tamandua-resume-test-"));
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "canarinho-resume-test-"));
     const homeDir = path.join(root, "home");
-    const tamanduaDir = path.join(homeDir, ".tamandua");
-    fs.mkdirSync(tamanduaDir, { recursive: true });
+    const canarinhoDir = path.join(homeDir, ".canarinho");
+    fs.mkdirSync(canarinhoDir, { recursive: true });
 
-    const dbPath = path.join(tamanduaDir, "tamandua.db");
+    const dbPath = path.join(canarinhoDir, "canarinho.db");
 
     const pausedRunId = "cccccccc-1111-2222-3333-444455556666";
     seedRunDb(dbPath, [
@@ -184,7 +207,7 @@ describe("tamandua workflow resume CLI", { concurrency: 1 }, () => {
 
     // Copy the workflow directory so the daemon can register the run on resume
     const srcWorkflowDir = path.resolve(__dirname, "..", "workflows", "feature-dev-merge");
-    const dstWorkflowDir = path.join(tamanduaDir, "workflows", "feature-dev-merge");
+    const dstWorkflowDir = path.join(canarinhoDir, "workflows", "feature-dev-merge");
     fs.mkdirSync(path.dirname(dstWorkflowDir), { recursive: true });
     fs.cpSync(srcWorkflowDir, dstWorkflowDir, { recursive: true });
 
@@ -194,7 +217,7 @@ describe("tamandua workflow resume CLI", { concurrency: 1 }, () => {
       // Start daemon
       daemon = spawn("node", [DAEMON_SCRIPT, String(dashboardPort)], {
         env: cleanChildEnv({ HOME: homeDir,
-          TAMANDUA_CONTROL_PORT: String(controlPort), }),
+          canarinho_CONTROL_PORT: String(controlPort), }),
         stdio: ["ignore", "pipe", "pipe"],
       });
       daemon.stdout?.resume();
@@ -205,7 +228,7 @@ describe("tamandua workflow resume CLI", { concurrency: 1 }, () => {
       // Resume the run via CLI
       const { stdout, stderr, exitCode } = await runCli(
         ["workflow", "resume", pausedRunId],
-        { HOME: homeDir, TAMANDUA_CONTROL_PORT: String(controlPort) },
+        { HOME: homeDir, canarinho_CONTROL_PORT: String(controlPort) },
       );
 
       assert.equal(exitCode, 0, `Should exit with code 0, got ${exitCode}, stderr: ${cleanStderr(stderr)}`);
@@ -221,7 +244,7 @@ describe("tamandua workflow resume CLI", { concurrency: 1 }, () => {
       // AC 2: Verify status now shows running
       const { stdout: statusOut } = await runCli(
         ["workflow", "status", pausedRunId.slice(0, 8)],
-        { HOME: homeDir, TAMANDUA_CONTROL_PORT: String(controlPort) },
+        { HOME: homeDir, canarinho_CONTROL_PORT: String(controlPort) },
       );
 
       assert.ok(
@@ -229,11 +252,8 @@ describe("tamandua workflow resume CLI", { concurrency: 1 }, () => {
         `Expected status to show "running", got: ${statusOut}`,
       );
     } finally {
-      if (daemon && daemon.exitCode === null && daemon.pid) {
-        try { process.kill(daemon.pid, "SIGTERM"); } catch { /* ignore */ }
-        await sleep(200);
-      }
-      fs.rmSync(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
+      await stopDaemonAndWait(daemon)
+      safeRmSync(root);
     }
   });
 
@@ -244,12 +264,12 @@ describe("tamandua workflow resume CLI", { concurrency: 1 }, () => {
       return;
     }
 
-    const root = fs.mkdtempSync(path.join(os.tmpdir(), "tamandua-resume-test-"));
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "canarinho-resume-test-"));
     const homeDir = path.join(root, "home");
-    const tamanduaDir = path.join(homeDir, ".tamandua");
-    fs.mkdirSync(tamanduaDir, { recursive: true });
+    const canarinhoDir = path.join(homeDir, ".canarinho");
+    fs.mkdirSync(canarinhoDir, { recursive: true });
 
-    const dbPath = path.join(tamanduaDir, "tamandua.db");
+    const dbPath = path.join(canarinhoDir, "canarinho.db");
 
     const completedRunId = "dddddddd-1111-2222-3333-444455556666";
     seedRunDb(dbPath, [
@@ -277,7 +297,7 @@ describe("tamandua workflow resume CLI", { concurrency: 1 }, () => {
         `Expected "completed" status in error, got: ${stderr}`,
       );
     } finally {
-      fs.rmSync(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
+      safeRmSync(root);
     }
   });
 
@@ -288,12 +308,12 @@ describe("tamandua workflow resume CLI", { concurrency: 1 }, () => {
       return;
     }
 
-    const root = fs.mkdtempSync(path.join(os.tmpdir(), "tamandua-resume-test-"));
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "canarinho-resume-test-"));
     const homeDir = path.join(root, "home");
-    const tamanduaDir = path.join(homeDir, ".tamandua");
-    fs.mkdirSync(tamanduaDir, { recursive: true });
+    const canarinhoDir = path.join(homeDir, ".canarinho");
+    fs.mkdirSync(canarinhoDir, { recursive: true });
 
-    const dbPath = path.join(tamanduaDir, "tamandua.db");
+    const dbPath = path.join(canarinhoDir, "canarinho.db");
 
     const canceledRunId = "eeeeeeee-1111-2222-3333-444455556666";
     seedRunDb(dbPath, [
@@ -321,7 +341,7 @@ describe("tamandua workflow resume CLI", { concurrency: 1 }, () => {
         `Expected "canceled" status in error, got: ${stderr}`,
       );
     } finally {
-      fs.rmSync(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
+      safeRmSync(root);
     }
   });
 
@@ -335,18 +355,18 @@ describe("tamandua workflow resume CLI", { concurrency: 1 }, () => {
     const dashboardPort = await getAvailablePort();
     const controlPort = await getAvailablePort();
 
-    const root = fs.mkdtempSync(path.join(os.tmpdir(), "tamandua-resume-test-"));
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "canarinho-resume-test-"));
     const homeDir = path.join(root, "home");
-    const tamanduaDir = path.join(homeDir, ".tamandua");
-    fs.mkdirSync(tamanduaDir, { recursive: true });
+    const canarinhoDir = path.join(homeDir, ".canarinho");
+    fs.mkdirSync(canarinhoDir, { recursive: true });
 
     // Copy the workflow directory so the daemon can register the run on resume
     const srcWorkflowDir = path.resolve(__dirname, "..", "workflows", "feature-dev-merge");
-    const dstWorkflowDir = path.join(tamanduaDir, "workflows", "feature-dev-merge");
+    const dstWorkflowDir = path.join(canarinhoDir, "workflows", "feature-dev-merge");
     fs.mkdirSync(path.dirname(dstWorkflowDir), { recursive: true });
     fs.cpSync(srcWorkflowDir, dstWorkflowDir, { recursive: true });
 
-    const dbPath = path.join(tamanduaDir, "tamandua.db");
+    const dbPath = path.join(canarinhoDir, "canarinho.db");
 
     const failedRunId = "ffffffff-1111-2222-3333-444455556666";
     const stepId = "00000000-aaaa-bbbb-cccc-ddddeeee0001";
@@ -378,7 +398,7 @@ describe("tamandua workflow resume CLI", { concurrency: 1 }, () => {
       // Start daemon so resumeWorkflow can register with it
       daemon = spawn("node", [DAEMON_SCRIPT, String(dashboardPort)], {
         env: cleanChildEnv({ HOME: homeDir,
-          TAMANDUA_CONTROL_PORT: String(controlPort), }),
+          canarinho_CONTROL_PORT: String(controlPort), }),
         stdio: ["ignore", "pipe", "pipe"],
       });
       daemon.stdout?.resume();
@@ -388,7 +408,7 @@ describe("tamandua workflow resume CLI", { concurrency: 1 }, () => {
 
       const { stdout, stderr, exitCode } = await runCli(
         ["workflow", "resume", failedRunId.slice(0, 8)],
-        { HOME: homeDir, TAMANDUA_CONTROL_PORT: String(controlPort) },
+        { HOME: homeDir, canarinho_CONTROL_PORT: String(controlPort) },
       );
 
       assert.equal(exitCode, 0, `Should exit with code 0 for failed run resume, got ${exitCode}, stderr: ${cleanStderr(stderr)}`);
@@ -401,11 +421,8 @@ describe("tamandua workflow resume CLI", { concurrency: 1 }, () => {
         `Expected "restarting from step" in stdout, got: ${stdout}`,
       );
     } finally {
-      if (daemon && daemon.exitCode === null && daemon.pid) {
-        try { process.kill(daemon.pid, "SIGTERM"); } catch { /* ignore */ }
-        await sleep(200);
-      }
-      fs.rmSync(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
+      await stopDaemonAndWait(daemon)
+      safeRmSync(root);
     }
   });
 
@@ -416,12 +433,12 @@ describe("tamandua workflow resume CLI", { concurrency: 1 }, () => {
       return;
     }
 
-    const root = fs.mkdtempSync(path.join(os.tmpdir(), "tamandua-resume-test-"));
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "canarinho-resume-test-"));
     const homeDir = path.join(root, "home");
-    const tamanduaDir = path.join(homeDir, ".tamandua");
-    fs.mkdirSync(tamanduaDir, { recursive: true });
+    const canarinhoDir = path.join(homeDir, ".canarinho");
+    fs.mkdirSync(canarinhoDir, { recursive: true });
 
-    const dbPath = path.join(tamanduaDir, "tamandua.db");
+    const dbPath = path.join(canarinhoDir, "canarinho.db");
 
     const runningRunId = "99999999-aaaa-bbbb-cccc-ddddeeee0000";
     seedRunDb(dbPath, [
@@ -445,7 +462,7 @@ describe("tamandua workflow resume CLI", { concurrency: 1 }, () => {
         `Expected "only paused or failed" error, got: ${stderr}`,
       );
     } finally {
-      fs.rmSync(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
+      safeRmSync(root);
     }
   });
 
@@ -458,12 +475,12 @@ describe("tamandua workflow resume CLI", { concurrency: 1 }, () => {
 
     const unusedPort = await getAvailablePort();
 
-    const root = fs.mkdtempSync(path.join(os.tmpdir(), "tamandua-resume-test-"));
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "canarinho-resume-test-"));
     const homeDir = path.join(root, "home");
-    const tamanduaDir = path.join(homeDir, ".tamandua");
-    fs.mkdirSync(tamanduaDir, { recursive: true });
+    const canarinhoDir = path.join(homeDir, ".canarinho");
+    fs.mkdirSync(canarinhoDir, { recursive: true });
 
-    const dbPath = path.join(tamanduaDir, "tamandua.db");
+    const dbPath = path.join(canarinhoDir, "canarinho.db");
 
     const pausedRunId = "bbbbbbbb-aaaa-cccc-dddd-eeeeffff0000";
     seedRunDb(dbPath, [
@@ -478,7 +495,7 @@ describe("tamandua workflow resume CLI", { concurrency: 1 }, () => {
     try {
       const { stderr, exitCode } = await runCli(
         ["workflow", "resume", pausedRunId],
-        { HOME: homeDir, TAMANDUA_CONTROL_PORT: String(unusedPort) },
+        { HOME: homeDir, canarinho_CONTROL_PORT: String(unusedPort) },
       );
 
       assert.notEqual(exitCode, 0, "Should exit with non-zero code");
@@ -487,7 +504,7 @@ describe("tamandua workflow resume CLI", { concurrency: 1 }, () => {
         `Expected daemon-unreachable error, got: ${stderr}`,
       );
     } finally {
-      fs.rmSync(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
+      safeRmSync(root);
     }
   });
 
@@ -498,7 +515,7 @@ describe("tamandua workflow resume CLI", { concurrency: 1 }, () => {
       return;
     }
 
-    const root = fs.mkdtempSync(path.join(os.tmpdir(), "tamandua-resume-missing-"));
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "canarinho-resume-missing-"));
     const homeDir = path.join(root, "home");
     fs.mkdirSync(homeDir, { recursive: true });
     try {
@@ -513,7 +530,7 @@ describe("tamandua workflow resume CLI", { concurrency: 1 }, () => {
         `Expected not-found error in stderr, got: ${stderr}`,
       );
     } finally {
-      fs.rmSync(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
+      safeRmSync(root);
     }
   });
 
@@ -524,7 +541,7 @@ describe("tamandua workflow resume CLI", { concurrency: 1 }, () => {
       return;
     }
 
-    const root = fs.mkdtempSync(path.join(os.tmpdir(), "tamandua-resume-usage-"));
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "canarinho-resume-usage-"));
     const homeDir = path.join(root, "home");
     fs.mkdirSync(homeDir, { recursive: true });
     try {
@@ -536,7 +553,7 @@ describe("tamandua workflow resume CLI", { concurrency: 1 }, () => {
         `Expected "Missing run-id" error, got stderr: "${cleanStderr(stderr)}"`,
       );
     } finally {
-      fs.rmSync(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
+      safeRmSync(root);
     }
   });
 });

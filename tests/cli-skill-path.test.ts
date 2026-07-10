@@ -1,10 +1,10 @@
 /**
- * Tests for tamandua skill-path CLI command and no-argument help ordering (US-004).
+ * Tests for canarinho skill-path CLI command and no-argument help ordering (US-004).
  *
  * Validates:
- * 1. tamandua skill-path prints a path ending with skills/tamandua-agents/SKILL.md
- * 2. tamandua skill-path output is an absolute path that exists on disk
- * 3. tamandua with no arguments lists skill-path before source-path in help output
+ * 1. canarinho skill-path prints a path ending with skills/canarinho-agents/SKILL.md
+ * 2. canarinho skill-path output is an absolute path that exists on disk
+ * 3. canarinho with no arguments lists skill-path before source-path in help output
  *
  * All tests use isolated temp HOME directories.
  */
@@ -71,18 +71,18 @@ function cleanStderr(stderr: string): string {
 }
 
 function createTempHome(): string {
-  return fs.mkdtempSync(path.join(os.tmpdir(), "tamandua-skill-path-"));
+  return fs.mkdtempSync(path.join(os.tmpdir(), "canarinho-skill-path-"));
 }
 
 // ═══════════════════════════════════════════════════════════════════
 // Tests
 // ═══════════════════════════════════════════════════════════════════
 
-describe("tamandua skill-path CLI", () => {
-  const EXPECTED_SKILL_SUFFIX = path.join("skills", "tamandua-agents", "SKILL.md");
+describe("canarinho skill-path CLI", () => {
+  const EXPECTED_SKILL_SUFFIX = path.join("skills", "canarinho-agents", "SKILL.md");
 
-  // AC 1: tamandua skill-path prints a path ending with skills/tamandua-agents/SKILL.md
-  it("skill-path prints path ending with skills/tamandua-agents/SKILL.md", async (t) => {
+  // AC 1: canarinho skill-path prints a path ending with skills/canarinho-agents/SKILL.md
+  it("skill-path prints path ending with skills/canarinho-agents/SKILL.md", async (t) => {
     if (!fs.existsSync(CLI_SCRIPT)) {
       t.skip("CLI script not built — run npm run build first");
       return;
@@ -106,7 +106,7 @@ describe("tamandua skill-path CLI", () => {
     }
   });
 
-  // AC 2: tamandua skill-path output is an absolute path that exists on disk
+  // AC 2: canarinho skill-path output is an absolute path that exists on disk
   it("skill-path outputs an absolute path that exists on disk", async (t) => {
     if (!fs.existsSync(CLI_SCRIPT)) {
       t.skip("CLI script not built — run npm run build first");
@@ -139,7 +139,7 @@ describe("tamandua skill-path CLI", () => {
     }
   });
 
-  // AC 3: tamandua with no arguments lists skill-path before source-path in help output
+  // AC 3: canarinho with no arguments lists skill-path before source-path in help output
   it("no-argument help lists skill-path before source-path", async (t) => {
     if (!fs.existsSync(CLI_SCRIPT)) {
       t.skip("CLI script not built — run npm run build first");
@@ -154,8 +154,8 @@ describe("tamandua skill-path CLI", () => {
       assert.equal(exitCode, 1, `Expected exit code 1, got ${exitCode}`);
       assert.equal(cleanStderr(stderr), "");
 
-      const skillPathIdx = stdout.indexOf("tamandua skill-path");
-      const sourcePathIdx = stdout.indexOf("tamandua source-path");
+      const skillPathIdx = stdout.indexOf("canarinho skill-path");
+      const sourcePathIdx = stdout.indexOf("canarinho source-path");
 
       assert.ok(skillPathIdx >= 0, "skill-path not found in help output");
       assert.ok(sourcePathIdx >= 0, "source-path not found in help output");

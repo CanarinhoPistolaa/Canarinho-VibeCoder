@@ -25,7 +25,7 @@ function appendEvent(filePath: string, event: ReturnType<typeof makeEvent>): voi
 }
 
 function createTempEnv() {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), "tamandua-logs-tail-"));
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "canarinho-logs-tail-"));
   const stateDir = path.join(root, "state");
   const homeDir = path.join(root, "home");
   fs.mkdirSync(stateDir, { recursive: true });
@@ -85,7 +85,7 @@ function countOccurrences(haystack: string, needle: string): number {
   return (haystack.match(new RegExp(needle.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "g")) ?? []).length;
 }
 
-describe("tamandua logs-tail", () => {
+describe("canarinho logs-tail", () => {
   it("prints an initial global batch, follows appended events, and exits cleanly on Ctrl+C", async () => {
     const env = createTempEnv();
     const globalFile = path.join(env.stateDir, "events", "all.jsonl");
@@ -96,9 +96,9 @@ describe("tamandua logs-tail", () => {
     appendEvent(globalFile, makeEvent(runId, "init-3"));
 
     const proc = spawnCli(["logs-tail", "2"], {
-      TAMANDUA_STATE_DIR: env.stateDir,
+      canarinho_STATE_DIR: env.stateDir,
       HOME: env.homeDir,
-      TAMANDUA_LOGS_TAIL_POLL_MS: "25",
+      canarinho_LOGS_TAIL_POLL_MS: "25",
     });
 
     try {
@@ -130,7 +130,7 @@ describe("tamandua logs-tail", () => {
 
     // prefix expansion now routes through getWorkflowStatus, which needs a DB entry
     const dbDir = env.stateDir;
-    const dbPath = path.join(dbDir, "tamandua.db");
+    const dbPath = path.join(dbDir, "canarinho.db");
     fs.mkdirSync(dbDir, { recursive: true });
     const db = new DatabaseSync(dbPath);
     db.exec(`
@@ -157,9 +157,9 @@ describe("tamandua logs-tail", () => {
     appendEvent(runFile, makeEvent(runId, "run-old"));
 
     const proc = spawnCli(["logs-tail", runId], {
-      TAMANDUA_STATE_DIR: env.stateDir,
+      canarinho_STATE_DIR: env.stateDir,
       HOME: env.homeDir,
-      TAMANDUA_LOGS_TAIL_POLL_MS: "25",
+      canarinho_LOGS_TAIL_POLL_MS: "25",
     });
 
     try {
@@ -180,7 +180,7 @@ describe("tamandua logs-tail", () => {
     const env = createTempEnv();
     const runId = "run-number-target";
     const dbDir = env.stateDir;
-    const dbPath = path.join(dbDir, "tamandua.db");
+    const dbPath = path.join(dbDir, "canarinho.db");
     fs.mkdirSync(dbDir, { recursive: true });
 
     const db = new DatabaseSync(dbPath);
@@ -209,9 +209,9 @@ describe("tamandua logs-tail", () => {
     appendEvent(runFile, makeEvent(runId, "num-old"));
 
     const proc = spawnCli(["logs-tail", "#7"], {
-      TAMANDUA_STATE_DIR: env.stateDir,
+      canarinho_STATE_DIR: env.stateDir,
       HOME: env.homeDir,
-      TAMANDUA_LOGS_TAIL_POLL_MS: "25",
+      canarinho_LOGS_TAIL_POLL_MS: "25",
     });
 
     try {
@@ -232,13 +232,13 @@ describe("tamandua logs-tail", () => {
     const env = createTempEnv();
     try {
       const result = await runCliOnce([], {
-        TAMANDUA_STATE_DIR: env.stateDir,
+        canarinho_STATE_DIR: env.stateDir,
         HOME: env.homeDir,
       });
 
       assert.equal(result.code, 1);
       assert.ok(
-        result.stdout.includes("tamandua logs-tail [<lines>|<run-id>|#<run-number>]"),
+        result.stdout.includes("canarinho logs-tail [<lines>|<run-id>|#<run-number>]"),
         "usage should list logs-tail selector syntax",
       );
     } finally {

@@ -1,4 +1,4 @@
-// Tamandua Website Scripts — Progressive Enhancements
+// canarinho Website Scripts — Progressive Enhancements
 // All JS is vanilla, wrapped in DOMContentLoaded, with feature support checks.
 
 document.addEventListener('DOMContentLoaded', function () {
@@ -154,7 +154,7 @@ document.addEventListener('DOMContentLoaded', function () {
       var text = pre.textContent || '';
       var isCommand = (
         text.indexOf('curl ') !== -1 ||
-        text.indexOf('tamandua ') !== -1 ||
+        text.indexOf('canarinho ') !== -1 ||
         text.indexOf('git clone') !== -1 ||
         text.indexOf('./build') !== -1 ||
         text.indexOf('./install') !== -1 ||

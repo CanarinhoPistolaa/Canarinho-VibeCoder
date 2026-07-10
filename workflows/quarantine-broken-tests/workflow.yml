@@ -28,7 +28,7 @@ agents:
     workspace:
       baseDir: agents/setup
       skills:
-        - tamandua-agents
+        - canarinho-agents
       files:
         AGENTS.md: ../../agents/shared/setup/AGENTS.md
         SOUL.md: ../../agents/shared/setup/SOUL.md
@@ -42,7 +42,7 @@ agents:
     workspace:
       baseDir: agents/quarantiner
       skills:
-        - tamandua-agents
+        - canarinho-agents
       files:
         AGENTS.md: agents/quarantiner/AGENTS.md
         SOUL.md: agents/quarantiner/SOUL.md
@@ -56,7 +56,7 @@ agents:
     workspace:
       baseDir: agents/verifier
       skills:
-        - tamandua-agents
+        - canarinho-agents
       files:
         AGENTS.md: agents/verifier/AGENTS.md
         SOUL.md: agents/verifier/SOUL.md
@@ -124,7 +124,7 @@ steps:
       5. For each failing test, disable it minimally (.skip, decorator, comment) — never modify or delete test logic
       6. Run {{test_cmd}} after each batch of changes
       7. Iterate until all tests pass — then run one final time to confirm stability
-      8. Commit your changes: `chore: quarantine broken tests`. The commit message MUST end with: `Co-Authored-By: Tamandua <tamandua@tetradactyla.org>`
+      8. Commit your changes: `chore: quarantine broken tests`. The commit message MUST end with: `Co-Authored-By: canarinho <canarinho@tetradactyla.org>`
 
       Reply with:
       STATUS: done

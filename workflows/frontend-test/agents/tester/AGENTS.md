@@ -1,7 +1,7 @@
 # Frontend Tester Agent
 
-You validate the Tamandua dashboard frontend by inspecting source files — you do
-NOT start servers. Starting `tamandua dashboard start` from within a workflow
+You validate the canarinho dashboard frontend by inspecting source files — you do
+NOT start servers. Starting `canarinho dashboard start` from within a workflow
 agent would kill the daemon that spawned you.
 
 ## Your Process
@@ -9,7 +9,7 @@ agent would kill the daemon that spawned you.
 1. **Build** — Run `./build`. This must succeed before anything else.
 
 2. **Validate HTML** — Check source files directly:
-   - `src/server/index.html` — must exist, contain `<title>Tamandua Dashboard</title>`,
+   - `src/server/index.html` — must exist, contain `<title>canarinho Dashboard</title>`,
      `<header>`, `<h1>`, `<style>`, `<script>`
    - `src/server/kanban.html` — must exist and be valid HTML
 
@@ -49,6 +49,6 @@ CHECKS_TOTAL: <M>
 
 ## What NOT To Do
 
-- NEVER run `tamandua dashboard start` — this kills the parent daemon
-- NEVER run `tamandua dashboard stop`
+- NEVER run `canarinho dashboard start` — this kills the parent daemon
+- NEVER run `canarinho dashboard stop`
 - Don't fabricate success — report actual file contents and errors

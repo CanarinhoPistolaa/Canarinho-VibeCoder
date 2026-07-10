@@ -1,7 +1,7 @@
 # Autoresearch: Increase test coverage to 100%
 
 ## Objective
-Increase line coverage of the tamandua project by adding tests to source files under `src/`.
+Increase line coverage of the canarinho project by adding tests to source files under `src/`.
 
 ## Metrics
 - **Primary**: `coverage` (ratio, higher is better) — line coverage from `./measure-test-coverage.sh`
@@ -14,7 +14,7 @@ Increase line coverage of the tamandua project by adding tests to source files u
 - **New test files**: 17 files modified/created, ~135 tests added
 - **New modules covered**: agent-cron (0→100%), checks (0→65%), medic-cron (0→83%), medic (0→44%)
 - **Biggest per-file gains**: pi-config (45→100%), symlink (66→87%), workspace-files (75→92%), run-harness (76→96%), update (70→89%), logger (86→95+)
-- **Limiting factor**: Pi dependency code (~thousands of uncovered lines) dominates the aggregate metric. Tamandua's own modules are now well-covered but the `all files` aggregate is capped by third-party code.
+- **Limiting factor**: Pi dependency code (~thousands of uncovered lines) dominates the aggregate metric. canarinho's own modules are now well-covered but the `all files` aggregate is capped by third-party code.
 
 ## How to Run
 `./measure-test-coverage.sh` — outputs `0.XXXXXX` (line coverage ratio). The `autoresearch.sh` wrapper reads the script output and produces `METRIC coverage=0.XXXXX`.
@@ -24,7 +24,7 @@ All `.ts` source files under `src/` (compiled to `dist/`). Tests live in:
 - `src/**/*.test.ts` — unit tests co-located with source (preferred for new tests)
 - `tests/*.test.ts` — integration tests
 
-### Remaining tamandua gaps (complex, DB-heavy)
+### Remaining canarinho gaps (complex, DB-heavy)
 - `install.js`: 49.13% — internal functions (needs full installWorkflow integration test)
 - `cli.js`: 71.70% — main CLI handlers (needs subprocess testing)
 - `daemonctl.js`: 70.32% — daemon start/stop paths
@@ -39,7 +39,7 @@ All `.ts` source files under `src/` (compiled to `dist/`). Tests live in:
 ## Constraints
 - All tests must pass: `npm test` must exit 0 (enforced by `autoresearch.checks.sh`)
 - Rebuild before measuring: `./build` must succeed
-- Tests are parallel-safe: use isolated HOME/TAMANDUA_STATE_DIR temp dirs per test
+- Tests are parallel-safe: use isolated HOME/canarinho_STATE_DIR temp dirs per test
 - Prefer `src/**/*.test.ts` (co-located) to `tests/*.test.ts` (integration) for new unit tests
 
 ## What's Been Tried
@@ -76,9 +76,9 @@ All `.ts` source files under `src/` (compiled to `dist/`). Tests live in:
 - `run-harness.js`: 76.47% → 95.59% (+19.1pp)
 
 ### Key insight
-Pi dependency code (~thousands of uncovered lines from node_modules) dominates the aggregate coverage metric. Tamandua's own modules have improved dramatically but the `all files` aggregate barely moves. The 0.47-0.48 range appears to be a practical ceiling for this approach. To reach significantly higher values, the measurement would need to exclude pi dependencies (e.g., filter to `dist/` only).
+Pi dependency code (~thousands of uncovered lines from node_modules) dominates the aggregate coverage metric. canarinho's own modules have improved dramatically but the `all files` aggregate barely moves. The 0.47-0.48 range appears to be a practical ceiling for this approach. To reach significantly higher values, the measurement would need to exclude pi dependencies (e.g., filter to `dist/` only).
 
-### Remaining tamandua gaps
+### Remaining canarinho gaps
 - `install.js`: 49.13% — internal functions (needs full installWorkflow integration test)
 - `cli.js`: 71.70% — main handlers (needs CLI subprocess tests)
 - `daemonctl.js`: 70.32% — daemon start/stop paths

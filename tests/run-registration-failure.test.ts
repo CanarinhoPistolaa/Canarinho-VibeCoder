@@ -456,7 +456,7 @@ test("just-do-it context has target_working_directory_for_harness pointing to or
   const db = createTestDb();
   const runId = crypto.randomUUID();
   const targetRepo = "/home/user/projects/my-app";
-  const dispatcherDir = `/home/user/.tamandua/just-do-it-workspaces/${runId}`;
+  const dispatcherDir = `/home/user/.canarinho/just-do-it-workspaces/${runId}`;
 
   // Simulate the context that runWorkflow produces for just-do-it
   const context = JSON.stringify({
@@ -520,7 +520,7 @@ test("just-do-it context stores full UUID in dispatcher workspace path", () => {
     no_hurry_save_tokens_mode: "false",
     harness_type: "pi",
     no_relaunch_upon_rugpull: "false",
-    working_directory_for_harness: `/home/user/.tamandua/just-do-it-workspaces/${runId}`,
+    working_directory_for_harness: `/home/user/.canarinho/just-do-it-workspaces/${runId}`,
     target_working_directory_for_harness: targetRepo,
     repo: targetRepo,
   });
@@ -603,15 +603,15 @@ test("just-do-it dispatcher workspace path is under resolvePiStateDir", () => {
   const runId = crypto.randomUUID();
   const targetRepo = "/tmp/project";
 
-  // Simulate with TAMANDUA_STATE_DIR set to a custom location
-  const tamanduaStateDir = "/custom/state/dir/.tamandua";
+  // Simulate with canarinho_STATE_DIR set to a custom location
+  const canarinhoStateDir = "/custom/state/dir/.canarinho";
   const context = JSON.stringify({
     task: "Review code",
     workspace_mode: "direct",
     no_hurry_save_tokens_mode: "false",
     harness_type: "pi",
     no_relaunch_upon_rugpull: "false",
-    working_directory_for_harness: `${tamanduaStateDir}/just-do-it-workspaces/${runId}`,
+    working_directory_for_harness: `${canarinhoStateDir}/just-do-it-workspaces/${runId}`,
     target_working_directory_for_harness: targetRepo,
     repo: targetRepo,
   });
@@ -626,10 +626,10 @@ test("just-do-it dispatcher workspace path is under resolvePiStateDir", () => {
   const row = db.prepare("SELECT context FROM runs WHERE id = ?").get(runId) as { context: string };
   const ctx = JSON.parse(row.context);
 
-  // Dispatcher workspace should be under Tamandua state dir
+  // Dispatcher workspace should be under canarinho state dir
   assert(
-    ctx.working_directory_for_harness.startsWith(tamanduaStateDir),
-    "dispatcher workspace is under Tamandua state dir",
+    ctx.working_directory_for_harness.startsWith(canarinhoStateDir),
+    "dispatcher workspace is under canarinho state dir",
   );
   assert(
     ctx.working_directory_for_harness.includes("/just-do-it-workspaces/"),

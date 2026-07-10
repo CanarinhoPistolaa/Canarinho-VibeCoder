@@ -122,7 +122,7 @@ git commit -F /tmp/merge-commit-msg.txt
 The commit message MUST end with the co-author footer line:
 
 ```
-Co-Authored-By: Tamandua <tamandua@tetradactyla.org>
+Co-Authored-By: canarinho <canarinho@tetradactyla.org>
 ```
 
 Example commit message format:
@@ -147,7 +147,7 @@ High fixes:
 
 Deferred (medium/low): 4 remaining issues tracked for next sprint.
 
-Co-Authored-By: Tamandua <tamandua@tetradactyla.org>
+Co-Authored-By: canarinho <canarinho@tetradactyla.org>
 ```
 
 Do NOT use `feat:` prefix — this is a security fix. Always use `fix(security):`.

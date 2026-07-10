@@ -25,8 +25,8 @@ function runGit(args: string[], cwd: string): string | null {
 function initGitRepo(dir: string): void {
   fs.mkdirSync(dir, { recursive: true });
   runGit(["init", "--initial-branch=main"], dir);
-  runGit(["config", "user.email", "test@tamandua.local"], dir);
-  runGit(["config", "user.name", "Tamandua Test"], dir);
+  runGit(["config", "user.email", "test@canarinho.local"], dir);
+  runGit(["config", "user.name", "canarinho Test"], dir);
   fs.writeFileSync(path.join(dir, "README.md"), "# Test Repo\n", "utf-8");
   runGit(["add", "README.md"], dir);
   runGit(["commit", "-m", "initial commit"], dir);
@@ -59,7 +59,7 @@ function writeMinimalWorkflow(
   workflowId: string,
   workspaceMode: "direct" | "worktree",
 ): void {
-  const workflowDir = path.join(homeDir, ".tamandua", "workflows", workflowId);
+  const workflowDir = path.join(homeDir, ".canarinho", "workflows", workflowId);
   fs.mkdirSync(workflowDir, { recursive: true });
   fs.writeFileSync(path.join(workflowDir, "workflow.yml"),
     `id: ${workflowId}\nrun:\n  workspace: ${workspaceMode}\nagents:\n  - id: dev\n    model: fake\n    workspace:\n      baseDir: .\nsteps:\n  - id: implement\n    agent: dev\n    input: Implement the task\n    expects: STATUS, CHANGES, TESTS\n`,
@@ -71,7 +71,7 @@ function writeWorkflowWithInvalidWorkspace(
   workflowId: string,
   invalidValue: string,
 ): void {
-  const workflowDir = path.join(homeDir, ".tamandua", "workflows", workflowId);
+  const workflowDir = path.join(homeDir, ".canarinho", "workflows", workflowId);
   fs.mkdirSync(workflowDir, { recursive: true });
   fs.writeFileSync(path.join(workflowDir, "workflow.yml"),
     `id: ${workflowId}\nrun:\n  workspace: ${invalidValue}\nagents:\n  - id: dev\n    model: fake\n    workspace:\n      baseDir: .\nsteps:\n  - id: implement\n    agent: dev\n    input: Implement the task\n    expects: STATUS, CHANGES, TESTS\n`,
@@ -89,27 +89,27 @@ describe("runWorkflow", () => {
   let origWorktreeRoot: string | undefined;
 
   before(async () => {
-    tempHome = fs.mkdtempSync(path.join(os.tmpdir(), "tamandua-run-"));
+    tempHome = fs.mkdtempSync(path.join(os.tmpdir(), "canarinho-run-"));
     origHome = process.env.HOME;
-    origControlPort = process.env.TAMANDUA_CONTROL_PORT;
-    origDbPath = process.env.TAMANDUA_DB_PATH;
-    origStateDir = process.env.TAMANDUA_STATE_DIR;
-    origWorktreeRoot = process.env.TAMANDUA_WORKTREE_ROOT;
+    origControlPort = process.env.canarinho_CONTROL_PORT;
+    origDbPath = process.env.canarinho_DB_PATH;
+    origStateDir = process.env.canarinho_STATE_DIR;
+    origWorktreeRoot = process.env.canarinho_WORKTREE_ROOT;
 
-    const tamanduaDir = path.join(tempHome, ".tamandua");
+    const canarinhoDir = path.join(tempHome, ".canarinho");
     const dashboardPort = await reserveRandomPort();
     let controlPort = await reserveRandomPort();
     while (controlPort === dashboardPort) {
       controlPort = await reserveRandomPort();
     }
-    fs.mkdirSync(tamanduaDir, { recursive: true });
-    fs.writeFileSync(path.join(tamanduaDir, "port"), String(dashboardPort), "utf-8");
+    fs.mkdirSync(canarinhoDir, { recursive: true });
+    fs.writeFileSync(path.join(canarinhoDir, "port"), String(dashboardPort), "utf-8");
 
     process.env.HOME = tempHome;
-    process.env.TAMANDUA_CONTROL_PORT = String(controlPort);
-    process.env.TAMANDUA_DB_PATH = path.join(tamanduaDir, "tamandua.db");
-    process.env.TAMANDUA_STATE_DIR = tamanduaDir;
-    process.env.TAMANDUA_WORKTREE_ROOT = path.join(tamanduaDir, "worktrees");
+    process.env.canarinho_CONTROL_PORT = String(controlPort);
+    process.env.canarinho_DB_PATH = path.join(canarinhoDir, "canarinho.db");
+    process.env.canarinho_STATE_DIR = canarinhoDir;
+    process.env.canarinho_WORKTREE_ROOT = path.join(canarinhoDir, "worktrees");
   });
 
   after(async () => {
@@ -123,28 +123,34 @@ describe("runWorkflow", () => {
       delete process.env.HOME;
     }
     if (origControlPort !== undefined) {
-      process.env.TAMANDUA_CONTROL_PORT = origControlPort;
+      process.env.canarinho_CONTROL_PORT = origControlPort;
     } else {
-      delete process.env.TAMANDUA_CONTROL_PORT;
+      delete process.env.canarinho_CONTROL_PORT;
     }
     if (origDbPath !== undefined) {
-      process.env.TAMANDUA_DB_PATH = origDbPath;
+      process.env.canarinho_DB_PATH = origDbPath;
     } else {
-      delete process.env.TAMANDUA_DB_PATH;
+      delete process.env.canarinho_DB_PATH;
     }
     if (origStateDir !== undefined) {
-      process.env.TAMANDUA_STATE_DIR = origStateDir;
+      process.env.canarinho_STATE_DIR = origStateDir;
     } else {
-      delete process.env.TAMANDUA_STATE_DIR;
+      delete process.env.canarinho_STATE_DIR;
     }
     if (origWorktreeRoot !== undefined) {
-      process.env.TAMANDUA_WORKTREE_ROOT = origWorktreeRoot;
+      process.env.canarinho_WORKTREE_ROOT = origWorktreeRoot;
     } else {
-      delete process.env.TAMANDUA_WORKTREE_ROOT;
+      delete process.env.canarinho_WORKTREE_ROOT;
     }
     // Retries absorb stragglers still writing into the temp home during
     // teardown (ENOTEMPTY otherwise, seen on macOS).
-    fs.rmSync(tempHome, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
+    try { (await import("../../dist/db.js")).closeDb(); } catch {}
+    try {
+      fs.rmSync(tempHome, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
+    } catch (e) {
+      try { fs.rmSync(tempHome, { recursive: true, force: true, maxRetries: 20, retryDelay: 200 }); }
+      catch { /* best-effort; temp dir will be reaped by OS */ }
+    }
   });
 
   it("daemonctl paths honor HOME assigned after module import", () => {
@@ -317,7 +323,7 @@ describe("runWorkflow", () => {
     it("fails with clear error when origin is not a git repo", async () => {
       const workflowId = "test-wt-non-git";
       writeMinimalWorkflow(tempHome, workflowId, "worktree");
-      const nonGitDir = fs.mkdtempSync(path.join(os.tmpdir(), "tamandua-non-git-"));
+      const nonGitDir = fs.mkdtempSync(path.join(os.tmpdir(), "canarinho-non-git-"));
       try {
         await assert.rejects(
           runWorkflow({
@@ -565,7 +571,7 @@ describe("runWorkflow", () => {
     it("stores base_branch_sha as empty string when git rev-parse fails in direct mode", async () => {
       const workflowId = "test-ctx-bbsha-empty";
       writeMinimalWorkflow(tempHome, workflowId, "direct");
-      const nonGitDir = fs.mkdtempSync(path.join(os.tmpdir(), "tamandua-non-git-sha-"));
+      const nonGitDir = fs.mkdtempSync(path.join(os.tmpdir(), "canarinho-non-git-sha-"));
 
       try {
         try {
@@ -677,10 +683,10 @@ describe("runWorkflow", () => {
 
       // Point to a dead control port and set a short probe timeout
       const deadPort = await reserveRandomPort();
-      const prevControlPort = process.env.TAMANDUA_CONTROL_PORT;
-      const prevProbeOverride = process.env.TAMANDUA_CONTROL_PROBE_TIMEOUT_OVERRIDE;
-      process.env.TAMANDUA_CONTROL_PORT = String(deadPort);
-      process.env.TAMANDUA_CONTROL_PROBE_TIMEOUT_OVERRIDE = "2000";
+      const prevControlPort = process.env.canarinho_CONTROL_PORT;
+      const prevProbeOverride = process.env.canarinho_CONTROL_PROBE_TIMEOUT_OVERRIDE;
+      process.env.canarinho_CONTROL_PORT = String(deadPort);
+      process.env.canarinho_CONTROL_PROBE_TIMEOUT_OVERRIDE = "2000";
 
       let result: Awaited<ReturnType<typeof runWorkflow>>;
       try {
@@ -699,14 +705,14 @@ describe("runWorkflow", () => {
           /* best-effort cleanup */
         }
         if (prevControlPort !== undefined) {
-          process.env.TAMANDUA_CONTROL_PORT = prevControlPort;
+          process.env.canarinho_CONTROL_PORT = prevControlPort;
         } else {
-          delete process.env.TAMANDUA_CONTROL_PORT;
+          delete process.env.canarinho_CONTROL_PORT;
         }
         if (prevProbeOverride !== undefined) {
-          process.env.TAMANDUA_CONTROL_PROBE_TIMEOUT_OVERRIDE = prevProbeOverride;
+          process.env.canarinho_CONTROL_PROBE_TIMEOUT_OVERRIDE = prevProbeOverride;
         } else {
-          delete process.env.TAMANDUA_CONTROL_PROBE_TIMEOUT_OVERRIDE;
+          delete process.env.canarinho_CONTROL_PROBE_TIMEOUT_OVERRIDE;
         }
       }
 
