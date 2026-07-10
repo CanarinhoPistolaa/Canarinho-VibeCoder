@@ -1,6 +1,6 @@
-# Tamandua
+# Canarinho VibeCoder
 
-<p align="center"><img src="www/assets/tamandua.png" alt="Tamandua logo" width="180"></p>
+<p align="center"><img src="www/assets/tamandua.png" alt="Canarinho VibeCoder logo" width="180"></p>
 
 <p align="center">
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="License: MIT"></a>
@@ -12,7 +12,7 @@
 
 Build your agent team in [pi](https://github.com/mariozechner/pi-coding-agent) with one command.
 
-You don't need to hire a dev team. You need to define one. Tamandua gives you a team of specialized AI agents — planner, developer, verifier, tester, reviewer — that work together in reliable, repeatable workflows. One install. Zero infrastructure.
+You don't need to hire a dev team. You need to define one. Canarinho VibeCoder gives you a team of specialized AI agents — planner, developer, verifier, tester, reviewer — that work together in reliable, repeatable workflows. One install. Zero infrastructure.
 
 ## Contents
 
@@ -23,6 +23,8 @@ You don't need to hire a dev team. You need to define one. Tamandua gives you a 
 - [Why It Works](#why-it-works)
 - [How It Works](#how-it-works)
 - [Build Your Own](#build-your-own)
+- [Dashboard UI](#dashboard-ui)
+- [Workflow Creator](#workflow-creator)
 - [Native AutoResearch](#native-autoresearch)
 - [Security](#security)
 - [Commands](#commands)
@@ -490,6 +492,30 @@ You're installing agent teams that run code on your machine. We take that seriou
 
 ---
 
+## Dashboard UI
+
+The web dashboard (`tamandua dashboard`) includes:
+
+- **Progress bar colors by status** — running=blue, completed=green, paused=yellow, failed=red
+- **Responsive mobile cards** — flexbox layout that prevents label/value overlap on small screens
+- **Token formatting** — K/M/B/T abbreviations (e.g. 156K, 1.2M)
+- **Settings popover** — theme switcher (GitHub Dark, Cool Slate, Canarinho), MCP status, navigation
+
+## Workflow Creator
+
+Build custom workflows through the web UI at `/workflows`:
+
+- **Workflow List** — view all workflows with agents/steps expand, Clone/Edit/Delete actions
+- **Workflow Editor** — create/edit workflows with Info, Agents, Steps, and live YAML preview
+- **Agent Editor** — define agents with role, model override, skills, and persona files (AGENTS.md, IDENTITY.md, SOUL.md)
+- **Step Editor** — configure steps with agent dropdown, single/loop type, input templates, and loop config
+- **Import Agent** — reuse agents from any workflow with one click
+- **Clone** — clone any workflow to start from an existing template
+
+Access at `http://localhost:3334/workflows` or click Settings → Workflows.
+
+---
+
 ## Troubleshooting
 
 If something isn't working as expected, start with the built-in diagnostic:
@@ -698,4 +724,4 @@ Tamandua began as a fork of [antfarm](https://github.com/snarktank/antfarm) and 
 
 ---
 
-Built with Tamanduás in mind.
+Built with Canarinho VibeCoder in mind.
