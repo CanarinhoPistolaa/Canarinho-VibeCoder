@@ -33,6 +33,21 @@ const CLI_SCRIPT = path.resolve(__dirname, "..", "dist", "cli", "cli.js");
 import { stopControlPlane } from "../dist/server/daemonctl.js";
 import { DEFAULT_CONTROL_PORT } from "../dist/server/control-server.js";
 
+function sleep(ms: number): Promise<void> { return new Promise((r) => setTimeout(r, ms)); }
+
+function safeRmSync(target: string): void {
+  try {
+    fs.rmSync(target, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
+  } catch {
+    try {
+      fs.rmSync(target, { recursive: true, force: true, maxRetries: 20, retryDelay: 200 });
+    } catch {
+      // best-effort; temp dir will be reaped by OS
+    }
+  }
+}
+
+
 // ═══════════════════════════════════════════════════════════════════
 // Helpers
 // ═══════════════════════════════════════════════════════════════════
@@ -224,7 +239,8 @@ describe("canarinho control-plane CLI", { concurrency: 1 }, () => {
       assert.equal(cleanStderr(stderr), "");
     } finally {
       stopIsolatedControlPlane(tempHome);
-      fs.rmSync(tempHome, { recursive: true, force: true });
+      await sleep(300);
+      safeRmSync(tempHome);
     }
   });
 
@@ -263,7 +279,8 @@ describe("canarinho control-plane CLI", { concurrency: 1 }, () => {
 
     } finally {
       stopIsolatedControlPlane(tempHome);
-      fs.rmSync(tempHome, { recursive: true, force: true });
+      await sleep(300);
+      safeRmSync(tempHome);
     }
   });
 
@@ -298,7 +315,8 @@ describe("canarinho control-plane CLI", { concurrency: 1 }, () => {
 
     } finally {
       stopIsolatedControlPlane(tempHome);
-      fs.rmSync(tempHome, { recursive: true, force: true });
+      await sleep(300);
+      safeRmSync(tempHome);
     }
   });
 
@@ -331,7 +349,8 @@ describe("canarinho control-plane CLI", { concurrency: 1 }, () => {
 
     } finally {
       stopIsolatedControlPlane(tempHome);
-      fs.rmSync(tempHome, { recursive: true, force: true });
+      await sleep(300);
+      safeRmSync(tempHome);
     }
   });
 
@@ -373,7 +392,8 @@ describe("canarinho control-plane CLI", { concurrency: 1 }, () => {
 
     } finally {
       stopIsolatedControlPlane(tempHome);
-      fs.rmSync(tempHome, { recursive: true, force: true });
+      await sleep(300);
+      safeRmSync(tempHome);
     }
   });
 
@@ -412,7 +432,8 @@ describe("canarinho control-plane CLI", { concurrency: 1 }, () => {
 
     } finally {
       stopIsolatedControlPlane(tempHome);
-      fs.rmSync(tempHome, { recursive: true, force: true });
+      await sleep(300);
+      safeRmSync(tempHome);
     }
   });
 
@@ -455,7 +476,8 @@ describe("canarinho control-plane CLI", { concurrency: 1 }, () => {
 
     } finally {
       stopIsolatedControlPlane(tempHome);
-      fs.rmSync(tempHome, { recursive: true, force: true });
+      await sleep(300);
+      safeRmSync(tempHome);
     }
   });
 
@@ -502,7 +524,8 @@ describe("canarinho control-plane CLI", { concurrency: 1 }, () => {
 
     } finally {
       stopIsolatedControlPlane(tempHome);
-      fs.rmSync(tempHome, { recursive: true, force: true });
+      await sleep(300);
+      safeRmSync(tempHome);
     }
   });
 
@@ -519,7 +542,8 @@ describe("canarinho control-plane CLI", { concurrency: 1 }, () => {
       assert.equal(cleanStderr(stderr), "");
     } finally {
       stopIsolatedControlPlane(tempHome);
-      fs.rmSync(tempHome, { recursive: true, force: true });
+      await sleep(300);
+      safeRmSync(tempHome);
     }
   });
 });

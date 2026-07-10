@@ -22,6 +22,29 @@ import { setTimeout as sleep } from "node:timers/promises";
 import http from "node:http";
 import { fileURLToPath } from "node:url";
 
+function stopDaemonAndWait(d: ChildProcess | undefined): Promise<void> {
+  if (!d || d.exitCode !== null || !d.pid) return Promise.resolve();
+  return new Promise((resolve) => {
+    const timer = setTimeout(() => resolve(), 2000);
+    d.once("exit", () => { clearTimeout(timer); resolve(); });
+    try { process.kill(d.pid!, "SIGTERM"); } catch { /* ignore */ }
+  });
+}
+
+
+function safeRmSync(target: string): void {
+  try {
+    fs.rmSync(target, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
+  } catch {
+    try {
+      fs.rmSync(target, { recursive: true, force: true, maxRetries: 20, retryDelay: 200 });
+    } catch {
+      // best-effort; temp dir will be reaped by OS
+    }
+  }
+}
+
+
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const CLI_SCRIPT = path.resolve(__dirname, "..", "dist", "cli", "cli.js");
 const DAEMON_SCRIPT = path.resolve(__dirname, "..", "dist", "server", "daemon.js");
@@ -229,11 +252,8 @@ describe("canarinho workflow resume CLI", { concurrency: 1 }, () => {
         `Expected status to show "running", got: ${statusOut}`,
       );
     } finally {
-      if (daemon && daemon.exitCode === null && daemon.pid) {
-        try { process.kill(daemon.pid, "SIGTERM"); } catch { /* ignore */ }
-        await sleep(200);
-      }
-      fs.rmSync(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
+      await stopDaemonAndWait(daemon)
+      safeRmSync(root);
     }
   });
 
@@ -277,7 +297,7 @@ describe("canarinho workflow resume CLI", { concurrency: 1 }, () => {
         `Expected "completed" status in error, got: ${stderr}`,
       );
     } finally {
-      fs.rmSync(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
+      safeRmSync(root);
     }
   });
 
@@ -321,7 +341,7 @@ describe("canarinho workflow resume CLI", { concurrency: 1 }, () => {
         `Expected "canceled" status in error, got: ${stderr}`,
       );
     } finally {
-      fs.rmSync(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
+      safeRmSync(root);
     }
   });
 
@@ -401,11 +421,8 @@ describe("canarinho workflow resume CLI", { concurrency: 1 }, () => {
         `Expected "restarting from step" in stdout, got: ${stdout}`,
       );
     } finally {
-      if (daemon && daemon.exitCode === null && daemon.pid) {
-        try { process.kill(daemon.pid, "SIGTERM"); } catch { /* ignore */ }
-        await sleep(200);
-      }
-      fs.rmSync(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
+      await stopDaemonAndWait(daemon)
+      safeRmSync(root);
     }
   });
 
@@ -445,7 +462,7 @@ describe("canarinho workflow resume CLI", { concurrency: 1 }, () => {
         `Expected "only paused or failed" error, got: ${stderr}`,
       );
     } finally {
-      fs.rmSync(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
+      safeRmSync(root);
     }
   });
 
@@ -487,7 +504,7 @@ describe("canarinho workflow resume CLI", { concurrency: 1 }, () => {
         `Expected daemon-unreachable error, got: ${stderr}`,
       );
     } finally {
-      fs.rmSync(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
+      safeRmSync(root);
     }
   });
 
@@ -513,7 +530,7 @@ describe("canarinho workflow resume CLI", { concurrency: 1 }, () => {
         `Expected not-found error in stderr, got: ${stderr}`,
       );
     } finally {
-      fs.rmSync(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
+      safeRmSync(root);
     }
   });
 
@@ -536,7 +553,7 @@ describe("canarinho workflow resume CLI", { concurrency: 1 }, () => {
         `Expected "Missing run-id" error, got stderr: "${cleanStderr(stderr)}"`,
       );
     } finally {
-      fs.rmSync(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
+      safeRmSync(root);
     }
   });
 });

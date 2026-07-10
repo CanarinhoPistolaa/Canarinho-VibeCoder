@@ -13,10 +13,10 @@ const repoRoot = process.cwd();
 
 function safeRmSync(target: string): void {
   try {
-    fs.rmSync(target, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
+    safeRmSync(target);
   } catch {
     try {
-      fs.rmSync(target, { recursive: true, force: true, maxRetries: 20, retryDelay: 200 });
+      safeRmSync(target);
     } catch {
       // best-effort; temp dir will be reaped by OS
     }

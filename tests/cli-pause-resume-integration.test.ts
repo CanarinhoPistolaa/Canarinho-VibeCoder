@@ -26,6 +26,29 @@ import http from "node:http";
 import crypto from "node:crypto";
 import { fileURLToPath } from "node:url";
 
+function stopDaemonAndWait(d: ChildProcess | undefined): Promise<void> {
+  if (!d || d.exitCode !== null || !d.pid) return Promise.resolve();
+  return new Promise((resolve) => {
+    const timer = setTimeout(() => resolve(), 2000);
+    d.once("exit", () => { clearTimeout(timer); resolve(); });
+    try { process.kill(d.pid!, "SIGTERM"); } catch { /* ignore */ }
+  });
+}
+
+
+function safeRmSync(target: string): void {
+  try {
+    fs.rmSync(target, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
+  } catch {
+    try {
+      fs.rmSync(target, { recursive: true, force: true, maxRetries: 20, retryDelay: 200 });
+    } catch {
+      // best-effort; temp dir will be reaped by OS
+    }
+  }
+}
+
+
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const CLI_SCRIPT = path.resolve(__dirname, "..", "dist", "cli", "cli.js");
 const DAEMON_SCRIPT = path.resolve(__dirname, "..", "dist", "server", "daemon.js");
@@ -354,10 +377,8 @@ describe("CLI pause/resume one run (integration)", { concurrency: 1 }, () => {
         `Expected status "running", got: ${statusAfterResume.stdout}`,
       );
     } finally {
-      if (daemon && daemon.exitCode === null && daemon.pid) {
-        try { process.kill(daemon.pid, "SIGTERM"); } catch { /* ignore */ }
-      }
-      fs.rmSync(root, { recursive: true, force: true });
+      await stopDaemonAndWait(daemon)
+      safeRmSync(root);
     }
   });
 
@@ -397,7 +418,7 @@ describe("CLI pause/resume one run (integration)", { concurrency: 1 }, () => {
         `Expected "completed" status in error, got: ${stderr}`,
       );
     } finally {
-      fs.rmSync(root, { recursive: true, force: true });
+      safeRmSync(root);
     }
   });
 
@@ -436,7 +457,7 @@ describe("CLI pause/resume one run (integration)", { concurrency: 1 }, () => {
         `Expected "failed" status in error, got: ${stderr}`,
       );
     } finally {
-      fs.rmSync(root, { recursive: true, force: true });
+      safeRmSync(root);
     }
   });
 
@@ -472,7 +493,7 @@ describe("CLI pause/resume one run (integration)", { concurrency: 1 }, () => {
         `Expected non-paused resume rejection, got: ${stderr}`,
       );
     } finally {
-      fs.rmSync(root, { recursive: true, force: true });
+      safeRmSync(root);
     }
   });
 
@@ -511,7 +532,7 @@ describe("CLI pause/resume one run (integration)", { concurrency: 1 }, () => {
         `Expected "completed" in error, got: ${stderr}`,
       );
     } finally {
-      fs.rmSync(root, { recursive: true, force: true });
+      safeRmSync(root);
     }
   });
 
@@ -610,10 +631,8 @@ describe("CLI pause/resume one run (integration)", { concurrency: 1 }, () => {
         assert.equal(after.status, before.status, `Step ${stepId} status should be preserved: expected ${before.status}, got ${after.status}`);
       }
     } finally {
-      if (daemon && daemon.exitCode === null && daemon.pid) {
-        try { process.kill(daemon.pid, "SIGTERM"); } catch { /* ignore */ }
-      }
-      fs.rmSync(root, { recursive: true, force: true });
+      await stopDaemonAndWait(daemon)
+      safeRmSync(root);
     }
   });
 });
@@ -731,10 +750,8 @@ describe("CLI pause/resume one run (integration)", { concurrency: 1 }, () => {
       // AC 4: Drain path is unaffected — pause with drain leaves steps untouched
       // (verified by existing drain test coverage in dashboard-mcp-pause-resume-integration)
     } finally {
-      if (daemon && daemon.exitCode === null && daemon.pid) {
-        try { process.kill(daemon.pid, "SIGTERM"); } catch { /* ignore */ }
-      }
-      fs.rmSync(root, { recursive: true, force: true });
+      await stopDaemonAndWait(daemon)
+      safeRmSync(root);
     }
   });
 

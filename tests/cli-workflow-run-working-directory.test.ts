@@ -10,6 +10,19 @@ import { spawn } from "node:child_process";
 import { DatabaseSync } from "node:sqlite";
 import { describe, it } from "node:test";
 
+function safeRmSync(target: string): void {
+  try {
+    fs.rmSync(target, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
+  } catch {
+    try {
+      fs.rmSync(target, { recursive: true, force: true, maxRetries: 20, retryDelay: 200 });
+    } catch {
+      // best-effort; temp dir will be reaped by OS
+    }
+  }
+}
+
+
 const cliPath = path.resolve(process.cwd(), "dist", "cli", "cli.js");
 
 async function createTempEnv() {
@@ -183,7 +196,7 @@ describe("CLI workflow run working-directory-for-harness", () => {
         HOME: env.homeDir,
         canarinho_CONTROL_PORT: String(env.controlPort),
       }).catch(() => ({ stdout: "", stderr: "", code: null }));
-      try { fs.rmSync(env.root, { recursive: true, force: true }); } catch { /* cleanup */ }
+      try { safeRmSync(env.root); } catch { /* cleanup */ }
     }
   });
 
@@ -215,7 +228,7 @@ describe("CLI workflow run working-directory-for-harness", () => {
         HOME: env.homeDir,
         canarinho_CONTROL_PORT: String(env.controlPort),
       }).catch(() => ({ stdout: "", stderr: "", code: null }));
-      try { fs.rmSync(env.root, { recursive: true, force: true }); } catch { /* cleanup */ }
+      try { safeRmSync(env.root); } catch { /* cleanup */ }
     }
   });
 
@@ -305,7 +318,7 @@ describe("CLI workflow run working-directory-for-harness", () => {
         canarinho_CONTROL_PORT: String(blockerPort),
       }).catch(() => ({ stdout: "", stderr: "", code: null }));
       try {
-        fs.rmSync(env.root, { recursive: true, force: true });
+        safeRmSync(env.root);
       } catch {
         /* cleanup */
       }
@@ -337,7 +350,7 @@ describe("CLI workflow run working-directory-for-harness", () => {
         canarinho_CONTROL_PORT: String(env.controlPort),
       }).catch(() => ({ stdout: "", stderr: "", code: null }));
       try {
-        fs.rmSync(env.root, { recursive: true, force: true });
+        safeRmSync(env.root);
       } catch {
         /* cleanup */
       }

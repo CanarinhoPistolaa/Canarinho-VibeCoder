@@ -27,6 +27,37 @@ import {
   getPidFile,
 } from "../../dist/server/daemonctl.js";
 
+function safeRmSync(target: string): void {
+  try {
+    fs.rmSync(target, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
+  } catch {
+    try {
+      fs.rmSync(target, { recursive: true, force: true, maxRetries: 20, retryDelay: 200 });
+    } catch {
+      // best-effort; temp dir will be reaped by OS
+    }
+  }
+}
+
+async function waitForPidExit(pid: number, timeoutMs = 5000): Promise<void> {
+  const startedAt = Date.now();
+  while (Date.now() - startedAt < timeoutMs) {
+    try { process.kill(pid, 0); } catch { return; }
+    await new Promise<void>((resolve) => setTimeout(resolve, 100));
+  }
+}
+
+async function stopDaemonAndWait(homeDir: string): Promise<void> {
+  let pid: number | null = null;
+  try {
+    const pidStr = fs.readFileSync(getPidFile({ homeDir }), "utf-8").trim();
+    pid = Number(pidStr);
+    if (!Number.isFinite(pid)) pid = null;
+  } catch { /* ignore */ }
+  try { stopDaemon({ homeDir }); } catch { /* ignore */ }
+  if (pid !== null) await waitForPidExit(pid);
+}
+
 // ── Helpers ────────────────────────────────────────────────────────
 
 function createTempHome(): string {
@@ -91,8 +122,8 @@ describe("daemonctl restartDaemon", { concurrency: 1 }, () => {
 
       await waitForHttpUp(`http://127.0.0.1:${port}/`);
     } finally {
-      try { stopDaemon({ homeDir: tempHome }); } catch {}
-      fs.rmSync(tempHome, { recursive: true, force: true });
+      await stopDaemonAndWait(tempHome)
+      safeRmSync(tempHome);
     }
   });
 
@@ -123,8 +154,8 @@ describe("daemonctl restartDaemon", { concurrency: 1 }, () => {
       assert.equal(after.running, true);
       assert.equal((after as { running: true; pid: number }).pid, result.pid);
     } finally {
-      try { stopDaemon({ homeDir: tempHome }); } catch {}
-      fs.rmSync(tempHome, { recursive: true, force: true });
+      await stopDaemonAndWait(tempHome)
+      safeRmSync(tempHome);
     }
   });
 
@@ -144,8 +175,8 @@ describe("daemonctl restartDaemon", { concurrency: 1 }, () => {
       assert.equal(result.port, port, "should use the stored port when no port arg given");
       assert.ok(result.pid > 0);
     } finally {
-      try { stopDaemon({ homeDir: tempHome }); } catch {}
-      fs.rmSync(tempHome, { recursive: true, force: true });
+      await stopDaemonAndWait(tempHome)
+      safeRmSync(tempHome);
     }
   });
 
@@ -165,8 +196,8 @@ describe("daemonctl restartDaemon", { concurrency: 1 }, () => {
       assert.equal(result.port, explicitPort, "explicit port should override stored port file");
       assert.ok(result.pid > 0);
     } finally {
-      try { stopDaemon({ homeDir: tempHome }); } catch {}
-      fs.rmSync(tempHome, { recursive: true, force: true });
+      await stopDaemonAndWait(tempHome)
+      safeRmSync(tempHome);
     }
   });
 
@@ -192,8 +223,8 @@ describe("daemonctl restartDaemon", { concurrency: 1 }, () => {
       );
       assert.notEqual(Number(pidFileContents), first.pid);
     } finally {
-      try { stopDaemon({ homeDir: tempHome }); } catch {}
-      fs.rmSync(tempHome, { recursive: true, force: true });
+      await stopDaemonAndWait(tempHome)
+      safeRmSync(tempHome);
     }
   });
 

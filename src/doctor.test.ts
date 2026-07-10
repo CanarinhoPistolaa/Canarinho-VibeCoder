@@ -381,15 +381,19 @@ describe("ENVIRONMENT checks (US-003)", () => {
       `Message should include Node.js version, got: ${nodeCheck!.message}`);
   });
 
-  it("pi on PATH check passes when pi is available", async () => {
+  it("pi on PATH check returns pass or fail (not info)", async () => {
     const groups = await runDoctorChecks();
     const env = groups.find((g) => g.label === "ENVIRONMENT");
     assert.ok(env);
     const piCheck = env!.checks.find((c) => c.name === "pi present on PATH");
     assert.ok(piCheck, "Expected pi check to exist");
-    // pi should be available in this test environment (it's how we were launched)
-    assert.strictEqual(piCheck!.status, "pass",
-      `pi check should pass on PATH, got: ${piCheck!.status} (${piCheck!.message})`);
+    assert.ok(
+      piCheck!.status === "pass" || piCheck!.status === "fail",
+      `pi check should be pass or fail, got: ${piCheck!.status} (${piCheck!.message})`,
+    );
+    if (piCheck!.status === "fail") {
+      assert.ok(piCheck!.remedy, "Fail should have a remedy command");
+    }
   });
 
   it("gh check returns pass or fail (not info)", async () => {

@@ -23,6 +23,29 @@ import { setTimeout as sleep } from "node:timers/promises";
 import http from "node:http";
 import { fileURLToPath } from "node:url";
 
+function stopDaemonAndWait(d: ChildProcess | undefined): Promise<void> {
+  if (!d || d.exitCode !== null || !d.pid) return Promise.resolve();
+  return new Promise((resolve) => {
+    const timer = setTimeout(() => resolve(), 2000);
+    d.once("exit", () => { clearTimeout(timer); resolve(); });
+    try { process.kill(d.pid!, "SIGTERM"); } catch { /* ignore */ }
+  });
+}
+
+
+function safeRmSync(target: string): void {
+  try {
+    fs.rmSync(target, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
+  } catch {
+    try {
+      fs.rmSync(target, { recursive: true, force: true, maxRetries: 20, retryDelay: 200 });
+    } catch {
+      // best-effort; temp dir will be reaped by OS
+    }
+  }
+}
+
+
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const CLI_SCRIPT = path.resolve(__dirname, "..", "dist", "cli", "cli.js");
 const DAEMON_SCRIPT = path.resolve(__dirname, "..", "dist", "server", "daemon.js");
@@ -246,7 +269,7 @@ describe("canarinho workflow pause-all CLI", { concurrency: 1 }, () => {
         `Expected "No runs to pause" in stdout, got: ${stdout}`,
       );
     } finally {
-      fs.rmSync(root, { recursive: true, force: true });
+      safeRmSync(root);
     }
   });
 
@@ -313,10 +336,8 @@ describe("canarinho workflow pause-all CLI", { concurrency: 1 }, () => {
       const completedStatus = await readDbStatus(dbPath, completedRun);
       assert.equal(completedStatus.status, "completed", "Completed run should remain completed");
     } finally {
-      if (daemon && daemon.exitCode === null && daemon.pid) {
-        try { process.kill(daemon.pid, "SIGTERM"); } catch { /* ignore */ }
-      }
-      fs.rmSync(root, { recursive: true, force: true });
+      await stopDaemonAndWait(daemon)
+      safeRmSync(root);
     }
   });
 
@@ -387,10 +408,8 @@ describe("canarinho workflow pause-all CLI", { concurrency: 1 }, () => {
         assert.equal(s.scheduling_status, "draining_pause", `Run ${id.slice(0, 8)} scheduling_status should be draining_pause`);
       }
     } finally {
-      if (daemon && daemon.exitCode === null && daemon.pid) {
-        try { process.kill(daemon.pid, "SIGTERM"); } catch { /* ignore */ }
-      }
-      fs.rmSync(root, { recursive: true, force: true });
+      await stopDaemonAndWait(daemon)
+      safeRmSync(root);
     }
   });
 });
@@ -427,7 +446,7 @@ describe("canarinho workflow resume-all CLI", { concurrency: 1 }, () => {
         `Expected "No runs to resume" in stdout, got: ${stdout}`,
       );
     } finally {
-      fs.rmSync(root, { recursive: true, force: true });
+      safeRmSync(root);
     }
   });
 
@@ -499,10 +518,8 @@ describe("canarinho workflow resume-all CLI", { concurrency: 1 }, () => {
       const completedStatus = await readDbStatus(dbPath, completedRun);
       assert.equal(completedStatus.status, "completed", "Completed run should remain completed");
     } finally {
-      if (daemon && daemon.exitCode === null && daemon.pid) {
-        try { process.kill(daemon.pid, "SIGTERM"); } catch { /* ignore */ }
-      }
-      fs.rmSync(root, { recursive: true, force: true });
+      await stopDaemonAndWait(daemon)
+      safeRmSync(root);
     }
   });
 
@@ -542,7 +559,7 @@ describe("canarinho workflow resume-all CLI", { concurrency: 1 }, () => {
         `Expected "0 run(s)" in stdout, got: ${stdout}`,
       );
     } finally {
-      fs.rmSync(root, { recursive: true, force: true });
+      safeRmSync(root);
     }
   });
 });
@@ -610,10 +627,8 @@ describe("canarinho workflow pause-all / resume-all terminal protection", { conc
       assert.equal((await readDbStatus(dbPath, failed)).status, "failed");
       assert.equal((await readDbStatus(dbPath, canceled)).status, "canceled");
     } finally {
-      if (daemon && daemon.exitCode === null && daemon.pid) {
-        try { process.kill(daemon.pid, "SIGTERM"); } catch { /* ignore */ }
-      }
-      fs.rmSync(root, { recursive: true, force: true });
+      await stopDaemonAndWait(daemon)
+      safeRmSync(root);
     }
   });
 
@@ -686,10 +701,8 @@ describe("canarinho workflow pause-all / resume-all terminal protection", { conc
       assert.equal((await readDbStatus(dbPath, failed)).status, "failed");
       assert.equal((await readDbStatus(dbPath, canceled)).status, "canceled");
     } finally {
-      if (daemon && daemon.exitCode === null && daemon.pid) {
-        try { process.kill(daemon.pid, "SIGTERM"); } catch { /* ignore */ }
-      }
-      fs.rmSync(root, { recursive: true, force: true });
+      await stopDaemonAndWait(daemon)
+      safeRmSync(root);
     }
   });
 });
