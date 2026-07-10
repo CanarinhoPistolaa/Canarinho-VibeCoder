@@ -20,6 +20,7 @@ agents:
         AGENTS.md: agents/doer/AGENTS.md
         SOUL.md: agents/doer/SOUL.md
         IDENTITY.md: agents/doer/IDENTITY.md
+    model: deepseek-v4-pro-official
 
   - id: reviewer
     name: Reviewer
@@ -33,6 +34,7 @@ agents:
         AGENTS.md: agents/reviewer/AGENTS.md
         SOUL.md: agents/reviewer/SOUL.md
         IDENTITY.md: agents/reviewer/IDENTITY.md
+    model: deepseek-v4-pro-official
 
   - id: verifier
     name: Verifier
@@ -46,6 +48,7 @@ agents:
         AGENTS.md: agents/verifier/AGENTS.md
         SOUL.md: agents/verifier/SOUL.md
         IDENTITY.md: agents/verifier/IDENTITY.md
+    model: deepseek-v4-pro-official
 
 steps:
   - id: do
@@ -68,7 +71,11 @@ steps:
       STATUS: done
       CHANGES: what you did
       REPORT: detailed report of what was accomplished
-    expects: "STATUS: done\nregex:^CHANGES:\\s*\\S+\nregex:^REPORT:\\s*\\S+"
+    expects: "STATUS: done
+
+      regex:^CHANGES:\\s*\\S+
+
+      regex:^REPORT:\\s*\\S+"
     max_retries: 2
 
   - id: review
@@ -99,7 +106,11 @@ steps:
       STATUS: done
       FEEDBACK: detailed feedback on what could be improved
       ISSUES: specific problems that need to be addressed (or "none" if the work is perfect)
-    expects: "STATUS: done\nregex:^FEEDBACK:\\s*\\S+\nregex:^ISSUES:\\s*\\S+"
+    expects: "STATUS: done
+
+      regex:^FEEDBACK:\\s*\\S+
+
+      regex:^ISSUES:\\s*\\S+"
     max_retries: 2
 
   - id: do-again
@@ -129,7 +140,11 @@ steps:
       STATUS: done
       CHANGES: what you changed based on feedback
       REPORT: detailed report of the refined work
-    expects: "STATUS: done\nregex:^CHANGES:\\s*\\S+\nregex:^REPORT:\\s*\\S+"
+    expects: "STATUS: done
+
+      regex:^CHANGES:\\s*\\S+
+
+      regex:^REPORT:\\s*\\S+"
     max_retries: 2
 
   - id: verify
@@ -162,5 +177,9 @@ steps:
       STATUS: done
       VERDICT: accomplished|not_accomplished
       DETAILS: detailed reasoning for the verdict
-    expects: "STATUS: done\nregex:^VERDICT:\\s*\\S+\nregex:^DETAILS:\\s*\\S+"
+    expects: "STATUS: done
+
+      regex:^VERDICT:\\s*\\S+
+
+      regex:^DETAILS:\\s*\\S+"
     max_retries: 2

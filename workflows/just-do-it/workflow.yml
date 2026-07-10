@@ -27,6 +27,7 @@ agents:
         AGENTS.md: agents/dispatcher/AGENTS.md
         SOUL.md: agents/dispatcher/SOUL.md
         IDENTITY.md: agents/dispatcher/IDENTITY.md
+    model: deepseek-v4-pro-official
 
 steps:
   - id: dispatch

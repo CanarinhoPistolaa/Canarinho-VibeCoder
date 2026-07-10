@@ -27,6 +27,24 @@ import { getMcpStatus } from "./daemonctl.js";
 import { buildKanbanSnapshot, buildKanbanCardDetail } from "./kanban-data.js";
 import { pauseRunWithDaemon, resumeRunWithDaemon } from "./control-client.js";
 import { runWorkflow } from "../installer/run.js";
+import { parse as parseYaml, stringify as stringifyYaml } from "yaml";
+import { resolveBundledWorkflowDir, resolveWorkflowDir, resolveWorkflowRoot } from "../installer/paths.js";
+import { listBundledWorkflows, getWorkflowShortDescription } from "../installer/workflow-fetch.js";
+const MODEL_PRICING: Record<string, { input: number; output: number; cache: number }> = {
+  "deepseek-v4-pro-official": { input: 0.43, output: 0.87, cache: 0.043 },
+  "glm-5.2-tencent": { input: 1.05, output: 3.30, cache: 0.105 },
+  "kimi-k2.6": { input: 1.20, output: 4.50, cache: 0.12 },
+};
+const DEFAULT_MODEL = "deepseek-v4-pro-official";
+
+function calcRunCost(row: Record<string, unknown>): number {
+  const pricing = MODEL_PRICING[DEFAULT_MODEL];
+  const prompt = (row.prompt_tokens as number) ?? 0;
+  const completion = (row.completion_tokens as number) ?? 0;
+  const cached = (row.cached_tokens as number) ?? 0;
+  return (prompt / 1_000_000) * pricing.input + (completion / 1_000_000) * pricing.output + (cached / 1_000_000) * pricing.cache;
+}
+
 import { stopWorkflow, deleteWorkflow, getWorkflowStatus } from "../installer/status.js";
 import { readVersionStatus } from "../lib/version-check.js";
 import { getBuildVersion } from "../lib/version.js";
@@ -42,7 +60,39 @@ import {
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const INDEX_HTML = path.join(__dirname, "index.html");
+const WORKFLOWS_HTML = path.join(__dirname, "workflows.html");
+const WORKFLOW_EDITOR_HTML = path.join(__dirname, "workflow-editor.html");
 const KANBAN_HTML = path.join(__dirname, "kanban.html");
+const DASHBOARD_CSS = path.join(__dirname, "dashboard-ui.css");
+const DASHBOARD_JS = path.join(__dirname, "dashboard-ui.js");
+const KANBAN_CSS = path.join(__dirname, "kanban-ui.css");
+const KANBAN_JS = path.join(__dirname, "kanban-ui.js");
+const FAVICON_16 = path.join(__dirname, "favicon-16.png");
+const FAVICON_32 = path.join(__dirname, "favicon-32.png");
+const FAVICON_180 = path.join(__dirname, "favicon-180.png");
+const BRAND_LOGO = path.join(__dirname, "brand-logo.png");
+
+const STATIC_FILES: Record<string, { filePath: string; contentType: string }> = {
+  "/dashboard-ui.css": { filePath: DASHBOARD_CSS, contentType: "text/css; charset=utf-8" },
+  "/dashboard-ui.js": { filePath: DASHBOARD_JS, contentType: "application/javascript; charset=utf-8" },
+  "/kanban-ui.css": { filePath: KANBAN_CSS, contentType: "text/css; charset=utf-8" },
+  "/kanban-ui.js": { filePath: KANBAN_JS, contentType: "application/javascript; charset=utf-8" },
+  "/favicon-16.png": { filePath: FAVICON_16, contentType: "image/png" },
+  "/favicon-32.png": { filePath: FAVICON_32, contentType: "image/png" },
+  "/favicon-180.png": { filePath: FAVICON_180, contentType: "image/png" },
+  "/brand-logo.png": { filePath: BRAND_LOGO, contentType: "image/png" },
+};
+
+function staticFileResponse(res: http.ServerResponse, filePath: string, contentType: string): void {
+  try {
+    const content = fs.readFileSync(filePath);
+    res.writeHead(200, { "Content-Type": contentType });
+    res.end(content);
+  } catch {
+    res.writeHead(404, { "Content-Type": "text/plain; charset=utf-8" });
+    res.end("Not found");
+  }
+}
 
 // ── Runs List Cache ────────────────────────────────────────────────
 
@@ -171,19 +221,450 @@ function buildAutoresearchExperiments(entries: AutoresearchLogEntry[]) {
 
 // ── API Handlers ─────────────────────────────────────────────────────
 
-function handleListRuns(_req: http.IncomingMessage, res: http.ServerResponse): void {
+function handleListWorkflows(_req: http.IncomingMessage, res: http.ServerResponse): void {
+  void (async () => {
+    try {
+      const db = getDb();
+
+      const ids = await listBundledWorkflows();
+      const bundledSet = new Set(ids);
+
+      let customIds: string[] = [];
+      try {
+        const root = resolveWorkflowRoot();
+        if (fs.existsSync(root)) {
+          customIds = fs.readdirSync(root, { withFileTypes: true })
+            .filter((e) => e.isDirectory() && !bundledSet.has(e.name))
+            .map((e) => e.name);
+        }
+      } catch {}
+
+      const allIds = [...ids, ...customIds];
+
+      const runStats = db.prepare(`
+        SELECT
+          workflow_id,
+          COUNT(*) AS run_count,
+          MAX(created_at) AS latest_run,
+          MAX(CASE WHEN created_at = (SELECT MAX(r2.created_at) FROM runs r2 WHERE r2.workflow_id = r.workflow_id) THEN status END) AS active_status,
+          SUM(CASE WHEN status = 'running' THEN 1 ELSE 0 END) AS running_count,
+          SUM(CASE WHEN status = 'paused' THEN 1 ELSE 0 END) AS paused_count,
+          SUM(CASE WHEN status = 'failed' THEN 1 ELSE 0 END) AS failed_count
+        FROM runs r
+        GROUP BY workflow_id
+      `).all() as Array<{
+        workflow_id: string;
+        run_count: number;
+        latest_run: string | null;
+        active_status: string | null;
+        running_count: number;
+        paused_count: number;
+        failed_count: number;
+      }>;
+
+      const runMap = new Map(runStats.map((r) => [r.workflow_id, r]));
+
+      const workflows = await Promise.all(
+        allIds.map(async (id) => {
+          const isBundled = bundledSet.has(id);
+          const description = isBundled ? await getWorkflowShortDescription(id) : (() => { try { const ymlPath = path.join(resolveWorkflowDir(id), "workflow.yml"); const raw = fs.readFileSync(ymlPath, "utf-8"); const parsed = parseYaml(raw) as Record<string, unknown>; return String(parsed.description ?? id); } catch { return id; } })();
+          let installed = false;
+          try {
+            const dir = resolveWorkflowDir(id);
+            try {
+              const stat = fs.statSync(dir);
+              installed = stat.isDirectory();
+            } catch {}
+          } catch {}
+
+          const stats = runMap.get(id);
+
+          let agents: Array<{ id: string; role: string }> = [];
+          let steps: Array<{ id: string; agent: string; type: string }> = [];
+          try {
+            const ymlPath = isBundled
+              ? path.join(resolveBundledWorkflowDir(id), "workflow.yml")
+              : path.join(resolveWorkflowDir(id), "workflow.yml");
+            const raw = fs.readFileSync(ymlPath, "utf-8");
+            const parsed = parseYaml(raw) as Record<string, unknown> | undefined;
+            if (parsed) {
+              const agentList = parsed.agents as Array<Record<string, unknown>> | undefined;
+              if (agentList) {
+                agents = agentList.map((a) => ({
+                  id: String(a.id ?? ""),
+                  role: String(a.role ?? a.id ?? ""),
+                }));
+              }
+              const stepList = parsed.steps as Array<Record<string, unknown>> | undefined;
+              if (stepList) {
+                steps = stepList.map((s) => ({
+                  id: String(s.id ?? ""),
+                  agent: String(s.agent ?? ""),
+                  type: String(s.type ?? "single"),
+                }));
+              }
+            }
+          } catch {}
+
+          return {
+            id,
+            description,
+            installed,
+            source: isBundled ? "bundled" : "custom",
+            agents,
+            steps,
+            run_count: stats?.run_count ?? 0,
+            latest_run: stats?.latest_run ?? null,
+            active_status: stats?.active_status ?? null,
+            running_count: stats?.running_count ?? 0,
+            paused_count: stats?.paused_count ?? 0,
+            failed_count: stats?.failed_count ?? 0,
+          };
+        })
+      );
+
+      jsonResponse(res, { workflows });
+    } catch (err) {
+      errorResponse(res, `Failed to list workflows: ${(err as Error).message}`);
+    }
+  })();
+}
+
+function resolveWorkflowYmlPath(workflowId: string): string {
+  return path.join(resolveWorkflowDir(workflowId), "workflow.yml");
+}
+
+function readPersonaFiles(workflowDir: string, baseDir: string): Record<string, string> {
+  const personas: Record<string, string> = {};
+  const dir = path.join(workflowDir, baseDir);
+  for (const file of ["AGENTS.md", "IDENTITY.md", "SOUL.md"]) {
+    try {
+      personas[file] = fs.readFileSync(path.join(dir, file), "utf-8");
+    } catch {}
+  }
+  return personas;
+}
+
+function handleGetWorkflow(
+  _req: http.IncomingMessage,
+  res: http.ServerResponse,
+  workflowId: string,
+): void {
   try {
-    // Serve from cache if fresh enough
-    if (runsCache !== null && Date.now() - runsCache.timestamp < RUNS_CACHE_TTL_MS) {
-      res.writeHead(200, {
-        "Content-Type": "application/json",
-        "Access-Control-Allow-Origin": "*",
-      });
-      res.end(runsCache.json);
+    let ymlPath: string;
+    let workflowDir: string;
+
+    const customPath = resolveWorkflowYmlPath(workflowId);
+    if (fs.existsSync(customPath)) {
+      ymlPath = customPath;
+      workflowDir = resolveWorkflowDir(workflowId);
+    } else {
+      const bundledPath = path.join(resolveBundledWorkflowDir(workflowId), "workflow.yml");
+      if (fs.existsSync(bundledPath)) {
+        ymlPath = bundledPath;
+        workflowDir = resolveBundledWorkflowDir(workflowId);
+      } else {
+        errorResponse(res, `Workflow not found: ${workflowId}`, 404);
+        return;
+      }
+    }
+
+    const raw = fs.readFileSync(ymlPath, "utf-8");
+    const parsed = parseYaml(raw) as Record<string, unknown> | undefined;
+    if (!parsed) {
+      errorResponse(res, "Failed to parse workflow.yml", 500);
       return;
     }
 
+    const agents = (parsed.agents as Array<Record<string, unknown>> | undefined) ?? [];
+    const enrichedAgents = agents.map((a) => {
+      const workspace = (a.workspace as Record<string, unknown>) ?? {};
+      const baseDir = String(workspace.baseDir ?? `agents/${a.id}`);
+      return {
+        ...a,
+        workspace: { ...workspace, baseDir },
+        personas: readPersonaFiles(workflowDir, baseDir),
+      };
+    });
+
+    const isCustom = ymlPath === customPath;
+    jsonResponse(res, {
+      ...parsed,
+      agents: enrichedAgents,
+      source: isCustom ? "custom" : "bundled",
+    });
+  } catch (err) {
+    errorResponse(res, `Failed to get workflow: ${(err as Error).message}`);
+  }
+}
+
+async function handleCreateWorkflow(
+  req: http.IncomingMessage,
+  res: http.ServerResponse,
+): Promise<void> {
+  try {
+    const body = await parseBody(req);
+    let data: Record<string, unknown>;
+    try {
+      data = JSON.parse(body);
+    } catch {
+      errorResponse(res, "Invalid JSON body", 400);
+      return;
+    }
+
+    const workflowId = String(data.id ?? "").trim();
+    if (!workflowId) {
+      errorResponse(res, "Missing required field: id", 400);
+      return;
+    }
+
+    const workflowDir = resolveWorkflowDir(workflowId);
+    if (fs.existsSync(path.join(workflowDir, "workflow.yml"))) {
+      errorResponse(res, `Workflow "${workflowId}" already exists`, 409);
+      return;
+    }
+
+    await saveWorkflowToDisk(workflowDir, data);
+    jsonResponse(res, { created: true, id: workflowId }, 201);
+  } catch (err) {
+    errorResponse(res, `Failed to create workflow: ${(err as Error).message}`);
+  }
+}
+
+async function handleUpdateWorkflow(
+  req: http.IncomingMessage,
+  res: http.ServerResponse,
+  workflowId: string,
+): Promise<void> {
+  try {
+    const workflowDir = resolveWorkflowDir(workflowId);
+    if (!fs.existsSync(path.join(workflowDir, "workflow.yml"))) {
+      errorResponse(res, `Workflow not found: ${workflowId}`, 404);
+      return;
+    }
+
+    const body = await parseBody(req);
+    let data: Record<string, unknown>;
+    try {
+      data = JSON.parse(body);
+    } catch {
+      errorResponse(res, "Invalid JSON body", 400);
+      return;
+    }
+
+    await saveWorkflowToDisk(workflowDir, data);
+    jsonResponse(res, { updated: true, id: workflowId });
+  } catch (err) {
+    errorResponse(res, `Failed to update workflow: ${(err as Error).message}`);
+  }
+}
+
+function handleDeleteWorkflow(
+  _req: http.IncomingMessage,
+  res: http.ServerResponse,
+  workflowId: string,
+): void {
+  try {
+    const workflowDir = resolveWorkflowDir(workflowId);
+    if (!fs.existsSync(path.join(workflowDir, "workflow.yml"))) {
+      errorResponse(res, `Workflow not found: ${workflowId}`, 404);
+      return;
+    }
+
+    fs.rmSync(workflowDir, { recursive: true, force: true });
+    jsonResponse(res, { deleted: true, id: workflowId });
+  } catch (err) {
+    errorResponse(res, `Failed to delete workflow: ${(err as Error).message}`);
+  }
+}
+
+async function handleDuplicateWorkflow(
+  req: http.IncomingMessage,
+  res: http.ServerResponse,
+  workflowId: string,
+): Promise<void> {
+  try {
+    const body = await parseBody(req);
+    let newId: string | undefined;
+    if (body) {
+      try {
+        const parsed = JSON.parse(body) as { new_id?: string };
+        newId = parsed.new_id?.trim();
+      } catch {}
+    }
+    if (!newId) {
+      newId = `${workflowId}-copy`;
+    }
+
+    const destDir = resolveWorkflowDir(newId);
+    if (fs.existsSync(path.join(destDir, "workflow.yml"))) {
+      errorResponse(res, `Workflow "${newId}" already exists`, 409);
+      return;
+    }
+
+    let srcDir: string;
+    const customPath = path.join(resolveWorkflowDir(workflowId), "workflow.yml");
+    if (fs.existsSync(customPath)) {
+      srcDir = resolveWorkflowDir(workflowId);
+    } else {
+      const bundledDir = resolveBundledWorkflowDir(workflowId);
+      if (fs.existsSync(path.join(bundledDir, "workflow.yml"))) {
+        srcDir = bundledDir;
+      } else {
+        errorResponse(res, `Workflow not found: ${workflowId}`, 404);
+        return;
+      }
+    }
+
+    fs.mkdirSync(destDir, { recursive: true });
+    copyDirSync(srcDir, destDir);
+
+    const ymlPath = path.join(destDir, "workflow.yml");
+    if (fs.existsSync(ymlPath)) {
+      const raw = fs.readFileSync(ymlPath, "utf-8");
+      const parsed = parseYaml(raw) as Record<string, unknown>;
+      parsed.id = newId;
+      parsed.name = `${parsed.name ?? workflowId} (copy)`;
+      fs.writeFileSync(ymlPath, stringifyYaml(parsed));
+    }
+
+    jsonResponse(res, { duplicated: true, id: newId }, 201);
+  } catch (err) {
+    errorResponse(res, `Failed to duplicate workflow: ${(err as Error).message}`);
+  }
+}
+
+async function saveWorkflowToDisk(workflowDir: string, data: Record<string, unknown>): Promise<void> {
+  fs.mkdirSync(workflowDir, { recursive: true });
+
+  const agents = (data.agents as Array<Record<string, unknown>> | undefined) ?? [];
+  for (const agent of agents) {
+    const workspace = (agent.workspace as Record<string, unknown>) ?? {};
+    const baseDir = String(workspace.baseDir ?? `agents/${agent.id}`);
+    workspace.baseDir = baseDir;
+    agent.workspace = workspace;
+
+    const agentDir = path.join(workflowDir, baseDir);
+    fs.mkdirSync(agentDir, { recursive: true });
+
+    const personas = (agent.personas as Record<string, string> | undefined) ?? {};
+    for (const [file, content] of Object.entries(personas)) {
+      if (content && ["AGENTS.md", "IDENTITY.md", "SOUL.md"].includes(file)) {
+        fs.writeFileSync(path.join(agentDir, file), content);
+      }
+    }
+    delete agent.personas;
+  }
+
+  const yml = stringifyYaml(data);
+  fs.writeFileSync(path.join(workflowDir, "workflow.yml"), yml);
+}
+
+function copyDirSync(src: string, dest: string): void {
+  const entries = fs.readdirSync(src, { withFileTypes: true });
+  for (const entry of entries) {
+    const srcPath = path.join(src, entry.name);
+    const destPath = path.join(dest, entry.name);
+    if (entry.isDirectory()) {
+      fs.mkdirSync(destPath, { recursive: true });
+      copyDirSync(srcPath, destPath);
+    } else {
+      fs.copyFileSync(srcPath, destPath);
+    }
+  }
+}
+
+function handleListAgents(_req: http.IncomingMessage, res: http.ServerResponse): void {
+  void (async () => {
+    try {
+      const ids = await listBundledWorkflows();
+      const bundledSet = new Set(ids);
+
+      let customIds: string[] = [];
+      try {
+        const root = resolveWorkflowRoot();
+        if (fs.existsSync(root)) {
+          customIds = fs.readdirSync(root, { withFileTypes: true })
+            .filter((e) => e.isDirectory() && !bundledSet.has(e.name))
+            .map((e) => e.name);
+        }
+      } catch {}
+
+      const allIds = [...ids, ...customIds];
+      const seenAgents = new Set<string>();
+      const agents: Array<{
+        id: string;
+        name: string;
+        description: string;
+        role: string;
+        source: string;
+        personas: Record<string, string>;
+      }> = [];
+
+      for (const workflowId of allIds) {
+        const isBundled = bundledSet.has(workflowId);
+        let ymlPath: string;
+        if (isBundled) {
+          ymlPath = path.join(resolveBundledWorkflowDir(workflowId), "workflow.yml");
+        } else {
+          ymlPath = path.join(resolveWorkflowDir(workflowId), "workflow.yml");
+        }
+        if (!fs.existsSync(ymlPath)) continue;
+
+        let parsed: Record<string, unknown>;
+        try {
+          const raw = fs.readFileSync(ymlPath, "utf-8");
+          parsed = parseYaml(raw) as Record<string, unknown>;
+        } catch { continue; }
+
+        const agentList = parsed.agents as Array<Record<string, unknown>> | undefined;
+        if (!agentList) continue;
+
+        for (const a of agentList) {
+          const agentId = String(a.id ?? "");
+          if (seenAgents.has(agentId)) continue;
+          seenAgents.add(agentId);
+          const workspace = (a.workspace as Record<string, unknown>) ?? {};
+          const baseDir = String(workspace.baseDir ?? `agents/${agentId}`);
+          agents.push({
+            id: agentId,
+            name: String(a.name ?? agentId),
+            description: String(a.description ?? ""),
+            role: String(a.role ?? ""),
+            source: workflowId,
+            personas: readPersonaFiles(isBundled ? resolveBundledWorkflowDir(workflowId) : resolveWorkflowDir(workflowId), baseDir),
+          });
+        }
+      }
+
+      jsonResponse(res, { agents });
+    } catch (err) {
+      errorResponse(res, `Failed to list agents: ${(err as Error).message}`);
+    }
+  })();
+}
+
+function handleListRuns(req: http.IncomingMessage, res: http.ServerResponse): void {
+  try {
+    const url = new URL(req.url ?? "/", "http://localhost");
+    const page = Math.max(1, parseInt(url.searchParams.get("page") ?? "1", 10) || 1);
+    const statusFilter = url.searchParams.get("status")?.trim() || null;
+    const perPage = 25;
+    const offset = (page - 1) * perPage;
+
     const db = getDb();
+
+    let whereClause = "";
+    const params: string[] = [];
+    if (statusFilter && statusFilter !== "all") {
+      whereClause = "WHERE r.status = ?";
+      params.push(statusFilter);
+    }
+
+    const countParams = params.length > 0 ? [params[0]] : [];
+    const countRow = db.prepare(`SELECT COUNT(*) as total FROM runs r ${whereClause}`).get(...countParams) as { total: number } | undefined;
+    const total = countRow?.total ?? 0;
+    const totalPages = Math.max(1, Math.ceil(total / perPage));
 
     const rawRuns = db.prepare(`
       SELECT
@@ -196,6 +677,9 @@ function handleListRuns(_req: http.IncomingMessage, res: http.ServerResponse): v
         r.updated_at,
         r.run_number,
         r.tokens_spent,
+        r.prompt_tokens,
+        r.completion_tokens,
+        r.cached_tokens,
         COUNT(s.id) AS total_steps,
         SUM(CASE WHEN s.status = 'done' THEN 1 ELSE 0 END) AS completed_steps,
         SUM(CASE WHEN s.status = 'failed' THEN 1 ELSE 0 END) AS failed_steps,
@@ -203,10 +687,11 @@ function handleListRuns(_req: http.IncomingMessage, res: http.ServerResponse): v
         SUM(CASE WHEN s.status = 'waiting' THEN 1 ELSE 0 END) AS waiting_steps
       FROM runs r
       LEFT JOIN steps s ON s.run_id = r.id
+      ${whereClause}
       GROUP BY r.id
       ORDER BY r.created_at DESC
-      LIMIT 100
-    `).all() as Array<Record<string, unknown>>;
+      LIMIT ${perPage} OFFSET ${offset}
+    `).all(...(params.length > 0 ? [params[0]] : [])) as Array<Record<string, unknown>>;
 
     const runs = rawRuns.map((row) => {
       let no_hurry = false;
@@ -214,15 +699,13 @@ function handleListRuns(_req: http.IncomingMessage, res: http.ServerResponse): v
         const ctx = JSON.parse(String(row.context ?? "{}"));
         no_hurry = ctx.no_hurry_save_tokens_mode === "true";
       } catch {
-        // malformed context → no_hurry stays false
+        no_hurry = false;
       }
-      return { ...row, no_hurry };
+      const cost = calcRunCost(row);
+      return { ...row, no_hurry, cost };
     });
 
-    const responseBody = JSON.stringify({ runs });
-    runsCache = { json: responseBody, timestamp: Date.now() };
-
-    jsonResponse(res, { runs });
+    jsonResponse(res, { runs, total, page, totalPages, perPage });
   } catch (err) {
     errorResponse(res, `Failed to list runs: ${(err as Error).message}`);
   }
@@ -237,7 +720,7 @@ function handleRunDetail(
     const db = getDb();
 
     const run = db.prepare(`
-      SELECT id, workflow_id, task, status, context, created_at, updated_at, run_number, tokens_spent
+      SELECT id, workflow_id, task, status, context, created_at, updated_at, run_number, tokens_spent, prompt_tokens, completion_tokens, cached_tokens
       FROM runs WHERE id = ?
     `).get(runId);
 
@@ -494,17 +977,26 @@ function handleStats(_req: http.IncomingMessage, res: http.ServerResponse): void
     const systemTokensSpent = getSystemTokenSpend();
 
     let runTokensSpent = 0;
+    let runPromptTokens = 0;
+    let runCompletionTokens = 0;
+    let runCachedTokens = 0;
     try {
-      const row = db.prepare("SELECT COALESCE(SUM(tokens_spent), 0) AS total FROM runs").get() as { total: number } | undefined;
+      const row = db.prepare("SELECT COALESCE(SUM(tokens_spent), 0) AS total, COALESCE(SUM(prompt_tokens), 0) AS prompt_total, COALESCE(SUM(completion_tokens), 0) AS completion_total, COALESCE(SUM(cached_tokens), 0) AS cached_total FROM runs").get() as { total: number; prompt_total: number; completion_total: number; cached_total: number } | undefined;
       runTokensSpent = row?.total ?? 0;
+      runPromptTokens = row?.prompt_total ?? 0;
+      runCompletionTokens = row?.completion_total ?? 0;
+      runCachedTokens = row?.cached_total ?? 0;
     } catch {
-      // runs table may not exist yet
       runTokensSpent = 0;
     }
 
     jsonResponse(res, {
       systemTokensSpent,
       totalTokensSpent: systemTokensSpent + runTokensSpent,
+      promptTokens: runPromptTokens,
+      completionTokens: runCompletionTokens,
+      cachedTokens: runCachedTokens,
+      totalCost: calcRunCost({ prompt_tokens: runPromptTokens, completion_tokens: runCompletionTokens, cached_tokens: runCachedTokens }),
     });
   } catch (err) {
     errorResponse(res, `Failed to get stats: ${(err as Error).message}`);
@@ -967,6 +1459,13 @@ function route(req: http.IncomingMessage, res: http.ServerResponse): void {
     return;
   }
 
+  // GET static assets (dashboard + kanban CSS/JS)
+  if (method === "GET" && STATIC_FILES[pathname]) {
+    const file = STATIC_FILES[pathname];
+    staticFileResponse(res, file.filePath, file.contentType);
+    return;
+  }
+
   // GET /runs/:id/kanban
   const kanbanHtmlMatch = pathname.match(/^\/runs\/([a-zA-Z0-9_-]+)\/kanban$/);
   if (method === "GET" && kanbanHtmlMatch) {
@@ -1010,9 +1509,93 @@ function route(req: http.IncomingMessage, res: http.ServerResponse): void {
     return;
   }
 
+  // GET /api/agents
+  if (method === "GET" && pathname === "/api/agents") {
+    handleListAgents(req, res);
+    return;
+  }
+
   // GET /api/health
   if (method === "GET" && pathname === "/api/health") {
     handleHealth(req, res);
+    return;
+  }
+
+  // GET /workflows
+  if (method === "GET" && pathname === "/workflows") {
+    try {
+      const html = fs.readFileSync(WORKFLOWS_HTML, "utf-8");
+      htmlResponse(res, html);
+    } catch {
+      htmlResponse(res, `<!DOCTYPE html>
+<html lang="en">
+<head><meta charset="UTF-8"><title>Canarinho Workflows</title></head>
+<body><h1>Canarinho Workflows</h1><p>Workflows HTML not found.</p></body>
+</html>`, 200);
+    }
+    return;
+  }
+
+  // GET /workflows/new
+  if (method === "GET" && pathname === "/workflows/new") {
+    try {
+      const html = fs.readFileSync(WORKFLOW_EDITOR_HTML, "utf-8");
+      htmlResponse(res, html);
+    } catch {
+      errorResponse(res, "Editor page not found", 500);
+    }
+    return;
+  }
+
+  // GET /workflows/:id/edit
+  const workflowEditHtmlMatch = pathname.match(/^\/workflows\/([a-zA-Z0-9_-]+)\/edit$/);
+  if (method === "GET" && workflowEditHtmlMatch) {
+    try {
+      const html = fs.readFileSync(WORKFLOW_EDITOR_HTML, "utf-8");
+      htmlResponse(res, html);
+    } catch {
+      errorResponse(res, "Editor page not found", 500);
+    }
+    return;
+  }
+
+  // GET /api/workflows
+  if (method === "GET" && pathname === "/api/workflows") {
+    handleListWorkflows(req, res);
+    return;
+  }
+
+  // GET /api/workflows/:id
+  const workflowDetailMatch = pathname.match(/^\/api\/workflows\/([a-zA-Z0-9_-]+)$/);
+  if (method === "GET" && workflowDetailMatch) {
+    handleGetWorkflow(req, res, workflowDetailMatch[1]);
+    return;
+  }
+
+  // POST /api/workflows
+  if (method === "POST" && pathname === "/api/workflows") {
+    handleCreateWorkflow(req, res);
+    return;
+  }
+
+  // PUT /api/workflows/:id
+  const workflowUpdateMatch = pathname.match(/^\/api\/workflows\/([a-zA-Z0-9_-]+)$/);
+  if (method === "PUT" && workflowUpdateMatch) {
+    handleUpdateWorkflow(req, res, workflowUpdateMatch[1]);
+    return;
+  }
+
+  // DELETE /api/workflows/:id
+  const workflowDeleteMatch = pathname.match(/^\/api\/workflows\/([a-zA-Z0-9_-]+)$/);
+  if (method === "DELETE" && workflowDeleteMatch) {
+    handleDeleteWorkflow(req, res, workflowDeleteMatch[1]);
+    return;
+  }
+
+  // POST /api/workflows/:id/duplicate
+  const workflowDuplicateMatch = pathname.match(/^\/api\/workflows\/([a-zA-Z0-9_-]+)\/duplicate$/);
+  if (method === "POST" && workflowDuplicateMatch) {
+    handleDuplicateWorkflow(req, res, workflowDuplicateMatch[1]);
     return;
   }
 

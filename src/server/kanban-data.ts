@@ -24,27 +24,23 @@ import type { TamanduaEvent } from "../installer/events.js";
 export type VisualStatus = "todo" | "running" | "done" | "failed";
 
 export interface KanbanCard {
-  /** Card identifier shown in the chip (story_id for stories, step_id for steps). */
   id: string;
-  /** Card body title. */
   title: string;
-  /** Collapsed visual status. */
   status: VisualStatus;
-  /** Short supplementary line — e.g. "retry 2/4" or last-updated time. */
   sub: string;
+  promptTokens: number;
+  completionTokens: number;
+  cachedTokens: number;
+  totalTokens: number;
 }
 
 export interface KanbanLane {
-  /** Agent role suffix (e.g. "developer"). Stable across workflows. */
   agent: string;
-  /** Display label (e.g. "Developer"). */
   label: string;
-  /** The step_id this lane represents in the workflow. */
   stepId: string;
-  /** Step type — "single" or "loop". */
   stepType: string;
-  /** Collapsed status for the lane as a whole. */
   status: VisualStatus;
+  model: string | null;
   cards: KanbanCard[];
   summary: { done: number; failed: number; running: number; total: number };
 }
@@ -56,6 +52,9 @@ export interface KanbanRunMeta {
   task: string;
   status: string;
   tokens_spent: number;
+  prompt_tokens: number;
+  completion_tokens: number;
+  cached_tokens: number;
   created_at: string;
   updated_at: string;
   /**
@@ -103,6 +102,10 @@ export interface KanbanCardDetail {
   tokens?: {
     total: number;
     deltas: number[];
+    promptTokens?: number;
+    completionTokens?: number;
+    cachedTokens?: number;
+    model?: string;
   };
   /** Failure detail from step.failed / story.failed events. */
   failureDetail?: string;
@@ -120,6 +123,10 @@ interface StepRow {
   max_retries: number | null;
   type: string;
   current_story_id: string | null;
+  model: string | null;
+  prompt_tokens: number;
+  completion_tokens: number;
+  cached_tokens: number;
   updated_at: string;
 }
 
@@ -130,6 +137,9 @@ interface StoryRow {
   status: string;
   retry_count: number | null;
   max_retries: number | null;
+  prompt_tokens: number;
+  completion_tokens: number;
+  cached_tokens: number;
   updated_at: string;
 }
 
@@ -140,6 +150,9 @@ interface RunRow {
   task: string;
   status: string;
   tokens_spent: number;
+  prompt_tokens: number;
+  completion_tokens: number;
+  cached_tokens: number;
   created_at: string;
   updated_at: string;
 }
@@ -281,24 +294,25 @@ export function buildKanbanCardDetail(
   // ── try matching a story first ─────────────────────────────────
   const story = db.prepare(`
     SELECT story_id, story_index, title, description, acceptance_criteria,
-           status, output, retry_count, max_retries
+           status, output, retry_count, max_retries, prompt_tokens, completion_tokens, cached_tokens
     FROM stories WHERE run_id = ? AND story_id = ?
   `).get(runId, cardId) as unknown as {
     story_id: string; story_index: number; title: string;
     description: string; acceptance_criteria: string;
     status: string; output: string | null;
     retry_count: number; max_retries: number;
+    prompt_tokens: number; completion_tokens: number; cached_tokens: number;
   } | undefined;
 
   if (story) {
     // Find the loop step that holds this story.
     const loopStep = db.prepare(`
-      SELECT step_id, input_template, output, retry_count, max_retries
+      SELECT step_id, input_template, output, retry_count, max_retries, model
       FROM steps WHERE run_id = ? AND type = 'loop'
       ORDER BY step_index ASC LIMIT 1
     `).get(runId) as unknown as {
       step_id: string; input_template: string; output: string | null;
-      retry_count: number; max_retries: number;
+      retry_count: number; max_retries: number; model: string | null;
     } | undefined;
 
     const events = (runEvents ?? []).filter(
@@ -309,6 +323,11 @@ export function buildKanbanCardDetail(
           !e.storyId),
     );
     const timing = buildTiming(events);
+    const tokens = aggregateTokens(events) ?? { total: 0, deltas: [] };
+    tokens.promptTokens = story.prompt_tokens ?? 0;
+    tokens.completionTokens = story.completion_tokens ?? 0;
+    tokens.cachedTokens = story.cached_tokens ?? 0;
+    tokens.model = loopStep?.model ?? undefined;
     return {
       runId,
       cardId,
@@ -322,7 +341,7 @@ export function buildKanbanCardDetail(
       task: run.task,
       events,
       timing,
-      tokens: aggregateTokens(events),
+      tokens,
       failureDetail: extractFailureDetail(events),
       retryCount: story.retry_count ?? 0,
       maxRetries: story.max_retries ?? 4,
@@ -332,18 +351,24 @@ export function buildKanbanCardDetail(
   // ── try matching a step ────────────────────────────────────────
   const step = db.prepare(`
     SELECT step_id, agent_id, input_template, output, status,
-           retry_count, max_retries
+           retry_count, max_retries, model, prompt_tokens, completion_tokens, cached_tokens
     FROM steps WHERE run_id = ? AND step_id = ?
   `).get(runId, cardId) as unknown as {
     step_id: string; agent_id: string; input_template: string;
     output: string | null; status: string;
     retry_count: number; max_retries: number;
+    model: string | null; prompt_tokens: number; completion_tokens: number; cached_tokens: number;
   } | undefined;
 
   if (!step) return null;
 
   const events = (runEvents ?? []).filter((e) => e.stepId === cardId);
   const timing = buildTiming(events);
+  const tokens = aggregateTokens(events) ?? { total: 0, deltas: [] };
+  tokens.promptTokens = step.prompt_tokens ?? 0;
+  tokens.completionTokens = step.completion_tokens ?? 0;
+  tokens.cachedTokens = step.cached_tokens ?? 0;
+  tokens.model = step.model ?? undefined;
   return {
     runId,
     cardId,
@@ -354,7 +379,7 @@ export function buildKanbanCardDetail(
     task: run.task,
     events,
     timing,
-    tokens: aggregateTokens(events),
+    tokens,
     failureDetail: extractFailureDetail(events),
     retryCount: step.retry_count ?? 0,
     maxRetries: step.max_retries ?? 4,
@@ -399,7 +424,7 @@ export function buildKanbanSnapshot(
   runId: string,
 ): KanbanSnapshot | null {
   const run = db.prepare(`
-    SELECT id, run_number, workflow_id, task, status, tokens_spent, created_at, updated_at
+    SELECT id, run_number, workflow_id, task, status, tokens_spent, prompt_tokens, completion_tokens, cached_tokens, created_at, updated_at
     FROM runs WHERE id = ?
   `).get(runId) as unknown as RunRow | undefined;
 
@@ -407,13 +432,14 @@ export function buildKanbanSnapshot(
 
   const steps = db.prepare(`
     SELECT id, step_id, agent_id, step_index, status, retry_count, max_retries,
-           type, current_story_id, updated_at
+           type, current_story_id, model, prompt_tokens, completion_tokens, cached_tokens, updated_at
     FROM steps WHERE run_id = ?
     ORDER BY step_index ASC
   `).all(runId) as unknown as StepRow[];
 
   const stories = db.prepare(`
-    SELECT story_id, story_index, title, status, retry_count, max_retries, updated_at
+    SELECT story_id, story_index, title, status, retry_count, max_retries,
+           prompt_tokens, completion_tokens, cached_tokens, updated_at
     FROM stories WHERE run_id = ?
     ORDER BY story_index ASC
   `).all(runId) as unknown as StoryRow[];
@@ -444,6 +470,10 @@ export function buildKanbanSnapshot(
           title: story.title,
           status: cardStatus,
           sub: storyCardSub(story),
+          promptTokens: story.prompt_tokens ?? 0,
+          completionTokens: story.completion_tokens ?? 0,
+          cachedTokens: story.cached_tokens ?? 0,
+          totalTokens: (story.prompt_tokens ?? 0) + (story.completion_tokens ?? 0) + (story.cached_tokens ?? 0),
         };
       });
     } else {
@@ -452,6 +482,10 @@ export function buildKanbanSnapshot(
         title: `${label} step`,
         status: normaliseStatus(step.status),
         sub: stepCardSub(step),
+        promptTokens: step.prompt_tokens ?? 0,
+        completionTokens: step.completion_tokens ?? 0,
+        cachedTokens: step.cached_tokens ?? 0,
+        totalTokens: (step.prompt_tokens ?? 0) + (step.completion_tokens ?? 0) + (step.cached_tokens ?? 0),
       }];
     }
 
@@ -462,6 +496,7 @@ export function buildKanbanSnapshot(
       stepId: step.step_id,
       stepType: step.type,
       status: laneStatusFromStepAndCards(stepStatus, cards),
+      model: step.model ?? null,
       cards,
       summary: summarise(cards),
     };
@@ -475,6 +510,9 @@ export function buildKanbanSnapshot(
       task: run.task,
       status: run.status,
       tokens_spent: run.tokens_spent ?? 0,
+      prompt_tokens: run.prompt_tokens ?? 0,
+      completion_tokens: run.completion_tokens ?? 0,
+      cached_tokens: run.cached_tokens ?? 0,
       created_at: run.created_at,
       updated_at: run.updated_at,
       elapsed_seconds: computeElapsed(run.status, run.created_at, run.updated_at),

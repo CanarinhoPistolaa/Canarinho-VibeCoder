@@ -27,6 +27,7 @@ agents:
         AGENTS.md: agents/planner/AGENTS.md
         SOUL.md: agents/planner/SOUL.md
         IDENTITY.md: agents/planner/IDENTITY.md
+    model: deepseek-v4-pro-official
 
   - id: setup
     name: Setup
@@ -40,6 +41,7 @@ agents:
         AGENTS.md: ../../agents/shared/setup/AGENTS.md
         SOUL.md: ../../agents/shared/setup/SOUL.md
         IDENTITY.md: ../../agents/shared/setup/IDENTITY.md
+    model: deepseek-v4-pro-official
 
   - id: developer
     name: Developer
@@ -53,6 +55,7 @@ agents:
         AGENTS.md: agents/developer/AGENTS.md
         SOUL.md: agents/developer/SOUL.md
         IDENTITY.md: agents/developer/IDENTITY.md
+    model: deepseek-v4-pro-official
 
   - id: verifier
     name: Verifier
@@ -67,6 +70,7 @@ agents:
         AGENTS.md: ../../agents/shared/verifier/AGENTS.md
         SOUL.md: ../../agents/shared/verifier/SOUL.md
         IDENTITY.md: ../../agents/shared/verifier/IDENTITY.md
+    model: deepseek-v4-pro-official
 
   - id: tester
     name: Tester
@@ -80,6 +84,7 @@ agents:
         AGENTS.md: agents/tester/AGENTS.md
         SOUL.md: agents/tester/SOUL.md
         IDENTITY.md: agents/tester/IDENTITY.md
+    model: deepseek-v4-pro-official
 
   - id: merger
     name: Merger
@@ -93,6 +98,7 @@ agents:
         AGENTS.md: agents/merger/AGENTS.md
         SOUL.md: agents/merger/SOUL.md
         IDENTITY.md: agents/merger/IDENTITY.md
+    model: deepseek-v4-pro-official
 
 steps:
   - id: plan
@@ -170,7 +176,11 @@ steps:
       TEST_CMD: <test command>
       CI_NOTES: <brief CI notes>
       BASELINE: <baseline status>
-    expects: "STATUS: done\nregex:^BUILD_CMD:\\s*\\S+\nregex:^TEST_CMD:\\s*\\S+"
+    expects: "STATUS: done
+
+      regex:^BUILD_CMD:\\s*\\S+
+
+      regex:^TEST_CMD:\\s*\\S+"
     max_retries: 4
     on_fail:
       # Setup failures often originate from an incomplete plan; re-planning refreshes understanding of the codebase
@@ -328,7 +338,9 @@ steps:
       STATUS: done
       RESULTS: What you tested and the outcomes
       TESTED_TREE: $(git rev-parse HEAD^{tree})
-    expects: "STATUS: done\nregex:^TESTED_TREE:\\s*\\S+"
+    expects: "STATUS: done
+
+      regex:^TESTED_TREE:\\s*\\S+"
     on_fail:
       retry_step: implement
       max_retries: 4

@@ -1,0 +1,139 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="canarinho">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Workflows — Canarinho VibeCoder</title>
+  <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32.png">
+  <link rel="icon" type="image/png" sizes="16x16" href="/favicon-16.png">
+  <link rel="apple-touch-icon" sizes="180x180" href="/favicon-180.png">
+  <link rel="stylesheet" href="/dashboard-ui.css">
+</head>
+<body>
+  <header>
+    <img class="brand-logo" src="/brand-logo.png" alt="Canarinho VibeCoder" style="height:28px;width:auto;">
+    <h1 class="brand-text"><a href="/" style="color:inherit;text-decoration:none;">Canarinho VibeCoder</a></h1>
+    <span class="subtitle">Workflows</span>
+    <span class="status-dot" id="status-dot" title="Connected"></span>
+  </header>
+
+  <div class="container">
+    <section class="section">
+      <div style="display:flex;align-items:center;gap:12px;margin-bottom:14px;">
+        <h2 style="margin-bottom:0;padding-bottom:0;border:none;">All Workflows</h2>
+        <a href="/workflows/new" class="action-btn" style="text-decoration:none;background:var(--accent);color:var(--bg);border-color:var(--accent);font-weight:600;">+ New Workflow</a>
+      </div>
+      <div id="workflows-content">
+        <div class="empty-state">Loading...</div>
+      </div>
+    </section>
+
+    <p class="refresh-info">
+      <a href="/" style="color:var(--ink-soft);">← Back to Dashboard</a>
+    </p>
+  </div>
+
+  <script>
+    (function() {
+      var html = document.documentElement;
+      var theme = localStorage.getItem('tamandua-theme') || 'canarinho';
+      html.setAttribute('data-theme', theme);
+    })();
+  </script>
+  <script>
+    (function() {
+      var el = document.getElementById('workflows-content');
+
+      function esc(s) {
+        return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+      }
+
+      fetch('/api/workflows')
+        .then(function(r) {
+          if (!r.ok) throw new Error(r.statusText);
+          return r.json();
+        })
+        .then(function(data) {
+          if (!data.workflows || !data.workflows.length) {
+            el.innerHTML = '<div class="empty-state">No workflows found</div>';
+            return;
+          }
+
+          var rows = data.workflows.map(function(w, i) {
+            var installBadge = w.source === 'custom'
+              ? '<span style="color:var(--accent);font-size:11px;">custom</span>'
+              : '<span style="color:var(--green);font-size:11px;">installed</span>';
+
+            var agentsHtml = w.agents && w.agents.length
+              ? w.agents.map(function(a) {
+                  return '<span style="display:inline-block;padding:2px 8px;margin:2px 3px;border-radius:4px;background:var(--bg-input);border:1px solid var(--border);font-size:12px;">' +
+                    '<span style="color:var(--ink-strong);">' + esc(a.id) + '</span>' +
+                    '<span style="color:var(--ink-soft);margin-left:4px;">' + esc(a.role) + '</span></span>';
+                }).join('')
+              : '<span style="color:var(--ink-soft);">—</span>';
+
+            var stepsHtml = w.steps && w.steps.length
+              ? w.steps.map(function(s) {
+                  return '<span style="display:inline-block;padding:2px 8px;margin:2px 3px;border-radius:4px;background:var(--bg-input);border:1px solid var(--border);font-size:12px;">' +
+                    '<span style="color:var(--ink-strong);">' + esc(s.id) + '</span>' +
+                    '<span style="color:var(--ink-soft);margin-left:4px;">→ ' + esc(s.agent) + '</span>' +
+                    (s.type !== 'single' ? '<span style="color:var(--accent);margin-left:4px;">' + esc(s.type) + '</span>' : '') +
+                    '</span>';
+                }).join('')
+              : '<span style="color:var(--ink-soft);">—</span>';
+
+            return '<tr class="wf-row" data-index="' + i + '" style="cursor:pointer;">' +
+              '<td><span style="color:var(--ink-soft);font-size:10px;margin-right:6px;">▶</span><span class="mono" style="color:var(--ink-strong);">' + esc(w.id) + '</span></td>' +
+              '<td style="max-width:360px;">' + esc(w.description || w.id) + '</td>' +
+              '<td>' + installBadge + '</td>' +
+              '<td style="text-align:right;white-space:nowrap">' +
+                '<a href="/workflows/new?clone=' + encodeURIComponent(w.id) + '" class="action-btn btn-sm" onclick="event.stopPropagation()" style="text-decoration:none">Clone</a>' +
+                (w.source === 'custom'
+                  ? ' <a href="/workflows/' + encodeURIComponent(w.id) + '/edit" class="action-btn btn-sm" onclick="event.stopPropagation()" style="text-decoration:none">Edit</a> <button class="action-btn btn-sm delete-btn" onclick="event.stopPropagation();deleteWorkflow(\'' + esc(w.id) + '\')">Delete</button>'
+                  : '') +
+              '</td>' +
+            '</tr>' +
+            '<tr class="wf-detail" data-index="' + i + '" style="display:none;">' +
+              '<td colspan="4" style="padding:10px 16px;background:var(--bg-input);border-bottom:1px solid var(--border);">' +
+                '<div style="margin-bottom:6px;font-size:11px;text-transform:uppercase;color:var(--ink-soft);">Agents (' + (w.agents ? w.agents.length : 0) + ')</div>' +
+                '<div style="margin-bottom:10px;">' + agentsHtml + '</div>' +
+                '<div style="margin-bottom:6px;font-size:11px;text-transform:uppercase;color:var(--ink-soft);">Steps (' + (w.steps ? w.steps.length : 0) + ')</div>' +
+                '<div>' + stepsHtml + '</div>' +
+              '</td>' +
+            '</tr>';
+          }).join('');
+
+          el.innerHTML = '<table class="runs-table"><thead><tr>' +
+            '<th>Workflow</th><th>Description</th><th>Status</th><th style="text-align:right">Actions</th>' +
+          '</tr></thead><tbody>' + rows + '</tbody></table>';
+
+          el.querySelectorAll('.wf-row').forEach(function(row) {
+            row.addEventListener('click', function() {
+              var idx = this.getAttribute('data-index');
+              var detail = el.querySelector('.wf-detail[data-index="' + idx + '"]');
+              if (detail) {
+                var isOpen = detail.style.display !== 'none';
+                detail.style.display = isOpen ? 'none' : 'table-row';
+                var arrow = this.querySelector('td:first-child span:first-child');
+                if (arrow) arrow.textContent = isOpen ? '▶' : '▼';
+              }
+            });
+          });
+        })
+        .catch(function(err) {
+          el.innerHTML = '<div class="error-state">Failed to load workflows: ' + esc(err.message) + '</div>';
+        });
+
+      window.deleteWorkflow = function(id) {
+        if (!confirm('Delete workflow "' + id + '"? This cannot be undone.')) return;
+        fetch('/api/workflows/' + encodeURIComponent(id), { method: 'DELETE' })
+          .then(function(r) {
+            if (!r.ok) return r.json().then(function(e) { throw new Error(e.error); });
+            location.reload();
+          })
+          .catch(function(err) { alert('Failed to delete: ' + err.message); });
+      };
+    })();
+  </script>
+</body>
+</html>

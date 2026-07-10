@@ -22,6 +22,7 @@ agents:
         AGENTS.md: agents/doer/AGENTS.md
         SOUL.md: agents/doer/SOUL.md
         IDENTITY.md: agents/doer/IDENTITY.md
+    model: deepseek-v4-pro-official
 
 steps:
   - id: execute

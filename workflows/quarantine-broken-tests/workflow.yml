@@ -33,6 +33,7 @@ agents:
         AGENTS.md: ../../agents/shared/setup/AGENTS.md
         SOUL.md: ../../agents/shared/setup/SOUL.md
         IDENTITY.md: ../../agents/shared/setup/IDENTITY.md
+    model: deepseek-v4-pro-official
 
   - id: quarantiner
     name: Quarantiner
@@ -46,6 +47,7 @@ agents:
         AGENTS.md: agents/quarantiner/AGENTS.md
         SOUL.md: agents/quarantiner/SOUL.md
         IDENTITY.md: agents/quarantiner/IDENTITY.md
+    model: deepseek-v4-pro-official
 
   - id: verifier
     name: Verifier
@@ -59,6 +61,7 @@ agents:
         AGENTS.md: agents/verifier/AGENTS.md
         SOUL.md: agents/verifier/SOUL.md
         IDENTITY.md: agents/verifier/IDENTITY.md
+    model: deepseek-v4-pro-official
 
 steps:
   - id: setup
@@ -90,7 +93,11 @@ steps:
       TEST_CMD: <test command>
       CI_NOTES: <brief CI notes>
       BASELINE: <baseline status including test results>
-    expects: "STATUS: done\nregex:^BUILD_CMD:\\s*\\S+\nregex:^TEST_CMD:\\s*\\S+"
+    expects: "STATUS: done
+
+      regex:^BUILD_CMD:\\s*\\S+
+
+      regex:^TEST_CMD:\\s*\\S+"
     max_retries: 4
 
   - id: quarantine
@@ -124,7 +131,11 @@ steps:
       DISABLED: <count>
       FILES_CHANGED: <count>
       SUMMARY: <what was disabled and why>
-    expects: "STATUS: done\nregex:^DISABLED:\\s*\\d+\nregex:^SUMMARY:\\s*\\S+"
+    expects: "STATUS: done
+
+      regex:^DISABLED:\\s*\\d+
+
+      regex:^SUMMARY:\\s*\\S+"
     max_retries: 4
 
   - id: verify
@@ -155,7 +166,9 @@ steps:
       Reply with:
       STATUS: done
       VERIFIED: What you confirmed
-    expects: "STATUS: done\nregex:^VERIFIED:\\s*\\S+"
+    expects: "STATUS: done
+
+      regex:^VERIFIED:\\s*\\S+"
     on_fail:
       retry_step: quarantine
       max_retries: 4
