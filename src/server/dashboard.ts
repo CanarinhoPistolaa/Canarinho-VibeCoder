@@ -27,6 +27,21 @@ import { getMcpStatus } from "./daemonctl.js";
 import { buildKanbanSnapshot, buildKanbanCardDetail } from "./kanban-data.js";
 import { pauseRunWithDaemon, resumeRunWithDaemon } from "./control-client.js";
 import { runWorkflow } from "../installer/run.js";
+const MODEL_PRICING: Record<string, { input: number; output: number; cache: number }> = {
+  "deepseek-v4-pro-official": { input: 0.43, output: 0.87, cache: 0.043 },
+  "glm-5.2-tencent": { input: 1.05, output: 3.30, cache: 0.105 },
+  "kimi-k2.6": { input: 1.20, output: 4.50, cache: 0.12 },
+};
+const DEFAULT_MODEL = "deepseek-v4-pro-official";
+
+function calcRunCost(row: Record<string, unknown>): number {
+  const pricing = MODEL_PRICING[DEFAULT_MODEL];
+  const prompt = (row.prompt_tokens as number) ?? 0;
+  const completion = (row.completion_tokens as number) ?? 0;
+  const cached = (row.cached_tokens as number) ?? 0;
+  return (prompt / 1_000_000) * pricing.input + (completion / 1_000_000) * pricing.output + (cached / 1_000_000) * pricing.cache;
+}
+
 import { stopWorkflow, deleteWorkflow, getWorkflowStatus } from "../installer/status.js";
 import { readVersionStatus } from "../lib/version-check.js";
 import { getBuildVersion } from "../lib/version.js";
@@ -42,6 +57,7 @@ import {
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const INDEX_HTML = path.join(__dirname, "index.html");
+const WORKFLOWS_HTML = path.join(__dirname, "workflows.html");
 const KANBAN_HTML = path.join(__dirname, "kanban.html");
 const DASHBOARD_CSS = path.join(__dirname, "dashboard-ui.css");
 const DASHBOARD_JS = path.join(__dirname, "dashboard-ui.js");
@@ -201,19 +217,59 @@ function buildAutoresearchExperiments(entries: AutoresearchLogEntry[]) {
 
 // ── API Handlers ─────────────────────────────────────────────────────
 
-function handleListRuns(_req: http.IncomingMessage, res: http.ServerResponse): void {
+function handleListWorkflows(_req: http.IncomingMessage, res: http.ServerResponse): void {
   try {
-    // Serve from cache if fresh enough
-    if (runsCache !== null && Date.now() - runsCache.timestamp < RUNS_CACHE_TTL_MS) {
-      res.writeHead(200, {
-        "Content-Type": "application/json",
-        "Access-Control-Allow-Origin": "*",
-      });
-      res.end(runsCache.json);
-      return;
-    }
+    const db = getDb();
+
+    const workflows = db.prepare(`
+      SELECT
+        r.workflow_id,
+        COUNT(*) AS run_count,
+        MAX(r.created_at) AS latest_run,
+        MAX(CASE WHEN r.created_at = (SELECT MAX(r2.created_at) FROM runs r2 WHERE r2.workflow_id = r.workflow_id) THEN r.status END) AS active_status,
+        SUM(CASE WHEN r.status = 'running' THEN 1 ELSE 0 END) AS running_count,
+        SUM(CASE WHEN r.status = 'paused' THEN 1 ELSE 0 END) AS paused_count,
+        SUM(CASE WHEN r.status = 'failed' THEN 1 ELSE 0 END) AS failed_count
+      FROM runs r
+      GROUP BY r.workflow_id
+      ORDER BY latest_run DESC
+    `).all() as Array<{
+      workflow_id: string;
+      run_count: number;
+      latest_run: string;
+      active_status: string | null;
+      running_count: number;
+      paused_count: number;
+      failed_count: number;
+    }>;
+
+    jsonResponse(res, { workflows });
+  } catch (err) {
+    errorResponse(res, `Failed to list workflows: ${(err as Error).message}`);
+  }
+}
+
+function handleListRuns(req: http.IncomingMessage, res: http.ServerResponse): void {
+  try {
+    const url = new URL(req.url ?? "/", "http://localhost");
+    const page = Math.max(1, parseInt(url.searchParams.get("page") ?? "1", 10) || 1);
+    const statusFilter = url.searchParams.get("status")?.trim() || null;
+    const perPage = 25;
+    const offset = (page - 1) * perPage;
 
     const db = getDb();
+
+    let whereClause = "";
+    const params: string[] = [];
+    if (statusFilter && statusFilter !== "all") {
+      whereClause = "WHERE r.status = ?";
+      params.push(statusFilter);
+    }
+
+    const countParams = params.length > 0 ? [params[0]] : [];
+    const countRow = db.prepare(`SELECT COUNT(*) as total FROM runs r ${whereClause}`).get(...countParams) as { total: number } | undefined;
+    const total = countRow?.total ?? 0;
+    const totalPages = Math.max(1, Math.ceil(total / perPage));
 
     const rawRuns = db.prepare(`
       SELECT
@@ -226,6 +282,9 @@ function handleListRuns(_req: http.IncomingMessage, res: http.ServerResponse): v
         r.updated_at,
         r.run_number,
         r.tokens_spent,
+        r.prompt_tokens,
+        r.completion_tokens,
+        r.cached_tokens,
         COUNT(s.id) AS total_steps,
         SUM(CASE WHEN s.status = 'done' THEN 1 ELSE 0 END) AS completed_steps,
         SUM(CASE WHEN s.status = 'failed' THEN 1 ELSE 0 END) AS failed_steps,
@@ -233,10 +292,11 @@ function handleListRuns(_req: http.IncomingMessage, res: http.ServerResponse): v
         SUM(CASE WHEN s.status = 'waiting' THEN 1 ELSE 0 END) AS waiting_steps
       FROM runs r
       LEFT JOIN steps s ON s.run_id = r.id
+      ${whereClause}
       GROUP BY r.id
       ORDER BY r.created_at DESC
-      LIMIT 100
-    `).all() as Array<Record<string, unknown>>;
+      LIMIT ${perPage} OFFSET ${offset}
+    `).all(...(params.length > 0 ? [params[0]] : [])) as Array<Record<string, unknown>>;
 
     const runs = rawRuns.map((row) => {
       let no_hurry = false;
@@ -244,15 +304,13 @@ function handleListRuns(_req: http.IncomingMessage, res: http.ServerResponse): v
         const ctx = JSON.parse(String(row.context ?? "{}"));
         no_hurry = ctx.no_hurry_save_tokens_mode === "true";
       } catch {
-        // malformed context → no_hurry stays false
+        no_hurry = false;
       }
-      return { ...row, no_hurry };
+      const cost = calcRunCost(row);
+      return { ...row, no_hurry, cost };
     });
 
-    const responseBody = JSON.stringify({ runs });
-    runsCache = { json: responseBody, timestamp: Date.now() };
-
-    jsonResponse(res, { runs });
+    jsonResponse(res, { runs, total, page, totalPages, perPage });
   } catch (err) {
     errorResponse(res, `Failed to list runs: ${(err as Error).message}`);
   }
@@ -267,7 +325,7 @@ function handleRunDetail(
     const db = getDb();
 
     const run = db.prepare(`
-      SELECT id, workflow_id, task, status, context, created_at, updated_at, run_number, tokens_spent
+      SELECT id, workflow_id, task, status, context, created_at, updated_at, run_number, tokens_spent, prompt_tokens, completion_tokens, cached_tokens
       FROM runs WHERE id = ?
     `).get(runId);
 
@@ -524,17 +582,26 @@ function handleStats(_req: http.IncomingMessage, res: http.ServerResponse): void
     const systemTokensSpent = getSystemTokenSpend();
 
     let runTokensSpent = 0;
+    let runPromptTokens = 0;
+    let runCompletionTokens = 0;
+    let runCachedTokens = 0;
     try {
-      const row = db.prepare("SELECT COALESCE(SUM(tokens_spent), 0) AS total FROM runs").get() as { total: number } | undefined;
+      const row = db.prepare("SELECT COALESCE(SUM(tokens_spent), 0) AS total, COALESCE(SUM(prompt_tokens), 0) AS prompt_total, COALESCE(SUM(completion_tokens), 0) AS completion_total, COALESCE(SUM(cached_tokens), 0) AS cached_total FROM runs").get() as { total: number; prompt_total: number; completion_total: number; cached_total: number } | undefined;
       runTokensSpent = row?.total ?? 0;
+      runPromptTokens = row?.prompt_total ?? 0;
+      runCompletionTokens = row?.completion_total ?? 0;
+      runCachedTokens = row?.cached_total ?? 0;
     } catch {
-      // runs table may not exist yet
       runTokensSpent = 0;
     }
 
     jsonResponse(res, {
       systemTokensSpent,
       totalTokensSpent: systemTokensSpent + runTokensSpent,
+      promptTokens: runPromptTokens,
+      completionTokens: runCompletionTokens,
+      cachedTokens: runCachedTokens,
+      totalCost: calcRunCost({ prompt_tokens: runPromptTokens, completion_tokens: runCompletionTokens, cached_tokens: runCachedTokens }),
     });
   } catch (err) {
     errorResponse(res, `Failed to get stats: ${(err as Error).message}`);
@@ -1047,9 +1114,24 @@ function route(req: http.IncomingMessage, res: http.ServerResponse): void {
     return;
   }
 
-  // GET /api/health
-  if (method === "GET" && pathname === "/api/health") {
-    handleHealth(req, res);
+  // GET /workflows
+  if (method === "GET" && pathname === "/workflows") {
+    try {
+      const html = fs.readFileSync(WORKFLOWS_HTML, "utf-8");
+      htmlResponse(res, html);
+    } catch {
+      htmlResponse(res, `<!DOCTYPE html>
+<html lang="en">
+<head><meta charset="UTF-8"><title>Tamandua Workflows</title></head>
+<body><h1>Tamandua Workflows</h1><p>Workflows HTML not found.</p></body>
+</html>`, 200);
+    }
+    return;
+  }
+
+  // GET /api/workflows
+  if (method === "GET" && pathname === "/api/workflows") {
+    handleListWorkflows(req, res);
     return;
   }
 

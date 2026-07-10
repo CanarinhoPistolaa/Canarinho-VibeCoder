@@ -482,6 +482,10 @@ const STEP_ID_FIELD_REGEX = new RegExp(`["']?step(?:_|-)?id["']?\\s*[:=]\\s*["']
 export interface WorkRoundMetadata {
   assistantOutput: string;
   tokenUsage: number | null;
+  promptTokens: number | null;
+  completionTokens: number | null;
+  cachedTokens: number | null;
+  model: string | null;
   runId: string | null;
   stepId: string | null;
   jsonMetadataDetected: boolean;
@@ -526,23 +530,30 @@ function firstNumeric(record: Record<string, unknown>, keys: string[]): number |
 }
 
 export function extractTokenUsage(usageLike: unknown): number | null {
+  const breakdown = extractTokenBreakdown(usageLike);
+  return breakdown ? breakdown.total : null;
+}
+
+export interface TokenBreakdown {
+  input: number;
+  output: number;
+  cacheRead: number;
+  total: number;
+}
+
+export function extractTokenBreakdown(usageLike: unknown): TokenBreakdown | null {
   const usage = asRecord(usageLike);
   if (!usage) return null;
 
   const directTotal = firstNumeric(usage, ["totalTokens", "total_tokens", "total"]);
-  if (directTotal !== null) return normalizeTokenUsage(directTotal);
 
-  const parts: Array<number | null> = [
-    firstNumeric(usage, ["input", "inputTokens", "input_tokens", "prompt_tokens"]),
-    firstNumeric(usage, ["output", "outputTokens", "output_tokens", "completion_tokens"]),
-    firstNumeric(usage, ["cacheRead", "cache_read", "cache_read_tokens"]),
-    firstNumeric(usage, ["cacheWrite", "cache_write", "cache_write_tokens"]),
-  ];
+  const input = normalizeTokenUsage(firstNumeric(usage, ["input", "inputTokens", "input_tokens", "prompt_tokens"]) ?? 0);
+  const output = normalizeTokenUsage(firstNumeric(usage, ["output", "outputTokens", "output_tokens", "completion_tokens"]) ?? 0);
+  const cacheRead = normalizeTokenUsage(firstNumeric(usage, ["cacheRead", "cache_read", "cache_read_tokens"]) ?? 0);
+  const total = directTotal !== null ? normalizeTokenUsage(directTotal) : input + output + cacheRead;
 
-  if (!parts.some((value) => value !== null)) return null;
-
-  const total = parts.reduce<number>((sum, value) => sum + (value ?? 0), 0);
-  return normalizeTokenUsage(total);
+  if (total === 0) return null;
+  return { input, output, cacheRead, total };
 }
 
 function collectTextFragments(value: unknown, sink: string[], depth = 0): void {
@@ -603,6 +614,10 @@ export function parseWorkRoundMetadata(output: string): WorkRoundMetadata {
     return {
       assistantOutput: "",
       tokenUsage: null,
+      promptTokens: null,
+      completionTokens: null,
+      cachedTokens: null,
+      model: null,
       runId: null,
       stepId: null,
       jsonMetadataDetected: false,
@@ -628,6 +643,10 @@ export function parseWorkRoundMetadata(output: string): WorkRoundMetadata {
     return {
       assistantOutput: normalized,
       tokenUsage: null,
+      promptTokens: null,
+      completionTokens: null,
+      cachedTokens: null,
+      model: null,
       runId: hints.runId,
       stepId: hints.stepId,
       jsonMetadataDetected: false,
@@ -636,6 +655,10 @@ export function parseWorkRoundMetadata(output: string): WorkRoundMetadata {
 
   let assistantOutput = "";
   let tokenUsage: number | null = null;
+  let promptTokens: number | null = null;
+  let completionTokens: number | null = null;
+  let cachedTokens: number | null = null;
+  let model: string | null = null;
   const toolTextFragments: string[] = [];
 
   for (const event of events) {
@@ -649,6 +672,17 @@ export function parseWorkRoundMetadata(output: string): WorkRoundMetadata {
 
         const extractedUsage = extractTokenUsage(message.usage);
         if (extractedUsage !== null) tokenUsage = extractedUsage;
+
+        const breakdown = extractTokenBreakdown(message.usage);
+        if (breakdown) {
+          promptTokens = breakdown.input;
+          completionTokens = breakdown.output;
+          cachedTokens = breakdown.cacheRead;
+        }
+
+        if (typeof message.model === "string" && message.model.length > 0) {
+          model = message.model;
+        }
       }
     }
 
@@ -667,6 +701,10 @@ export function parseWorkRoundMetadata(output: string): WorkRoundMetadata {
   return {
     assistantOutput,
     tokenUsage,
+    promptTokens,
+    completionTokens,
+    cachedTokens,
+    model,
     runId: hintsFromToolData.runId ?? fallbackHints.runId,
     stepId: hintsFromToolData.stepId ?? fallbackHints.stepId,
     jsonMetadataDetected: true,
@@ -698,12 +736,17 @@ interface TokenSpendUpdate {
   tokensSpent: number;
 }
 
-async function incrementRunTokenSpend(runId: string, tokenUsage: number): Promise<TokenSpendUpdate | null> {
+async function incrementRunTokenSpend(runId: string, tokenUsage: number, breakdown?: { promptTokens?: number | null; completionTokens?: number | null; cachedTokens?: number | null }): Promise<TokenSpendUpdate | null> {
   const { getDb } = await import("../db.js");
   const db = getDb();
+
+  const promptDelta = breakdown?.promptTokens ?? 0;
+  const completionDelta = breakdown?.completionTokens ?? 0;
+  const cachedDelta = breakdown?.cachedTokens ?? 0;
+
   const result = db
-    .prepare("UPDATE runs SET tokens_spent = tokens_spent + ?, updated_at = datetime('now') WHERE id = ?")
-    .run(tokenUsage, runId);
+    .prepare("UPDATE runs SET tokens_spent = tokens_spent + ?, prompt_tokens = prompt_tokens + ?, completion_tokens = completion_tokens + ?, cached_tokens = cached_tokens + ?, updated_at = datetime('now') WHERE id = ?")
+    .run(tokenUsage, promptDelta, completionDelta, cachedDelta, runId);
 
   if ((result.changes ?? 0) <= 0) return null;
 
@@ -893,7 +936,11 @@ async function attributeWorkRoundTokenUsage(
   const runIdSource = resolved.runId ? resolved.source : "dispatch_job";
 
   try {
-    const updated = await incrementRunTokenSpend(runId, metadata.tokenUsage);
+    const updated = await incrementRunTokenSpend(runId, metadata.tokenUsage, {
+      promptTokens: metadata.promptTokens,
+      completionTokens: metadata.completionTokens,
+      cachedTokens: metadata.cachedTokens,
+    });
 
     if (!updated) {
       logger.warn("Work round token usage not attributed — run missing", {
@@ -914,6 +961,30 @@ async function attributeWorkRoundTokenUsage(
       tokenDelta: metadata.tokenUsage,
       tokensSpent: updated.tokensSpent,
     });
+
+    if (metadata.stepId) {
+      try {
+        const { getDb } = await import("../db.js");
+        const db = getDb();
+        const promptDelta = metadata.promptTokens ?? 0;
+        const completionDelta = metadata.completionTokens ?? 0;
+        const cachedDelta = metadata.cachedTokens ?? 0;
+        db.prepare("UPDATE steps SET prompt_tokens = prompt_tokens + ?, completion_tokens = completion_tokens + ?, cached_tokens = cached_tokens + ?, model = COALESCE(model, ?) WHERE id = ?")
+          .run(promptDelta, completionDelta, cachedDelta, metadata.model, metadata.stepId);
+
+        const step = db.prepare("SELECT current_story_id, type FROM steps WHERE id = ?").get(metadata.stepId) as { current_story_id: string | null; type: string } | undefined;
+        if (step?.type === "loop" && step.current_story_id) {
+          db.prepare("UPDATE stories SET prompt_tokens = prompt_tokens + ?, completion_tokens = completion_tokens + ?, cached_tokens = cached_tokens + ? WHERE story_id = ? AND run_id = ?")
+            .run(promptDelta, completionDelta, cachedDelta, step.current_story_id, runId);
+        }
+      } catch (err) {
+        logger.warn("Work round token usage not attributed to step/story", {
+          ...context,
+          stepId: metadata.stepId,
+          error: (err as Error).message,
+        });
+      }
+    }
 
     logger.debug("Work round token usage attributed", {
       ...context,
@@ -1159,6 +1230,10 @@ export async function executeDispatchRound(
         const hermesMetadata: WorkRoundMetadata = {
           assistantOutput: output,
           tokenUsage: hermesTokens,
+          promptTokens: null,
+          completionTokens: null,
+          cachedTokens: null,
+          model: null,
           runId: null,
           stepId: null,
           jsonMetadataDetected: false,
@@ -1255,6 +1330,10 @@ export async function executeDispatchRound(
               const hermesMetadata: WorkRoundMetadata = {
                 assistantOutput: "",
                 tokenUsage: hermesTokens,
+                promptTokens: null,
+                completionTokens: null,
+                cachedTokens: null,
+                model: null,
                 runId: null,
                 stepId: null,
                 jsonMetadataDetected: false,

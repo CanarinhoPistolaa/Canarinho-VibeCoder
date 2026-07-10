@@ -1,5 +1,17 @@
 (function () {
-  const REFRESH_MS = 3000;
+  var MODEL_PRICING = {
+    "deepseek-v4-pro-official": { input: 0.43, output: 0.87, cache: 0.043 },
+    "glm-5.2-tencent": { input: 1.05, output: 3.30, cache: 0.105 },
+    "kimi-k2.6": { input: 1.20, output: 4.50, cache: 0.12 },
+  };
+  var DEFAULT_MODEL = "deepseek-v4-pro-official";
+
+  function calcCost(model, prompt, completion, cached) {
+    var p = MODEL_PRICING[model] || MODEL_PRICING[DEFAULT_MODEL];
+    return (prompt / 1e6) * p.input + (completion / 1e6) * p.output + (cached / 1e6) * p.cache;
+  }
+
+  var REFRESH_MS = 3000;
   const runId = window.location.pathname.split("/")[2];
 
   function escapeHtml(s) {
@@ -59,6 +71,9 @@
           ? fmtElapsed((Date.now() - parseTimestamp(run.created_at)) / 1000)
           : "—";
     document.getElementById("tokens").textContent = fmtTokens(run.tokens_spent);
+    document.getElementById("prompt-tokens").textContent = fmtTokens(run.prompt_tokens ?? 0);
+    document.getElementById("completion-tokens").textContent = fmtTokens(run.completion_tokens ?? 0);
+    document.getElementById("cached-tokens").textContent = fmtTokens(run.cached_tokens ?? 0);
   }
 
   function statusBucket(raw) {
@@ -129,7 +144,7 @@
       '<span class="dot"></span>' + escapeHtml(lane.label) +
       '</div>' +
       '<div class="lane-sub">' + lane.summary.total + ' ' + itemWord +
-      ' · ' + escapeHtml(lane.stepType) + '</div>';
+      ' · ' + escapeHtml(lane.stepType) + (lane.model ? ' · <span class="lane-model">' + escapeHtml(lane.model) + '</span>' : '') + '</div>';
     return head;
   }
 
@@ -143,16 +158,26 @@
       cardsEl.appendChild(empty);
     } else {
       for (const c of lane.cards) {
-        cardsEl.appendChild(buildCardEl(c));
+        cardsEl.appendChild(buildCardEl(c, lane));
       }
     }
     return cardsEl;
   }
 
-  function buildCardEl(c) {
-    const cardEl = document.createElement("div");
+  function buildCardEl(c, lane) {
+    var cardEl = document.createElement("div");
     cardEl.className = "card " + c.status;
     cardEl.setAttribute("data-card-id", c.id);
+
+    var tokenLine = '';
+    if (c.totalTokens > 0) {
+      var cardCost = calcCost(lane.model, c.promptTokens, c.completionTokens, c.cachedTokens);
+      tokenLine = '<div class="card-tokens">' +
+        'In:' + fmtTokens(c.promptTokens) + ' Out:' + fmtTokens(c.completionTokens) +
+        ' C:' + fmtTokens(c.cachedTokens) + ' Tot:' + fmtTokens(c.totalTokens) +
+        ' <span class="card-cost">$' + cardCost.toFixed(2) + '</span></div>';
+    }
+
     cardEl.innerHTML =
       '<div class="id-row">' +
         '<span><span class="dot"></span>' + escapeHtml(c.id) + '</span>' +
@@ -160,18 +185,40 @@
       '</div>' +
       '<button class="card-toggle-btn" aria-label="Expand card">+</button>' +
       '<div class="title">' + escapeHtml(c.title) + '</div>' +
-      '<div class="meta-row">' + escapeHtml(c.sub) + '</div>';
+      '<div class="meta-row">' + escapeHtml(c.sub) + '</div>' + tokenLine;
     return cardEl;
   }
 
   function buildLaneFoot(lane) {
-    const foot = document.createElement("div");
+    var foot = document.createElement("div");
     foot.className = "lane-foot";
-    const part = buildLaneFootHTML(lane.summary);
+    var part = buildLaneFootHTML(lane.summary);
+
+    var totalPrompt = 0, totalCompletion = 0, totalCached = 0, totalTokens = 0;
+    for (var i = 0; i < lane.cards.length; i++) {
+      var c = lane.cards[i];
+      totalPrompt += c.promptTokens || 0;
+      totalCompletion += c.completionTokens || 0;
+      totalCached += c.cachedTokens || 0;
+      totalTokens += c.totalTokens || 0;
+    }
+    var cost = calcCost(lane.model, totalPrompt, totalCompletion, totalCached);
+
+    var tokenHTML = '';
+    if (totalTokens > 0) {
+      tokenHTML = '<div class="lane-tokens">' +
+        '<span>In: ' + fmtTokens(totalPrompt) + '</span>' +
+        '<span>Out: ' + fmtTokens(totalCompletion) + '</span>' +
+        '<span>Cache: ' + fmtTokens(totalCached) + '</span>' +
+        '<span>Tot: ' + fmtTokens(totalTokens) + '</span>' +
+        '<span>$' + cost.toFixed(2) + '</span>' +
+        '</div>';
+    }
+
     foot.innerHTML =
       '<div class="lane-progress-labels">' + part.labels + '</div>' +
       part.stacked +
-      '<span style="font-size:11px;font-weight:600;color:var(--ink-soft);">' + part.pct + '%</span>';
+      '<span style="font-size:11px;font-weight:600;color:var(--ink-soft);">' + part.pct + '%</span>' + tokenHTML;
     return foot;
   }
 
@@ -255,8 +302,16 @@
       const existing = container.querySelector('.card[data-card-id="' + c.id.replace(/"/g, '\\"') + '"]');
       if (existing) {
         const p = prevCards.get(c.id);
-        if (!p || p.status !== c.status || p.title !== c.title || p.sub !== c.sub) {
+        if (!p || p.status !== c.status || p.title !== c.title || p.sub !== c.sub || p.totalTokens !== c.totalTokens) {
           existing.className = 'card ' + c.status;
+          var tokenLine = '';
+          if (c.totalTokens > 0) {
+            var cardCost = calcCost(lane.model, c.promptTokens, c.completionTokens, c.cachedTokens);
+            tokenLine = '<div class="card-tokens">' +
+              'In:' + fmtTokens(c.promptTokens) + ' Out:' + fmtTokens(c.completionTokens) +
+              ' C:' + fmtTokens(c.cachedTokens) + ' Tot:' + fmtTokens(c.totalTokens) +
+              ' <span class="card-cost">$' + cardCost.toFixed(2) + '</span></div>';
+          }
           existing.innerHTML =
             '<div class="id-row">' +
               '<span><span class="dot"></span>' + escapeHtml(c.id) + '</span>' +
@@ -264,11 +319,10 @@
             '</div>' +
             '<button class="card-toggle-btn" aria-label="Expand card">+</button>' +
             '<div class="title">' + escapeHtml(c.title) + '</div>' +
-            '<div class="meta-row">' + escapeHtml(c.sub) + '</div>';
+            '<div class="meta-row">' + escapeHtml(c.sub) + '</div>' + tokenLine;
         }
       } else {
-        // Append new card; order doesn't change within a lane at runtime.
-        container.appendChild(buildCardEl(c));
+        container.appendChild(buildCardEl(c, lane));
       }
     }
 
@@ -281,19 +335,66 @@
   }
 
   function patchLaneFoot(laneEl, lane, prevLane) {
-    if (prevLane && prevLane.summary &&
-        prevLane.summary.done === lane.summary.done &&
-        prevLane.summary.failed === lane.summary.failed &&
-        prevLane.summary.running === lane.summary.running &&
-        prevLane.summary.total === lane.summary.total) return;
+    var summaryChanged = !prevLane || !prevLane.summary ||
+        prevLane.summary.done !== lane.summary.done ||
+        prevLane.summary.failed !== lane.summary.failed ||
+        prevLane.summary.running !== lane.summary.running ||
+        prevLane.summary.total !== lane.summary.total;
 
-    const foot = laneEl.querySelector('.lane-foot');
+    var foot = laneEl.querySelector('.lane-foot');
     if (!foot) return;
-    const part = buildLaneFootHTML(lane.summary);
+
+    if (!summaryChanged) {
+      // Still update tokens in case they changed
+      var tokenEl = foot.querySelector('.lane-tokens');
+      if (tokenEl) {
+        var totalPrompt = 0, totalCompletion = 0, totalCached = 0, totalTokens = 0;
+        for (var i = 0; i < lane.cards.length; i++) {
+          var c = lane.cards[i];
+          totalPrompt += c.promptTokens || 0;
+          totalCompletion += c.completionTokens || 0;
+          totalCached += c.cachedTokens || 0;
+          totalTokens += c.totalTokens || 0;
+        }
+        if (totalTokens > 0) {
+          var cost = calcCost(lane.model, totalPrompt, totalCompletion, totalCached);
+          tokenEl.innerHTML = '<span>In: ' + fmtTokens(totalPrompt) + '</span>' +
+            '<span>Out: ' + fmtTokens(totalCompletion) + '</span>' +
+            '<span>Cache: ' + fmtTokens(totalCached) + '</span>' +
+            '<span>Tot: ' + fmtTokens(totalTokens) + '</span>' +
+            '<span>$' + cost.toFixed(2) + '</span>';
+        }
+      }
+      return;
+    }
+
+    var part = buildLaneFootHTML(lane.summary);
+
+    var totalPrompt = 0, totalCompletion = 0, totalCached = 0, totalTokens = 0;
+    for (var i = 0; i < lane.cards.length; i++) {
+      var c = lane.cards[i];
+      totalPrompt += c.promptTokens || 0;
+      totalCompletion += c.completionTokens || 0;
+      totalCached += c.cachedTokens || 0;
+      totalTokens += c.totalTokens || 0;
+    }
+    var cost = calcCost(lane.model, totalPrompt, totalCompletion, totalCached);
+
+    var tokenHTML = '';
+    if (totalTokens > 0) {
+      tokenHTML = '<div class="lane-tokens">' +
+        '<span>In: ' + fmtTokens(totalPrompt) + '</span>' +
+        '<span>Out: ' + fmtTokens(totalCompletion) + '</span>' +
+        '<span>Cache: ' + fmtTokens(totalCached) + '</span>' +
+        '<span>Tot: ' + fmtTokens(totalTokens) + '</span>' +
+        '<span>$' + cost.toFixed(2) + '</span>' +
+        '</div>';
+    }
+
     foot.innerHTML =
       '<div class="lane-progress-labels">' + part.labels + '</div>' +
       part.stacked +
-      '<span style="font-size:11px;font-weight:600;color:var(--ink-soft);">' + part.pct + '%</span>';
+      '<span style="font-size:11px;font-weight:600;color:var(--ink-soft);">' + part.pct + '%</span>' + tokenHTML;
   }
 
   let lastGoodAt = null;
@@ -396,17 +497,15 @@
     );
 
     // Tokens — always shown
-    const hasTokens = detail.tokens && detail.tokens.total > 0;
+    var dbTokens = (detail.tokens && detail.tokens.promptTokens || 0) + (detail.tokens && detail.tokens.completionTokens || 0) + (detail.tokens && detail.tokens.cachedTokens || 0);
+    var eventTokens = detail.tokens && detail.tokens.total || 0;
+    var displayTotal = dbTokens > 0 ? dbTokens : eventTokens;
     parts.push(
       '<div class="detail-section">',
       '<div class="detail-label">Tokens</div>',
-      '<div class="detail-value">', escapeHtml(hasTokens ? fmtTokens(detail.tokens.total) : '—'));
-    if (hasTokens && detail.tokens.deltas && detail.tokens.deltas.length > 0) {
-      parts.push(' <span style="color:var(--ink-soft)">(',
-        String(detail.tokens.deltas.length), ' update',
-        detail.tokens.deltas.length === 1 ? '' : 's', ')</span>');
-    }
-    parts.push('</div></div>');
+      '<div class="detail-value">', displayTotal > 0 ? fmtTokens(displayTotal) : '—',
+      detail.tokens && detail.tokens.model ? ' · <span style="color:var(--accent)">' + escapeHtml(detail.tokens.model) + '</span>' : '',
+      '</div></div>');
 
     // Retry info
     if ((detail.retryCount ?? 0) > 0 || (detail.maxRetries ?? 0) > 0) {
@@ -603,6 +702,8 @@
       try { lastFocusedToggleBtn.focus(); } catch {}
     }
     lastFocusedToggleBtn = null;
+    lastDetailCardId = null;
+    lastDetailJson = null;
   }
 
   // ── Event delegation for toggle buttons ───────────────────────

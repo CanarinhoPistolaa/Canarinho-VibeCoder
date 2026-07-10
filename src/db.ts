@@ -63,6 +63,9 @@ function migrate(db: DatabaseSync): void {
       status TEXT NOT NULL DEFAULT 'running',
       context TEXT NOT NULL DEFAULT '{}',
       tokens_spent INTEGER NOT NULL DEFAULT 0,
+      prompt_tokens INTEGER NOT NULL DEFAULT 0,
+      completion_tokens INTEGER NOT NULL DEFAULT 0,
+      cached_tokens INTEGER NOT NULL DEFAULT 0,
       notify_url TEXT,
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL
@@ -83,6 +86,10 @@ function migrate(db: DatabaseSync): void {
       type TEXT NOT NULL DEFAULT 'single',
       loop_config TEXT,
       current_story_id TEXT,
+      model TEXT,
+      prompt_tokens INTEGER NOT NULL DEFAULT 0,
+      completion_tokens INTEGER NOT NULL DEFAULT 0,
+      cached_tokens INTEGER NOT NULL DEFAULT 0,
       abandoned_count INTEGER DEFAULT 0,
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL
@@ -100,6 +107,9 @@ function migrate(db: DatabaseSync): void {
       output TEXT,
       retry_count INTEGER DEFAULT 0,
       max_retries INTEGER DEFAULT 4,
+      prompt_tokens INTEGER NOT NULL DEFAULT 0,
+      completion_tokens INTEGER NOT NULL DEFAULT 0,
+      cached_tokens INTEGER NOT NULL DEFAULT 0,
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL
     );
@@ -123,6 +133,16 @@ function migrate(db: DatabaseSync): void {
   }
 
   db.exec("UPDATE runs SET tokens_spent = 0 WHERE tokens_spent IS NULL");
+
+  if (!runColNames.has("prompt_tokens")) {
+    db.exec("ALTER TABLE runs ADD COLUMN prompt_tokens INTEGER NOT NULL DEFAULT 0");
+  }
+  if (!runColNames.has("completion_tokens")) {
+    db.exec("ALTER TABLE runs ADD COLUMN completion_tokens INTEGER NOT NULL DEFAULT 0");
+  }
+  if (!runColNames.has("cached_tokens")) {
+    db.exec("ALTER TABLE runs ADD COLUMN cached_tokens INTEGER NOT NULL DEFAULT 0");
+  }
 
   // ── Run-scoped scheduling metadata ──
   // - scheduling_status: lifecycle of daemon-side scheduling for the run
@@ -172,6 +192,18 @@ function migrate(db: DatabaseSync): void {
   if (!stepColNames.has("claim_invalidated_by")) {
     db.exec("ALTER TABLE steps ADD COLUMN claim_invalidated_by TEXT");
   }
+  if (!stepColNames.has("model")) {
+    db.exec("ALTER TABLE steps ADD COLUMN model TEXT");
+  }
+  if (!stepColNames.has("prompt_tokens")) {
+    db.exec("ALTER TABLE steps ADD COLUMN prompt_tokens INTEGER NOT NULL DEFAULT 0");
+  }
+  if (!stepColNames.has("completion_tokens")) {
+    db.exec("ALTER TABLE steps ADD COLUMN completion_tokens INTEGER NOT NULL DEFAULT 0");
+  }
+  if (!stepColNames.has("cached_tokens")) {
+    db.exec("ALTER TABLE steps ADD COLUMN cached_tokens INTEGER NOT NULL DEFAULT 0");
+  }
 
   // ── WLST abandoned_count for stories ──
   // Tracks infrastructure-failure (worker-loss/timeout) story recoveries
@@ -182,6 +214,15 @@ function migrate(db: DatabaseSync): void {
   const storyColNames = new Set(storyCols.map((c) => c.name));
   if (!storyColNames.has("abandoned_count")) {
     db.exec("ALTER TABLE stories ADD COLUMN abandoned_count INTEGER DEFAULT 0");
+  }
+  if (!storyColNames.has("prompt_tokens")) {
+    db.exec("ALTER TABLE stories ADD COLUMN prompt_tokens INTEGER NOT NULL DEFAULT 0");
+  }
+  if (!storyColNames.has("completion_tokens")) {
+    db.exec("ALTER TABLE stories ADD COLUMN completion_tokens INTEGER NOT NULL DEFAULT 0");
+  }
+  if (!storyColNames.has("cached_tokens")) {
+    db.exec("ALTER TABLE stories ADD COLUMN cached_tokens INTEGER NOT NULL DEFAULT 0");
   }
 
   // Indexes for run-scoped scheduling and step claim queries.

@@ -19,37 +19,41 @@
         renderMcpStatus(data);
       } catch (err) {
         console.error("Failed to fetch MCP status:", err);
-        document.getElementById("mcp-status-content").innerHTML =
-          '<div class="empty-state">Unable to fetch MCP status.</div>';
+        var el = document.getElementById("popover-mcp-status");
+        if (el) el.innerHTML = '<span style="color:var(--red)">Unable to fetch MCP status</span>';
       }
     }
 
     function renderMcpStatus(data) {
-      const el = document.getElementById("mcp-status-content");
-      const { running, port, path } = data;
-
-      const statusDot = running
-        ? '<span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:#3fb950;margin-right:6px;" title="Running"></span>'
-        : '<span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:#f85149;margin-right:6px;" title="Stopped"></span>';
-
-      const statusText = running ? "Running" : "Stopped";
-      const statusColor = running ? "#3fb950" : "#f85149";
-
-      let html = `<div style="display:flex;align-items:center;gap:16px;font-size:13px;">
-        <div>${statusDot}<span style="color:${statusColor};font-weight:600;">${statusText}</span></div>
-        <div>Port: <span class="mono">${port}</span></div>
-        <div>Endpoint: <span class="mono">http://localhost:${port}${esc(path)}</span></div>
-      </div>`;
-
-      el.innerHTML = html;
+      var el = document.getElementById("popover-mcp-status");
+      if (!el) return;
+      var running = data.running;
+      var statusDot = running
+        ? '<span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:var(--green);margin-right:6px;"></span>'
+        : '<span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:var(--red);margin-right:6px;"></span>';
+      var statusText = running ? "Running" : "Stopped";
+      var statusColor = running ? "var(--green)" : "var(--red)";
+      el.innerHTML = '<div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;">' +
+        '<span>' + statusDot + '</span>' +
+        '<span style="color:' + statusColor + ';font-weight:600;">' + statusText + '</span>' +
+        '<span>Port: <span class="mono">' + esc(String(data.port)) + '</span></span>' +
+        '</div>';
     }
+
+    let currentPage = 1;
+    let currentStatus = "all";
+    let totalPages = 1;
 
     async function fetchRuns() {
       try {
-        const res = await fetch("/api/runs");
+        var params = new URLSearchParams({ page: currentPage, status: currentStatus });
+        const res = await fetch("/api/runs?" + params.toString());
         const data = await res.json();
         latestRuns = data.runs || [];
+        totalPages = data.totalPages || 1;
+        currentPage = data.page || 1;
         renderRuns(latestRuns);
+        renderPagination();
         document.getElementById("status-dot").classList.remove("error");
       } catch (err) {
         document.getElementById("status-dot").classList.add("error");
@@ -57,6 +61,33 @@
         document.getElementById("runs-content").innerHTML =
           '<div class="error-state">Unable to fetch runs.<br><button class="retry-btn" data-action="retry-runs">Retry</button></div>';
       }
+    }
+
+    function renderPagination() {
+      var el = document.getElementById("pagination");
+      if (totalPages <= 1) { el.innerHTML = ""; return; }
+      el.innerHTML =
+        '<button ' + (currentPage <= 1 ? 'disabled' : '') + ' data-action="page-prev">← Prev</button>' +
+        '<span class="page-info">Page ' + currentPage + ' of ' + totalPages + '</span>' +
+        '<button ' + (currentPage >= totalPages ? 'disabled' : '') + ' data-action="page-next">Next →</button>';
+    }
+
+    document.addEventListener("click", function(e) {
+      if (e.target.getAttribute("data-action") === "page-prev") {
+        if (currentPage > 1) { currentPage--; fetchRuns(); }
+      }
+      if (e.target.getAttribute("data-action") === "page-next") {
+        if (currentPage < totalPages) { currentPage++; fetchRuns(); }
+      }
+    });
+
+    var statusFilter = document.getElementById("status-filter");
+    if (statusFilter) {
+      statusFilter.addEventListener("change", function() {
+        currentStatus = this.value;
+        currentPage = 1;
+        fetchRuns();
+      });
     }
 
     async function fetchAutoresearchSessions() {
@@ -110,31 +141,33 @@
         const done = Number(r.completed_steps) || 0;
         const failed = Number(r.failed_steps) || 0;
         const pct = total > 0 ? Math.round((done / total) * 100) : 0;
-        const isRunning = r.status === "running";
-        const fillClass = isRunning ? "running" : "";
+        const fillClass = r.status;
         const badgeClass = STATUS_CLASS[r.status] || "badge-running";
         const task = (r.task || "").slice(0, 80);
         const parsedTokens = Number(r.tokens_spent);
         const tokensSpent = Number.isFinite(parsedTokens) ? parsedTokens : 0;
+        const cost = Number(r.cost);
+        const costDisplay = Number.isFinite(cost) && cost > 0 ? '$' + cost.toFixed(2) : (Number.isFinite(cost) ? '$0.00' : '—');
 
         return `<tr>
           <td class="num" data-label="#">#${r.run_number ?? "-"}</td>
           <td data-label="Run ID"><a class="mono run-link" href="/runs/${encodeURIComponent(r.id)}/kanban" title="Open kanban view">${esc(r.id).slice(0, 8)}</a></td>
           <td data-label="Workflow">${esc(r.workflow_id)}</td>
           <td class="truncate" data-label="Task" title="${esc(r.task || "")}">${esc(task)}</td>
-          <td data-label="Status"><span class="badge ${badgeClass}">${r.status}</span>${(r.status === 'running' || r.status === 'paused') ? `<span class="hurry-icon" title="${r.no_hurry ? 'No-hurry mode: work rounds prefer the run harness\'s token-saver wrapper when installed — pi-token-saver for pi runs, hermes-token-saver for hermes runs — falling back to the plain harness binary.' : 'Regular run: always uses its configured harness binary directly (pi by default, hermes for --hermes-as-harness runs); idle dispatch is free either way; use --no-hurry-please-save-tokens-mode to prefer a token-saver wrapper when installed.'}">${r.no_hurry ? '🐢' : '🏃'}</span>` : ''}</td>
+          <td data-label="Status"><span class="badge ${badgeClass}">${r.status}</span></td>
           <td data-label="Progress">
             <div class="progress-bar" title="${done}/${total} steps (${failed} failed)">
               <div class="progress-fill ${fillClass}" style="width:${pct}%"></div>
             </div>
           </td>
-          <td class="num" data-label="Tokens">${tokensSpent}</td>
+          <td class="num" data-label="Tokens">${fmtNum(tokensSpent)}</td>
+          <td class="num" data-label="Cost" style="font-variant-numeric:tabular-nums">${costDisplay}</td>
           <td class="num" data-label="Updated" style="font-size:11px">${timeAgo(r.updated_at)}</td>
           <td class="actions" data-label="Actions">
-            ${r.status === 'running' ? `<button class="action-btn pause-btn" data-action="pause" data-run-id="${r.id}">⏸ Pause</button>` : ''}
-            ${r.status === 'paused' ? `<button class="action-btn resume-btn" data-action="resume" data-run-id="${r.id}">▶ Resume</button> <button class="action-btn cancel-btn" data-action="cancel" data-run-id="${r.id}">✕ Cancel</button>` : ''}
-            ${(r.status === 'failed' || r.status === 'canceled') ? `<button class="action-btn relaunch-btn" data-action="relaunch" data-run-id="${r.id}">🔄 Relaunch</button>` : ''}
-            <button class="action-btn delete-btn" data-action="delete" data-run-id="${r.id}" data-status="${esc(r.status)}" title="Delete this run">🗑</button>
+            ${r.status === 'running' ? `<button class="action-btn pause-btn" data-action="pause" data-run-id="${r.id}">Pause</button>` : ''}
+            ${r.status === 'paused' ? `<button class="action-btn resume-btn" data-action="resume" data-run-id="${r.id}">Resume</button> <button class="action-btn cancel-btn" data-action="cancel" data-run-id="${r.id}">Cancel</button>` : ''}
+            ${(r.status === 'failed' || r.status === 'canceled') ? `<button class="action-btn relaunch-btn" data-action="relaunch" data-run-id="${r.id}">Relaunch</button>` : ''}
+            <button class="action-btn delete-btn" data-action="delete" data-run-id="${r.id}" data-status="${esc(r.status)}" title="Delete this run">Delete</button>
           </td>
           <td data-label="View"><a class="kanban-link" href="/runs/${encodeURIComponent(r.id)}/kanban" aria-label="Open kanban for run ${esc(r.id)}">Kanban &rarr;</a></td>
         </tr>`;
@@ -142,7 +175,7 @@
 
       el.innerHTML = `<table class="runs-table">
         <thead><tr>
-          <th>#</th><th>Run ID</th><th>Workflow</th><th>Task</th><th>Status</th><th>Progress</th><th>Tokens</th><th>Updated</th><th>Actions</th><th>View</th>
+          <th>#</th><th>Run ID</th><th>Workflow</th><th>Task</th><th>Status</th><th>Progress</th><th>Tokens</th><th>Cost</th><th>Updated</th><th>Actions</th><th>View</th>
         </tr></thead>
         <tbody>${rows}</tbody>
       </table>`;
@@ -379,8 +412,16 @@
         const data = await res.json();
         const systemEl = document.getElementById("system-tokens");
         const totalEl = document.getElementById("total-tokens");
+        const promptEl = document.getElementById("prompt-tokens");
+        const completionEl = document.getElementById("completion-tokens");
+        const cachedEl = document.getElementById("cached-tokens");
+        const costEl = document.getElementById("total-cost");
         if (systemEl) systemEl.textContent = fmtNum(data.systemTokensSpent ?? 0);
         if (totalEl) totalEl.textContent = fmtNum(data.totalTokensSpent ?? 0);
+        if (promptEl) promptEl.textContent = fmtNum(data.promptTokens ?? 0);
+        if (completionEl) completionEl.textContent = fmtNum(data.completionTokens ?? 0);
+        if (cachedEl) cachedEl.textContent = fmtNum(data.cachedTokens ?? 0);
+        if (costEl) costEl.textContent = '$' + (data.totalCost ?? 0).toFixed(2);
         document.getElementById("status-dot").classList.remove("error");
       } catch (err) {
         document.getElementById("status-dot").classList.add("error");
@@ -422,7 +463,11 @@
 
     function fmtNum(n) {
       if (!Number.isFinite(n)) return "0";
-      return n.toLocaleString();
+      if (n >= 1e12) return (n / 1e12).toFixed(1) + "T";
+      if (n >= 1e9) return (n / 1e9).toFixed(1) + "B";
+      if (n >= 1e6) return (n / 1e6).toFixed(1) + "M";
+      if (n >= 1e3) return (n / 1e3).toFixed(1) + "K";
+      return String(n);
     }
 
     function refreshAll() {

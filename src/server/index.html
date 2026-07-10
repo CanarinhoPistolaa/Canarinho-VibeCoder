@@ -1,9 +1,9 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" data-theme="canarinho">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Tamandua Dashboard</title>
+  <title>Canarinho VibeCoder Dashboard</title>
   <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32.png">
   <link rel="icon" type="image/png" sizes="16x16" href="/favicon-16.png">
   <link rel="apple-touch-icon" sizes="180x180" href="/favicon-180.png">
@@ -11,16 +11,56 @@
 </head>
 <body>
   <header>
-    <img class="brand-logo" src="/brand-logo.png" alt="Tamandua" style="height:28px;width:auto;">
-    <h1 class="brand-text">Tamandua</h1>
+    <img class="brand-logo" src="/brand-logo.png" alt="Canarinho VibeCoder" style="height:28px;width:auto;">
+    <h1 class="brand-text" id="brand-name">Canarinho VibeCoder</h1>
     <div class="token-counters" id="token-counters">
-      <span title="Tokens spent by the retired model-driven polling motor. The deterministic dispatch motor spends none — a growing number here means a regression.">System: <span class="mono" id="system-tokens">0</span></span>
+      <span title="Tokens spent by the retired model-driven polling motor. The deterministic dispatch motor spends none — a growing number here means a regression.">Sys: <span class="mono" id="system-tokens">0</span></span>
+      <span class="token-sep">|</span>
+      <span title="Total prompt (input) tokens across all runs">In: <span class="mono" id="prompt-tokens">0</span></span>
+      <span class="token-sep">|</span>
+      <span title="Total completion (output) tokens across all runs">Out: <span class="mono" id="completion-tokens">0</span></span>
+      <span class="token-sep">|</span>
+      <span title="Cache read tokens across all runs">Cache: <span class="mono" id="cached-tokens">0</span></span>
       <span class="token-sep">|</span>
       <span>Total: <span class="mono" id="total-tokens">0</span></span>
+      <span class="token-sep">|</span>
+      <span>Cost: <span class="mono" id="total-cost">$0.00</span></span>
     </div>
     <span class="build-version" id="build-version" title="Build version">--</span>
     <span class="status-dot" id="status-dot" title="Connected"></span>
+    <button class="theme-btn" id="theme-btn" title="Settings" aria-label="Settings">&#x2699;</button>
   </header>
+
+  <div class="theme-popover" id="theme-popover">
+    <div class="popover-section">
+      <div class="popover-label">MCP Server</div>
+      <div id="popover-mcp-status" style="font-size:12px;color:var(--ink-soft);padding:4px 8px;">—</div>
+    </div>
+    <div class="popover-divider"></div>
+    <div class="popover-section">
+      <div class="popover-label">Navigation</div>
+      <a class="popover-nav-link" href="/workflows">Workflows</a>
+    </div>
+    <div class="popover-divider"></div>
+    <div class="popover-section">
+      <div class="popover-label">Theme</div>
+    <button class="theme-option" data-theme="original">
+      <span class="swatch original"></span>
+      <span class="label">GitHub Dark</span>
+      <span class="check">&#10003;</span>
+    </button>
+    <button class="theme-option" data-theme="slate">
+      <span class="swatch slate"></span>
+      <span class="label">Cool Slate</span>
+      <span class="check">&#10003;</span>
+    </button>
+    <button class="theme-option active" data-theme="canarinho">
+      <span class="swatch canarinho"></span>
+      <span class="label">Canarinho</span>
+      <span class="check">&#10003;</span>
+    </button>
+    </div>
+  </div>
 
   <div id="version-banner">
     <span id="version-banner-text">A new version of tamandua is available! Run: <code>tamandua update</code></span>
@@ -28,21 +68,19 @@
   </div>
 
   <div class="container">
-    <!-- MCP Status Section -->
-    <section class="section">
-      <h2>MCP Server</h2>
-      <div id="mcp-status-content">
-        <div class="empty-state">Loading...</div>
-      </div>
-    </section>
-
     <!-- Runs Section -->
     <section class="section">
       <h2>Workflow Runs</h2>
       <div class="controls-bar">
-        <button class="action-btn pause-btn" data-action="pause-all" data-drain="false" title="Pause all running runs">⏸ Pause All</button>
-        <button class="action-btn pause-btn" data-action="pause-all" data-drain="true" title="Drain then pause all running runs">⏸ Pause All (Drain)</button>
-        <button class="action-btn resume-btn" data-action="resume-all" title="Resume all paused runs">▶ Resume All</button>
+        <select id="status-filter" aria-label="Filter by status" style="border:1px solid var(--border);border-radius:6px;background:var(--bg-input-alt);color:var(--ink);padding:3px 8px;font-family:inherit;font-size:11px;">
+          <option value="all">All</option>
+          <option value="running">Running</option>
+          <option value="paused">Paused</option>
+          <option value="completed">Completed</option>
+        </select>
+        <button class="action-btn pause-btn" data-action="pause-all" data-drain="false" title="Pause all running runs">Pause All</button>
+        <button class="action-btn pause-btn" data-action="pause-all" data-drain="true" title="Drain then pause all running runs">Pause All (Drain)</button>
+        <button class="action-btn resume-btn" data-action="resume-all" title="Resume all paused runs">Resume All</button>
         <label class="drain-label" title="Wait for in-flight work to complete before pausing individual runs">
           <input type="checkbox" id="drain-checkbox"> Drain
         </label>
@@ -51,6 +89,7 @@
       <div id="runs-content">
         <div class="empty-state">Loading...</div>
       </div>
+      <div id="pagination" style="display:flex;align-items:center;justify-content:center;gap:12px;margin-top:14px;font-size:12px;"></div>
     </section>
 
     <!-- Events Section -->
@@ -138,5 +177,42 @@
   <div class="toast-container" id="toast-container" aria-live="polite" aria-atomic="false"></div>
 
   <script src="/dashboard-ui.js"></script>
+  <script>
+    (function() {
+      var html = document.documentElement;
+      var btn = document.getElementById('theme-btn');
+      var popover = document.getElementById('theme-popover');
+      var current = localStorage.getItem('tamandua-theme') || 'canarinho';
+      html.setAttribute('data-theme', current);
+      updateActive(current);
+
+      btn.addEventListener('click', function(e) {
+        e.stopPropagation();
+        popover.classList.toggle('open');
+      });
+
+      popover.querySelectorAll('.theme-option').forEach(function(opt) {
+        opt.addEventListener('click', function() {
+          var theme = this.getAttribute('data-theme');
+          html.setAttribute('data-theme', theme);
+          localStorage.setItem('tamandua-theme', theme);
+          updateActive(theme);
+          popover.classList.remove('open');
+        });
+      });
+
+      document.addEventListener('click', function(e) {
+        if (!popover.contains(e.target) && e.target !== btn) {
+          popover.classList.remove('open');
+        }
+      });
+
+      function updateActive(theme) {
+        popover.querySelectorAll('.theme-option').forEach(function(o) {
+          o.classList.toggle('active', o.getAttribute('data-theme') === theme);
+        });
+      }
+    })();
+  </script>
 </body>
 </html>

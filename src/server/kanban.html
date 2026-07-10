@@ -1,9 +1,9 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" data-theme="canarinho">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Tamandua Kanban</title>
+  <title>Canarinho VibeCoder Kanban</title>
   <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32.png">
   <link rel="icon" type="image/png" sizes="16x16" href="/favicon-16.png">
   <link rel="apple-touch-icon" sizes="180x180" href="/favicon-180.png">
@@ -12,8 +12,8 @@
 <body>
   <header class="bar">
     <div class="brand">
-      <img class="brand-logo" src="/brand-logo.png" alt="Tamandua">
-      <h1 class="brand-text">Tamandua</h1>
+      <img class="brand-logo" src="/brand-logo.png" alt="Canarinho VibeCoder">
+      <h1 class="brand-text" id="brand-name">Canarinho VibeCoder</h1>
       <a href="/" class="back">← all runs</a>
     </div>
     <div class="meta">
@@ -34,6 +34,18 @@
       <div class="stat">
         <div class="label">Tokens</div>
         <div class="value" id="tokens">—</div>
+      </div>
+      <div class="stat">
+        <div class="label">In</div>
+        <div class="value" id="prompt-tokens">—</div>
+      </div>
+      <div class="stat">
+        <div class="label">Out</div>
+        <div class="value" id="completion-tokens">—</div>
+      </div>
+      <div class="stat">
+        <div class="label">Cache</div>
+        <div class="value" id="cached-tokens">—</div>
       </div>
     </div>
   </header>
@@ -66,5 +78,11 @@
   </footer>
 
 <script src="/kanban-ui.js"></script>
+<script>
+  (function() {
+    var theme = localStorage.getItem('tamandua-theme') || 'canarinho';
+    document.documentElement.setAttribute('data-theme', theme);
+  })();
+</script>
 </body>
 </html>
