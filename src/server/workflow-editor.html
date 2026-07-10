@@ -314,6 +314,7 @@
       var theme = localStorage.getItem('tamandua-theme') || 'canarinho';
       document.documentElement.setAttribute('data-theme', theme);
       var id = getWorkflowIdFromPath();
+      var cloneId = getParam('clone');
       if (id) {
         IS_EDIT = true;
         EDIT_ID = id;
@@ -321,6 +322,9 @@
         document.getElementById('wf-id').value = id;
         document.getElementById('wf-id').readOnly = true;
         loadWorkflow(id);
+      } else if (cloneId) {
+        document.getElementById('page-title').textContent = 'Clone: ' + cloneId;
+        loadWorkflow(cloneId);
       }
     })();
 

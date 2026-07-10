@@ -89,7 +89,7 @@
               '<td style="text-align:right;white-space:nowrap">' +
                 (w.installed
                   ? '<a href="/workflows/' + encodeURIComponent(w.id) + '/edit" class="action-btn btn-sm" onclick="event.stopPropagation()" style="text-decoration:none">Edit</a> <button class="action-btn btn-sm delete-btn" onclick="event.stopPropagation();deleteWorkflow(\'' + esc(w.id) + '\')">Delete</button>'
-                  : '<button class="action-btn btn-sm" onclick="event.stopPropagation();duplicateWorkflow(\'' + esc(w.id) + '\')">Duplicate</button>') +
+                  : '<a href="/workflows/new?clone=' + encodeURIComponent(w.id) + '" class="action-btn btn-sm" onclick="event.stopPropagation()" style="text-decoration:none">Clone</a>') +
               '</td>' +
             '</tr>' +
             '<tr class="wf-detail" data-index="' + i + '" style="display:none;">' +
@@ -131,21 +131,6 @@
             location.reload();
           })
           .catch(function(err) { alert('Failed to delete: ' + err.message); });
-      };
-
-      window.duplicateWorkflow = function(id) {
-        var newId = prompt('New workflow ID:', id + '-copy');
-        if (!newId) return;
-        fetch('/api/workflows/' + encodeURIComponent(id) + '/duplicate', {
-          method: 'POST',
-          headers: {'Content-Type': 'application/json'},
-          body: JSON.stringify({ new_id: newId })
-        })
-          .then(function(r) {
-            if (!r.ok) return r.json().then(function(e) { throw new Error(e.error); });
-            location.reload();
-          })
-          .catch(function(err) { alert('Failed to duplicate: ' + err.message); });
       };
     })();
   </script>
