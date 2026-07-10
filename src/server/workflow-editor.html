@@ -495,22 +495,24 @@
             el.innerHTML = '<div class="empty-hint">No agents found in any workflow.</div>';
             return;
           }
+          window._importAgents = data.agents;
           el.innerHTML = '<table style="width:100%"><thead><tr><th>Agent</th><th>Role</th><th>Source</th><th>Description</th><th></th></tr></thead><tbody>' +
-            data.agents.map(function(a) {
+            data.agents.map(function(a, i) {
               return '<tr>' +
                 '<td><span class="mono" style="color:var(--ink-strong)">' + esc(a.id) + '</span><br><span style="font-size:11px;color:var(--ink-soft)">' + esc(a.name) + '</span></td>' +
                 '<td><span class="badge badge-completed" style="font-size:10px">' + esc(a.role) + '</span></td>' +
                 '<td><span class="mono" style="font-size:11px;color:var(--accent)">' + esc(a.source) + '</span></td>' +
                 '<td style="max-width:200px;font-size:12px;color:var(--ink-soft)">' + esc(a.description || '—') + '</td>' +
-                '<td><button class="action-btn btn-sm" onclick="importAgent(' + JSON.stringify(JSON.stringify(a)) + ')">Import</button></td>' +
+                '<td><button class="action-btn btn-sm" onclick="importAgent(' + i + ')">Import</button></td>' +
               '</tr>';
             }).join('') + '</tbody></table>';
         })
         .catch(function(err) { el.innerHTML = '<div class="error-state">Failed to load agents: ' + esc(err.message) + '</div>'; });
     }
 
-    function importAgent(agentJson) {
-      var a = JSON.parse(agentJson);
+    function importAgent(idx) {
+      var a = window._importAgents[idx];
+      if (!a) return;
       var alreadyExists = AGENTS.some(function(existing) { return existing.id === a.id; });
       if (alreadyExists) {
         alert('Agent "' + a.id + '" already exists in this workflow.');
