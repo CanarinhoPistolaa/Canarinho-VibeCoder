@@ -27,6 +27,9 @@ import { getMcpStatus } from "./daemonctl.js";
 import { buildKanbanSnapshot, buildKanbanCardDetail } from "./kanban-data.js";
 import { pauseRunWithDaemon, resumeRunWithDaemon } from "./control-client.js";
 import { runWorkflow } from "../installer/run.js";
+import { parse as parseYaml, stringify as stringifyYaml } from "yaml";
+import { resolveBundledWorkflowDir, resolveWorkflowDir } from "../installer/paths.js";
+import { listBundledWorkflows, getWorkflowShortDescription } from "../installer/workflow-fetch.js";
 const MODEL_PRICING: Record<string, { input: number; output: number; cache: number }> = {
   "deepseek-v4-pro-official": { input: 0.43, output: 0.87, cache: 0.043 },
   "glm-5.2-tencent": { input: 1.05, output: 3.30, cache: 0.105 },
@@ -58,6 +61,7 @@ import {
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const INDEX_HTML = path.join(__dirname, "index.html");
 const WORKFLOWS_HTML = path.join(__dirname, "workflows.html");
+const WORKFLOW_EDITOR_HTML = path.join(__dirname, "workflow-editor.html");
 const KANBAN_HTML = path.join(__dirname, "kanban.html");
 const DASHBOARD_CSS = path.join(__dirname, "dashboard-ui.css");
 const DASHBOARD_JS = path.join(__dirname, "dashboard-ui.js");
@@ -220,8 +224,6 @@ function buildAutoresearchExperiments(entries: AutoresearchLogEntry[]) {
 function handleListWorkflows(_req: http.IncomingMessage, res: http.ServerResponse): void {
   void (async () => {
     try {
-      const { listBundledWorkflows, getWorkflowShortDescription } = await import("../installer/workflow-fetch.js");
-      const { resolveWorkflowDir } = await import("../installer/paths.js");
       const db = getDb();
 
       const ids = await listBundledWorkflows();
@@ -255,16 +257,45 @@ function handleListWorkflows(_req: http.IncomingMessage, res: http.ServerRespons
           let installed = false;
           try {
             const dir = resolveWorkflowDir(id);
-            const fs = await import("node:fs/promises");
-            const stat = await fs.stat(dir);
-            installed = stat.isDirectory();
+            try {
+              const stat = fs.statSync(dir);
+              installed = stat.isDirectory();
+            } catch {}
           } catch {}
 
           const stats = runMap.get(id);
+
+          let agents: Array<{ id: string; role: string }> = [];
+          let steps: Array<{ id: string; agent: string; type: string }> = [];
+          try {
+            const ymlPath = path.join(resolveBundledWorkflowDir(id), "workflow.yml");
+            const raw = fs.readFileSync(ymlPath, "utf-8");
+            const parsed = parseYaml(raw) as Record<string, unknown> | undefined;
+            if (parsed) {
+              const agentList = parsed.agents as Array<Record<string, unknown>> | undefined;
+              if (agentList) {
+                agents = agentList.map((a) => ({
+                  id: String(a.id ?? ""),
+                  role: String(a.role ?? a.id ?? ""),
+                }));
+              }
+              const stepList = parsed.steps as Array<Record<string, unknown>> | undefined;
+              if (stepList) {
+                steps = stepList.map((s) => ({
+                  id: String(s.id ?? ""),
+                  agent: String(s.agent ?? ""),
+                  type: String(s.type ?? "single"),
+                }));
+              }
+            }
+          } catch {}
+
           return {
             id,
             description,
             installed,
+            agents,
+            steps,
             run_count: stats?.run_count ?? 0,
             latest_run: stats?.latest_run ?? null,
             active_status: stats?.active_status ?? null,
@@ -280,6 +311,250 @@ function handleListWorkflows(_req: http.IncomingMessage, res: http.ServerRespons
       errorResponse(res, `Failed to list workflows: ${(err as Error).message}`);
     }
   })();
+}
+
+function resolveWorkflowYmlPath(workflowId: string): string {
+  return path.join(resolveWorkflowDir(workflowId), "workflow.yml");
+}
+
+function readPersonaFiles(workflowDir: string, baseDir: string): Record<string, string> {
+  const personas: Record<string, string> = {};
+  const dir = path.join(workflowDir, baseDir);
+  for (const file of ["AGENTS.md", "IDENTITY.md", "SOUL.md"]) {
+    try {
+      personas[file] = fs.readFileSync(path.join(dir, file), "utf-8");
+    } catch {}
+  }
+  return personas;
+}
+
+function handleGetWorkflow(
+  _req: http.IncomingMessage,
+  res: http.ServerResponse,
+  workflowId: string,
+): void {
+  try {
+    let ymlPath: string;
+    let workflowDir: string;
+
+    const customPath = resolveWorkflowYmlPath(workflowId);
+    if (fs.existsSync(customPath)) {
+      ymlPath = customPath;
+      workflowDir = resolveWorkflowDir(workflowId);
+    } else {
+      const bundledPath = path.join(resolveBundledWorkflowDir(workflowId), "workflow.yml");
+      if (fs.existsSync(bundledPath)) {
+        ymlPath = bundledPath;
+        workflowDir = resolveBundledWorkflowDir(workflowId);
+      } else {
+        errorResponse(res, `Workflow not found: ${workflowId}`, 404);
+        return;
+      }
+    }
+
+    const raw = fs.readFileSync(ymlPath, "utf-8");
+    const parsed = parseYaml(raw) as Record<string, unknown> | undefined;
+    if (!parsed) {
+      errorResponse(res, "Failed to parse workflow.yml", 500);
+      return;
+    }
+
+    const agents = (parsed.agents as Array<Record<string, unknown>> | undefined) ?? [];
+    const enrichedAgents = agents.map((a) => {
+      const workspace = (a.workspace as Record<string, unknown>) ?? {};
+      const baseDir = String(workspace.baseDir ?? `agents/${a.id}`);
+      return {
+        ...a,
+        workspace: { ...workspace, baseDir },
+        personas: readPersonaFiles(workflowDir, baseDir),
+      };
+    });
+
+    const isCustom = ymlPath === customPath;
+    jsonResponse(res, {
+      ...parsed,
+      agents: enrichedAgents,
+      source: isCustom ? "custom" : "bundled",
+    });
+  } catch (err) {
+    errorResponse(res, `Failed to get workflow: ${(err as Error).message}`);
+  }
+}
+
+async function handleCreateWorkflow(
+  req: http.IncomingMessage,
+  res: http.ServerResponse,
+): Promise<void> {
+  try {
+    const body = await parseBody(req);
+    let data: Record<string, unknown>;
+    try {
+      data = JSON.parse(body);
+    } catch {
+      errorResponse(res, "Invalid JSON body", 400);
+      return;
+    }
+
+    const workflowId = String(data.id ?? "").trim();
+    if (!workflowId) {
+      errorResponse(res, "Missing required field: id", 400);
+      return;
+    }
+
+    const workflowDir = resolveWorkflowDir(workflowId);
+    if (fs.existsSync(path.join(workflowDir, "workflow.yml"))) {
+      errorResponse(res, `Workflow "${workflowId}" already exists`, 409);
+      return;
+    }
+
+    await saveWorkflowToDisk(workflowDir, data);
+    jsonResponse(res, { created: true, id: workflowId }, 201);
+  } catch (err) {
+    errorResponse(res, `Failed to create workflow: ${(err as Error).message}`);
+  }
+}
+
+async function handleUpdateWorkflow(
+  req: http.IncomingMessage,
+  res: http.ServerResponse,
+  workflowId: string,
+): Promise<void> {
+  try {
+    const workflowDir = resolveWorkflowDir(workflowId);
+    if (!fs.existsSync(path.join(workflowDir, "workflow.yml"))) {
+      errorResponse(res, `Workflow not found: ${workflowId}`, 404);
+      return;
+    }
+
+    const body = await parseBody(req);
+    let data: Record<string, unknown>;
+    try {
+      data = JSON.parse(body);
+    } catch {
+      errorResponse(res, "Invalid JSON body", 400);
+      return;
+    }
+
+    await saveWorkflowToDisk(workflowDir, data);
+    jsonResponse(res, { updated: true, id: workflowId });
+  } catch (err) {
+    errorResponse(res, `Failed to update workflow: ${(err as Error).message}`);
+  }
+}
+
+function handleDeleteWorkflow(
+  _req: http.IncomingMessage,
+  res: http.ServerResponse,
+  workflowId: string,
+): void {
+  try {
+    const workflowDir = resolveWorkflowDir(workflowId);
+    if (!fs.existsSync(path.join(workflowDir, "workflow.yml"))) {
+      errorResponse(res, `Workflow not found: ${workflowId}`, 404);
+      return;
+    }
+
+    fs.rmSync(workflowDir, { recursive: true, force: true });
+    jsonResponse(res, { deleted: true, id: workflowId });
+  } catch (err) {
+    errorResponse(res, `Failed to delete workflow: ${(err as Error).message}`);
+  }
+}
+
+async function handleDuplicateWorkflow(
+  req: http.IncomingMessage,
+  res: http.ServerResponse,
+  workflowId: string,
+): Promise<void> {
+  try {
+    const body = await parseBody(req);
+    let newId: string | undefined;
+    if (body) {
+      try {
+        const parsed = JSON.parse(body) as { new_id?: string };
+        newId = parsed.new_id?.trim();
+      } catch {}
+    }
+    if (!newId) {
+      newId = `${workflowId}-copy`;
+    }
+
+    const destDir = resolveWorkflowDir(newId);
+    if (fs.existsSync(path.join(destDir, "workflow.yml"))) {
+      errorResponse(res, `Workflow "${newId}" already exists`, 409);
+      return;
+    }
+
+    let srcDir: string;
+    const customPath = path.join(resolveWorkflowDir(workflowId), "workflow.yml");
+    if (fs.existsSync(customPath)) {
+      srcDir = resolveWorkflowDir(workflowId);
+    } else {
+      const bundledDir = resolveBundledWorkflowDir(workflowId);
+      if (fs.existsSync(path.join(bundledDir, "workflow.yml"))) {
+        srcDir = bundledDir;
+      } else {
+        errorResponse(res, `Workflow not found: ${workflowId}`, 404);
+        return;
+      }
+    }
+
+    fs.mkdirSync(destDir, { recursive: true });
+    copyDirSync(srcDir, destDir);
+
+    const ymlPath = path.join(destDir, "workflow.yml");
+    if (fs.existsSync(ymlPath)) {
+      const raw = fs.readFileSync(ymlPath, "utf-8");
+      const parsed = parseYaml(raw) as Record<string, unknown>;
+      parsed.id = newId;
+      parsed.name = `${parsed.name ?? workflowId} (copy)`;
+      fs.writeFileSync(ymlPath, stringifyYaml(parsed));
+    }
+
+    jsonResponse(res, { duplicated: true, id: newId }, 201);
+  } catch (err) {
+    errorResponse(res, `Failed to duplicate workflow: ${(err as Error).message}`);
+  }
+}
+
+async function saveWorkflowToDisk(workflowDir: string, data: Record<string, unknown>): Promise<void> {
+  fs.mkdirSync(workflowDir, { recursive: true });
+
+  const agents = (data.agents as Array<Record<string, unknown>> | undefined) ?? [];
+  for (const agent of agents) {
+    const workspace = (agent.workspace as Record<string, unknown>) ?? {};
+    const baseDir = String(workspace.baseDir ?? `agents/${agent.id}`);
+    workspace.baseDir = baseDir;
+    agent.workspace = workspace;
+
+    const agentDir = path.join(workflowDir, baseDir);
+    fs.mkdirSync(agentDir, { recursive: true });
+
+    const personas = (agent.personas as Record<string, string> | undefined) ?? {};
+    for (const [file, content] of Object.entries(personas)) {
+      if (content && ["AGENTS.md", "IDENTITY.md", "SOUL.md"].includes(file)) {
+        fs.writeFileSync(path.join(agentDir, file), content);
+      }
+    }
+    delete agent.personas;
+  }
+
+  const yml = stringifyYaml(data);
+  fs.writeFileSync(path.join(workflowDir, "workflow.yml"), yml);
+}
+
+function copyDirSync(src: string, dest: string): void {
+  const entries = fs.readdirSync(src, { withFileTypes: true });
+  for (const entry of entries) {
+    const srcPath = path.join(src, entry.name);
+    const destPath = path.join(dest, entry.name);
+    if (entry.isDirectory()) {
+      fs.mkdirSync(destPath, { recursive: true });
+      copyDirSync(srcPath, destPath);
+    } else {
+      fs.copyFileSync(srcPath, destPath);
+    }
+  }
 }
 
 function handleListRuns(req: http.IncomingMessage, res: http.ServerResponse): void {
@@ -1155,9 +1430,32 @@ function route(req: http.IncomingMessage, res: http.ServerResponse): void {
     } catch {
       htmlResponse(res, `<!DOCTYPE html>
 <html lang="en">
-<head><meta charset="UTF-8"><title>Tamandua Workflows</title></head>
-<body><h1>Tamandua Workflows</h1><p>Workflows HTML not found.</p></body>
+<head><meta charset="UTF-8"><title>Canarinho Workflows</title></head>
+<body><h1>Canarinho Workflows</h1><p>Workflows HTML not found.</p></body>
 </html>`, 200);
+    }
+    return;
+  }
+
+  // GET /workflows/new
+  if (method === "GET" && pathname === "/workflows/new") {
+    try {
+      const html = fs.readFileSync(WORKFLOW_EDITOR_HTML, "utf-8");
+      htmlResponse(res, html);
+    } catch {
+      errorResponse(res, "Editor page not found", 500);
+    }
+    return;
+  }
+
+  // GET /workflows/:id/edit
+  const workflowEditHtmlMatch = pathname.match(/^\/workflows\/([a-zA-Z0-9_-]+)\/edit$/);
+  if (method === "GET" && workflowEditHtmlMatch) {
+    try {
+      const html = fs.readFileSync(WORKFLOW_EDITOR_HTML, "utf-8");
+      htmlResponse(res, html);
+    } catch {
+      errorResponse(res, "Editor page not found", 500);
     }
     return;
   }
@@ -1165,6 +1463,40 @@ function route(req: http.IncomingMessage, res: http.ServerResponse): void {
   // GET /api/workflows
   if (method === "GET" && pathname === "/api/workflows") {
     handleListWorkflows(req, res);
+    return;
+  }
+
+  // GET /api/workflows/:id
+  const workflowDetailMatch = pathname.match(/^\/api\/workflows\/([a-zA-Z0-9_-]+)$/);
+  if (method === "GET" && workflowDetailMatch) {
+    handleGetWorkflow(req, res, workflowDetailMatch[1]);
+    return;
+  }
+
+  // POST /api/workflows
+  if (method === "POST" && pathname === "/api/workflows") {
+    handleCreateWorkflow(req, res);
+    return;
+  }
+
+  // PUT /api/workflows/:id
+  const workflowUpdateMatch = pathname.match(/^\/api\/workflows\/([a-zA-Z0-9_-]+)$/);
+  if (method === "PUT" && workflowUpdateMatch) {
+    handleUpdateWorkflow(req, res, workflowUpdateMatch[1]);
+    return;
+  }
+
+  // DELETE /api/workflows/:id
+  const workflowDeleteMatch = pathname.match(/^\/api\/workflows\/([a-zA-Z0-9_-]+)$/);
+  if (method === "DELETE" && workflowDeleteMatch) {
+    handleDeleteWorkflow(req, res, workflowDeleteMatch[1]);
+    return;
+  }
+
+  // POST /api/workflows/:id/duplicate
+  const workflowDuplicateMatch = pathname.match(/^\/api\/workflows\/([a-zA-Z0-9_-]+)\/duplicate$/);
+  if (method === "POST" && workflowDuplicateMatch) {
+    handleDuplicateWorkflow(req, res, workflowDuplicateMatch[1]);
     return;
   }
 

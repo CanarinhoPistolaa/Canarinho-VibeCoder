@@ -1,0 +1,695 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="canarinho">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Workflow Editor — Canarinho VibeCoder</title>
+  <link rel="stylesheet" href="/dashboard-ui.css">
+  <style>
+    .editor-layout { display: grid; grid-template-columns: 1fr 320px; gap: 20px; align-items: start; }
+    @media (max-width: 900px) { .editor-layout { grid-template-columns: 1fr; } }
+    .form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+    .form-grid .span-2 { grid-column: span 2; }
+    .form-group { display: flex; flex-direction: column; gap: 4px; }
+    .form-group label {
+      font-size: 11px; font-weight: 600; color: var(--ink-soft);
+      text-transform: uppercase; letter-spacing: 0.5px;
+    }
+    .form-group label .req { color: var(--red); }
+    .form-group input, .form-group textarea, .form-group select {
+      font-family: inherit; font-size: 13px;
+      background: var(--bg-input); color: var(--ink);
+      border: 1px solid var(--border); border-radius: 6px;
+      padding: 8px 10px; transition: border-color 120ms;
+    }
+    .form-group input:focus, .form-group textarea:focus, .form-group select:focus {
+      outline: none; border-color: var(--accent);
+    }
+    .form-group textarea { min-height: 70px; resize: vertical; font-family: "SF Mono","Fira Code",monospace; font-size: 12px; }
+    .form-group .hint { font-size: 10px; color: var(--ink-soft); }
+    .form-row { display: flex; gap: 10px; align-items: flex-end; }
+    .form-row .form-group { flex: 1; }
+
+    .card {
+      background: var(--bg-panel); border: 1px solid var(--border);
+      border-radius: 10px; padding: 18px; margin-bottom: 14px;
+    }
+    .card-header {
+      display: flex; align-items: center; justify-content: space-between;
+      margin-bottom: 14px; padding-bottom: 10px;
+      border-bottom: 1px solid var(--border-subtle);
+    }
+    .card-header h3 { font-size: 14px; font-weight: 600; color: var(--ink-strong); margin: 0; }
+
+    .chip {
+      display: inline-flex; align-items: center; gap: 5px;
+      padding: 3px 8px; border-radius: 4px;
+      border: 1px solid var(--border); background: var(--bg-input);
+      font-size: 12px; margin: 2px 3px;
+    }
+    .chip .chip-remove { cursor: pointer; color: var(--ink-soft); font-size: 13px; }
+    .chip .chip-remove:hover { color: var(--red); }
+
+    .yaml-preview {
+      background: #0d1117; border: 1px solid var(--border);
+      border-radius: 6px; padding: 14px;
+      font-family: "SF Mono","Fira Code",monospace; font-size: 12px; line-height: 1.6;
+      color: #c9d1d9; white-space: pre; overflow-x: auto;
+      max-height: calc(100vh - 200px); overflow-y: auto;
+      position: sticky; top: 20px;
+    }
+
+    .modal-overlay {
+      display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+      background: rgba(0,0,0,0.7); z-index: 1000;
+      align-items: center; justify-content: center;
+    }
+    .modal-overlay.open { display: flex; }
+    .modal {
+      background: var(--bg-panel); border: 1px solid var(--border);
+      border-radius: 10px; padding: 24px;
+      max-width: 680px; width: 92%; max-height: 85vh; overflow-y: auto;
+    }
+    .modal h3 { color: var(--ink-strong); margin-bottom: 18px; font-size: 15px; }
+    .modal-footer { display: flex; justify-content: flex-end; gap: 8px; margin-top: 20px; padding-top: 14px; border-top: 1px solid var(--border-subtle); }
+
+    .tag-input {
+      display: flex; flex-wrap: wrap; gap: 3px; padding: 4px 6px;
+      border: 1px solid var(--border); border-radius: 6px; background: var(--bg-input);
+      min-height: 34px; align-items: center;
+    }
+    .tag-input .tag {
+      display: inline-flex; align-items: center; gap: 3px;
+      padding: 1px 7px; border-radius: 3px; background: var(--bg-panel);
+      font-size: 11px;
+    }
+    .tag-input input { border: none; background: transparent; color: var(--ink); font-family: inherit; font-size: 12px; flex: 1; min-width: 60px; outline: none; padding: 3px 4px; }
+
+    .kv-row { display: flex; gap: 4px; align-items: center; margin-bottom: 4px; }
+    .kv-row input { flex: 1; }
+    .kv-row span { color: var(--ink-soft); }
+    .step-order { width: 24px; text-align: center; color: var(--ink-soft); font-size: 11px; font-weight: 600; }
+    .empty-hint { text-align: center; padding: 20px; color: var(--ink-soft); font-style: italic; font-size: 13px; }
+
+    .btn-sm { padding: 3px 8px; font-size: 11px; }
+    .btn-danger { border-color: rgba(248,113,113,0.3); }
+    .btn-danger:hover { border-color: var(--red); color: var(--red); background: rgba(248,113,113,0.08); }
+  </style>
+</head>
+<body>
+  <header>
+    <img class="brand-logo" src="/brand-logo.png" alt="Canarinho VibeCoder" style="height:28px;width:auto;">
+    <h1 class="brand-text"><a href="/" style="color:inherit;text-decoration:none;">Canarinho VibeCoder</a></h1>
+    <span class="subtitle" id="page-title">New Workflow</span>
+    <span class="status-dot" title="Connected"></span>
+  </header>
+
+  <div class="container">
+    <div class="editor-layout">
+      <div>
+        <div class="card">
+          <div class="card-header"><h3>Workflow Info</h3></div>
+          <div class="form-grid">
+            <div class="form-group">
+              <label>ID <span class="req">*</span></label>
+              <input type="text" id="wf-id" class="mono" placeholder="my-custom-workflow">
+              <span class="hint">kebab-case, único</span>
+            </div>
+            <div class="form-group">
+              <label>Name</label>
+              <input type="text" id="wf-name" placeholder="My Custom Workflow">
+            </div>
+            <div class="form-group span-2">
+              <label>Description</label>
+              <textarea id="wf-desc" placeholder="What this workflow does..."></textarea>
+            </div>
+            <div class="form-group span-2">
+              <label>Context <span class="hint">(key=value pairs)</span></label>
+              <div id="wf-context"></div>
+              <button class="action-btn btn-sm" onclick="addContextRow()" style="margin-top:6px">+ Add</button>
+            </div>
+            <div class="form-group span-2">
+              <label>Notifications URL</label>
+              <input type="text" id="wf-notify" class="mono" placeholder="https://hooks.slack.com/...">
+            </div>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-header">
+            <h3>Agents <span style="color:var(--ink-soft);font-size:12px;" id="agent-count">(0)</span></h3>
+            <button class="action-btn btn-sm" onclick="openAgentModal()">+ Add Agent</button>
+          </div>
+          <div id="agents-list"><div class="empty-hint">No agents yet. Add one to get started.</div></div>
+        </div>
+
+        <div class="card">
+          <div class="card-header">
+            <h3>Steps <span style="color:var(--ink-soft);font-size:12px;" id="step-count">(0)</span></h3>
+            <button class="action-btn btn-sm" onclick="openStepModal()">+ Add Step</button>
+          </div>
+          <div id="steps-list"><div class="empty-hint">No steps yet. Add one to get started.</div></div>
+        </div>
+
+        <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:8px">
+          <a href="/workflows" class="action-btn" style="text-decoration:none;">Cancel</a>
+          <button class="action-btn" onclick="saveWorkflow()" style="background:var(--accent);color:var(--bg);border-color:var(--accent);font-weight:600;">Save Workflow</button>
+        </div>
+      </div>
+
+      <div>
+        <h3 style="font-size:13px;color:var(--ink-soft);margin-bottom:8px;text-transform:uppercase;letter-spacing:0.5px;">YAML Preview</h3>
+        <div class="yaml-preview" id="yaml-preview">Fill in the form to see a live preview...</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Agent Modal -->
+  <div class="modal-overlay" id="agent-modal">
+    <div class="modal">
+      <h3 id="agent-modal-title">New Agent</h3>
+      <input type="hidden" id="agent-edit-idx">
+      <div class="form-grid">
+        <div class="form-group">
+          <label>ID <span class="req">*</span></label>
+          <input type="text" id="agent-id" class="mono" placeholder="builder">
+        </div>
+        <div class="form-group">
+          <label>Name</label>
+          <input type="text" id="agent-name" placeholder="Builder">
+        </div>
+        <div class="form-group">
+          <label>Role</label>
+          <select id="agent-role">
+            <option value="analysis">analysis</option>
+            <option value="coding">coding</option>
+            <option value="verification">verification</option>
+            <option value="testing">testing</option>
+            <option value="pr">pr</option>
+            <option value="scanning">scanning</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label>Description</label>
+          <input type="text" id="agent-desc" placeholder="What this agent does">
+        </div>
+        <div class="form-group">
+          <label>Model override</label>
+          <input type="text" id="agent-model" class="mono" placeholder="(default)">
+        </div>
+        <div class="form-group">
+          <label>Timeout (seconds)</label>
+          <input type="number" id="agent-timeout" value="3600">
+        </div>
+      </div>
+      <div class="form-grid" style="margin-top:12px">
+        <div class="form-group span-2">
+          <label>Skills</label>
+          <div class="tag-input" id="agent-skills"><input type="text" placeholder="Type + Enter"></div>
+        </div>
+      </div>
+      <h3 style="margin-top:16px;font-size:13px;">Persona Files</h3>
+      <div class="form-group" style="margin-bottom:10px">
+        <label>AGENTS.md</label>
+        <textarea id="agent-agents-md" style="min-height:80px" placeholder="System prompt / role brief..."></textarea>
+      </div>
+      <div class="form-group" style="margin-bottom:10px">
+        <label>IDENTITY.md <span class="hint">(optional)</span></label>
+        <textarea id="agent-identity-md" style="min-height:50px" placeholder="Agent identity and background..."></textarea>
+      </div>
+      <div class="form-group">
+        <label>SOUL.md <span class="hint">(optional)</span></label>
+        <textarea id="agent-soul-md" style="min-height:50px" placeholder="Personality and behavior guidelines..."></textarea>
+      </div>
+      <div class="modal-footer">
+        <button class="action-btn" onclick="closeModal('agent-modal')">Cancel</button>
+        <button class="action-btn" onclick="saveAgent()" style="background:var(--accent);color:var(--bg);border-color:var(--accent);font-weight:600;">Save Agent</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Step Modal -->
+  <div class="modal-overlay" id="step-modal">
+    <div class="modal">
+      <h3 id="step-modal-title">New Step</h3>
+      <input type="hidden" id="step-edit-idx">
+      <div class="form-grid">
+        <div class="form-group">
+          <label>ID <span class="req">*</span></label>
+          <input type="text" id="step-id" class="mono" placeholder="build">
+        </div>
+        <div class="form-group">
+          <label>Agent <span class="req">*</span></label>
+          <select id="step-agent"></select>
+        </div>
+        <div class="form-group">
+          <label>Type</label>
+          <select id="step-type" onchange="document.getElementById('loop-config').style.display=this.value==='loop'?'block':'none'">
+            <option value="single">single</option>
+            <option value="loop">loop</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label>Max Retries</label>
+          <input type="number" id="step-retries" value="4" style="width:70px">
+        </div>
+      </div>
+      <div class="form-group" style="margin-top:12px">
+        <label>Input Template <span class="req">*</span></label>
+        <textarea id="step-input" style="min-height:80px" placeholder="{{task}}"></textarea>
+      </div>
+      <div class="form-row" style="margin-top:12px">
+        <div class="form-group">
+          <label>Expects</label>
+          <input type="text" id="step-expects" value="STATUS: done">
+        </div>
+        <div class="form-group">
+          <label>On fail → retry step</label>
+          <select id="step-onfail"></select>
+        </div>
+      </div>
+      <div id="loop-config" style="display:none;margin-top:12px;padding:10px;background:var(--bg-input);border-radius:6px;border:1px solid var(--border)">
+        <h3 style="font-size:12px;margin-bottom:8px">Loop Config</h3>
+        <div class="form-row">
+          <div class="form-group">
+            <label>Iterate over</label>
+            <select id="loop-over"><option>stories</option></select>
+          </div>
+          <div class="form-group">
+            <label>Completion</label>
+            <select id="loop-completion"><option>all_done</option></select>
+          </div>
+          <div class="form-group" style="justify-content:flex-end">
+            <label style="display:flex;align-items:center;gap:4px;font-size:12px;cursor:pointer;text-transform:none;font-weight:400;color:var(--ink)">
+              <input type="checkbox" id="loop-fresh"> Fresh session
+            </label>
+            <label style="display:flex;align-items:center;gap:4px;font-size:12px;cursor:pointer;text-transform:none;font-weight:400;color:var(--ink)">
+              <input type="checkbox" id="loop-verify"> Verify each
+            </label>
+          </div>
+        </div>
+        <div class="form-group" style="margin-top:4px">
+          <label>Verify step</label>
+          <select id="loop-verify-step"><option value="">—</option></select>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="action-btn" onclick="closeModal('step-modal')">Cancel</button>
+        <button class="action-btn" onclick="saveStep()" style="background:var(--accent);color:var(--bg);border-color:var(--accent);font-weight:600;">Save Step</button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    var AGENTS = [];
+    var STEPS = [];
+    var CONTEXT = [];
+    var IS_EDIT = false;
+    var EDIT_ID = '';
+
+    function esc(s) { return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+
+    // ── Init ──
+    (function() {
+      var theme = localStorage.getItem('tamandua-theme') || 'canarinho';
+      document.documentElement.setAttribute('data-theme', theme);
+      var id = getParam('id');
+      if (id) {
+        IS_EDIT = true;
+        EDIT_ID = id;
+        document.getElementById('page-title').textContent = 'Edit: ' + id;
+        document.getElementById('wf-id').value = id;
+        document.getElementById('wf-id').readOnly = true;
+        loadWorkflow(id);
+      }
+    })();
+
+    function getParam(name) {
+      var m = location.search.match(new RegExp('[?&]' + name + '=([^&]*)'));
+      return m ? decodeURIComponent(m[1]) : '';
+    }
+
+    function loadWorkflow(id) {
+      fetch('/api/workflows/' + encodeURIComponent(id))
+        .then(function(r) { if (!r.ok) throw new Error(r.statusText); return r.json(); })
+        .then(function(data) {
+          document.getElementById('wf-name').value = data.name || '';
+          document.getElementById('wf-desc').value = data.description || '';
+          document.getElementById('wf-notify').value = (data.notifications && data.notifications.url) || '';
+          CONTEXT = [];
+          if (data.context && typeof data.context === 'object') {
+            Object.entries(data.context).forEach(function(e) { CONTEXT.push({key:e[0],value:e[1]}); });
+          }
+          renderContext();
+          AGENTS = (data.agents || []).map(function(a) {
+            var ws = a.workspace || {};
+            return {
+              id: a.id || '', name: a.name || '', description: a.description || '',
+              role: a.role || 'coding', model: a.model || '',
+              timeoutSeconds: a.timeoutSeconds || 3600,
+              skills: ws.skills || [], baseDir: ws.baseDir || 'agents/' + (a.id||'agent'),
+              personas: a.personas || {}
+            };
+          });
+          STEPS = (data.steps || []).map(function(s) {
+            var loop = s.loop || s.type === 'loop' ? {
+              over: (s.loop && s.loop.over) || 'stories',
+              completion: (s.loop && s.loop.completion) || 'all_done',
+              fresh_session: !!(s.loop && s.loop.fresh_session),
+              verify_each: !!(s.loop && s.loop.verify_each),
+              verify_step: (s.loop && s.loop.verify_step) || ''
+            } : null;
+            return {
+              id: s.id || '', agent: s.agent || '',
+              type: s.type === 'loop' ? 'loop' : 'single',
+              input: s.input || '', expects: s.expects || 'STATUS: done',
+              max_retries: s.max_retries || 4,
+              on_fail: (s.on_fail && s.on_fail.retry_step) || '',
+              loop: loop
+            };
+          });
+          renderAll();
+        })
+        .catch(function(err) { alert('Failed to load workflow: ' + err.message); });
+    }
+
+    // ── Context ──
+    function addContextRow(key, value) {
+      CONTEXT.push({key: key||'', value: value||''});
+      renderContext();
+    }
+    function removeContextRow(i) { CONTEXT.splice(i, 1); renderContext(); }
+    function renderContext() {
+      var el = document.getElementById('wf-context');
+      el.innerHTML = CONTEXT.map(function(c,i) {
+        return '<div class="kv-row"><input class="mono" value="'+esc(c.key)+'" onchange="CONTEXT['+i+'].key=this.value;updatePreview()" placeholder="key"><span>=</span><input class="mono" value="'+esc(c.value)+'" onchange="CONTEXT['+i+'].value=this.value;updatePreview()" placeholder="value"><button class="action-btn btn-sm btn-danger" onclick="removeContextRow('+i+')">✕</button></div>';
+      }).join('');
+    }
+
+    // ── Agents ──
+    function openAgentModal(idx) {
+      document.getElementById('agent-edit-idx').value = idx !== undefined ? idx : '';
+      document.getElementById('agent-modal-title').textContent = idx !== undefined ? 'Edit Agent' : 'New Agent';
+      if (idx !== undefined) {
+        var a = AGENTS[idx];
+        document.getElementById('agent-id').value = a.id;
+        document.getElementById('agent-name').value = a.name;
+        document.getElementById('agent-role').value = a.role;
+        document.getElementById('agent-desc').value = a.description;
+        document.getElementById('agent-model').value = a.model;
+        document.getElementById('agent-timeout').value = a.timeoutSeconds;
+        document.getElementById('agent-agents-md').value = a.personas['AGENTS.md'] || '';
+        document.getElementById('agent-identity-md').value = a.personas['IDENTITY.md'] || '';
+        document.getElementById('agent-soul-md').value = a.personas['SOUL.md'] || '';
+        renderSkillTags(a.skills || []);
+      } else {
+        ['agent-id','agent-name','agent-desc','agent-model','agent-agents-md','agent-identity-md','agent-soul-md'].forEach(function(f) { document.getElementById(f).value = ''; });
+        document.getElementById('agent-role').value = 'coding';
+        document.getElementById('agent-timeout').value = '3600';
+        renderSkillTags([]);
+      }
+      openModal('agent-modal');
+    }
+
+    function renderSkillTags(skills) {
+      var el = document.getElementById('agent-skills');
+      el.innerHTML = skills.map(function(s) {
+        return '<span class="tag">'+esc(s)+' <span class="chip-remove" onclick="this.parentElement.remove()">×</span></span>';
+      }).join('') + '<input type="text" placeholder="Type + Enter" onkeydown="if(event.key===\'Enter\'){var s=this.value.trim();if(s){this.insertAdjacentHTML(\'beforebegin\',\'<span class=tag>\'+esc(s)+\' <span class=chip-remove onclick=this.parentElement.remove()>×</span></span>\');this.value=\'\';}event.preventDefault();}">';
+    }
+
+    function getSkillTags() {
+      var tags = [];
+      document.querySelectorAll('#agent-skills .tag').forEach(function(t) {
+        tags.push(t.textContent.replace('×','').trim());
+      });
+      return tags;
+    }
+
+    function saveAgent() {
+      var id = document.getElementById('agent-id').value.trim();
+      if (!id) { alert('Agent ID is required'); return; }
+      var data = {
+        id: id,
+        name: document.getElementById('agent-name').value.trim(),
+        description: document.getElementById('agent-desc').value.trim(),
+        role: document.getElementById('agent-role').value,
+        model: document.getElementById('agent-model').value.trim(),
+        timeoutSeconds: parseInt(document.getElementById('agent-timeout').value) || 3600,
+        skills: getSkillTags(),
+        baseDir: 'agents/' + id,
+        personas: {}
+      };
+      var amd = document.getElementById('agent-agents-md').value.trim();
+      if (amd) data.personas['AGENTS.md'] = amd;
+      var imd = document.getElementById('agent-identity-md').value.trim();
+      if (imd) data.personas['IDENTITY.md'] = imd;
+      var smd = document.getElementById('agent-soul-md').value.trim();
+      if (smd) data.personas['SOUL.md'] = smd;
+      var editIdx = document.getElementById('agent-edit-idx').value;
+      if (editIdx !== '') {
+        AGENTS[parseInt(editIdx)] = data;
+      } else {
+        AGENTS.push(data);
+      }
+      closeModal('agent-modal');
+      renderAll();
+    }
+
+    function deleteAgent(i) { AGENTS.splice(i,1); renderAll(); }
+
+    function renderAgents() {
+      var el = document.getElementById('agents-list');
+      if (!AGENTS.length) { el.innerHTML = '<div class="empty-hint">No agents yet. Add one to get started.</div>'; document.getElementById('agent-count').textContent = '(0)'; return; }
+      document.getElementById('agent-count').textContent = '('+AGENTS.length+')';
+      el.innerHTML = '<table style="width:100%;table-layout:fixed"><thead><tr><th>ID</th><th>Role</th><th>Model</th><th>Workspace</th><th style="width:80px"></th></tr></thead><tbody>' +
+        AGENTS.map(function(a,i) {
+          return '<tr><td><span class="mono" style="color:var(--ink-strong)">'+esc(a.id)+'</span></td>' +
+            '<td><span class="badge badge-completed" style="font-size:10px">'+esc(a.role)+'</span></td>' +
+            '<td style="color:var(--ink-soft);font-size:12px">'+(a.model||'default')+'</td>' +
+            '<td><span class="mono" style="font-size:11px;color:var(--ink-soft)">'+esc(a.baseDir)+'</span></td>' +
+            '<td style="text-align:right"><button class="action-btn btn-sm" onclick="openAgentModal('+i+')">Edit</button> <button class="action-btn btn-sm btn-danger" onclick="deleteAgent('+i+')">✕</button></td></tr>';
+        }).join('') + '</tbody></table>';
+    }
+
+    // ── Steps ──
+    function openStepModal(idx) {
+      document.getElementById('step-edit-idx').value = idx !== undefined ? idx : '';
+      document.getElementById('step-modal-title').textContent = idx !== undefined ? 'Edit Step' : 'New Step';
+      populateAgentDropdowns();
+      if (idx !== undefined) {
+        var s = STEPS[idx];
+        document.getElementById('step-id').value = s.id;
+        document.getElementById('step-agent').value = s.agent;
+        document.getElementById('step-type').value = s.type;
+        document.getElementById('step-retries').value = s.max_retries;
+        document.getElementById('step-input').value = s.input;
+        document.getElementById('step-expects').value = s.expects;
+        document.getElementById('step-onfail').value = s.on_fail;
+        document.getElementById('loop-config').style.display = s.type === 'loop' ? 'block' : 'none';
+        if (s.loop) {
+          document.getElementById('loop-over').value = s.loop.over;
+          document.getElementById('loop-completion').value = s.loop.completion;
+          document.getElementById('loop-fresh').checked = s.loop.fresh_session;
+          document.getElementById('loop-verify').checked = s.loop.verify_each;
+          document.getElementById('loop-verify-step').value = s.loop.verify_step;
+        }
+      } else {
+        ['step-id','step-input'].forEach(function(f) { document.getElementById(f).value = ''; });
+        document.getElementById('step-expects').value = 'STATUS: done';
+        document.getElementById('step-retries').value = '4';
+        document.getElementById('step-onfail').value = '';
+        document.getElementById('step-type').value = 'single';
+        document.getElementById('loop-config').style.display = 'none';
+        document.getElementById('loop-fresh').checked = false;
+        document.getElementById('loop-verify').checked = false;
+      }
+      openModal('step-modal');
+    }
+
+    function populateAgentDropdowns() {
+      var opts = AGENTS.map(function(a) { return '<option value="'+esc(a.id)+'">'+esc(a.id)+' ('+esc(a.role)+')</option>'; }).join('');
+      document.getElementById('step-agent').innerHTML = opts || '<option value="">— no agents —</option>';
+      document.getElementById('step-onfail').innerHTML = '<option value="">(none)</option>' + STEPS.map(function(s) { return '<option value="'+esc(s.id)+'">'+esc(s.id)+'</option>'; }).join('');
+      document.getElementById('loop-verify-step').innerHTML = '<option value="">—</option>' + STEPS.map(function(s) { return '<option value="'+esc(s.id)+'">'+esc(s.id)+'</option>'; }).join('');
+    }
+
+    function saveStep() {
+      var id = document.getElementById('step-id').value.trim();
+      if (!id) { alert('Step ID is required'); return; }
+      var agent = document.getElementById('step-agent').value;
+      if (!agent) { alert('Agent is required'); return; }
+      var type = document.getElementById('step-type').value;
+      var loop = null;
+      if (type === 'loop') {
+        loop = {
+          over: document.getElementById('loop-over').value,
+          completion: document.getElementById('loop-completion').value,
+          fresh_session: document.getElementById('loop-fresh').checked,
+          verify_each: document.getElementById('loop-verify').checked,
+          verify_step: document.getElementById('loop-verify-step').value
+        };
+      }
+      var data = {
+        id: id, agent: agent, type: type,
+        input: document.getElementById('step-input').value,
+        expects: document.getElementById('step-expects').value,
+        max_retries: parseInt(document.getElementById('step-retries').value) || 4,
+        on_fail: document.getElementById('step-onfail').value,
+        loop: loop
+      };
+      var editIdx = document.getElementById('step-edit-idx').value;
+      if (editIdx !== '') {
+        STEPS[parseInt(editIdx)] = data;
+      } else {
+        STEPS.push(data);
+      }
+      closeModal('step-modal');
+      renderAll();
+    }
+
+    function deleteStep(i) { STEPS.splice(i,1); renderAll(); }
+
+    function renderSteps() {
+      var el = document.getElementById('steps-list');
+      if (!STEPS.length) { el.innerHTML = '<div class="empty-hint">No steps yet. Add one to get started.</div>'; document.getElementById('step-count').textContent = '(0)'; return; }
+      document.getElementById('step-count').textContent = '('+STEPS.length+')';
+      el.innerHTML = '<table style="width:100%"><thead><tr><th>#</th><th>ID</th><th>Agent</th><th>Type</th><th>Expects</th><th>Retries</th><th style="width:80px"></th></tr></thead><tbody>' +
+        STEPS.map(function(s,i) {
+          return '<tr><td class="step-order">'+(i+1)+'</td>' +
+            '<td><span class="mono" style="color:var(--ink-strong)">'+esc(s.id)+'</span></td>' +
+            '<td><span class="mono" style="color:var(--blue)">'+esc(s.agent)+'</span></td>' +
+            '<td>'+(s.type==='loop'?'<span style="color:var(--accent);font-size:11px;font-weight:600">loop</span>':'single')+'</td>' +
+            '<td><code style="font-size:11px">'+esc(s.expects)+'</code></td>' +
+            '<td class="step-order">'+s.max_retries+'</td>' +
+            '<td style="text-align:right"><button class="action-btn btn-sm" onclick="openStepModal('+i+')">Edit</button> <button class="action-btn btn-sm btn-danger" onclick="deleteStep('+i+')">✕</button></td></tr>';
+        }).join('') + '</tbody></table>';
+    }
+
+    // ── YAML Preview ──
+    function updatePreview() {
+      var data = buildData();
+      var yml = '';
+      yml += 'id: ' + (data.id || '???') + '\n';
+      if (data.name) yml += 'name: ' + data.name + '\n';
+      if (data.description) yml += 'description: ' + data.description + '\n';
+      if (data.notifications_url) yml += 'notifications:\n  url: ' + data.notifications_url + '\n';
+      if (CONTEXT.length) {
+        yml += 'context:\n';
+        CONTEXT.forEach(function(c) { if (c.key) yml += '  ' + c.key + ': ' + c.value + '\n'; });
+      }
+      yml += '\nagents:\n';
+      if (!AGENTS.length) yml += '  []\n';
+      else AGENTS.forEach(function(a,i) {
+        yml += '  - id: ' + a.id + '\n';
+        if (a.name) yml += '    name: ' + a.name + '\n';
+        if (a.role && a.role !== 'coding') yml += '    role: ' + a.role + '\n';
+        if (a.model) yml += '    model: ' + a.model + '\n';
+        yml += '    workspace:\n      baseDir: agents/' + a.id + '\n';
+        if (a.skills && a.skills.length) yml += '      skills:\n' + a.skills.map(function(s) { return '        - ' + s; }).join('\n') + '\n';
+      });
+      yml += '\nsteps:\n';
+      if (!STEPS.length) yml += '  []\n';
+      else STEPS.forEach(function(s,i) {
+        yml += '  - id: ' + s.id + '\n';
+        yml += '    agent: ' + s.agent + '\n';
+        if (s.type === 'loop') yml += '    type: loop\n';
+        yml += '    input: |\n' + '      ' + s.input.replace(/\n/g,'\n      ') + '\n';
+        yml += '    expects: ' + s.expects + '\n';
+        if (s.max_retries !== 4) yml += '    max_retries: ' + s.max_retries + '\n';
+        if (s.on_fail) yml += '    on_fail:\n      retry_step: ' + s.on_fail + '\n';
+        if (s.loop) {
+          yml += '    loop:\n';
+          yml += '      over: ' + s.loop.over + '\n';
+          yml += '      completion: ' + s.loop.completion + '\n';
+          if (s.loop.fresh_session) yml += '      fresh_session: true\n';
+          if (s.loop.verify_each) yml += '      verify_each: true\n';
+          if (s.loop.verify_step) yml += '      verify_step: ' + s.loop.verify_step + '\n';
+        }
+      });
+      document.getElementById('yaml-preview').textContent = yml;
+    }
+
+    function buildData() {
+      var ctx = {};
+      CONTEXT.forEach(function(c) { if (c.key) ctx[c.key] = c.value; });
+      return {
+        id: document.getElementById('wf-id').value.trim(),
+        name: document.getElementById('wf-name').value.trim(),
+        description: document.getElementById('wf-desc').value.trim(),
+        notifications_url: document.getElementById('wf-notify').value.trim(),
+        context: ctx,
+        agents: AGENTS.map(function(a) {
+          return {
+            id: a.id, name: a.name, description: a.description,
+            role: a.role, model: a.model,
+            timeoutSeconds: a.timeoutSeconds,
+            workspace: { baseDir: a.baseDir, skills: a.skills },
+            personas: a.personas
+          };
+        }),
+        steps: STEPS.map(function(s) {
+          var obj = {
+            id: s.id, agent: s.agent, type: s.type,
+            input: s.input, expects: s.expects,
+            max_retries: s.max_retries
+          };
+          if (s.on_fail) obj.on_fail = { retry_step: s.on_fail };
+          if (s.loop) {
+            obj.loop = {
+              over: s.loop.over,
+              completion: s.loop.completion,
+              fresh_session: s.loop.fresh_session,
+              verify_each: s.loop.verify_each
+            };
+            if (s.loop.verify_step) obj.loop.verify_step = s.loop.verify_step;
+          }
+          return obj;
+        })
+      };
+    }
+
+    function saveWorkflow() {
+      var data = buildData();
+      if (!data.id) { alert('Workflow ID is required'); return; }
+      var url = IS_EDIT ? '/api/workflows/' + encodeURIComponent(EDIT_ID) : '/api/workflows';
+      var method = IS_EDIT ? 'PUT' : 'POST';
+      fetch(url, {
+        method: method,
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify(data)
+      })
+      .then(function(r) {
+        if (!r.ok) return r.json().then(function(e) { throw new Error(e.error || r.statusText); });
+        return r.json();
+      })
+      .then(function() {
+        window.location.href = '/workflows';
+      })
+      .catch(function(err) { alert('Failed to save: ' + err.message); });
+    }
+
+    function renderAll() {
+      renderContext();
+      renderAgents();
+      renderSteps();
+      updatePreview();
+      document.querySelectorAll('#wf-id,#wf-name,#wf-desc,#wf-notify').forEach(function(el) {
+        el.addEventListener('input', updatePreview);
+      });
+    }
+
+    document.addEventListener('input', function(e) {
+      if (e.target.closest('#wf-id, #wf-name, #wf-desc, #wf-notify')) updatePreview();
+    });
+
+    function openModal(id) { document.getElementById(id).classList.add('open'); }
+    function closeModal(id) { document.getElementById(id).classList.remove('open'); }
+    document.querySelectorAll('.modal-overlay').forEach(function(o) {
+      o.addEventListener('click', function(e) { if (e.target === o) closeModal(o.id); });
+    });
+
+    renderAll();
+  </script>
+</body>
+</html>

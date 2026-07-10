@@ -19,7 +19,10 @@
 
   <div class="container">
     <section class="section">
-      <h2>All Workflows</h2>
+      <div style="display:flex;align-items:center;gap:12px;margin-bottom:14px;">
+        <h2 style="margin-bottom:0;padding-bottom:0;border:none;">All Workflows</h2>
+        <a href="/workflows/new" class="action-btn" style="text-decoration:none;background:var(--accent);color:var(--bg);border-color:var(--accent);font-weight:600;">+ New Workflow</a>
+      </div>
       <div id="workflows-content">
         <div class="empty-state">Loading...</div>
       </div>
@@ -45,28 +48,6 @@
         return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
       }
 
-      function statusBadge(status) {
-        var map = {
-          running: 'badge-running',
-          completed: 'badge-completed',
-          failed: 'badge-failed',
-          canceled: 'badge-canceled',
-          paused: 'badge-paused'
-        };
-        return '<span class="badge ' + (map[status] || 'badge-running') + '">' + status + '</span>';
-      }
-
-      function timeAgo(ts) {
-        if (!ts) return '—';
-        var diff = Date.now() - new Date(ts).getTime();
-        var mins = Math.floor(diff / 60000);
-        if (mins < 1) return 'just now';
-        if (mins < 60) return mins + 'm ago';
-        var hours = Math.floor(mins / 60);
-        if (hours < 24) return hours + 'h ago';
-        return Math.floor(hours / 24) + 'd ago';
-      }
-
       fetch('/api/workflows')
         .then(function(r) {
           if (!r.ok) throw new Error(r.statusText);
@@ -78,32 +59,94 @@
             return;
           }
 
-          var rows = data.workflows.map(function(w) {
-            var lastRun = w.latest_run ? timeAgo(w.latest_run) : '—';
-            var activeHtml = '';
-            if (w.running_count) activeHtml += '<span style="color:var(--blue);font-size:11px;">' + w.running_count + ' running</span> ';
-            if (w.paused_count) activeHtml += '<span style="color:var(--yellow);font-size:11px;">' + w.paused_count + ' paused</span> ';
-            if (w.failed_count) activeHtml += '<span style="color:var(--red);font-size:11px;">' + w.failed_count + ' failed</span>';
-            if (!w.running_count && !w.paused_count && !w.failed_count && w.run_count > 0) activeHtml = '<span style="color:var(--ink-soft);font-size:11px;">all completed</span>';
-            if (!w.run_count) activeHtml = '<span style="color:var(--ink-soft);font-size:11px;">—</span>';
+          var rows = data.workflows.map(function(w, i) {
             var installBadge = w.installed
               ? '<span style="color:var(--green);font-size:11px;">installed</span>'
               : '<span style="color:var(--ink-soft);font-size:11px;">bundled</span>';
-            return '<tr>' +
-              '<td><span class="mono" style="color:var(--ink-strong);">' + esc(w.id) + '</span></td>' +
-              '<td style="max-width:320px;">' + esc(w.description || w.id) + '</td>' +
+
+            var agentsHtml = w.agents && w.agents.length
+              ? w.agents.map(function(a) {
+                  return '<span style="display:inline-block;padding:2px 8px;margin:2px 3px;border-radius:4px;background:var(--bg-input);border:1px solid var(--border);font-size:12px;">' +
+                    '<span style="color:var(--ink-strong);">' + esc(a.id) + '</span>' +
+                    '<span style="color:var(--ink-soft);margin-left:4px;">' + esc(a.role) + '</span></span>';
+                }).join('')
+              : '<span style="color:var(--ink-soft);">—</span>';
+
+            var stepsHtml = w.steps && w.steps.length
+              ? w.steps.map(function(s) {
+                  return '<span style="display:inline-block;padding:2px 8px;margin:2px 3px;border-radius:4px;background:var(--bg-input);border:1px solid var(--border);font-size:12px;">' +
+                    '<span style="color:var(--ink-strong);">' + esc(s.id) + '</span>' +
+                    '<span style="color:var(--ink-soft);margin-left:4px;">→ ' + esc(s.agent) + '</span>' +
+                    (s.type !== 'single' ? '<span style="color:var(--accent);margin-left:4px;">' + esc(s.type) + '</span>' : '') +
+                    '</span>';
+                }).join('')
+              : '<span style="color:var(--ink-soft);">—</span>';
+
+            return '<tr class="wf-row" data-index="' + i + '" style="cursor:pointer;">' +
+              '<td><span style="color:var(--ink-soft);font-size:10px;margin-right:6px;">▶</span><span class="mono" style="color:var(--ink-strong);">' + esc(w.id) + '</span></td>' +
+              '<td style="max-width:360px;">' + esc(w.description || w.id) + '</td>' +
               '<td>' + installBadge + '</td>' +
-              '<td class="num">' + w.run_count + '</td>' +
-              '<td>' + (w.active_status ? statusBadge(w.active_status) : '<span style="color:var(--ink-soft);">—</span>') + '</td>' +
-              '<td class="num" style="font-size:11px">' + lastRun + '</td>' +
-              '<td>' + activeHtml + '</td>' +
+              '<td style="text-align:right;white-space:nowrap">' +
+                (w.installed
+                  ? '<a href="/workflows/' + encodeURIComponent(w.id) + '/edit" class="action-btn btn-sm" onclick="event.stopPropagation()" style="text-decoration:none">Edit</a> <button class="action-btn btn-sm delete-btn" onclick="event.stopPropagation();deleteWorkflow(\'' + esc(w.id) + '\')">Delete</button>'
+                  : '<button class="action-btn btn-sm" onclick="event.stopPropagation();duplicateWorkflow(\'' + esc(w.id) + '\')">Duplicate</button>') +
+              '</td>' +
+            '</tr>' +
+            '<tr class="wf-detail" data-index="' + i + '" style="display:none;">' +
+              '<td colspan="4" style="padding:10px 16px;background:var(--bg-input);border-bottom:1px solid var(--border);">' +
+                '<div style="margin-bottom:6px;font-size:11px;text-transform:uppercase;color:var(--ink-soft);">Agents (' + (w.agents ? w.agents.length : 0) + ')</div>' +
+                '<div style="margin-bottom:10px;">' + agentsHtml + '</div>' +
+                '<div style="margin-bottom:6px;font-size:11px;text-transform:uppercase;color:var(--ink-soft);">Steps (' + (w.steps ? w.steps.length : 0) + ')</div>' +
+                '<div>' + stepsHtml + '</div>' +
+              '</td>' +
             '</tr>';
           }).join('');
 
           el.innerHTML = '<table class="runs-table"><thead><tr>' +
-            '<th>Workflow</th><th>Description</th><th>Status</th><th>Runs</th><th>Latest</th><th>Last Run</th><th>Active</th>' +
+            '<th>Workflow</th><th>Description</th><th>Status</th><th style="text-align:right">Actions</th>' +
           '</tr></thead><tbody>' + rows + '</tbody></table>';
+
+          el.querySelectorAll('.wf-row').forEach(function(row) {
+            row.addEventListener('click', function() {
+              var idx = this.getAttribute('data-index');
+              var detail = el.querySelector('.wf-detail[data-index="' + idx + '"]');
+              if (detail) {
+                var isOpen = detail.style.display !== 'none';
+                detail.style.display = isOpen ? 'none' : 'table-row';
+                var arrow = this.querySelector('td:first-child span:first-child');
+                if (arrow) arrow.textContent = isOpen ? '▶' : '▼';
+              }
+            });
+          });
         })
+        .catch(function(err) {
+          el.innerHTML = '<div class="error-state">Failed to load workflows: ' + esc(err.message) + '</div>';
+        });
+
+      window.deleteWorkflow = function(id) {
+        if (!confirm('Delete workflow "' + id + '"? This cannot be undone.')) return;
+        fetch('/api/workflows/' + encodeURIComponent(id), { method: 'DELETE' })
+          .then(function(r) {
+            if (!r.ok) return r.json().then(function(e) { throw new Error(e.error); });
+            location.reload();
+          })
+          .catch(function(err) { alert('Failed to delete: ' + err.message); });
+      };
+
+      window.duplicateWorkflow = function(id) {
+        var newId = prompt('New workflow ID:', id + '-copy');
+        if (!newId) return;
+        fetch('/api/workflows/' + encodeURIComponent(id) + '/duplicate', {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({ new_id: newId })
+        })
+          .then(function(r) {
+            if (!r.ok) return r.json().then(function(e) { throw new Error(e.error); });
+            location.reload();
+          })
+          .catch(function(err) { alert('Failed to duplicate: ' + err.message); });
+      };
         .catch(function(err) {
           el.innerHTML = '<div class="error-state">Failed to load workflows: ' + esc(err.message) + '</div>';
         });
