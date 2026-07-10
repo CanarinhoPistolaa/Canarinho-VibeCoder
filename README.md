@@ -720,7 +720,7 @@ The remote MCP endpoint exposes 14 tools:
 
 ## Origins
 
-Canarinho VibeCoder began as a fork of [canarinho](https://github.com/igorhvr/canarinho) which itself forked [antfarm](https://github.com/snarktank/antfarm) — pursuing the same goal of orchestrating teams of AI agents through deterministic, repeatable workflows — built on top of [pi](https://github.com/mariozechner/pi-coding-agent). Credit to the original authors for the design and inspiration.
+Canarinho VibeCoder began as a fork of [tamandua](https://github.com/igorhvr/tamandua) which itself forked [antfarm](https://github.com/snarktank/antfarm) — pursuing the same goal of orchestrating teams of AI agents through deterministic, repeatable workflows — built on top of [pi](https://github.com/mariozechner/pi-coding-agent). Credit to the original authors for the design and inspiration.
 
 ---
 
