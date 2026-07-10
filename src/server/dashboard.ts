@@ -591,6 +591,7 @@ function handleListAgents(_req: http.IncomingMessage, res: http.ServerResponse):
       } catch {}
 
       const allIds = [...ids, ...customIds];
+      const seenAgents = new Set<string>();
       const agents: Array<{
         id: string;
         name: string;
@@ -621,6 +622,8 @@ function handleListAgents(_req: http.IncomingMessage, res: http.ServerResponse):
 
         for (const a of agentList) {
           const agentId = String(a.id ?? "");
+          if (seenAgents.has(agentId)) continue;
+          seenAgents.add(agentId);
           const workspace = (a.workspace as Record<string, unknown>) ?? {};
           const baseDir = String(workspace.baseDir ?? `agents/${agentId}`);
           agents.push({
