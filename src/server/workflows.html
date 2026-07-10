@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Workflows — Tamandua</title>
+  <title>Workflows — Canarinho VibeCoder</title>
   <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32.png">
   <link rel="icon" type="image/png" sizes="16x16" href="/favicon-16.png">
   <link rel="apple-touch-icon" sizes="180x180" href="/favicon-180.png">
@@ -11,8 +11,8 @@
 </head>
 <body>
   <header>
-    <img class="brand-logo" src="/brand-logo.png" alt="Tamandua" style="height:28px;width:auto;">
-    <h1 class="brand-text"><a href="/" style="color:inherit;text-decoration:none;">Tamanduá</a></h1>
+    <img class="brand-logo" src="/brand-logo.png" alt="Canarinho VibeCoder" style="height:28px;width:auto;">
+    <h1 class="brand-text"><a href="/" style="color:inherit;text-decoration:none;">Canarinho VibeCoder</a></h1>
     <span class="subtitle">Workflows</span>
     <span class="status-dot" id="status-dot" title="Connected"></span>
   </header>
@@ -80,22 +80,28 @@
 
           var rows = data.workflows.map(function(w) {
             var lastRun = w.latest_run ? timeAgo(w.latest_run) : '—';
+            var activeHtml = '';
+            if (w.running_count) activeHtml += '<span style="color:var(--blue);font-size:11px;">' + w.running_count + ' running</span> ';
+            if (w.paused_count) activeHtml += '<span style="color:var(--yellow);font-size:11px;">' + w.paused_count + ' paused</span> ';
+            if (w.failed_count) activeHtml += '<span style="color:var(--red);font-size:11px;">' + w.failed_count + ' failed</span>';
+            if (!w.running_count && !w.paused_count && !w.failed_count && w.run_count > 0) activeHtml = '<span style="color:var(--ink-soft);font-size:11px;">all completed</span>';
+            if (!w.run_count) activeHtml = '<span style="color:var(--ink-soft);font-size:11px;">—</span>';
+            var installBadge = w.installed
+              ? '<span style="color:var(--green);font-size:11px;">installed</span>'
+              : '<span style="color:var(--ink-soft);font-size:11px;">bundled</span>';
             return '<tr>' +
-              '<td><a class="mono run-link" href="/">' + esc(w.workflow_id) + '</a></td>' +
+              '<td><span class="mono" style="color:var(--ink-strong);">' + esc(w.id) + '</span></td>' +
+              '<td style="max-width:320px;">' + esc(w.description || w.id) + '</td>' +
+              '<td>' + installBadge + '</td>' +
               '<td class="num">' + w.run_count + '</td>' +
-              '<td>' + statusBadge(w.active_status || '—') + '</td>' +
+              '<td>' + (w.active_status ? statusBadge(w.active_status) : '<span style="color:var(--ink-soft);">—</span>') + '</td>' +
               '<td class="num" style="font-size:11px">' + lastRun + '</td>' +
-              '<td>' +
-                (w.running_count ? '<span style="color:var(--blue);font-size:11px;">' + w.running_count + ' running</span>' : '') +
-                (w.paused_count ? ' <span style="color:var(--yellow);font-size:11px;">' + w.paused_count + ' paused</span>' : '') +
-                (w.failed_count ? ' <span style="color:var(--red);font-size:11px;">' + w.failed_count + ' failed</span>' : '') +
-                (!w.running_count && !w.paused_count && !w.failed_count ? '<span style="color:var(--ink-soft);font-size:11px;">all completed</span>' : '') +
-              '</td>' +
+              '<td>' + activeHtml + '</td>' +
             '</tr>';
           }).join('');
 
           el.innerHTML = '<table class="runs-table"><thead><tr>' +
-            '<th>Workflow ID</th><th>Total Runs</th><th>Latest Status</th><th>Last Run</th><th>Active</th>' +
+            '<th>Workflow</th><th>Description</th><th>Status</th><th>Runs</th><th>Latest</th><th>Last Run</th><th>Active</th>' +
           '</tr></thead><tbody>' + rows + '</tbody></table>';
         })
         .catch(function(err) {

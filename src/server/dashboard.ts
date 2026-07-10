@@ -218,35 +218,68 @@ function buildAutoresearchExperiments(entries: AutoresearchLogEntry[]) {
 // ── API Handlers ─────────────────────────────────────────────────────
 
 function handleListWorkflows(_req: http.IncomingMessage, res: http.ServerResponse): void {
-  try {
-    const db = getDb();
+  void (async () => {
+    try {
+      const { listBundledWorkflows, getWorkflowShortDescription } = await import("../installer/workflow-fetch.js");
+      const { resolveWorkflowDir } = await import("../installer/paths.js");
+      const db = getDb();
 
-    const workflows = db.prepare(`
-      SELECT
-        r.workflow_id,
-        COUNT(*) AS run_count,
-        MAX(r.created_at) AS latest_run,
-        MAX(CASE WHEN r.created_at = (SELECT MAX(r2.created_at) FROM runs r2 WHERE r2.workflow_id = r.workflow_id) THEN r.status END) AS active_status,
-        SUM(CASE WHEN r.status = 'running' THEN 1 ELSE 0 END) AS running_count,
-        SUM(CASE WHEN r.status = 'paused' THEN 1 ELSE 0 END) AS paused_count,
-        SUM(CASE WHEN r.status = 'failed' THEN 1 ELSE 0 END) AS failed_count
-      FROM runs r
-      GROUP BY r.workflow_id
-      ORDER BY latest_run DESC
-    `).all() as Array<{
-      workflow_id: string;
-      run_count: number;
-      latest_run: string;
-      active_status: string | null;
-      running_count: number;
-      paused_count: number;
-      failed_count: number;
-    }>;
+      const ids = await listBundledWorkflows();
 
-    jsonResponse(res, { workflows });
-  } catch (err) {
-    errorResponse(res, `Failed to list workflows: ${(err as Error).message}`);
-  }
+      const runStats = db.prepare(`
+        SELECT
+          workflow_id,
+          COUNT(*) AS run_count,
+          MAX(created_at) AS latest_run,
+          MAX(CASE WHEN created_at = (SELECT MAX(r2.created_at) FROM runs r2 WHERE r2.workflow_id = r.workflow_id) THEN status END) AS active_status,
+          SUM(CASE WHEN status = 'running' THEN 1 ELSE 0 END) AS running_count,
+          SUM(CASE WHEN status = 'paused' THEN 1 ELSE 0 END) AS paused_count,
+          SUM(CASE WHEN status = 'failed' THEN 1 ELSE 0 END) AS failed_count
+        FROM runs r
+        GROUP BY workflow_id
+      `).all() as Array<{
+        workflow_id: string;
+        run_count: number;
+        latest_run: string | null;
+        active_status: string | null;
+        running_count: number;
+        paused_count: number;
+        failed_count: number;
+      }>;
+
+      const runMap = new Map(runStats.map((r) => [r.workflow_id, r]));
+
+      const workflows = await Promise.all(
+        ids.map(async (id) => {
+          const description = await getWorkflowShortDescription(id);
+          let installed = false;
+          try {
+            const dir = resolveWorkflowDir(id);
+            const fs = await import("node:fs/promises");
+            const stat = await fs.stat(dir);
+            installed = stat.isDirectory();
+          } catch {}
+
+          const stats = runMap.get(id);
+          return {
+            id,
+            description,
+            installed,
+            run_count: stats?.run_count ?? 0,
+            latest_run: stats?.latest_run ?? null,
+            active_status: stats?.active_status ?? null,
+            running_count: stats?.running_count ?? 0,
+            paused_count: stats?.paused_count ?? 0,
+            failed_count: stats?.failed_count ?? 0,
+          };
+        })
+      );
+
+      jsonResponse(res, { workflows });
+    } catch (err) {
+      errorResponse(res, `Failed to list workflows: ${(err as Error).message}`);
+    }
+  })();
 }
 
 function handleListRuns(req: http.IncomingMessage, res: http.ServerResponse): void {
