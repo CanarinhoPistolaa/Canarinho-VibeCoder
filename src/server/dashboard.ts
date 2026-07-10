@@ -28,7 +28,7 @@ import { buildKanbanSnapshot, buildKanbanCardDetail } from "./kanban-data.js";
 import { pauseRunWithDaemon, resumeRunWithDaemon } from "./control-client.js";
 import { runWorkflow } from "../installer/run.js";
 import { parse as parseYaml, stringify as stringifyYaml } from "yaml";
-import { resolveBundledWorkflowDir, resolveWorkflowDir } from "../installer/paths.js";
+import { resolveBundledWorkflowDir, resolveWorkflowDir, resolveWorkflowRoot } from "../installer/paths.js";
 import { listBundledWorkflows, getWorkflowShortDescription } from "../installer/workflow-fetch.js";
 const MODEL_PRICING: Record<string, { input: number; output: number; cache: number }> = {
   "deepseek-v4-pro-official": { input: 0.43, output: 0.87, cache: 0.043 },
@@ -227,6 +227,19 @@ function handleListWorkflows(_req: http.IncomingMessage, res: http.ServerRespons
       const db = getDb();
 
       const ids = await listBundledWorkflows();
+      const bundledSet = new Set(ids);
+
+      let customIds: string[] = [];
+      try {
+        const root = resolveWorkflowRoot();
+        if (fs.existsSync(root)) {
+          customIds = fs.readdirSync(root, { withFileTypes: true })
+            .filter((e) => e.isDirectory() && !bundledSet.has(e.name))
+            .map((e) => e.name);
+        }
+      } catch {}
+
+      const allIds = [...ids, ...customIds];
 
       const runStats = db.prepare(`
         SELECT
@@ -252,8 +265,9 @@ function handleListWorkflows(_req: http.IncomingMessage, res: http.ServerRespons
       const runMap = new Map(runStats.map((r) => [r.workflow_id, r]));
 
       const workflows = await Promise.all(
-        ids.map(async (id) => {
-          const description = await getWorkflowShortDescription(id);
+        allIds.map(async (id) => {
+          const isBundled = bundledSet.has(id);
+          const description = isBundled ? await getWorkflowShortDescription(id) : (() => { try { const ymlPath = path.join(resolveWorkflowDir(id), "workflow.yml"); const raw = fs.readFileSync(ymlPath, "utf-8"); const parsed = parseYaml(raw) as Record<string, unknown>; return String(parsed.description ?? id); } catch { return id; } })();
           let installed = false;
           try {
             const dir = resolveWorkflowDir(id);
@@ -268,7 +282,9 @@ function handleListWorkflows(_req: http.IncomingMessage, res: http.ServerRespons
           let agents: Array<{ id: string; role: string }> = [];
           let steps: Array<{ id: string; agent: string; type: string }> = [];
           try {
-            const ymlPath = path.join(resolveBundledWorkflowDir(id), "workflow.yml");
+            const ymlPath = isBundled
+              ? path.join(resolveBundledWorkflowDir(id), "workflow.yml")
+              : path.join(resolveWorkflowDir(id), "workflow.yml");
             const raw = fs.readFileSync(ymlPath, "utf-8");
             const parsed = parseYaml(raw) as Record<string, unknown> | undefined;
             if (parsed) {
@@ -294,6 +310,7 @@ function handleListWorkflows(_req: http.IncomingMessage, res: http.ServerRespons
             id,
             description,
             installed,
+            source: isBundled ? "bundled" : "custom",
             agents,
             steps,
             run_count: stats?.run_count ?? 0,

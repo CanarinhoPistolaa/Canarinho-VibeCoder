@@ -60,9 +60,10 @@
           }
 
           var rows = data.workflows.map(function(w, i) {
-            var installBadge = w.installed
-              ? '<span style="color:var(--green);font-size:11px;">installed</span>'
+            var installBadge = w.source === 'custom'
+              ? '<span style="color:var(--accent);font-size:11px;">custom</span>'
               : '<span style="color:var(--ink-soft);font-size:11px;">bundled</span>';
+            if (w.installed) installBadge += ' <span style="color:var(--green);font-size:10px;">installed</span>';
 
             var agentsHtml = w.agents && w.agents.length
               ? w.agents.map(function(a) {
@@ -87,9 +88,10 @@
               '<td style="max-width:360px;">' + esc(w.description || w.id) + '</td>' +
               '<td>' + installBadge + '</td>' +
               '<td style="text-align:right;white-space:nowrap">' +
-                (w.installed
-                  ? '<a href="/workflows/' + encodeURIComponent(w.id) + '/edit" class="action-btn btn-sm" onclick="event.stopPropagation()" style="text-decoration:none">Edit</a> <button class="action-btn btn-sm delete-btn" onclick="event.stopPropagation();deleteWorkflow(\'' + esc(w.id) + '\')">Delete</button>'
-                  : '<a href="/workflows/new?clone=' + encodeURIComponent(w.id) + '" class="action-btn btn-sm" onclick="event.stopPropagation()" style="text-decoration:none">Clone</a>') +
+                '<a href="/workflows/new?clone=' + encodeURIComponent(w.id) + '" class="action-btn btn-sm" onclick="event.stopPropagation()" style="text-decoration:none">Clone</a>' +
+                (w.source === 'custom'
+                  ? ' <a href="/workflows/' + encodeURIComponent(w.id) + '/edit" class="action-btn btn-sm" onclick="event.stopPropagation()" style="text-decoration:none">Edit</a> <button class="action-btn btn-sm delete-btn" onclick="event.stopPropagation();deleteWorkflow(\'' + esc(w.id) + '\')">Delete</button>'
+                  : '') +
               '</td>' +
             '</tr>' +
             '<tr class="wf-detail" data-index="' + i + '" style="display:none;">' +
