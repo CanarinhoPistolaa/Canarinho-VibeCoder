@@ -7,7 +7,7 @@
   <img src="https://img.shields.io/badge/node-%3E%3D22-brightgreen.svg" alt="Node.js >= 22">
   <img src="https://img.shields.io/badge/install-from%20source-orange.svg" alt="Install from source (not on npm)">
   <img src="https://img.shields.io/badge/workflows-23%20bundled-8a2be2.svg" alt="23 bundled workflows">
-  <a href="https://igorhvr.github.io/tamandua/"><img src="https://img.shields.io/badge/website-tamandua-1f6feb.svg" alt="Website"></a>
+  <a href="https://github.com/CanarinhoPistolaa/Canarinho-VibeCoder"><img src="https://img.shields.io/badge/repo-CanarinhoVibeCoder-1f6feb.svg" alt="Repository"></a>
 </p>
 
 Build your agent team in [pi](https://github.com/mariozechner/pi-coding-agent) with one command.
@@ -34,16 +34,16 @@ You don't need to hire a dev team. You need to define one. Canarinho VibeCoder g
 ### Install from GitHub
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/igorhvr/tamandua/main/scripts/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/CanarinhoPistolaa/Canarinho-VibeCoder/main/scripts/install.sh | bash
 ```
 
-Or just tell your agent: **"Clone github.com/igorhvr/tamandua to my home dir, install it and learn the skill included inside it."**
+Or just tell your agent: **"Clone github.com/CanarinhoPistolaa/Canarinho-VibeCoder to my home dir, install it and learn the skill included inside it."**
 
 ### Install from local checkout
 
 ```bash
-git clone https://github.com/igorhvr/tamandua.git
-cd tamandua
+git clone https://github.com/CanarinhoPistolaa/Canarinho-VibeCoder.git
+cd Canarinho-VibeCoder
 ./build-and-install
 ```
 
@@ -720,7 +720,7 @@ The remote MCP endpoint exposes 14 tools:
 
 ## Origins
 
-Tamandua began as a fork of [antfarm](https://github.com/snarktank/antfarm) and pursues the same goal — orchestrating teams of AI agents through deterministic, repeatable workflows — but is built on top of [pi](https://github.com/mariozechner/pi-coding-agent) instead of OpenClaw. Credit to the original authors for the design and inspiration.
+Canarinho VibeCoder began as a fork of [Tamandua](https://github.com/igorhvr/tamandua) which itself forked [antfarm](https://github.com/snarktank/antfarm) — pursuing the same goal of orchestrating teams of AI agents through deterministic, repeatable workflows — built on top of [pi](https://github.com/mariozechner/pi-coding-agent). Credit to the original authors for the design and inspiration.
 
 ---
 
