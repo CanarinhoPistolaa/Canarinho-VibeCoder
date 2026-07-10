@@ -198,7 +198,7 @@
     header .token-sep { color: var(--border); }
     header .build-version {
       display: none;
-      font-size: 10px;
+      font-size: 12px;
       color: var(--ink-soft);
       margin: 0 auto 0 8px;
       font-family: "SF Mono", "Fira Code", monospace;
@@ -228,10 +228,10 @@
       color: var(--ink-soft);
       cursor: pointer;
       font-size: 16px;
-      width: 30px; height: 30px;
+      width: 36px; height: 36px;
       display: flex; align-items: center; justify-content: center;
       padding: 0; margin-left: 8px;
-      transition: border-color 120ms ease, color 120ms ease, background 120ms ease;
+      transition: border-color 180ms ease, color 180ms ease, background 180ms ease;
     }
     .theme-btn:hover { border-color: var(--accent); color: var(--accent); background: var(--bg-panel-hover); }
     .theme-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
@@ -256,7 +256,7 @@
       color: var(--ink);
       font-family: inherit; font-size: 13px;
       cursor: pointer;
-      transition: background 120ms ease;
+      transition: background 180ms ease;
     }
     .theme-option:hover { background: var(--bg-panel-hover); }
     .theme-option.active { background: var(--bg-input); }
@@ -273,7 +273,7 @@
     .theme-option.active .check { visibility: visible; }
     .popover-section { padding: 2px 0; }
     .popover-label {
-      font-size: 10px; font-weight: 600; text-transform: uppercase;
+      font-size: 12px; font-weight: 600; text-transform: uppercase;
       letter-spacing: 0.06em; color: var(--ink-soft);
       padding: 4px 12px 2px;
     }
@@ -292,7 +292,7 @@
       font-family: inherit;
       font-size: 13px;
       text-decoration: none;
-      transition: background 120ms ease, color 120ms ease;
+      transition: background 180ms ease, color 180ms ease;
     }
     .popover-nav-link:hover {
       background: var(--bg-panel-hover);
@@ -307,7 +307,7 @@
       cursor: pointer;
       font-size: 12px;
       font-family: inherit;
-      transition: border-color 120ms ease, color 120ms ease;
+      transition: border-color 180ms ease, color 180ms ease;
     }
     #pagination button:hover { border-color: var(--accent); color: var(--accent); }
     #pagination button:disabled { opacity: 0.4; cursor: default; }
@@ -345,7 +345,7 @@
       display: inline-block;
       padding: 2px 8px;
       border-radius: 12px;
-      font-size: 11px;
+      font-size: 12px;
       font-weight: 600;
       text-transform: uppercase;
     }
@@ -395,7 +395,7 @@
       font-style: italic;
     }
     .refresh-info {
-      font-size: 11px;
+      font-size: 12px;
       color: var(--ink-soft);
       text-align: right;
       margin-top: 8px;
@@ -406,16 +406,16 @@
     a.run-link:hover { text-decoration: underline; }
     a.kanban-link {
       display: inline-block;
-      padding: 3px 10px;
+      padding: 6px 14px;
       border-radius: 999px;
       border: 1px solid var(--border);
       background: var(--bg-panel);
       color: var(--ink);
       text-decoration: none;
-      font-size: 11px;
+      font-size: 12px;
       font-weight: 500;
       white-space: nowrap;
-      transition: border-color 120ms ease, color 120ms ease, background 120ms ease;
+      transition: border-color 180ms ease, color 180ms ease, background 180ms ease;
     }
     a.kanban-link:hover {
       border-color: var(--accent);
@@ -442,17 +442,17 @@
       padding: 10px;
     }
     .action-btn {
-      padding: 3px 10px;
+      padding: 8px 14px;
       border-radius: 6px;
       border: 1px solid var(--border);
       background: var(--bg-panel);
       color: var(--ink);
       cursor: pointer;
-      font-size: 11px;
+      font-size: 12px;
       font-weight: 500;
       white-space: nowrap;
       font-family: inherit;
-      transition: border-color 120ms ease, color 120ms ease, background 120ms ease;
+      transition: border-color 180ms ease, color 180ms ease, background 180ms ease;
     }
     .action-btn:hover { border-color: var(--blue); color: var(--blue); background: var(--action-btn-hover-bg); }
     .action-btn.pause-btn:hover { border-color: var(--yellow); color: var(--yellow); background: transparent; }
@@ -538,7 +538,7 @@
       font-size: 12px;
       font-weight: 500;
       font-family: inherit;
-      transition: border-color 120ms ease, color 120ms ease, background 120ms ease;
+      transition: border-color 180ms ease, color 180ms ease, background 180ms ease;
     }
     .modal-btn:hover { background: var(--modal-btn-hover-bg); }
     .modal-btn.primary {
@@ -631,7 +631,7 @@
     }
     .autoresearch-kpi .label {
       color: var(--ink-soft);
-      font-size: 11px;
+      font-size: 12px;
       text-transform: uppercase;
       letter-spacing: 0.5px;
       margin-bottom: 4px;
@@ -660,12 +660,12 @@
     .autoresearch-chart-title { fill: var(--chart-title-fill); font-size: 15px; font-weight: 700; text-anchor: middle; }
     .autoresearch-chart-axis { stroke: var(--chart-axis); stroke-width: 1; }
     .autoresearch-chart-grid { stroke: var(--chart-grid); stroke-width: 1; opacity: 0.85; }
-    .autoresearch-chart-label { fill: var(--chart-label); font-size: 11px; }
-    .autoresearch-chart-tick { fill: var(--chart-tick); font-size: 10px; }
+    .autoresearch-chart-label { fill: var(--chart-label); font-size: 12px; }
+    .autoresearch-chart-tick { fill: var(--chart-tick); font-size: 12px; }
     .autoresearch-chart-kept { fill: var(--chart-kept); stroke: var(--chart-bg); stroke-width: 1.5; }
     .autoresearch-chart-discarded { fill: var(--chart-discarded); opacity: 0.65; }
     .autoresearch-chart-line { fill: none; stroke: var(--chart-kept); stroke-width: 2.5; }
-    .autoresearch-chart-legend { fill: var(--chart-legend); font-size: 11px; }
+    .autoresearch-chart-legend { fill: var(--chart-legend); font-size: 12px; }
     .autoresearch-detail {
       color: var(--ink-soft);
       font-size: 12px;
@@ -725,7 +725,7 @@
       font-size: 12px;
       font-weight: 500;
       font-family: inherit;
-      transition: background 120ms ease, border-color 120ms ease;
+      transition: background 180ms ease, border-color 180ms ease;
     }
     .error-state .retry-btn:hover {
       background: var(--retry-btn-hover-bg);
@@ -758,7 +758,7 @@
         flex-shrink: 0;
         font-weight: 500;
         color: var(--ink-soft);
-        font-size: 11px;
+        font-size: 12px;
         text-transform: uppercase;
         letter-spacing: 0.5px;
         text-align: left;

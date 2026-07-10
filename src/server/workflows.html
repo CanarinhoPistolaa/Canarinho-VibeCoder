@@ -11,7 +11,7 @@
 </head>
 <body>
   <header>
-    <img class="brand-logo" src="/brand-logo.png" alt="Canarinho VibeCoder" style="height:28px;width:auto;">
+    <img class="brand-logo" src="/brand-logo.png" alt="Canarinho VibeCoder" width="28" height="28">
     <h1 class="brand-text"><a href="/" style="color:inherit;text-decoration:none;">Canarinho VibeCoder</a></h1>
     <span class="subtitle">Workflows</span>
     <span class="status-dot" id="status-dot" title="Connected"></span>
@@ -36,7 +36,7 @@
   <script>
     (function() {
       var html = document.documentElement;
-      var theme = localStorage.getItem('tamandua-theme') || 'canarinho';
+      var theme = localStorage.getItem('canarinho-theme') || 'canarinho';
       html.setAttribute('data-theme', theme);
     })();
   </script>
@@ -61,8 +61,8 @@
 
           var rows = data.workflows.map(function(w, i) {
             var installBadge = w.source === 'custom'
-              ? '<span style="color:var(--accent);font-size:11px;">custom</span>'
-              : '<span style="color:var(--green);font-size:11px;">installed</span>';
+              ? '<span style="color:var(--accent);font-size:12px;">custom</span>'
+              : '<span style="color:var(--green);font-size:12px;">installed</span>';
 
             var agentsHtml = w.agents && w.agents.length
               ? w.agents.map(function(a) {
@@ -83,7 +83,7 @@
               : '<span style="color:var(--ink-soft);">—</span>';
 
             return '<tr class="wf-row" data-index="' + i + '" style="cursor:pointer;">' +
-              '<td><span style="color:var(--ink-soft);font-size:10px;margin-right:6px;">▶</span><span class="mono" style="color:var(--ink-strong);">' + esc(w.id) + '</span></td>' +
+              '<td><span style="color:var(--ink-soft);font-size:12px;margin-right:6px;"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="wf-chevron"><polyline points="9 18 15 12 9 6"/></svg></span><span class="mono" style="color:var(--ink-strong);">' + esc(w.id) + '</span></td>' +
               '<td style="max-width:360px;">' + esc(w.description || w.id) + '</td>' +
               '<td>' + installBadge + '</td>' +
               '<td style="text-align:right;white-space:nowrap">' +
@@ -95,9 +95,9 @@
             '</tr>' +
             '<tr class="wf-detail" data-index="' + i + '" style="display:none;">' +
               '<td colspan="4" style="padding:10px 16px;background:var(--bg-input);border-bottom:1px solid var(--border);">' +
-                '<div style="margin-bottom:6px;font-size:11px;text-transform:uppercase;color:var(--ink-soft);">Agents (' + (w.agents ? w.agents.length : 0) + ')</div>' +
+                '<div style="margin-bottom:6px;font-size:12px;text-transform:uppercase;color:var(--ink-soft);">Agents (' + (w.agents ? w.agents.length : 0) + ')</div>' +
                 '<div style="margin-bottom:10px;">' + agentsHtml + '</div>' +
-                '<div style="margin-bottom:6px;font-size:11px;text-transform:uppercase;color:var(--ink-soft);">Steps (' + (w.steps ? w.steps.length : 0) + ')</div>' +
+                '<div style="margin-bottom:6px;font-size:12px;text-transform:uppercase;color:var(--ink-soft);">Steps (' + (w.steps ? w.steps.length : 0) + ')</div>' +
                 '<div>' + stepsHtml + '</div>' +
               '</td>' +
             '</tr>';
@@ -115,7 +115,10 @@
                 var isOpen = detail.style.display !== 'none';
                 detail.style.display = isOpen ? 'none' : 'table-row';
                 var arrow = this.querySelector('td:first-child span:first-child');
-                if (arrow) arrow.textContent = isOpen ? '▶' : '▼';
+                var chevron = row.querySelector('.wf-chevron polyline');
+                if (chevron) {
+                  chevron.setAttribute('points', isOpen ? '9 18 15 12 9 6' : '6 9 12 15 18 9');
+                }
               }
             });
           });
