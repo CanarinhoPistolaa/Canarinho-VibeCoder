@@ -62,8 +62,7 @@
           var rows = data.workflows.map(function(w, i) {
             var installBadge = w.source === 'custom'
               ? '<span style="color:var(--accent);font-size:11px;">custom</span>'
-              : '<span style="color:var(--ink-soft);font-size:11px;">bundled</span>';
-            if (w.installed) installBadge += ' <span style="color:var(--green);font-size:10px;">installed</span>';
+              : '<span style="color:var(--green);font-size:11px;">installed</span>';
 
             var agentsHtml = w.agents && w.agents.length
               ? w.agents.map(function(a) {
