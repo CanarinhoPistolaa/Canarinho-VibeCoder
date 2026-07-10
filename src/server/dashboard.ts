@@ -1422,6 +1422,12 @@ function route(req: http.IncomingMessage, res: http.ServerResponse): void {
     return;
   }
 
+  // GET /api/health
+  if (method === "GET" && pathname === "/api/health") {
+    handleHealth(req, res);
+    return;
+  }
+
   // GET /workflows
   if (method === "GET" && pathname === "/workflows") {
     try {
