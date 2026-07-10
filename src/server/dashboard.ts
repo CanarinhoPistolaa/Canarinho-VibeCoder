@@ -574,6 +574,73 @@ function copyDirSync(src: string, dest: string): void {
   }
 }
 
+function handleListAgents(_req: http.IncomingMessage, res: http.ServerResponse): void {
+  void (async () => {
+    try {
+      const ids = await listBundledWorkflows();
+      const bundledSet = new Set(ids);
+
+      let customIds: string[] = [];
+      try {
+        const root = resolveWorkflowRoot();
+        if (fs.existsSync(root)) {
+          customIds = fs.readdirSync(root, { withFileTypes: true })
+            .filter((e) => e.isDirectory() && !bundledSet.has(e.name))
+            .map((e) => e.name);
+        }
+      } catch {}
+
+      const allIds = [...ids, ...customIds];
+      const agents: Array<{
+        id: string;
+        name: string;
+        description: string;
+        role: string;
+        source: string;
+        personas: Record<string, string>;
+      }> = [];
+
+      for (const workflowId of allIds) {
+        const isBundled = bundledSet.has(workflowId);
+        let ymlPath: string;
+        if (isBundled) {
+          ymlPath = path.join(resolveBundledWorkflowDir(workflowId), "workflow.yml");
+        } else {
+          ymlPath = path.join(resolveWorkflowDir(workflowId), "workflow.yml");
+        }
+        if (!fs.existsSync(ymlPath)) continue;
+
+        let parsed: Record<string, unknown>;
+        try {
+          const raw = fs.readFileSync(ymlPath, "utf-8");
+          parsed = parseYaml(raw) as Record<string, unknown>;
+        } catch { continue; }
+
+        const agentList = parsed.agents as Array<Record<string, unknown>> | undefined;
+        if (!agentList) continue;
+
+        for (const a of agentList) {
+          const agentId = String(a.id ?? "");
+          const workspace = (a.workspace as Record<string, unknown>) ?? {};
+          const baseDir = String(workspace.baseDir ?? `agents/${agentId}`);
+          agents.push({
+            id: agentId,
+            name: String(a.name ?? agentId),
+            description: String(a.description ?? ""),
+            role: String(a.role ?? ""),
+            source: workflowId,
+            personas: readPersonaFiles(isBundled ? resolveBundledWorkflowDir(workflowId) : resolveWorkflowDir(workflowId), baseDir),
+          });
+        }
+      }
+
+      jsonResponse(res, { agents });
+    } catch (err) {
+      errorResponse(res, `Failed to list agents: ${(err as Error).message}`);
+    }
+  })();
+}
+
 function handleListRuns(req: http.IncomingMessage, res: http.ServerResponse): void {
   try {
     const url = new URL(req.url ?? "/", "http://localhost");
@@ -1436,6 +1503,12 @@ function route(req: http.IncomingMessage, res: http.ServerResponse): void {
   // GET /api/stats
   if (method === "GET" && pathname === "/api/stats") {
     handleStats(req, res);
+    return;
+  }
+
+  // GET /api/agents
+  if (method === "GET" && pathname === "/api/agents") {
+    handleListAgents(req, res);
     return;
   }
 

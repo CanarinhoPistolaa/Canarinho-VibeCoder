@@ -138,7 +138,10 @@
         <div class="card">
           <div class="card-header">
             <h3>Agents <span style="color:var(--ink-soft);font-size:12px;" id="agent-count">(0)</span></h3>
-            <button class="action-btn btn-sm" onclick="openAgentModal()">+ Add Agent</button>
+            <div style="display:flex;gap:6px">
+              <button class="action-btn btn-sm" onclick="openAgentModal()">+ Add Agent</button>
+              <button class="action-btn btn-sm" onclick="openImportAgentModal()">Import Agent</button>
+            </div>
           </div>
           <div id="agents-list"><div class="empty-hint">No agents yet. Add one to get started.</div></div>
         </div>
@@ -224,6 +227,19 @@
       <div class="modal-footer">
         <button class="action-btn" onclick="closeModal('agent-modal')">Cancel</button>
         <button class="action-btn" onclick="saveAgent()" style="background:var(--accent);color:var(--bg);border-color:var(--accent);font-weight:600;">Save Agent</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Import Agent Modal -->
+  <div class="modal-overlay" id="import-agent-modal">
+    <div class="modal" style="max-width:720px;">
+      <h3>Import Agent from Another Workflow</h3>
+      <div id="import-agent-list" style="max-height:50vh;overflow-y:auto;">
+        <div class="empty-hint">Loading agents...</div>
+      </div>
+      <div class="modal-footer">
+        <button class="action-btn" onclick="closeModal('import-agent-modal')">Cancel</button>
       </div>
     </div>
   </div>
@@ -466,6 +482,53 @@
     }
 
     function deleteAgent(i) { AGENTS.splice(i,1); renderAll(); }
+
+    function openImportAgentModal() {
+      openModal('import-agent-modal');
+      var el = document.getElementById('import-agent-list');
+      el.innerHTML = '<div class="empty-hint">Loading agents...</div>';
+      fetch('/api/agents')
+        .then(function(r) { if (!r.ok) throw new Error(r.statusText); return r.json(); })
+        .then(function(data) {
+          if (!data.agents || !data.agents.length) {
+            el.innerHTML = '<div class="empty-hint">No agents found in any workflow.</div>';
+            return;
+          }
+          el.innerHTML = '<table style="width:100%"><thead><tr><th>Agent</th><th>Role</th><th>Source</th><th>Description</th><th></th></tr></thead><tbody>' +
+            data.agents.map(function(a) {
+              return '<tr>' +
+                '<td><span class="mono" style="color:var(--ink-strong)">' + esc(a.id) + '</span><br><span style="font-size:11px;color:var(--ink-soft)">' + esc(a.name) + '</span></td>' +
+                '<td><span class="badge badge-completed" style="font-size:10px">' + esc(a.role) + '</span></td>' +
+                '<td><span class="mono" style="font-size:11px;color:var(--accent)">' + esc(a.source) + '</span></td>' +
+                '<td style="max-width:200px;font-size:12px;color:var(--ink-soft)">' + esc(a.description || '—') + '</td>' +
+                '<td><button class="action-btn btn-sm" onclick="importAgent(' + JSON.stringify(JSON.stringify(a)) + ')">Import</button></td>' +
+              '</tr>';
+            }).join('') + '</tbody></table>';
+        })
+        .catch(function(err) { el.innerHTML = '<div class="error-state">Failed to load agents: ' + esc(err.message) + '</div>'; });
+    }
+
+    function importAgent(agentJson) {
+      var a = JSON.parse(agentJson);
+      var alreadyExists = AGENTS.some(function(existing) { return existing.id === a.id; });
+      if (alreadyExists) {
+        alert('Agent "' + a.id + '" already exists in this workflow.');
+        return;
+      }
+      AGENTS.push({
+        id: a.id,
+        name: a.name || '',
+        description: a.description || '',
+        role: a.role || 'coding',
+        model: a.model || '',
+        timeoutSeconds: a.timeoutSeconds || 3600,
+        skills: a.skills || [],
+        baseDir: 'agents/' + a.id,
+        personas: a.personas || {}
+      });
+      closeModal('import-agent-modal');
+      renderAll();
+    }
 
     function renderAgents() {
       var el = document.getElementById('agents-list');
