@@ -144,7 +144,13 @@ describe("runWorkflow", () => {
     }
     // Retries absorb stragglers still writing into the temp home during
     // teardown (ENOTEMPTY otherwise, seen on macOS).
-    fs.rmSync(tempHome, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
+    try { (await import("../../dist/db.js")).closeDb(); } catch {}
+    try {
+      fs.rmSync(tempHome, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
+    } catch (e) {
+      try { fs.rmSync(tempHome, { recursive: true, force: true, maxRetries: 20, retryDelay: 200 }); }
+      catch { /* best-effort; temp dir will be reaped by OS */ }
+    }
   });
 
   it("daemonctl paths honor HOME assigned after module import", () => {

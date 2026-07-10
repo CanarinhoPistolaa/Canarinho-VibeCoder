@@ -428,17 +428,29 @@ describe("ENVIRONMENT checks (US-003)", () => {
   });
 
   it("hermes-token-saver check returns pass when found on PATH with optional token-saving tool message", async () => {
-    const groups = await runDoctorChecks();
-    const env = groups.find((g) => g.label === "ENVIRONMENT");
-    assert.ok(env);
-    const saverCheck = env!.checks.find((c) => c.name === "hermes-token-saver detection");
-    assert.ok(saverCheck, "Expected hermes-token-saver check to exist");
-    assert.strictEqual(saverCheck!.status, "pass",
-      `hermes-token-saver check should pass when found, got: ${saverCheck!.status} (${saverCheck!.message})`);
-    assert.ok(
-      saverCheck!.message.toLowerCase().includes("optional token-saving tool"),
-      `Message should mention 'optional token-saving tool', got: ${saverCheck!.message}`,
-    );
+    // Create a stub hermes-token-saver on PATH so the check finds it and reports pass.
+    const stubDir = fs.mkdtempSync(path.join(os.tmpdir(), "canarinho-hermes-saver-stub-"));
+    const stubPath = path.join(stubDir, "hermes-token-saver");
+    fs.writeFileSync(stubPath, "#!/bin/sh\nexit 0\n", { mode: 0o755 });
+    const savedPath = process.env.PATH;
+    process.env.PATH = `${stubDir}:${savedPath ?? "/usr/bin:/bin"}`;
+    try {
+      const groups = await runDoctorChecks();
+      const env = groups.find((g) => g.label === "ENVIRONMENT");
+      assert.ok(env);
+      const saverCheck = env!.checks.find((c) => c.name === "hermes-token-saver detection");
+      assert.ok(saverCheck, "Expected hermes-token-saver check to exist");
+      assert.strictEqual(saverCheck!.status, "pass",
+        `hermes-token-saver check should pass when found, got: ${saverCheck!.status} (${saverCheck!.message})`);
+      assert.ok(
+        saverCheck!.message.toLowerCase().includes("optional token-saving tool"),
+        `Message should mention 'optional token-saving tool', got: ${saverCheck!.message}`,
+      );
+    } finally {
+      if (savedPath === undefined) delete process.env.PATH;
+      else process.env.PATH = savedPath;
+      fs.rmSync(stubDir, { recursive: true, force: true });
+    }
   });
 
   it("hermes-token-saver check returns info with no-hurry reference when absent from PATH", async () => {

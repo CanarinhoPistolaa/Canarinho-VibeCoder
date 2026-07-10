@@ -89,18 +89,20 @@ describe("dashboard kanban view", () => {
             const apiBody = await apiRes.json();
             const htmlRes = await fetch(baseUrl + "/runs/" + runId + "/kanban");
             const htmlBody = await htmlRes.text();
+            const jsRes = await fetch(baseUrl + "/kanban-ui.js");
+            const jsBody = await jsRes.text();
             const missingRes = await fetch(baseUrl + "/api/runs/does_not_exist/kanban");
 
             const devLane = (apiBody.lanes || []).find((l) => l.agent === "developer");
             const verLane = (apiBody.lanes || []).find((l) => l.agent === "verifier");
 
-            const toggleCount = (htmlBody.match(/class="card-toggle-btn"/g) || []).length;
-            const hasPlusOnButton = htmlBody.includes("card-toggle-btn") && htmlBody.includes(">+</button>");
+            const toggleCount = (jsBody.match(/class="card-toggle-btn"/g) || []).length;
+            const hasPlusOnButton = jsBody.includes("card-toggle-btn") && jsBody.includes(">+</button>");
 
             console.log(JSON.stringify({
               apiStatus: apiRes.status,
               htmlStatus: htmlRes.status,
-              htmlIsKanban: htmlBody.includes("canarinho Kanban") || htmlBody.includes("workflow kanban"),
+              htmlIsKanban: htmlBody.includes("Canarinho VibeCoder Kanban") || htmlBody.includes("canarinho Kanban") || htmlBody.includes("workflow kanban"),
               missingStatus: missingRes.status,
               laneCount: (apiBody.lanes || []).length,
               laneAgents: (apiBody.lanes || []).map((l) => l.agent),
@@ -179,14 +181,19 @@ describe("dashboard kanban view", () => {
           try {
             const htmlRes = await fetch(baseUrl + "/runs/" + runId + "/kanban");
             const htmlBody = await htmlRes.text();
+            const jsRes = await fetch(baseUrl + "/kanban-ui.js");
+            const jsBody = await jsRes.text();
+            const cssRes = await fetch(baseUrl + "/kanban-ui.css");
+            const cssBody = await cssRes.text();
+            const combined = jsBody + cssBody;
 
-            const hasSetCardId = htmlBody.includes('setAttribute("data-card-id"');
-            const hasDelegateHandler = htmlBody.includes('closest(".card-toggle-btn")');
-            const hasCreateDetail = htmlBody.includes('createDetailSection');
-            const hasCreateError = htmlBody.includes('createErrorSection');
-            const hasDetailCss = htmlBody.includes('card-detail') && htmlBody.includes('detail-section');
-            const hasToggleMinus = htmlBody.includes('−');
-            const hasDetailFailureCss = htmlBody.includes('detail-failure-text');
+            const hasSetCardId = combined.includes('setAttribute("data-card-id"');
+            const hasDelegateHandler = combined.includes('closest(".card-toggle-btn")');
+            const hasCreateDetail = combined.includes('createDetailSection');
+            const hasCreateError = combined.includes('createErrorSection');
+            const hasDetailCss = combined.includes('card-detail') && combined.includes('detail-section');
+            const hasToggleMinus = combined.includes('−');
+            const hasDetailFailureCss = combined.includes('detail-failure-text');
 
             await new Promise((resolve) => server.close(() => resolve()));
 
@@ -256,36 +263,41 @@ describe("dashboard kanban view", () => {
           try {
             const htmlRes = await fetch(baseUrl + "/runs/" + runId + "/kanban");
             const htmlBody = await htmlRes.text();
+            const jsRes = await fetch(baseUrl + "/kanban-ui.js");
+            const jsBody = await jsRes.text();
+            const cssRes = await fetch(baseUrl + "/kanban-ui.css");
+            const cssBody = await cssRes.text();
+            const combined = jsBody + cssBody;
 
             // Missing data placeholder
-            const hasDetailPlaceholder = htmlBody.includes('detail-placeholder');
-            const hasEmDash = htmlBody.includes('—');
+            const hasDetailPlaceholder = combined.includes('detail-placeholder');
+            const hasEmDash = combined.includes('—');
 
             // Expanded state persistence
-            const hasExpandedSet = htmlBody.includes('expandedCardIds');
-            const hasReExpand = htmlBody.includes('Re-expand') || htmlBody.includes('expandedCardIds');
+            const hasExpandedSet = combined.includes('expandedCardIds');
+            const hasReExpand = combined.includes('Re-expand') || combined.includes('expandedCardIds');
 
             // Keyboard accessibility
-            const hasKeydownHandler = htmlBody.includes('keydown') && htmlBody.includes('card-toggle-btn');
+            const hasKeydownHandler = combined.includes('keydown') && combined.includes('card-toggle-btn');
 
             // Loading animation
-            const hasLoadingBlink = htmlBody.includes('loading-blink');
+            const hasLoadingBlink = combined.includes('loading-blink');
 
             // Monospace font for prompts
-            const hasMonoPrompt = htmlBody.includes('detail-prompt-text');
+            const hasMonoPrompt = combined.includes('detail-prompt-text');
 
             // Timing format
-            const hasFmtDuration = htmlBody.includes('fmtDuration');
+            const hasFmtDuration = combined.includes('fmtDuration');
 
             // Token format
-            const hasFmtTokens = htmlBody.includes('fmtTokens');
+            const hasFmtTokens = combined.includes('fmtTokens');
 
             // Failure visual treatment
-            const hasDetailFailure = htmlBody.includes('detail-failure-text');
+            const hasDetailFailure = combined.includes('detail-failure-text');
 
             // Expanded state persistence: collapse calls delete
-            const hasExpandedDelete = htmlBody.includes('expandedCardIds.delete');
-            const hasExpandedAdd = htmlBody.includes('expandedCardIds.add');
+            const hasExpandedDelete = combined.includes('expandedCardIds.delete');
+            const hasExpandedAdd = combined.includes('expandedCardIds.add');
 
             await new Promise((resolve) => server.close(() => resolve()));
 
@@ -341,16 +353,17 @@ describe("dashboard kanban view", () => {
     }
   });
 
-  it("links the kanban view from each run row in index.html", () => {
-    const html = fs.readFileSync(path.join(repoRoot, "src", "server", "index.html"), "utf-8");
+  it("links the kanban view from each run row rendered by dashboard-ui.js", () => {
+    const js = fs.readFileSync(path.join(repoRoot, "src", "server", "dashboard-ui.js"), "utf-8");
+    const css = fs.readFileSync(path.join(repoRoot, "src", "server", "dashboard-ui.css"), "utf-8");
     // Two affordances: the run-ID chip stays clickable, and there is also an
     // explicit "Kanban →" pill in a dedicated "View" column so the option is
     // unambiguous on every row.
-    assert.match(html, /\/runs\/\$\{encodeURIComponent\(r\.id\)\}\/kanban/);
-    assert.match(html, /class="mono run-link"/);
-    assert.match(html, /class="kanban-link"/);
-    assert.match(html, /Kanban &rarr;/);
-    assert.match(html, /<th>View<\/th>/);
-    assert.match(html, /a\.kanban-link\s*\{[^}]*border-radius:\s*999px/);
+    assert.match(js, /\/runs\/\$\{encodeURIComponent\(r\.id\)\}\/kanban/);
+    assert.match(js, /class="mono run-link"/);
+    assert.match(js, /class="kanban-link"/);
+    assert.match(js, /Kanban &rarr;/);
+    assert.match(js, /<th>View<\/th>/);
+    assert.match(css, /a\.kanban-link\s*\{[^}]*border-radius:\s*999px/);
   });
 });

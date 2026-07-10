@@ -11,6 +11,18 @@ import { describe, it } from "node:test";
 
 const repoRoot = process.cwd();
 
+function safeRmSync(target: string): void {
+  try {
+    fs.rmSync(target, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
+  } catch {
+    try {
+      fs.rmSync(target, { recursive: true, force: true, maxRetries: 20, retryDelay: 200 });
+    } catch {
+      // best-effort; temp dir will be reaped by OS
+    }
+  }
+}
+
 async function createTempHome() {
   const [controlPort, dashboardPort] = await reserveDistinctRandomPorts(2);
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "canarinho-harness-cwd-"));
@@ -150,7 +162,7 @@ describe("working-directory-for-harness", () => {
       assert.equal(result.hasJob, true);
       assert.equal(result.jobAgentId, `${"harness-explicit"}_dev`);
     } finally {
-      fs.rmSync(temp.root, { recursive: true, force: true });
+      safeRmSync(temp.root);
     }
   });
 
@@ -199,7 +211,7 @@ describe("working-directory-for-harness", () => {
       assert.equal(result.resultDir, expected);
       assert.equal(result.contextDir, expected);
     } finally {
-      fs.rmSync(temp.root, { recursive: true, force: true });
+      safeRmSync(temp.root);
     }
   });
 });

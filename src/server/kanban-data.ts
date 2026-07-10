@@ -323,11 +323,16 @@ export function buildKanbanCardDetail(
           !e.storyId),
     );
     const timing = buildTiming(events);
-    const tokens = aggregateTokens(events) ?? { total: 0, deltas: [] };
-    tokens.promptTokens = story.prompt_tokens ?? 0;
-    tokens.completionTokens = story.completion_tokens ?? 0;
-    tokens.cachedTokens = story.cached_tokens ?? 0;
-    tokens.model = loopStep?.model ?? undefined;
+    const tokenAgg = aggregateTokens(events);
+    const tokens = tokenAgg
+      ? {
+          ...tokenAgg,
+          promptTokens: story.prompt_tokens ?? 0,
+          completionTokens: story.completion_tokens ?? 0,
+          cachedTokens: story.cached_tokens ?? 0,
+          model: loopStep?.model ?? undefined,
+        }
+      : undefined;
     return {
       runId,
       cardId,
@@ -364,11 +369,16 @@ export function buildKanbanCardDetail(
 
   const events = (runEvents ?? []).filter((e) => e.stepId === cardId);
   const timing = buildTiming(events);
-  const tokens = aggregateTokens(events) ?? { total: 0, deltas: [] };
-  tokens.promptTokens = step.prompt_tokens ?? 0;
-  tokens.completionTokens = step.completion_tokens ?? 0;
-  tokens.cachedTokens = step.cached_tokens ?? 0;
-  tokens.model = step.model ?? undefined;
+  const tokenAgg = aggregateTokens(events);
+  const tokens = tokenAgg
+    ? {
+        ...tokenAgg,
+        promptTokens: step.prompt_tokens ?? 0,
+        completionTokens: step.completion_tokens ?? 0,
+        cachedTokens: step.cached_tokens ?? 0,
+        model: step.model ?? undefined,
+      }
+    : undefined;
   return {
     runId,
     cardId,

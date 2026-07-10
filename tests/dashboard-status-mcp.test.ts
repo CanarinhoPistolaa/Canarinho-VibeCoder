@@ -252,9 +252,11 @@ describe("canarinho dashboard status MCP visibility", () => {
       assert.equal(htmlRes.status, 200);
       const html = await htmlRes.text();
       assert.match(html, /MCP Server/);
-      assert.match(html, /mcp-status-content/);
-      assert.match(html, /fetchMcpStatus/);
-      assert.match(html, /fetch\("\/api\/mcp-status"\)/);
+      assert.match(html, /popover-mcp-status/);
+      const jsRes = await fetch(`http://localhost:${dashboardPort}/dashboard-ui.js`);
+      const js = await jsRes.text();
+      assert.match(js, /fetchMcpStatus/);
+      assert.match(js, /fetch\("\/api\/mcp-status"\)/);
 
       // AC 3: /api/mcp-status returns { running, port, path }
       const apiRes = await fetch(`http://localhost:${dashboardPort}/api/mcp-status`);

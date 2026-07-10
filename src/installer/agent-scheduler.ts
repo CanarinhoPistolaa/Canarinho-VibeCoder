@@ -538,6 +538,7 @@ export interface TokenBreakdown {
   input: number;
   output: number;
   cacheRead: number;
+  cacheWrite: number;
   total: number;
 }
 
@@ -546,14 +547,23 @@ export function extractTokenBreakdown(usageLike: unknown): TokenBreakdown | null
   if (!usage) return null;
 
   const directTotal = firstNumeric(usage, ["totalTokens", "total_tokens", "total"]);
+  const inputRaw = firstNumeric(usage, ["input", "inputTokens", "input_tokens", "prompt_tokens"]);
+  const outputRaw = firstNumeric(usage, ["output", "outputTokens", "output_tokens", "completion_tokens"]);
+  const cacheReadRaw = firstNumeric(usage, ["cacheRead", "cache_read", "cache_read_tokens"]);
+  const cacheWriteRaw = firstNumeric(usage, ["cacheWrite", "cache_write", "cache_write_tokens"]);
 
-  const input = normalizeTokenUsage(firstNumeric(usage, ["input", "inputTokens", "input_tokens", "prompt_tokens"]) ?? 0);
-  const output = normalizeTokenUsage(firstNumeric(usage, ["output", "outputTokens", "output_tokens", "completion_tokens"]) ?? 0);
-  const cacheRead = normalizeTokenUsage(firstNumeric(usage, ["cacheRead", "cache_read", "cache_read_tokens"]) ?? 0);
-  const total = directTotal !== null ? normalizeTokenUsage(directTotal) : input + output + cacheRead;
+  const foundAny = directTotal !== null || inputRaw !== null || outputRaw !== null || cacheReadRaw !== null || cacheWriteRaw !== null;
+  if (!foundAny) return null;
 
-  if (total === 0) return null;
-  return { input, output, cacheRead, total };
+  const input = normalizeTokenUsage(inputRaw ?? 0);
+  const output = normalizeTokenUsage(outputRaw ?? 0);
+  const cacheRead = normalizeTokenUsage(cacheReadRaw ?? 0);
+  const cacheWrite = normalizeTokenUsage(cacheWriteRaw ?? 0);
+  const total = directTotal !== null
+    ? normalizeTokenUsage(directTotal)
+    : normalizeTokenUsage((inputRaw ?? 0) + (outputRaw ?? 0) + (cacheReadRaw ?? 0) + (cacheWriteRaw ?? 0));
+
+  return { input, output, cacheRead, cacheWrite, total };
 }
 
 function collectTextFragments(value: unknown, sink: string[], depth = 0): void {

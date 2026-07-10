@@ -11,8 +11,8 @@ const content = readFileSync(readmePath, "utf-8");
 describe("README.md cover image", () => {
   it("has canarinho.png image after the # canarinho title", () => {
     // The image should appear right after the H1 title, before the tagline
-    const titleIndex = content.indexOf("# canarinho");
-    assert.ok(titleIndex >= 0, "should have # canarinho title");
+    const titleIndex = content.indexOf("# Canarinho VibeCoder");
+    assert.ok(titleIndex >= 0, "should have # Canarinho VibeCoder title");
     const afterTitle = content.slice(titleIndex);
     const imageIndex = afterTitle.indexOf("www/assets/canarinho.png");
     assert.ok(imageIndex >= 0, "should have canarinho.png image after title");
@@ -30,8 +30,8 @@ describe("README.md cover image", () => {
 
   it("has alt text 'canarinho logo' for accessibility", () => {
     assert.ok(
-      content.includes('alt="canarinho logo"'),
-      "image should have alt='canarinho logo'"
+      content.includes('alt="Canarinho VibeCoder logo"'),
+      "image should have alt='Canarinho VibeCoder logo'"
     );
   });
 
@@ -48,13 +48,13 @@ describe("README.md cover image", () => {
   it("has blank line before and after image for proper markdown rendering", () => {
     // Image should be surrounded by blank lines in the markdown source
     const lines = content.split("\n");
-    const titleLineIdx = lines.findIndex(l => l === "# canarinho");
-    assert.ok(titleLineIdx >= 0, "should find # canarinho title line");
+    const titleLineIdx = lines.findIndex(l => l === "# Canarinho VibeCoder");
+    assert.ok(titleLineIdx >= 0, "should find # Canarinho VibeCoder title line");
     // Line after title should be blank
     assert.strictEqual(
       lines[titleLineIdx + 1],
       "",
-      "blank line expected after # canarinho title"
+      "blank line expected after # Canarinho VibeCoder title"
     );
     // Image line
     const imgLineIdx = lines.findIndex(l => l.includes('www/assets/canarinho.png'));

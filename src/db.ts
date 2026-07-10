@@ -53,6 +53,18 @@ export function getDb(): DatabaseSync {
   return _db;
 }
 
+export function closeDb(): void {
+  if (_db) {
+    try {
+      _db.close();
+    } catch {
+      // ignore double-close during teardown
+    }
+    _db = null;
+    _dbPath = null;
+  }
+}
+
 function migrate(db: DatabaseSync): void {
   db.exec(`
     CREATE TABLE IF NOT EXISTS runs (

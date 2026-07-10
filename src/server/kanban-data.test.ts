@@ -29,6 +29,9 @@ function seedDb(): DatabaseSync {
       status TEXT NOT NULL DEFAULT 'running',
       context TEXT NOT NULL DEFAULT '{}',
       tokens_spent INTEGER NOT NULL DEFAULT 0,
+      prompt_tokens INTEGER NOT NULL DEFAULT 0,
+      completion_tokens INTEGER NOT NULL DEFAULT 0,
+      cached_tokens INTEGER NOT NULL DEFAULT 0,
       notify_url TEXT,
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL
@@ -49,6 +52,10 @@ function seedDb(): DatabaseSync {
       loop_config TEXT,
       current_story_id TEXT,
       abandoned_count INTEGER DEFAULT 0,
+      model TEXT,
+      prompt_tokens INTEGER NOT NULL DEFAULT 0,
+      completion_tokens INTEGER NOT NULL DEFAULT 0,
+      cached_tokens INTEGER NOT NULL DEFAULT 0,
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL
     );
@@ -64,6 +71,9 @@ function seedDb(): DatabaseSync {
       output TEXT,
       retry_count INTEGER DEFAULT 0,
       max_retries INTEGER DEFAULT 4,
+      prompt_tokens INTEGER NOT NULL DEFAULT 0,
+      completion_tokens INTEGER NOT NULL DEFAULT 0,
+      cached_tokens INTEGER NOT NULL DEFAULT 0,
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL
     );

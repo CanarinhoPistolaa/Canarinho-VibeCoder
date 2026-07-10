@@ -64,19 +64,17 @@ describe("kanban poll toggle HTML", () => {
     const { server, baseUrl } = await startDashboard();
 
     try {
-      const response = await fetch(`${baseUrl}/runs/test-run-id/kanban`);
-      assert.equal(response.status, 200);
-
-      const html = await response.text();
+      const jsRes = await fetch(`${baseUrl}/kanban-ui.js`);
+      const js = await jsRes.text();
 
       // startPolling function exists and calls setInterval
-      assert.match(html, /function startPolling/);
-      assert.match(html, /pollInterval = setInterval\(tick, REFRESH_MS\)/);
+      assert.match(js, /function startPolling/);
+      assert.match(js, /pollInterval = setInterval\(tick, REFRESH_MS\)/);
       // stopPolling function exists and calls clearInterval
-      assert.match(html, /function stopPolling/);
-      assert.match(html, /clearInterval\(pollInterval\)/);
+      assert.match(js, /function stopPolling/);
+      assert.match(js, /clearInterval\(pollInterval\)/);
       // updatePollLabel function exists
-      assert.match(html, /function updatePollLabel/);
+      assert.match(js, /function updatePollLabel/);
     } finally {
       await stopDashboard(server);
     }
@@ -86,12 +84,10 @@ describe("kanban poll toggle HTML", () => {
     const { server, baseUrl } = await startDashboard();
 
     try {
-      const response = await fetch(`${baseUrl}/runs/test-run-id/kanban`);
-      assert.equal(response.status, 200);
+      const jsRes = await fetch(`${baseUrl}/kanban-ui.js`);
+      const js = await jsRes.text();
 
-      const html = await response.text();
-
-      assert.match(html, /const REFRESH_MS = 3000;/);
+      assert.match(js, /var REFRESH_MS = 3000;/);
     } finally {
       await stopDashboard(server);
     }
@@ -101,18 +97,16 @@ describe("kanban poll toggle HTML", () => {
     const { server, baseUrl } = await startDashboard();
 
     try {
-      const response = await fetch(`${baseUrl}/runs/test-run-id/kanban`);
-      assert.equal(response.status, 200);
-
-      const html = await response.text();
+      const jsRes = await fetch(`${baseUrl}/kanban-ui.js`);
+      const js = await jsRes.text();
 
       // Event listener for checkbox change
-      assert.match(html, /addEventListener\("change"/);
+      assert.match(js, /addEventListener\("change"/);
       // startPolling called when checked
-      assert.match(html, /if \(chk\.checked\)/);
-      assert.match(html, /startPolling\(\)/);
+      assert.match(js, /if \(chk\.checked\)/);
+      assert.match(js, /startPolling\(\)/);
       // stopPolling called when unchecked
-      assert.match(html, /stopPolling\(\)/);
+      assert.match(js, /stopPolling\(\)/);
     } finally {
       await stopDashboard(server);
     }
@@ -147,15 +141,13 @@ describe("kanban poll toggle HTML", () => {
     const { server, baseUrl } = await startDashboard();
 
     try {
-      const response = await fetch(`${baseUrl}/runs/test-run-id/kanban`);
-      assert.equal(response.status, 200);
-
-      const html = await response.text();
+      const jsRes = await fetch(`${baseUrl}/kanban-ui.js`);
+      const js = await jsRes.text();
 
       // updatePollLabel sets "poll paused" when unchecked
-      assert.match(html, /"poll paused"/);
+      assert.match(js, /"poll paused"/);
       // and "poll " + seconds when checked
-      assert.match(html, /"poll " \+ \(REFRESH_MS \/ 1000\) \+ "s"/);
+      assert.match(js, /"poll " \+ \(REFRESH_MS \/ 1000\) \+ "s"/);
     } finally {
       await stopDashboard(server);
     }

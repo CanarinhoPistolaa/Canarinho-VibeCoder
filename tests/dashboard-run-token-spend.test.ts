@@ -113,11 +113,11 @@ describe("dashboard run token spend surfaces", () => {
   });
 
   it("renders a Tokens column with safe defaulting logic in the runs table", () => {
-    const html = fs.readFileSync(path.join(repoRoot, "src", "server", "index.html"), "utf-8");
+    const js = fs.readFileSync(path.join(repoRoot, "src", "server", "dashboard-ui.js"), "utf-8");
 
-    assert.match(html, /<th>#<\/th><th>Run ID<\/th><th>Workflow<\/th><th>Task<\/th><th>Status<\/th><th>Progress<\/th><th>Tokens<\/th><th>Updated<\/th><th>Actions<\/th><th>View<\/th>/);
-    assert.match(html, /const parsedTokens = Number\(r\.tokens_spent\);/);
-    assert.match(html, /const tokensSpent = Number\.isFinite\(parsedTokens\) \? parsedTokens : 0;/);
-    assert.match(html, /<td class="num">\$\{tokensSpent\}<\/td>/);
+    assert.match(js, /<th>#<\/th><th>Run ID<\/th><th>Workflow<\/th><th>Task<\/th><th>Status<\/th><th>Progress<\/th><th>Tokens<\/th><th>Cost<\/th><th>Updated<\/th><th>Actions<\/th><th>View<\/th>/);
+    assert.match(js, /const parsedTokens = Number\(r\.tokens_spent\);/);
+    assert.match(js, /const tokensSpent = Number\.isFinite\(parsedTokens\) \? parsedTokens : 0;/);
+    assert.match(js, /<td class="num" data-label="Tokens">\$\{fmtNum\(tokensSpent\)}<\/td>/);
   });
 });
