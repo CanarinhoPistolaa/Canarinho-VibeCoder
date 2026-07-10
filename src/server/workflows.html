@@ -147,9 +147,6 @@
           })
           .catch(function(err) { alert('Failed to duplicate: ' + err.message); });
       };
-        .catch(function(err) {
-          el.innerHTML = '<div class="error-state">Failed to load workflows: ' + esc(err.message) + '</div>';
-        });
     })();
   </script>
 </body>
