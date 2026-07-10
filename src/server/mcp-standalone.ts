@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * Tamandua MCP Standalone Server
+ * canarinho MCP Standalone Server
  *
  * Starts just the MCP server as a detached process (outside the dashboard daemon).
  *
@@ -8,11 +8,11 @@
  *
  * Port resolution order:
  *   1. CLI argument (process.argv[2])
- *   2. TAMANDUA_MCP_PORT env var
+ *   2. canarinho_MCP_PORT env var
  *   3. Default: 3338 (DEFAULT_MCP_PORT)
  *
- * - Writes PID file on start (~/.tamandua/mcp.pid)
- * - Writes port file on start (~/.tamandua/mcp-port)
+ * - Writes PID file on start (~/.canarinho/mcp.pid)
+ * - Writes port file on start (~/.canarinho/mcp-port)
  * - Cleans up PID file on exit
  */
 import fs from "node:fs";
@@ -20,13 +20,13 @@ import path from "node:path";
 import os from "node:os";
 import {
   DEFAULT_MCP_PORT,
-  startTamanduaMcpServer,
-  stopTamanduaMcpServer,
-  type TamanduaMcpServer,
+  startcanarinhoMcpServer,
+  stopcanarinhoMcpServer,
+  type canarinhoMcpServer,
 } from "./mcp-server.js";
 
-const MCP_PID_FILE = path.join(os.homedir(), ".tamandua", "mcp.pid");
-const MCP_PORT_FILE = path.join(os.homedir(), ".tamandua", "mcp-port");
+const MCP_PID_FILE = path.join(os.homedir(), ".canarinho", "mcp.pid");
+const MCP_PORT_FILE = path.join(os.homedir(), ".canarinho", "mcp-port");
 
 function resolvePort(): number {
   // 1. CLI argument
@@ -36,7 +36,7 @@ function resolvePort(): number {
   }
 
   // 2. Environment variable
-  const envPort = parseInt(process.env.TAMANDUA_MCP_PORT ?? "", 10);
+  const envPort = parseInt(process.env.canarinho_MCP_PORT ?? "", 10);
   if (!isNaN(envPort) && envPort > 0 && envPort < 65536) {
     return envPort;
   }
@@ -80,19 +80,19 @@ function cleanupPortFile(): void {
   }
 }
 
-let mcpServer: TamanduaMcpServer | undefined;
+let mcpServer: canarinhoMcpServer | undefined;
 let isShuttingDown = false;
 
 async function shutdown(signal: string, exitCode: number): Promise<void> {
   if (isShuttingDown) return;
   isShuttingDown = true;
 
-  console.log(`Tamandua MCP server received ${signal}, shutting down...`);
+  console.log(`canarinho MCP server received ${signal}, shutting down...`);
 
   if (mcpServer) {
     const current = mcpServer;
     mcpServer = undefined;
-    await stopTamanduaMcpServer(current).catch(() => {});
+    await stopcanarinhoMcpServer(current).catch(() => {});
   }
 
   cleanupPidFile();
@@ -132,14 +132,14 @@ async function bootstrap(): Promise<void> {
   writePortFile(port);
 
   try {
-    mcpServer = await startTamanduaMcpServer(port);
+    mcpServer = await startcanarinhoMcpServer(port);
   } catch (err) {
     console.error(`Failed to start MCP server on port ${port}: ${err instanceof Error ? err.message : String(err)}`);
     cleanupPidFile();
     process.exit(1);
   }
 
-  console.log(`Tamandua MCP server started on port ${port} (pid ${process.pid})`);
+  console.log(`canarinho MCP server started on port ${port} (pid ${process.pid})`);
 }
 
 void bootstrap();

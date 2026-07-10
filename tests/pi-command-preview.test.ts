@@ -101,14 +101,14 @@ describe("formatPiCommandPreview", () => {
 
 describe("runPi logging", () => {
   it("logs pi pre-launch, launch, and completion metadata", async () => {
-    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "tamandua-pi-preview-"));
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "canarinho-pi-preview-"));
     const fakePi = path.join(tempDir, "pi");
     fs.writeFileSync(fakePi, "#!/usr/bin/env node\nprocess.stdout.write('ok-from-fake-pi');\n", "utf-8");
     fs.chmodSync(fakePi, 0o755);
 
     const secretPrompt = "SENSITIVE_PROMPT_PAYLOAD";
-    const originalPiBinary = process.env.TAMANDUA_PI_BINARY;
-    process.env.TAMANDUA_PI_BINARY = fakePi;
+    const originalPiBinary = process.env.canarinho_PI_BINARY;
+    process.env.canarinho_PI_BINARY = fakePi;
 
     const calls: Array<{ level: "info" | "warn" | "error"; message: string; extra?: Record<string, unknown> }> = [];
     const mutableLogger = logger as unknown as {
@@ -158,16 +158,16 @@ describe("runPi logging", () => {
       mutableLogger.warn = originalWarn;
       mutableLogger.error = originalError;
       if (originalPiBinary === undefined) {
-        delete process.env.TAMANDUA_PI_BINARY;
+        delete process.env.canarinho_PI_BINARY;
       } else {
-        process.env.TAMANDUA_PI_BINARY = originalPiBinary;
+        process.env.canarinho_PI_BINARY = originalPiBinary;
       }
       fs.rmSync(tempDir, { recursive: true, force: true });
     }
   });
 
   it("logs bounded failure metadata with pid and exit outcome", async () => {
-    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "tamandua-pi-failure-"));
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "canarinho-pi-failure-"));
     const fakePi = path.join(tempDir, "pi");
     const longStderr = "E".repeat(800);
     fs.writeFileSync(
@@ -177,8 +177,8 @@ describe("runPi logging", () => {
     );
     fs.chmodSync(fakePi, 0o755);
 
-    const originalPiBinary = process.env.TAMANDUA_PI_BINARY;
-    process.env.TAMANDUA_PI_BINARY = fakePi;
+    const originalPiBinary = process.env.canarinho_PI_BINARY;
+    process.env.canarinho_PI_BINARY = fakePi;
 
     const calls: Array<{ level: "info" | "warn" | "error"; message: string; extra?: Record<string, unknown> }> = [];
     const mutableLogger = logger as unknown as {
@@ -224,9 +224,9 @@ describe("runPi logging", () => {
       mutableLogger.warn = originalWarn;
       mutableLogger.error = originalError;
       if (originalPiBinary === undefined) {
-        delete process.env.TAMANDUA_PI_BINARY;
+        delete process.env.canarinho_PI_BINARY;
       } else {
-        process.env.TAMANDUA_PI_BINARY = originalPiBinary;
+        process.env.canarinho_PI_BINARY = originalPiBinary;
       }
       fs.rmSync(tempDir, { recursive: true, force: true });
     }

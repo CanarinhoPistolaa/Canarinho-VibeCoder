@@ -24,7 +24,7 @@ function spawnDaemon(
   let output = "";
   const child = spawn("node", [DAEMON_SCRIPT, String(port), ...extraArgs], {
     env: cleanChildEnv({ HOME: homeDir,
-      TAMANDUA_CONTROL_PORT: String(controlPort), }),
+      canarinho_CONTROL_PORT: String(controlPort), }),
     stdio: ["ignore", "pipe", "pipe"],
   });
 
@@ -142,7 +142,7 @@ describe("version check integration", () => {
     }
     const controlPort = await reserveRandomPort();
 
-    const tempHome = fs.mkdtempSync(path.join(os.tmpdir(), "tamandua-daemon-home-"));
+    const tempHome = fs.mkdtempSync(path.join(os.tmpdir(), "canarinho-daemon-home-"));
     const { child } = spawnDaemon(dashboardPort, tempHome, controlPort);
 
     try {
@@ -152,7 +152,7 @@ describe("version check integration", () => {
 
       // Poll for version-status.json — the fire-and-forget version check may
       // take up to 30s (git fetch timeout) or be near-instantaneous.
-      const statusPath = path.join(tempHome, ".tamandua", "version-status.json");
+      const statusPath = path.join(tempHome, ".canarinho", "version-status.json");
       const maxWaitMs = 35_000;
       const pollStart = Date.now();
       let found = false;
@@ -189,7 +189,7 @@ describe("version check integration", () => {
     }
     const controlPort = await reserveRandomPort();
 
-    const tempHome = fs.mkdtempSync(path.join(os.tmpdir(), "tamandua-daemon-home-"));
+    const tempHome = fs.mkdtempSync(path.join(os.tmpdir(), "canarinho-daemon-home-"));
 
     const startTime = Date.now();
     const { child } = spawnDaemon(dashboardPort, tempHome, controlPort);
@@ -223,7 +223,7 @@ describe("version check integration", () => {
     }
     const controlPort = await reserveRandomPort();
 
-    const tempHome = fs.mkdtempSync(path.join(os.tmpdir(), "tamandua-daemon-home-"));
+    const tempHome = fs.mkdtempSync(path.join(os.tmpdir(), "canarinho-daemon-home-"));
     const { child } = spawnDaemon(dashboardPort, tempHome, controlPort);
 
     try {
@@ -238,7 +238,7 @@ describe("version check integration", () => {
       await waitForHttpDown(`http://127.0.0.1:${dashboardPort}/api/health`);
 
       // PID file should be cleaned up
-      const pidFile = path.join(tempHome, ".tamandua", "tamandua.pid");
+      const pidFile = path.join(tempHome, ".canarinho", "canarinho.pid");
       assert.equal(fs.existsSync(pidFile), false);
     } finally {
       await forceKillIfAlive(child);
@@ -257,14 +257,14 @@ describe("dashboard daemon (MCP decoupled)", { concurrency: 1 }, () => {
 
     const controlPort = await reserveRandomPort();
 
-    const tempHome = fs.mkdtempSync(path.join(os.tmpdir(), "tamandua-daemon-home-"));
+    const tempHome = fs.mkdtempSync(path.join(os.tmpdir(), "canarinho-daemon-home-"));
     const { child } = spawnDaemon(dashboardPort, tempHome, controlPort);
 
     try {
       const health = await waitForHttpUp(`http://127.0.0.1:${dashboardPort}/api/health`);
       assert.equal(health.status, 200);
 
-      const mcpPidFile = path.join(tempHome, ".tamandua", "mcp.pid");
+      const mcpPidFile = path.join(tempHome, ".canarinho", "mcp.pid");
       assert.equal(fs.existsSync(mcpPidFile), false, "MCP should not be started without --with-mcp");
 
       process.kill(child.pid!, "SIGTERM");
@@ -273,7 +273,7 @@ describe("dashboard daemon (MCP decoupled)", { concurrency: 1 }, () => {
 
       await waitForHttpDown(`http://127.0.0.1:${dashboardPort}/api/health`);
 
-      const pidFile = path.join(tempHome, ".tamandua", "tamandua.pid");
+      const pidFile = path.join(tempHome, ".canarinho", "canarinho.pid");
       assert.equal(fs.existsSync(pidFile), false);
     } finally {
       await forceKillIfAlive(child);
@@ -295,7 +295,7 @@ describe("dashboard daemon (MCP decoupled)", { concurrency: 1 }, () => {
 
     const controlPort = await reserveRandomPort();
 
-    const tempHome = fs.mkdtempSync(path.join(os.tmpdir(), "tamandua-daemon-home-"));
+    const tempHome = fs.mkdtempSync(path.join(os.tmpdir(), "canarinho-daemon-home-"));
     const { child } = spawnDaemon(dashboardPort, tempHome, controlPort, ["--with-mcp", "--mcp-port", String(mcpPort)]);
 
     try {
@@ -312,7 +312,7 @@ describe("dashboard daemon (MCP decoupled)", { concurrency: 1 }, () => {
       await waitForHttpDown(`http://127.0.0.1:${dashboardPort}/api/health`);
       await waitForHttpDown(`http://127.0.0.1:${mcpPort}/mcp`);
 
-      const pidFile = path.join(tempHome, ".tamandua", "tamandua.pid");
+      const pidFile = path.join(tempHome, ".canarinho", "canarinho.pid");
       assert.equal(fs.existsSync(pidFile), false);
     } finally {
       await forceKillIfAlive(child);
@@ -331,7 +331,7 @@ describe("dashboard daemon (MCP decoupled)", { concurrency: 1 }, () => {
 
     const controlPort = await reserveRandomPort();
 
-    const tempHome = fs.mkdtempSync(path.join(os.tmpdir(), "tamandua-daemon-home-"));
+    const tempHome = fs.mkdtempSync(path.join(os.tmpdir(), "canarinho-daemon-home-"));
     const { child } = spawnDaemon(dashboardPort, tempHome, controlPort, [
       "--with-mcp",
       "--mcp-port",
@@ -376,7 +376,7 @@ describe("dashboard daemon (MCP decoupled)", { concurrency: 1 }, () => {
 
     const controlPort = await reserveRandomPort();
 
-    const tempHome = fs.mkdtempSync(path.join(os.tmpdir(), "tamandua-daemon-home-"));
+    const tempHome = fs.mkdtempSync(path.join(os.tmpdir(), "canarinho-daemon-home-"));
     const { child, getOutput } = spawnDaemon(dashboardPort, tempHome, controlPort, ["--with-mcp", "--mcp-port", String(blockerPort)]);
 
     try {
@@ -389,7 +389,7 @@ describe("dashboard daemon (MCP decoupled)", { concurrency: 1 }, () => {
 
       await waitForHttpDown(`http://127.0.0.1:${dashboardPort}/api/health`);
 
-      const pidFile = path.join(tempHome, ".tamandua", "tamandua.pid");
+      const pidFile = path.join(tempHome, ".canarinho", "canarinho.pid");
       assert.equal(fs.existsSync(pidFile), false);
     } finally {
       await forceKillIfAlive(child);

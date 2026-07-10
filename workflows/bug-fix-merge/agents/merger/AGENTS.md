@@ -122,7 +122,7 @@ git commit -F /tmp/merge-commit-msg.txt
 The commit message MUST end with the co-author footer line:
 
 ```
-Co-Authored-By: Tamandua <tamandua@tetradactyla.org>
+Co-Authored-By: canarinho <canarinho@tetradactyla.org>
 ```
 
 Example commit message format:
@@ -140,7 +140,7 @@ order-sensitive routes were appended after-the-fact.
 Added regression test that sends an unauthenticated request to a
 protected endpoint and verifies it receives 401.
 
-Co-Authored-By: Tamandua <tamandua@tetradactyla.org>
+Co-Authored-By: canarinho <canarinho@tetradactyla.org>
 ```
 
 ## CRITICAL — STATUS Line Requirement

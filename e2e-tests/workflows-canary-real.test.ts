@@ -50,7 +50,7 @@ import {
 
 const CANARY_TASK =
   "Canary check: do not modify any files or run any commands other than the " +
-  "tamandua step commands you are instructed to use. Simply report success. " +
+  "canarinho step commands you are instructed to use. Simply report success. " +
   "Reply with STATUS: done and REPORT: canary ok.";
 
 describe("real e2e canary (LIVE model, single do-now run)", () => {
@@ -76,7 +76,7 @@ describe("real e2e canary (LIVE model, single do-now run)", () => {
           ["workflow", "run", "do-now", CANARY_TASK, "--working-directory-for-harness", workdir],
           baseEnv(env.homeDir, env.controlPort),
         );
-        const runId = resolveFullRunId(runIdPrefix, env.tamanduaDir);
+        const runId = resolveFullRunId(runIdPrefix, env.canarinhoDir);
 
         // Nudge-driven wait: the real work round takes as long as the model
         // takes; nudging only removes the 5-minute poll-interval dead time.
@@ -85,11 +85,11 @@ describe("real e2e canary (LIVE model, single do-now run)", () => {
           baseEnv(env.homeDir, env.controlPort),
           12 * 60_000, // 12 min for the run itself
           5_000,
-          env.tamanduaDir,
+          env.canarinhoDir,
         );
         assert.ok(
           isSuccessfulRunTerminalStatus(status),
-          `canary run should complete, got "${status}"\n${collectRunDiagnostics(env.tamanduaDir, runId)}`,
+          `canary run should complete, got "${status}"\n${collectRunDiagnostics(env.canarinhoDir, runId)}`,
         );
 
         // ── Token accounting with a REAL model (C14/C15) ────────────
@@ -97,11 +97,11 @@ describe("real e2e canary (LIVE model, single do-now run)", () => {
         // the run turns terminal — pi emits usage after the completing
         // tool call, and attribution needs the harness to exit within the
         // teardown grace window. Wait for it instead of racing it.
-        const audit = await waitForRunWorkTokens(env.tamanduaDir, runId);
+        const audit = await waitForRunWorkTokens(env.canarinhoDir, runId);
         assert.ok(
           audit.workTokens > 0,
           `real work round should attribute tokens to the run, got ${audit.workTokens}\n` +
-            collectRunDiagnostics(env.tamanduaDir, runId),
+            collectRunDiagnostics(env.canarinhoDir, runId),
         );
         assert.ok(
           audit.tokenUpdateEvents > 0,

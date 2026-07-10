@@ -4,7 +4,7 @@
 try {
   await import("node:sqlite");
 } catch {
-  console.error("Error: node:sqlite is not available.\n\nTamandua requires Node.js >= 22 with native SQLite support.");
+  console.error("Error: node:sqlite is not available.\n\ncanarinho requires Node.js >= 22 with native SQLite support.");
   process.exit(1);
 }
 
@@ -15,7 +15,7 @@ import { runWorkflow, resumeWorkflow, type RunWorkflowResult } from "../installe
 import { listBundledWorkflows, getWorkflowShortDescription } from "../installer/workflow-fetch.js";
 import { loadWorkflowSpec } from "../installer/workflow-spec.js";
 import { resolveBundledWorkflowDir } from "../installer/paths.js";
-import { getRecentEvents, getRunEvents, readEventsFromCursor, type EventCursorSource, type TamanduaEvent } from "../installer/events.js";
+import { getRecentEvents, getRunEvents, readEventsFromCursor, type EventCursorSource, type canarinhoEvent } from "../installer/events.js";
 import { formatLogsTailLines } from "../installer/logs-tail-format.js";
 import { parseLogsSelector, lookupRunIdByNumber } from "./logs-selector.js";
 import { startDaemon, stopDaemon, restartDaemon, getDaemonStatus, isRunning, readPort, startMcp, stopMcp, restartMcp, getMcpStatus, isMcpRunning, startControlPlane, stopControlPlane, restartControlPlane, getControlPlaneStatus, isControlPlaneRunning } from "../server/daemonctl.js";
@@ -26,7 +26,7 @@ import { claimStep, completeStep, failStep, getStories, getOwnProcessGroupId, pe
 import { ensureCliSymlink } from "../installer/symlink.js";
 import { checkCatalogStalenessWarning } from "../installer/catalog-version.js";
 import { resolveSourcePath, resolveSkillPath } from "../installer/paths.js";
-import { formatServiceStatus, formatServiceStatusAsync, formatTamanduaInfo, formatRunsSummary, formatProcessList } from "./status-format.js";
+import { formatServiceStatus, formatServiceStatusAsync, formatcanarinhoInfo, formatRunsSummary, formatProcessList } from "./status-format.js";
 import {
   listRunWorktrees,
   getRunWorktree,
@@ -76,7 +76,7 @@ function getVersion(): string {
   catch { return "unknown"; }
 }
 
-function printEvents(events: TamanduaEvent[]): void {
+function printEvents(events: canarinhoEvent[]): void {
   if (events.length === 0) { console.log("No events yet."); return; }
   for (const line of formatLogsTailLines(events)) {
     console.log(line);
@@ -118,7 +118,7 @@ function formatWorktreeStatus(wt: ManagedRunWorktree): string {
 }
 
 function getLogsTailPollIntervalMs(): number {
-  const raw = parseInt(process.env.TAMANDUA_LOGS_TAIL_POLL_MS ?? "1000", 10);
+  const raw = parseInt(process.env.canarinho_LOGS_TAIL_POLL_MS ?? "1000", 10);
   if (Number.isNaN(raw)) return 1000;
   return Math.max(10, raw);
 }
@@ -307,74 +307,74 @@ function printWorkflowAutoresearch(runIdOrPrefix: string): void {
   }
 }
 
-function getTamanduaHelp(): string {
-  return `tamandua — ASCII art easter egg
+function getcanarinhoHelp(): string {
+  return `canarinho — ASCII art easter egg
 
-Usage: tamandua tamandua
+Usage: canarinho canarinho
 
-Prints a large ASCII art representation of a tamandua (anteater) along with
-a randomly selected tamandua-themed quote. This is a fun easter egg with no
+Prints a large ASCII art representation of a canarinho (anteater) along with
+a randomly selected canarinho-themed quote. This is a fun easter egg with no
 functional purpose beyond entertainment.
 
 Examples:
-  tamandua tamandua          # Print the tamandua ASCII art and a random quote`;
+  canarinho canarinho          # Print the canarinho ASCII art and a random quote`;
 }
 
 function getVersionHelp(): string {
-  return `tamandua version — Display build version
+  return `canarinho version — Display build version
 
-Usage: tamandua version
-   or: tamandua --version
-   or: tamandua -v
+Usage: canarinho version
+   or: canarinho --version
+   or: canarinho -v
 
-Prints the build version of Tamandua in ISO8601_refhash format.
+Prints the build version of canarinho in ISO8601_refhash format.
 The version is composed of the UTC timestamp of the HEAD commit
 and its full 40-character SHA1 hash, separated by an underscore.
 This string is computed at build time and embedded in the dist
 output.
 
 Examples:
-  tamandua version           # Prints e.g. "20260526T140530Z_4ad4844ff86d37cd04eaf736e8cc43ad467b0338"
-  tamandua --version         # Same output
-  tamandua -v                # Same output`;
+  canarinho version           # Prints e.g. "20260526T140530Z_4ad4844ff86d37cd04eaf736e8cc43ad467b0338"
+  canarinho --version         # Same output
+  canarinho -v                # Same output`;
 }
 
 function getSkillPathHelp(): string {
-  return `tamandua skill-path — Print path to bundled tamandua-agents skill
+  return `canarinho skill-path — Print path to bundled canarinho-agents skill
 
-Usage: tamandua skill-path
+Usage: canarinho skill-path
 
-Prints the absolute filesystem path to the bundled tamandua-agents skill
+Prints the absolute filesystem path to the bundled canarinho-agents skill
 directory. This is the directory containing the AGENTS.md, IDENTITY.md,
 and SOUL.md files that are provisioned to workflow agents.
 
 Examples:
-  tamandua skill-path        # Prints the skill directory path`;
+  canarinho skill-path        # Prints the skill directory path`;
 }
 
 function getSourcePathHelp(): string {
-  return `tamandua source-path — Print Tamandua source checkout path
+  return `canarinho source-path — Print canarinho source checkout path
 
-Usage: tamandua source-path
+Usage: canarinho source-path
 
-Prints the absolute filesystem path to the resolved Tamandua source checkout.
+Prints the absolute filesystem path to the resolved canarinho source checkout.
 This is the directory containing the built dist/, package.json, and
 build-and-install script.
 
 Examples:
-  tamandua source-path       # Prints the source checkout path`;
+  canarinho source-path       # Prints the source checkout path`;
 }
 
 function getUpdateHelp(): string {
-  return `tamandua update — Pull latest source, rebuild, and reinstall
+  return `canarinho update — Pull latest source, rebuild, and reinstall
 
-Usage: tamandua update [--force]
+Usage: canarinho update [--force]
 
-tamandua update is local source maintenance, not a package-manager update.
+canarinho update is local source maintenance, not a package-manager update.
 
 In order, it does this:
 
-  1. Resolves the installed Tamandua source checkout and verifies it has
+  1. Resolves the installed canarinho source checkout and verifies it has
      package.json and build-and-install.
   2. Reads current git HEAD.
   3. Runs git pull in that checkout, using the checkout's current
@@ -384,7 +384,7 @@ In order, it does this:
      build, no workflow install, no service restart. With --force, it
      continues to rebuild even without source changes.
   6. If HEAD changed, it runs ./build-and-install.
-  7. Takes a snapshot of currently running Tamandua services: dashboard
+  7. Takes a snapshot of currently running canarinho services: dashboard
      daemon, standalone MCP, and control plane.
   8. Checks for active runs with status running or paused.
   9. If active runs exist and --force is not set, it exits with code 1
@@ -400,25 +400,25 @@ Options:
              rebuild/reinstall even without source changes (step 5).
 
 Examples:
-  tamandua update             # Pull, rebuild, reinstall (blocks if active runs exist)
-  tamandua update --force     # Force update even with active runs`;
+  canarinho update             # Pull, rebuild, reinstall (blocks if active runs exist)
+  canarinho update --force     # Force update even with active runs`;
 }
 
 function getGetReadyHelp(): string {
-  return `tamandua get-ready — Install all bundled workflows from the source checkout
+  return `canarinho get-ready — Install all bundled workflows from the source checkout
 
-Usage: tamandua get-ready
+Usage: canarinho get-ready
 
-tamandua get-ready sets up Tamandua by installing every bundled workflow and
-establishing the CLI symlink so tamandua is available on your PATH.
+canarinho get-ready sets up canarinho by installing every bundled workflow and
+establishing the CLI symlink so canarinho is available on your PATH.
 
 In order, it does this:
 
   1. Lists all bundled workflows available in the source checkout.
   2. Installs each workflow: fetches workflow files, loads the YAML spec,
      provisions agent workspaces (AGENTS.md, IDENTITY.md, SOUL.md), and
-     registers agents in ~/.tamandua/agents.json.
-  3. Creates the CLI symlink at ~/.local/bin/tamandua (or updates it if
+     registers agents in ~/.canarinho/agents.json.
+  3. Creates the CLI symlink at ~/.local/bin/canarinho (or updates it if
      it already exists).
   4. Reports whether the dashboard daemon is already running.
   5. If the dashboard is not running, starts it on the default port
@@ -429,16 +429,16 @@ In order, it does this:
      port (3339).
 
 Examples:
-  tamandua get-ready            # Install all bundled workflows and start dashboard/MCP/control plane
-  tamandua workflow install <name>  # Install a single workflow by name`;
+  canarinho get-ready            # Install all bundled workflows and start dashboard/MCP/control plane
+  canarinho workflow install <name>  # Install a single workflow by name`;
 }
 
 function getUninstallHelp(): string {
-  return `tamandua uninstall — Fully remove Tamandua workflows, agents, and services
+  return `canarinho uninstall — Fully remove canarinho workflows, agents, and services
 
-Usage: tamandua uninstall [--force]
+Usage: canarinho uninstall [--force]
 
-tamandua uninstall stops all Tamandua services and removes every installed
+canarinho uninstall stops all canarinho services and removes every installed
 workflow, including agent workspaces, agent registrations, and cron jobs.
 
 In order, it does this:
@@ -449,7 +449,7 @@ In order, it does this:
   3. Stops the dashboard daemon if it is running.
   4. Stops the standalone MCP server if it is running.
   5. Uninstalls every workflow: removes workflow directories, agent
-     workspaces, agent entries from ~/.tamandua/agents.json, and cron
+     workspaces, agent entries from ~/.canarinho/agents.json, and cron
      jobs. Stops and removes any managed git worktrees associated with
      completed runs.
 
@@ -457,16 +457,16 @@ Options:
   --force    Skip the active-runs check and uninstall anyway.
 
 Examples:
-  tamandua uninstall          # Full uninstall (refuses if active runs exist)
-  tamandua uninstall --force  # Force uninstall despite active runs
-  tamandua workflow uninstall <name>  # Uninstall a single workflow by name
-  tamandua workflow uninstall --all   # Uninstall all workflows only (no service stops)`;
+  canarinho uninstall          # Full uninstall (refuses if active runs exist)
+  canarinho uninstall --force  # Force uninstall despite active runs
+  canarinho workflow uninstall <name>  # Uninstall a single workflow by name
+  canarinho workflow uninstall --all   # Uninstall all workflows only (no service stops)`;
 }
 
 function getDoctorHelp(): string {
-  return `tamandua doctor — Run one-shot diagnostics with per-check pass/fail and remedy commands
+  return `canarinho doctor — Run one-shot diagnostics with per-check pass/fail and remedy commands
 
-Usage: tamandua doctor
+Usage: canarinho doctor
 
 Runs a comprehensive health check across four categories and prints a
 pass/fail icon for each check. On failure, the exact remedy command is
@@ -476,7 +476,7 @@ Check categories:
   ENVIRONMENT  Node.js >= 22 (probes node:sqlite for runtime compatibility),
                pi present on PATH, gh present on PATH,
                pi-token-saver and hermes-token-saver detection (informational — optional),
-               TAMANDUA_HERMES_BINARY / hermes detection (informational — alpha)
+               canarinho_HERMES_BINARY / hermes detection (informational — alpha)
   SERVICES     Dashboard daemon PID alive, control plane health reachable,
                dashboard HTTP up, MCP server status (if configured).
                On any failure, the daemon log tail is included for diagnostics.
@@ -495,31 +495,31 @@ Exit codes:
   1 — at least one check failed (remedies printed)
 
 Examples:
-  tamandua doctor             # Run all diagnostic checks
-  tamandua doctor --help      # This help text`;
+  canarinho doctor             # Run all diagnostic checks
+  canarinho doctor --help      # This help text`;
 }
 
 function getStatusHelp(): string {
-  return `tamandua status — Show detailed Tamandua system status
+  return `canarinho status — Show detailed canarinho system status
 
-Usage: tamandua status
+Usage: canarinho status
 
-Displays a comprehensive status overview of the Tamandua system, including:
+Displays a comprehensive status overview of the canarinho system, including:
 
   Services — Dashboard, MCP, and control-plane status (up/down, PID, port)
-  Tamandua Info — Source path, skill path, version, and source tree SHA256
+  canarinho Info — Source path, skill path, version, and source tree SHA256
   Workflow Runs — Summary of all runs (running, paused, done, failed)
-  Running Processes — Active pi/hermes harness processes spawned by tamandua
+  Running Processes — Active pi/hermes harness processes spawned by canarinho
 
 Examples:
-  tamandua status             # Full system status overview
-  tamandua status --help      # This help text`;
+  canarinho status             # Full system status overview
+  canarinho status --help      # This help text`;
 }
 
 function getStepPeekHelp(): string {
-  return `tamandua step peek — Check for pending work for an agent
+  return `canarinho step peek — Check for pending work for an agent
 
-Usage: tamandua step peek <agent-id> --run-id <run-id>
+Usage: canarinho step peek <agent-id> --run-id <run-id>
 
 step peek checks whether an agent has pending (waiting or pending) work in the
 specified run. It is used by the agent scheduler polling loop to decide whether
@@ -533,13 +533,13 @@ The --run-id flag is required so concurrent runs of the same workflow/agent
 cannot cross-claim each other's steps.
 
 Examples:
-  tamandua step peek feature-dev-merge_developer --run-id abc12345`;
+  canarinho step peek feature-dev-merge_developer --run-id abc12345`;
 }
 
 function getStepClaimHelp(): string {
-  return `tamandua step claim — Atomically claim a pending step
+  return `canarinho step claim — Atomically claim a pending step
 
-Usage: tamandua step claim <agent-id> --run-id <run-id>
+Usage: canarinho step claim <agent-id> --run-id <run-id>
 
 step claim claims the next pending step for the given agent within a run.
 The claim is atomic — if two agents claim simultaneously, only one will
@@ -553,16 +553,16 @@ The --run-id flag is required so concurrent runs of the same workflow/agent
 cannot cross-claim each other's steps.
 
 Examples:
-  tamandua step claim feature-dev-merge_developer --run-id abc12345`;
+  canarinho step claim feature-dev-merge_developer --run-id abc12345`;
 }
 
 function getStepCompleteHelp(): string {
-  return `tamandua step complete — Mark a step as done
+  return `canarinho step complete — Mark a step as done
 
-Usage: tamandua step complete <step-id>
+Usage: canarinho step complete <step-id>
    or: echo "STATUS: done
   CHANGES: what changed
-  TESTS: what was tested" | tamandua step complete <step-id>
+  TESTS: what was tested" | canarinho step complete <step-id>
 
 step complete marks a claimed step as completed. It reads the agent's output
 from either stdin or positional arguments.
@@ -579,17 +579,17 @@ When using positional arguments, the entire output is passed as a single
 string. When using stdin, the output is read until EOF.
 
 Examples:
-  tamandua step complete 123e4567-e89b-12d3-a456-426614174000
+  canarinho step complete 123e4567-e89b-12d3-a456-426614174000
   echo "STATUS: done\nCHANGES: Added feature X\nTESTS: Wrote unit tests" | \\
-    tamandua step complete 123e4567-e89b-12d3-a456-426614174000`;
+    canarinho step complete 123e4567-e89b-12d3-a456-426614174000`;
 }
 
 function getStepFailHelp(): string {
-  return `tamandua step fail — Mark a step as failed
+  return `canarinho step fail — Mark a step as failed
 
-Usage: tamandua step fail <step-id> [<error message>]
+Usage: canarinho step fail <step-id> [<error message>]
 
-step fail marks a step as failed with a reason. When a step fails, Tamandua
+step fail marks a step as failed with a reason. When a step fails, canarinho
 automatically triggers retry logic — the step is reset to pending and will
 be re-claimed by the agent on the next polling cycle. The error message
 is logged for diagnostics.
@@ -600,14 +600,14 @@ Retry behavior: Steps that exceed the maximum retry count (configured in
 the workflow spec) permanently fail the run.
 
 Examples:
-  tamandua step fail 123e4567-e89b-12d3-a456-426614174000
-  tamandua step fail 123e4567-e89b-12d3-a456-426614174000 "Network timeout"`;
+  canarinho step fail 123e4567-e89b-12d3-a456-426614174000
+  canarinho step fail 123e4567-e89b-12d3-a456-426614174000 "Network timeout"`;
 }
 
 function getStepStoriesHelp(): string {
-  return `tamandua step stories — List all stories and their status for a run
+  return `canarinho step stories — List all stories and their status for a run
 
-Usage: tamandua step stories <run-id>
+Usage: canarinho step stories <run-id>
 
 step stories displays every story in the current story plan for a run,
 showing their status (pending, running, done, failed), title, and any
@@ -619,13 +619,13 @@ Output format:
   US-003   [pending] Upcoming story (retry 1)
 
 Examples:
-  tamandua step stories abc12345`;
+  canarinho step stories abc12345`;
 }
 
 function getMcpRestartHelp(): string {
-  return `tamandua mcp restart — Restart the MCP HTTP server
+  return `canarinho mcp restart — Restart the MCP HTTP server
 
-Usage: tamandua mcp restart [--port N]
+Usage: canarinho mcp restart [--port N]
 
 Restarts the MCP server. If the server is currently running, it is
 stopped first, then a new server is started on the given port (or the
@@ -636,14 +636,14 @@ Options:
   --port N    Port to restart on (default: currently configured port or 3338)
 
 Examples:
-  tamandua mcp restart            # Restart on current/default port
-  tamandua mcp restart --port 5555 # Restart on port 5555`;
+  canarinho mcp restart            # Restart on current/default port
+  canarinho mcp restart --port 5555 # Restart on port 5555`;
 }
 
 function getMcpHelp(): string {
-  return `tamandua mcp — Manage the standalone MCP HTTP server
+  return `canarinho mcp — Manage the standalone MCP HTTP server
 
-Usage: tamandua mcp <start|stop|restart|status>
+Usage: canarinho mcp <start|stop|restart|status>
 
 The MCP (Model Context Protocol) server provides a remote MCP endpoint for
 agent tool access. It runs as a standalone HTTP server, independent of the
@@ -662,18 +662,18 @@ Start will refuse if the MCP server is already running, printing its current
 status instead.
 
 Examples:
-  tamandua mcp start                   # Start on default port 3338
-  tamandua mcp start --port 5555       # Start on a custom port
-  tamandua mcp stop                    # Stop the MCP server
-  tamandua mcp restart                 # Restart on current/default port
-  tamandua mcp restart --port 5555     # Restart on port 5555
-  tamandua mcp status                  # Check if the MCP server is running`;
+  canarinho mcp start                   # Start on default port 3338
+  canarinho mcp start --port 5555       # Start on a custom port
+  canarinho mcp stop                    # Stop the MCP server
+  canarinho mcp restart                 # Restart on current/default port
+  canarinho mcp restart --port 5555     # Restart on port 5555
+  canarinho mcp status                  # Check if the MCP server is running`;
 }
 
 function getMcpStartHelp(): string {
-  return `tamandua mcp start — Start the standalone MCP HTTP server
+  return `canarinho mcp start — Start the standalone MCP HTTP server
 
-Usage: tamandua mcp start [--port N]
+Usage: canarinho mcp start [--port N]
 
 Starts the MCP server on the specified port (default: 3338). The server
 provides a remote MCP endpoint at http://localhost:<port>/mcp.
@@ -685,42 +685,42 @@ Options:
   --port N    Port to listen on (default: 3338)
 
 Examples:
-  tamandua mcp start                   # Start on default port 3338
-  tamandua mcp start --port 5555       # Start on port 5555`;
+  canarinho mcp start                   # Start on default port 3338
+  canarinho mcp start --port 5555       # Start on port 5555`;
 }
 
 function getMcpStopHelp(): string {
-  return `tamandua mcp stop — Stop the standalone MCP HTTP server
+  return `canarinho mcp stop — Stop the standalone MCP HTTP server
 
-Usage: tamandua mcp stop
+Usage: canarinho mcp stop
 
 Stops the MCP server if it is running. If the server is not running, the
 command prints a message and exits successfully — it is safe to run even
 when no MCP server is active.
 
 Examples:
-  tamandua mcp stop`;
+  canarinho mcp stop`;
 }
 
 function getMcpStatusHelp(): string {
-  return `tamandua mcp status — Show MCP server status
+  return `canarinho mcp status — Show MCP server status
 
-Usage: tamandua mcp status
+Usage: canarinho mcp status
 
 Reports whether the MCP server is running. When running, it prints the
 PID, port, and full endpoint URL. When not running, it prints the default
 endpoint that would be used on start.
 
 Examples:
-  tamandua mcp status`;
+  canarinho mcp status`;
 }
 
 function getDashboardHelp(): string {
-  return `tamandua dashboard — Manage the web dashboard daemon
+  return `canarinho dashboard — Manage the web dashboard daemon
 
-Usage: tamandua dashboard <start|stop|status>
+Usage: canarinho dashboard <start|stop|status>
 
-The dashboard daemon runs the Tamandua web dashboard, a local HTTP server
+The dashboard daemon runs the canarinho web dashboard, a local HTTP server
 for monitoring workflow runs, logs, and agent activity. It also shows the
 status of the standalone MCP server.
 
@@ -738,17 +738,17 @@ Dashboard status output includes both dashboard and MCP server information
 Start will refuse if the dashboard is already running.
 
 Examples:
-  tamandua dashboard start             # Start on default port 3334
-  tamandua dashboard start --port 8080 # Start on port 8080
-  tamandua dashboard stop              # Stop the dashboard
-  tamandua dashboard restart           # Restart on current/default port
-  tamandua dashboard status            # Check dashboard and MCP status`;
+  canarinho dashboard start             # Start on default port 3334
+  canarinho dashboard start --port 8080 # Start on port 8080
+  canarinho dashboard stop              # Stop the dashboard
+  canarinho dashboard restart           # Restart on current/default port
+  canarinho dashboard status            # Check dashboard and MCP status`;
 }
 
 function getDashboardStartHelp(): string {
-  return `tamandua dashboard start — Start the web dashboard daemon
+  return `canarinho dashboard start — Start the web dashboard daemon
 
-Usage: tamandua dashboard start [--port N]
+Usage: canarinho dashboard start [--port N]
 
 Starts the dashboard daemon on the specified port (default: 3334). The
 dashboard provides an HTTP interface at http://localhost:<port> for
@@ -764,26 +764,26 @@ Options:
   --port N    Port to listen on (default: 3334)
 
 Examples:
-  tamandua dashboard start             # Start on default port 3334
-  tamandua dashboard start --port 8080 # Start on port 8080`;
+  canarinho dashboard start             # Start on default port 3334
+  canarinho dashboard start --port 8080 # Start on port 8080`;
 }
 
 function getDashboardStopHelp(): string {
-  return `tamandua dashboard stop — Stop the web dashboard daemon
+  return `canarinho dashboard stop — Stop the web dashboard daemon
 
-Usage: tamandua dashboard stop
+Usage: canarinho dashboard stop
 
 Stops the dashboard daemon if it is running. If the daemon is not running,
 the command prints a message and exits successfully.
 
 Examples:
-  tamandua dashboard stop`;
+  canarinho dashboard stop`;
 }
 
 function getDashboardRestartHelp(): string {
-  return `tamandua dashboard restart — Restart the web dashboard daemon
+  return `canarinho dashboard restart — Restart the web dashboard daemon
 
-Usage: tamandua dashboard restart [--port N]
+Usage: canarinho dashboard restart [--port N]
 
 Restarts the dashboard daemon. If the daemon is currently running, it is
 stopped first, then a new daemon is started on the given port (or the
@@ -794,14 +794,14 @@ Options:
   --port N    Port to restart on (default: currently configured port or 3334)
 
 Examples:
-  tamandua dashboard restart            # Restart on current/default port
-  tamandua dashboard restart --port 8080 # Restart on port 8080`;
+  canarinho dashboard restart            # Restart on current/default port
+  canarinho dashboard restart --port 8080 # Restart on port 8080`;
 }
 
 function getDashboardStatusHelp(): string {
-  return `tamandua dashboard status — Show dashboard and MCP server status
+  return `canarinho dashboard status — Show dashboard and MCP server status
 
-Usage: tamandua dashboard status
+Usage: canarinho dashboard status
 
 Reports whether the dashboard daemon is running (PID, port) and also
 shows the status of the MCP server. When either service is running, it
@@ -809,13 +809,13 @@ prints PID, port, and endpoint URL. When not running, it prints the
 default endpoint that would be used on start.
 
 Examples:
-  tamandua dashboard status`;
+  canarinho dashboard status`;
 }
 
 function getControlPlaneHelp(): string {
-  return `tamandua control-plane — Manage the control plane server
+  return `canarinho control-plane — Manage the control plane server
 
-Usage: tamandua control-plane <start|stop|status>
+Usage: canarinho control-plane <start|stop|status>
 
 The control plane server provides a scheduling API for run-scoped agent
 polling. The dashboard daemon communicates with the control plane to manage
@@ -833,17 +833,17 @@ Start will refuse if the control plane is already running, printing its
 current status instead.
 
 Examples:
-  tamandua control-plane start               # Start on default port 3339
-  tamandua control-plane start --port 4444   # Start on port 4444
-  tamandua control-plane stop                # Stop the control plane
-  tamandua control-plane restart             # Restart on current/default port
-  tamandua control-plane status              # Check control plane status`;
+  canarinho control-plane start               # Start on default port 3339
+  canarinho control-plane start --port 4444   # Start on port 4444
+  canarinho control-plane stop                # Stop the control plane
+  canarinho control-plane restart             # Restart on current/default port
+  canarinho control-plane status              # Check control plane status`;
 }
 
 function getControlPlaneStartHelp(): string {
-  return `tamandua control-plane start — Start the control plane server
+  return `canarinho control-plane start — Start the control plane server
 
-Usage: tamandua control-plane start [--port N]
+Usage: canarinho control-plane start [--port N]
 
 Starts the control plane server on the specified port (default: 3339).
 The control plane provides run-scoped scheduling endpoints that the
@@ -856,26 +856,26 @@ Options:
   --port N    Port to listen on (default: 3339)
 
 Examples:
-  tamandua control-plane start              # Start on default port 3339
-  tamandua control-plane start --port 4444  # Start on port 4444`;
+  canarinho control-plane start              # Start on default port 3339
+  canarinho control-plane start --port 4444  # Start on port 4444`;
 }
 
 function getControlPlaneStopHelp(): string {
-  return `tamandua control-plane stop — Stop the control plane server
+  return `canarinho control-plane stop — Stop the control plane server
 
-Usage: tamandua control-plane stop
+Usage: canarinho control-plane stop
 
 Stops the control plane server if it is running. If the server is not
 running, the command prints a message and exits successfully.
 
 Examples:
-  tamandua control-plane stop`;
+  canarinho control-plane stop`;
 }
 
 function getControlPlaneRestartHelp(): string {
-  return `tamandua control-plane restart — Restart the control plane server
+  return `canarinho control-plane restart — Restart the control plane server
 
-Usage: tamandua control-plane restart [--port N]
+Usage: canarinho control-plane restart [--port N]
 
 Restarts the control plane server. If the server is currently running, it is
 stopped first, then a new server is started on the given port (or the
@@ -886,16 +886,16 @@ Options:
   --port N    Port to restart on (default: currently configured port or 3339)
 
 Examples:
-  tamandua control-plane restart            # Restart on current/default port
-  tamandua control-plane restart --port 4444 # Restart on port 4444`;
+  canarinho control-plane restart            # Restart on current/default port
+  canarinho control-plane restart --port 4444 # Restart on port 4444`;
 }
 
 function getLogsHelp(): string {
-  return `tamandua logs — Show recent activity events
+  return `canarinho logs — Show recent activity events
 
-Usage: tamandua logs [<selector>]
+Usage: canarinho logs [<selector>]
 
-Shows the most recent Tamandua activity events (runs, steps, agent activity).
+Shows the most recent canarinho activity events (runs, steps, agent activity).
 The optional selector determines which events to show.
 
 Selector syntax:
@@ -909,55 +909,55 @@ disk (events can be written before the run row is committed), the logs output
 will still show those events.
 
 Examples:
-  tamandua logs                   # Show last 50 global events
-  tamandua logs 20                # Show last 20 global events
-  tamandua logs abc123            # Show events for run starting with abc123
-  tamandua logs #3                # Show events for run #3`;
+  canarinho logs                   # Show last 50 global events
+  canarinho logs 20                # Show last 20 global events
+  canarinho logs abc123            # Show events for run starting with abc123
+  canarinho logs #3                # Show events for run #3`;
 }
 
 function getLogsTailHelp(): string {
-  return `tamandua logs-tail — Follow activity events in real-time
+  return `canarinho logs-tail — Follow activity events in real-time
 
-Usage: tamandua logs-tail [<selector>]
+Usage: canarinho logs-tail [<selector>]
 
-Follows Tamandua activity events in real-time, polling for new events and
+Follows canarinho activity events in real-time, polling for new events and
 printing them as they arrive. Press Ctrl-C (SIGINT) to stop following.
 
-The selector uses the same syntax as tamandua logs:
+The selector uses the same syntax as canarinho logs:
   <run-id>      Follow events for a specific run (prefix match supported)
   #<N>          Follow events for run number N
   <N>           Follow global events, showing the last N first
   (no arg)      Follow global events, showing the last 50 first
 
 The polling interval defaults to 1000ms and can be configured via the
-TAMANDUA_LOGS_TAIL_POLL_MS environment variable (minimum 10ms).
+canarinho_LOGS_TAIL_POLL_MS environment variable (minimum 10ms).
 
 Examples:
-  tamandua logs-tail              # Follow global events in real-time
-  tamandua logs-tail 20           # Follow global events, starting with last 20
-  tamandua logs-tail abc123       # Follow events for run starting with abc123
-  tamandua logs-tail #3           # Follow events for run #3`;
+  canarinho logs-tail              # Follow global events in real-time
+  canarinho logs-tail 20           # Follow global events, starting with last 20
+  canarinho logs-tail abc123       # Follow events for run starting with abc123
+  canarinho logs-tail #3           # Follow events for run #3`;
 }
 
 function getControlPlaneStatusHelp(): string {
-  return `tamandua control-plane status — Show control plane server status
+  return `canarinho control-plane status — Show control plane server status
 
-Usage: tamandua control-plane status
+Usage: canarinho control-plane status
 
 Reports whether the control plane server is running. When running, it
 prints the PID, port, and full endpoint URL. When not running, it prints
 the default endpoint that would be used on start.
 
 Examples:
-  tamandua control-plane status`;
+  canarinho control-plane status`;
 }
 
 function getWorktreeListHelp(): string {
-  return `tamandua worktree list — List all managed worktrees
+  return `canarinho worktree list — List all managed worktrees
 
-Usage: tamandua worktree list
+Usage: canarinho worktree list
 
-Lists every managed git worktree created by Tamandua workflow runs.
+Lists every managed git worktree created by canarinho workflow runs.
 Each entry shows the run ID, status, cleanup policy, and filesystem path.
 
 Output columns:
@@ -968,13 +968,13 @@ Output columns:
   Origin    Source repository and ref (below the main line)
 
 Examples:
-  tamandua worktree list`;
+  canarinho worktree list`;
 }
 
 function getWorktreeStatusHelp(): string {
-  return `tamandua worktree status — Show detailed worktree info for a run
+  return `canarinho worktree status — Show detailed worktree info for a run
 
-Usage: tamandua worktree status <run-id>
+Usage: canarinho worktree status <run-id>
 
 Shows detailed information about the managed git worktree associated with
 a specific workflow run. Accepts a run-id prefix.
@@ -990,13 +990,13 @@ Output includes:
   Cleanup      When the worktree will be cleaned up
 
 Examples:
-  tamandua worktree status abc12345`;
+  canarinho worktree status abc12345`;
 }
 
 function getWorktreeRemoveHelp(): string {
-  return `tamandua worktree remove — Remove a managed worktree
+  return `canarinho worktree remove — Remove a managed worktree
 
-Usage: tamandua worktree remove <run-id> [--force]
+Usage: canarinho worktree remove <run-id> [--force]
 
 Removes a managed git worktree and its associated tracking entry.
 Accepts a run-id prefix to identify the worktree.
@@ -1009,14 +1009,14 @@ Options:
   --force    Allow removal of worktrees in any status (not just non-ready).
 
 Examples:
-  tamandua worktree remove abc12345
-  tamandua worktree remove abc12345 --force`;
+  canarinho worktree remove abc12345
+  canarinho worktree remove abc12345 --force`;
 }
 
 function getWorktreePruneHelp(): string {
-  return `tamandua worktree prune — Remove old completed worktrees
+  return `canarinho worktree prune — Remove old completed worktrees
 
-Usage: tamandua worktree prune --completed --older-than <duration>
+Usage: canarinho worktree prune --completed --older-than <duration>
 
 Prunes (removes) managed git worktrees that are associated with completed
 or canceled workflow runs and are older than the specified duration.
@@ -1033,32 +1033,32 @@ Duration format:
     m — minutes(e.g. 30m = 30 minutes)
 
 Examples:
-  tamandua worktree prune --completed --older-than 7d
-  tamandua worktree prune --completed --older-than 24h
-  tamandua worktree prune --completed --older-than 30m`;
+  canarinho worktree prune --completed --older-than 7d
+  canarinho worktree prune --completed --older-than 24h
+  canarinho worktree prune --completed --older-than 30m`;
 }
 
 function getWorkflowListHelp(): string {
-  return `tamandua workflow list — List available bundled workflows with descriptions
+  return `canarinho workflow list — List available bundled workflows with descriptions
 
-Usage: tamandua workflow list [--json]
+Usage: canarinho workflow list [--json]
 
 Lists all bundled workflows that are available for installation from the
 source checkout, showing a one-line description for each. These are the
-workflows defined in the workflows/ directory of the Tamandua source tree.
+workflows defined in the workflows/ directory of the canarinho source tree.
 
 Options:
   --json    Output a JSON array of {id, name, description} for programmatic consumption
 
 Examples:
-  tamandua workflow list
-  tamandua workflow list --json`;
+  canarinho workflow list
+  canarinho workflow list --json`;
 }
 
 function getWorkflowRunsHelp(): string {
-  return `tamandua workflow runs — List all workflow runs
+  return `canarinho workflow runs — List all workflow runs
 
-Usage: tamandua workflow runs
+Usage: canarinho workflow runs
 
 Lists every workflow run in the database with status, workflow ID, token
 usage, and a preview of the task description.
@@ -1071,33 +1071,33 @@ Output columns:
   Task      Task description preview (truncated at 50 characters)
 
 Examples:
-  tamandua workflow runs`;
+  canarinho workflow runs`;
 }
 
 function getWorkflowInstallHelp(): string {
-  return `tamandua workflow install — Install a specific workflow by name
+  return `canarinho workflow install — Install a specific workflow by name
 
-Usage: tamandua workflow install <name>
+Usage: canarinho workflow install <name>
 
 Installs a single bundled workflow by its directory name. This fetches
 the workflow YAML spec, provisions agent workspaces (AGENTS.md, IDENTITY.md,
 SOUL.md, and any bundled skills), and registers agents in the agent config.
 
 After installation, the workflow is ready to run with:
-  tamandua workflow run <name> "task description"
+  canarinho workflow run <name> "task description"
 
 Note: Installed bundled workflow files are refreshed on every install — local
 edits are overwritten. Copy under a new workflow id to customize.
 
 Examples:
-  tamandua workflow install feature-dev-merge`;
+  canarinho workflow install feature-dev-merge`;
 }
 
 function getWorkflowUninstallHelp(): string {
-  return `tamandua workflow uninstall — Uninstall one or all workflows
+  return `canarinho workflow uninstall — Uninstall one or all workflows
 
-Usage: tamandua workflow uninstall <name> [--force]
-       tamandua workflow uninstall --all [--force]
+Usage: canarinho workflow uninstall <name> [--force]
+       canarinho workflow uninstall --all [--force]
 
 Uninstalls a workflow by name, or all workflows when --all is used.
 
@@ -1109,16 +1109,16 @@ Options:
   --force    Skip the active-runs check and uninstall anyway
 
 Examples:
-  tamandua workflow uninstall feature-dev-merge
-  tamandua workflow uninstall feature-dev-merge --force
-  tamandua workflow uninstall --all
-  tamandua workflow uninstall --all --force`;
+  canarinho workflow uninstall feature-dev-merge
+  canarinho workflow uninstall feature-dev-merge --force
+  canarinho workflow uninstall --all
+  canarinho workflow uninstall --all --force`;
 }
 
 function getWorkflowRunHelp(): string {
-  return `tamandua workflow run — Start a new workflow run
+  return `canarinho workflow run — Start a new workflow run
 
-Usage: tamandua workflow run <name> <task> [options]
+Usage: canarinho workflow run <name> <task> [options]
 
 Starts a new run of the given workflow with the specified task description.
 The task is passed to the workflow's agents as their objective.
@@ -1157,21 +1157,21 @@ Options:
       is detected on a failed merge/merge-worktree run.
 
 Examples:
-  tamandua workflow run feature-dev-merge "Add dark mode toggle"
-  tamandua workflow run feature-dev-merge "Refactor DB layer" \\
+  canarinho workflow run feature-dev-merge "Add dark mode toggle"
+  canarinho workflow run feature-dev-merge "Refactor DB layer" \\
       --no-hurry-please-save-tokens-mode
-  tamandua workflow run feature-dev-merge "Build login page" \\
+  canarinho workflow run feature-dev-merge "Build login page" \\
       --working-directory-for-harness /path/to/project
-  tamandua workflow run feature-dev-merge "Fix bug #42" \\
+  canarinho workflow run feature-dev-merge "Fix bug #42" \\
       --worktree-origin-repository /repos/myapp --worktree-origin-ref develop
-  tamandua workflow run quarantine-broken-tests-merge-worktree "Quarantine failing tests" \\
+  canarinho workflow run quarantine-broken-tests-merge-worktree "Quarantine failing tests" \\
       --context branch=quarantine/broken-tests`;
 }
 
 function getWorkflowStatusHelp(): string {
-  return `tamandua workflow status — Show detailed run status with step listing
+  return `canarinho workflow status — Show detailed run status with step listing
 
-Usage: tamandua workflow status <query>
+Usage: canarinho workflow status <query>
 
 Shows detailed information about a workflow run, including status, token
 usage, workspace mode (for worktree runs), and a list of every step with
@@ -1195,26 +1195,26 @@ Step status indicators:
   [pending]    Step waiting to be claimed
 
 Examples:
-  tamandua workflow status abc12345`;
+  canarinho workflow status abc12345`;
 }
 
 function getWorkflowAutoresearchHelp(): string {
-  return `tamandua workflow autoresearch — Show AutoResearch progress for a workflow run
+  return `canarinho workflow autoresearch — Show AutoResearch progress for a workflow run
 
-Usage: tamandua workflow autoresearch <run-id>
+Usage: canarinho workflow autoresearch <run-id>
 
 Resolves the run's harness working directory, reads its project-local
 autoresearch.config.json and autoresearch.jsonl files, then prints the
 current metric summary and recent experiment timeline.
 
 Examples:
-  tamandua workflow autoresearch abc12345`;
+  canarinho workflow autoresearch abc12345`;
 }
 
 function getWorkflowDeleteHelp(): string {
-  return `tamandua workflow delete — Permanently delete a workflow run
+  return `canarinho workflow delete — Permanently delete a workflow run
 
-Usage: tamandua workflow delete <run-id> [--force]
+Usage: canarinho workflow delete <run-id> [--force]
 
 Permanently deletes a workflow run and all associated data, including steps,
 stories, and managed worktrees. The run-id accepts prefix matching.
@@ -1226,14 +1226,14 @@ Options:
   --force    Cancel and delete even if the run is currently running or paused.
 
 Examples:
-  tamandua workflow delete abc12345
-  tamandua workflow delete abc12345 --force`;
+  canarinho workflow delete abc12345
+  canarinho workflow delete abc12345 --force`;
 }
 
 function getWorkflowStopHelp(): string {
-  return `tamandua workflow stop — Cancel a running workflow
+  return `canarinho workflow stop — Cancel a running workflow
 
-Usage: tamandua workflow stop <run-id>
+Usage: canarinho workflow stop <run-id>
 
 Cancels a running workflow by setting its status to canceled. The run-id
 accepts prefix matching.
@@ -1242,34 +1242,34 @@ Active agents associated with the run will see the cancellation on their
 next polling cycle.
 
 Examples:
-  tamandua workflow stop abc12345`;
+  canarinho workflow stop abc12345`;
 }
 
 function getWorkflowPauseHelp(): string {
-  return `tamandua workflow pause — Pause a running workflow
+  return `canarinho workflow pause — Pause a running workflow
 
-Usage: tamandua workflow pause <run-id> [--drain]
+Usage: canarinho workflow pause <run-id> [--drain]
 
 Pauses a running workflow via the dashboard daemon. Only runs with status
 "running" can be paused. The daemon must be running for this command to work
-(start it with \`tamandua dashboard start\`).
+(start it with \`canarinho dashboard start\`).
 
 When paused, agents stop polling and active work sessions are interrupted.
-Paused runs can be resumed later with \`tamandua workflow resume\`.
+Paused runs can be resumed later with \`canarinho workflow resume\`.
 
 Options:
   --drain    Let in-flight agent sessions complete before pausing, rather
              than interrupting them immediately.
 
 Examples:
-  tamandua workflow pause abc12345
-  tamandua workflow pause abc12345 --drain`;
+  canarinho workflow pause abc12345
+  canarinho workflow pause abc12345 --drain`;
 }
 
 function getWorkflowResumeHelp(): string {
-  return `tamandua workflow resume — Resume a paused or failed workflow run
+  return `canarinho workflow resume — Resume a paused or failed workflow run
 
-Usage: tamandua workflow resume <run-id>
+Usage: canarinho workflow resume <run-id>
 
 Resumes a workflow run that is paused or has failed. The run-id accepts
 prefix matching.
@@ -1284,14 +1284,14 @@ Behavior by status:
             need to be resumed.
 
 Examples:
-  tamandua workflow resume abc12345       # Resume a paused run
-  tamandua workflow resume abc12345       # Re-start a failed run`;
+  canarinho workflow resume abc12345       # Resume a paused run
+  canarinho workflow resume abc12345       # Re-start a failed run`;
 }
 
 function getWorkflowPauseAllHelp(): string {
-  return `tamandua workflow pause-all — Pause all running workflows
+  return `canarinho workflow pause-all — Pause all running workflows
 
-Usage: tamandua workflow pause-all [--drain]
+Usage: canarinho workflow pause-all [--drain]
 
 Pauses every workflow run currently in "running" status. Uses the dashboard
 daemon to pause each run. If the daemon is unreachable for a specific run,
@@ -1302,32 +1302,32 @@ Options:
              than interrupting them immediately. Applies to all runs.
 
 Examples:
-  tamandua workflow pause-all
-  tamandua workflow pause-all --drain`;
+  canarinho workflow pause-all
+  canarinho workflow pause-all --drain`;
 }
 
 function getWorkflowResumeAllHelp(): string {
-  return `tamandua workflow resume-all — Resume all paused workflows
+  return `canarinho workflow resume-all — Resume all paused workflows
 
-Usage: tamandua workflow resume-all
+Usage: canarinho workflow resume-all
 
 Resumes every workflow run currently in "paused" status. Uses the dashboard
 daemon to resume agent polling for each run. If the daemon is unreachable
 for a specific run, a warning is printed and that run is skipped.
 
 Only paused runs are resumed; failed runs are not resumed by this command
-(use \`tamandua workflow resume <run-id>\` for individual failed runs).
+(use \`canarinho workflow resume <run-id>\` for individual failed runs).
 
 Examples:
-  tamandua workflow resume-all`;
+  canarinho workflow resume-all`;
 }
 
 function getWorkflowGroupHelp(): string {
-  return `tamandua workflow — Manage workflows and runs
+  return `canarinho workflow — Manage workflows and runs
 
-Usage: tamandua workflow <list|runs|install|uninstall|run|status|autoresearch|stop|delete|pause|resume|pause-all|resume-all>
+Usage: canarinho workflow <list|runs|install|uninstall|run|status|autoresearch|stop|delete|pause|resume|pause-all|resume-all>
 
-Commands for managing Tamandua workflows and their runs.
+Commands for managing canarinho workflows and their runs.
 
 Subcommands:
   list        List available bundled workflows
@@ -1347,19 +1347,19 @@ Subcommands:
   resume-all  Resume all paused workflows
 
 Examples:
-  tamandua workflow list
-  tamandua workflow runs
-  tamandua workflow install feature-dev-merge
-  tamandua workflow run feature-dev-merge "Add a new feature"
-  tamandua workflow status abc12345
-  tamandua workflow autoresearch abc12345
-  tamandua workflow pause abc12345 --drain`;
+  canarinho workflow list
+  canarinho workflow runs
+  canarinho workflow install feature-dev-merge
+  canarinho workflow run feature-dev-merge "Add a new feature"
+  canarinho workflow status abc12345
+  canarinho workflow autoresearch abc12345
+  canarinho workflow pause abc12345 --drain`;
 }
 
 function getNudgeHelp(): string {
-  return `tamandua nudge — Trigger an immediate dispatch round for running runs
+  return `canarinho nudge — Trigger an immediate dispatch round for running runs
 
-Usage: tamandua nudge
+Usage: canarinho nudge
 
 Launches an immediate dispatch round for every scheduled agent of every
 running run: the scheduler peeks for pending work (a database check — no
@@ -1370,15 +1370,15 @@ away, e.g. after manual state changes. Does not resume paused runs or
 interrupt in-flight agents; idle nudges cost nothing.
 
 Examples:
-  tamandua nudge            # Dispatch immediately for all active runs`;
+  canarinho nudge            # Dispatch immediately for all active runs`;
 }
 
 function getWorktreeGroupHelp(): string {
-  return `tamandua worktree — Manage git worktrees for workflow runs
+  return `canarinho worktree — Manage git worktrees for workflow runs
 
-Usage: tamandua worktree <list|status|remove|prune>
+Usage: canarinho worktree <list|status|remove|prune>
 
-Commands for managing git worktrees that Tamandua creates for workflow
+Commands for managing git worktrees that canarinho creates for workflow
 runs. Worktrees provide isolated working directories so concurrent runs
 never interfere with each other.
 
@@ -1389,16 +1389,16 @@ Subcommands:
   prune     Remove old completed worktrees (requires --completed and --older-than)
 
 Examples:
-  tamandua worktree list
-  tamandua worktree status abc12345
-  tamandua worktree remove abc12345 --force
-  tamandua worktree prune --completed --older-than 7d`;
+  canarinho worktree list
+  canarinho worktree status abc12345
+  canarinho worktree remove abc12345 --force
+  canarinho worktree prune --completed --older-than 7d`;
 }
 
 function getAutoresearchHelp(): string {
-  return `tamandua autoresearch — Run durable optimization experiment loops
+  return `canarinho autoresearch — Run durable optimization experiment loops
 
-Usage: tamandua autoresearch <init|run-experiment|log-experiment|status|next|loop|prune>
+Usage: canarinho autoresearch <init|run-experiment|log-experiment|status|next|loop|prune>
 
 AutoResearch stores a project-local session in:
   autoresearch.config.json   Session configuration
@@ -1421,16 +1421,16 @@ Subcommands:
                   an AutoResearch command sequence
 
 Examples:
-  tamandua autoresearch init --goal "reduce validation loss" --metric val_bpb --direction lower --command "uv run train.py"
-  tamandua autoresearch run-experiment
-  tamandua autoresearch log-experiment --status auto --description "try smaller LR" --learned "stable but slower" --next-focus "test warmup"
-  tamandua autoresearch prune --older-than 30d`;
+  canarinho autoresearch init --goal "reduce validation loss" --metric val_bpb --direction lower --command "uv run train.py"
+  canarinho autoresearch run-experiment
+  canarinho autoresearch log-experiment --status auto --description "try smaller LR" --learned "stable but slower" --next-focus "test warmup"
+  canarinho autoresearch prune --older-than 30d`;
 }
 
 function getAutoresearchInitHelp(): string {
-  return `tamandua autoresearch init — Create an AutoResearch session
+  return `canarinho autoresearch init — Create an AutoResearch session
 
-Usage: tamandua autoresearch init --goal <text> --metric <name> --direction <lower|higher> --command <cmd> [options]
+Usage: canarinho autoresearch init --goal <text> --metric <name> --direction <lower|higher> --command <cmd> [options]
 
 Options:
   --unit <unit>             Metric unit, such as seconds, bpb, auc, or ms
@@ -1440,13 +1440,13 @@ Options:
   --overwrite               Replace existing autoresearch files
 
 Examples:
-  tamandua autoresearch init --goal "speed up tests" --metric total_ms --unit ms --direction lower --command "pnpm test --run"`;
+  canarinho autoresearch init --goal "speed up tests" --metric total_ms --unit ms --direction lower --command "pnpm test --run"`;
 }
 
 function getAutoresearchRunExperimentHelp(): string {
-  return `tamandua autoresearch run-experiment — Execute the current experiment
+  return `canarinho autoresearch run-experiment — Execute the current experiment
 
-Usage: tamandua autoresearch run-experiment [options]
+Usage: canarinho autoresearch run-experiment [options]
 
 Runs the configured command, captures stdout/stderr tails, parses the metric,
 runs optional checks, and appends a run_result entry to autoresearch.jsonl.
@@ -1459,14 +1459,14 @@ Options:
   --timeout-seconds <n>     Command timeout (default: 3600)
 
 Examples:
-  tamandua autoresearch run-experiment
-  tamandua autoresearch run-experiment --metric-regex "val_bpb=([0-9.]+)"`;
+  canarinho autoresearch run-experiment
+  canarinho autoresearch run-experiment --metric-regex "val_bpb=([0-9.]+)"`;
 }
 
 function getAutoresearchLogExperimentHelp(): string {
-  return `tamandua autoresearch log-experiment — Record experiment learning and decision
+  return `canarinho autoresearch log-experiment — Record experiment learning and decision
 
-Usage: tamandua autoresearch log-experiment --description <text> [options]
+Usage: canarinho autoresearch log-experiment --description <text> [options]
 
 By default --status auto classifies the latest measured result as baseline,
 keep, discard, crash, or checks_failed by comparing it with prior accepted
@@ -1484,37 +1484,37 @@ Options:
   --revert-discard          Revert non-autoresearch tracked files on discard
 
 Examples:
-  tamandua autoresearch log-experiment --status auto --description "cache parser" --learned "faster but flaky" --next-focus "fix invalidation"`;
+  canarinho autoresearch log-experiment --status auto --description "cache parser" --learned "faster but flaky" --next-focus "fix invalidation"`;
 }
 
 function getAutoresearchStatusHelp(): string {
-  return `tamandua autoresearch status — Summarize the experiment loop
+  return `canarinho autoresearch status — Summarize the experiment loop
 
-Usage: tamandua autoresearch status [--cwd <dir>]
+Usage: canarinho autoresearch status [--cwd <dir>]
 
 Shows baseline, best result, keep/discard counts, failure counts, and the
 ratchet prompt for the next experiment.
 
 Examples:
-  tamandua autoresearch status`;
+  canarinho autoresearch status`;
 }
 
 function getAutoresearchNextHelp(): string {
-  return `tamandua autoresearch next — Print the next experiment prompt
+  return `canarinho autoresearch next — Print the next experiment prompt
 
-Usage: tamandua autoresearch next [--cwd <dir>]
+Usage: canarinho autoresearch next [--cwd <dir>]
 
 Prints the evidence-driven prompt that agents should read before proposing
 the next experiment. This is the ratchet: use prior results before editing.
 
 Examples:
-  tamandua autoresearch next`;
+  canarinho autoresearch next`;
 }
 
 function getAutoresearchLoopHelp(): string {
-  return `tamandua autoresearch loop — Run a bounded experiment loop
+  return `canarinho autoresearch loop — Run a bounded experiment loop
 
-Usage: tamandua autoresearch loop [options]
+Usage: canarinho autoresearch loop [options]
 
 Runs a bounded AutoResearch experiment loop. An action mode is REQUIRED —
 the loop will fail without one.
@@ -1552,16 +1552,16 @@ Cancellation (Ctrl-C / SIGINT) prints the last completed iteration info
 and leaves autoresearch.jsonl in a consistent state.
 
 Examples:
-  tamandua autoresearch loop --measure-only --max-iterations 10
-  tamandua autoresearch loop --prompt --target-metric 0.5 --max-iterations 30
-  tamandua autoresearch loop --prompt --max-consecutive-failures 5
-  tamandua autoresearch loop --prompt --timeout 10m --max-iterations 10`;
+  canarinho autoresearch loop --measure-only --max-iterations 10
+  canarinho autoresearch loop --prompt --target-metric 0.5 --max-iterations 30
+  canarinho autoresearch loop --prompt --max-consecutive-failures 5
+  canarinho autoresearch loop --prompt --timeout 10m --max-iterations 10`;
 }
 
 function getAutoresearchRunLoopIterationHelp(): string {
-  return `tamandua autoresearch run-loop-iteration — Run a transactional experiment iteration
+  return `canarinho autoresearch run-loop-iteration — Run a transactional experiment iteration
 
-Usage: tamandua autoresearch run-loop-iteration [options]
+Usage: canarinho autoresearch run-loop-iteration [options]
 
 Runs a single transactional AutoResearch experiment iteration. The iteration
 follows this lifecycle:
@@ -1588,15 +1588,15 @@ Output:
   committed/reverted flags, and the full log entry.
 
 Examples:
-  tamandua autoresearch run-loop-iteration --prompt "try smaller LR" --iteration 1
-  tamandua autoresearch run-loop-iteration --command "uv run train.py" --iteration 5
-  tamandua autoresearch run-loop-iteration --prompt test --iteration 1`;
+  canarinho autoresearch run-loop-iteration --prompt "try smaller LR" --iteration 1
+  canarinho autoresearch run-loop-iteration --command "uv run train.py" --iteration 5
+  canarinho autoresearch run-loop-iteration --prompt test --iteration 1`;
 }
 
 function getAutoresearchPruneHelp(): string {
-  return `tamandua autoresearch prune — Remove stale AutoResearch registry rows
+  return `canarinho autoresearch prune — Remove stale AutoResearch registry rows
 
-Usage: tamandua autoresearch prune --older-than <duration> [--missing] [--dry-run]
+Usage: canarinho autoresearch prune --older-than <duration> [--missing] [--dry-run]
 
 Prunes (removes) stale autoresearch_sessions registry rows from the SQLite DB.
 This never touches project-local autoresearch.jsonl or config files — those
@@ -1614,44 +1614,44 @@ Duration format:
     m — minutes(e.g. 30m = 30 minutes)
 
 Examples:
-  tamandua autoresearch prune --older-than 30d
-  tamandua autoresearch prune --older-than 7d --missing
-  tamandua autoresearch prune --older-than 30d --dry-run`;
+  canarinho autoresearch prune --older-than 30d
+  canarinho autoresearch prune --older-than 7d --missing
+  canarinho autoresearch prune --older-than 30d --dry-run`;
 }
 
 function getAutoresearchWizardHelp(): string {
-  return `tamandua autoresearch wizard — Interactive AutoResearch setup wizard
+  return `canarinho autoresearch wizard — Interactive AutoResearch setup wizard
 
-Usage: tamandua autoresearch wizard [--cwd <dir>]
+Usage: canarinho autoresearch wizard [--cwd <dir>]
 
 Launches an interactive wizard that guides you through setting up an
 AutoResearch session. The wizard asks questions about what you want to
-improve and how to measure success, then generates the exact Tamandua
+improve and how to measure success, then generates the exact canarinho
 command sequence you need.
 
 The wizard does not directly create project files. If initialization is
-needed, it generates and optionally executes the correct tamandua
-autoresearch init command. Then it generates the tamandua autoresearch
+needed, it generates and optionally executes the correct canarinho
+autoresearch init command. Then it generates the canarinho autoresearch
 loop command to start the optimization loop.
 
 Options:
   --cwd <dir>    Working directory (default: current directory)
 
 Examples:
-  tamandua autoresearch wizard
-  tamandua autoresearch wizard --cwd /path/to/project`;
+  canarinho autoresearch wizard
+  canarinho autoresearch wizard --cwd /path/to/project`;
 }
 
 function getUsageText(): string {
   return [
-    "Run tamandua <command> --help for detailed command help.",
+    "Run canarinho <command> --help for detailed command help.",
     "",
-    "tamandua get-ready                    Install bundled workflows and start dashboard/control plane",
-    "tamandua uninstall [--force]          Full uninstall",
-    "tamandua status                       Show detailed system status (services, paths, runs, processes)",
-    "", "tamandua workflow list                List available workflows",
-    "tamandua workflow install <name|--all>  Install a workflow (or all)",
-    "tamandua workflow run <name> <task> [--no-hurry-please-save-tokens-mode]",
+    "canarinho get-ready                    Install bundled workflows and start dashboard/control plane",
+    "canarinho uninstall [--force]          Full uninstall",
+    "canarinho status                       Show detailed system status (services, paths, runs, processes)",
+    "", "canarinho workflow list                List available workflows",
+    "canarinho workflow install <name|--all>  Install a workflow (or all)",
+    "canarinho workflow run <name> <task> [--no-hurry-please-save-tokens-mode]",
     "                                      [--context <key=value> ...]",
     "                                      [--working-directory-for-harness <dir>]",
     "                                      [--worktree-origin-repository <dir>]",
@@ -1659,55 +1659,55 @@ function getUsageText(): string {
     "                                      [--pi-as-harness | --hermes-as-harness]",
     "                                      [--no-relaunch-upon-rugpull]",
     "                                      Start a workflow run",
-    "", "tamandua worktree list                List managed worktrees",
-    "tamandua worktree status <run-id>     Show worktree details for a run",
-    "tamandua worktree remove <run-id>     Remove managed worktree [--force]",
-    "tamandua worktree prune --completed   Remove old completed worktrees",
+    "", "canarinho worktree list                List managed worktrees",
+    "canarinho worktree status <run-id>     Show worktree details for a run",
+    "canarinho worktree remove <run-id>     Remove managed worktree [--force]",
+    "canarinho worktree prune --completed   Remove old completed worktrees",
     "           --older-than <duration>    (e.g. 7d, 24h, 30m)",
-    "", "tamandua autoresearch init            Create durable experiment-loop state",
-    "tamandua autoresearch run-experiment  Run the configured experiment command",
-    "tamandua autoresearch log-experiment   Log keep/discard learning for the loop",
-    "tamandua autoresearch loop            Run a bounded experiment loop with live progress",
-    "tamandua autoresearch run-loop-iteration Run a single transactional experiment iteration",
-    "tamandua autoresearch status          Summarize AutoResearch state",
-    "tamandua autoresearch next            Print the next experiment prompt",
-    "tamandua autoresearch prune           Remove stale AutoResearch registry rows",
+    "", "canarinho autoresearch init            Create durable experiment-loop state",
+    "canarinho autoresearch run-experiment  Run the configured experiment command",
+    "canarinho autoresearch log-experiment   Log keep/discard learning for the loop",
+    "canarinho autoresearch loop            Run a bounded experiment loop with live progress",
+    "canarinho autoresearch run-loop-iteration Run a single transactional experiment iteration",
+    "canarinho autoresearch status          Summarize AutoResearch state",
+    "canarinho autoresearch next            Print the next experiment prompt",
+    "canarinho autoresearch prune           Remove stale AutoResearch registry rows",
     "           --older-than <duration>    (e.g. 30d, 7d, 24h)",
-    "tamandua autoresearch wizard          Interactive AutoResearch setup wizard",
-    "tamandua workflow autoresearch <run-id> Show run AutoResearch progress",
-    "tamandua workflow status <query>      Check run status",
-    "tamandua workflow runs                List all workflow runs",
-    "tamandua workflow pause <run-id>      Pause a running workflow",
-    "tamandua workflow pause-all [--drain]  Pause all running workflows",
-    "tamandua workflow resume <run-id>     Resume a paused or failed run",
-    "tamandua workflow resume-all           Resume all paused workflows",
-    "tamandua workflow stop <run-id>       Stop/cancel a running workflow",
-    "tamandua workflow delete <run-id>     Permanently delete a run [--force]",
-    "tamandua mcp start [--port N]         Start MCP server (default: 3338)",
-    "tamandua mcp stop                     Stop MCP server",
-    "tamandua mcp restart [--port N]       Restart MCP server",
-    "tamandua mcp status                   Check MCP server status",
-    "tamandua control-plane start [--port N]      Start control plane (default: 3339)",
-    "tamandua control-plane stop                  Stop control plane",
-    "tamandua control-plane restart [--port N]    Restart control plane",
-    "tamandua control-plane status                Check control plane status",
-    "", "tamandua dashboard [start] [--port N] Start dashboard (default: 3334)",
-    "tamandua dashboard stop               Stop dashboard",
-    "tamandua dashboard restart [--port N] Restart dashboard",
-    "tamandua dashboard status             Check dashboard status",
-    "", "tamandua step peek <agent-id> --run-id <run-id>     Check for pending work (HAS_WORK or NO_WORK)",
-    "tamandua step claim <agent-id> --run-id <run-id>    Claim pending step (JSON output)",
-    "tamandua step complete <step-id>      Complete step (reads output from stdin)",
-    "tamandua step fail <step-id> <error>  Fail step with retry logic",
-    "tamandua step stories <run-id>        List stories for a run",
-    "", "tamandua logs [<lines>|<run-id>|#<run-number>] Show recent activity",
-    "tamandua logs-tail [<lines>|<run-id>|#<run-number>] Follow recent activity",
-    "", "tamandua version                      Show installed version",
-    "tamandua skill-path                  Print path to the bundled tamandua-agents skill",
-    "tamandua source-path                  Print source checkout path",
-    "tamandua nudge                       Trigger an immediate dispatch round for running runs",
-    "tamandua doctor                       Run one-shot diagnostic with per-check pass/fail and remedies",
-    "tamandua update [--force]             Pull latest, rebuild, reinstall",
+    "canarinho autoresearch wizard          Interactive AutoResearch setup wizard",
+    "canarinho workflow autoresearch <run-id> Show run AutoResearch progress",
+    "canarinho workflow status <query>      Check run status",
+    "canarinho workflow runs                List all workflow runs",
+    "canarinho workflow pause <run-id>      Pause a running workflow",
+    "canarinho workflow pause-all [--drain]  Pause all running workflows",
+    "canarinho workflow resume <run-id>     Resume a paused or failed run",
+    "canarinho workflow resume-all           Resume all paused workflows",
+    "canarinho workflow stop <run-id>       Stop/cancel a running workflow",
+    "canarinho workflow delete <run-id>     Permanently delete a run [--force]",
+    "canarinho mcp start [--port N]         Start MCP server (default: 3338)",
+    "canarinho mcp stop                     Stop MCP server",
+    "canarinho mcp restart [--port N]       Restart MCP server",
+    "canarinho mcp status                   Check MCP server status",
+    "canarinho control-plane start [--port N]      Start control plane (default: 3339)",
+    "canarinho control-plane stop                  Stop control plane",
+    "canarinho control-plane restart [--port N]    Restart control plane",
+    "canarinho control-plane status                Check control plane status",
+    "", "canarinho dashboard [start] [--port N] Start dashboard (default: 3334)",
+    "canarinho dashboard stop               Stop dashboard",
+    "canarinho dashboard restart [--port N] Restart dashboard",
+    "canarinho dashboard status             Check dashboard status",
+    "", "canarinho step peek <agent-id> --run-id <run-id>     Check for pending work (HAS_WORK or NO_WORK)",
+    "canarinho step claim <agent-id> --run-id <run-id>    Claim pending step (JSON output)",
+    "canarinho step complete <step-id>      Complete step (reads output from stdin)",
+    "canarinho step fail <step-id> <error>  Fail step with retry logic",
+    "canarinho step stories <run-id>        List stories for a run",
+    "", "canarinho logs [<lines>|<run-id>|#<run-number>] Show recent activity",
+    "canarinho logs-tail [<lines>|<run-id>|#<run-number>] Follow recent activity",
+    "", "canarinho version                      Show installed version",
+    "canarinho skill-path                  Print path to the bundled canarinho-agents skill",
+    "canarinho source-path                  Print source checkout path",
+    "canarinho nudge                       Trigger an immediate dispatch round for running runs",
+    "canarinho doctor                       Run one-shot diagnostic with per-check pass/fail and remedies",
+    "canarinho update [--force]             Pull latest, rebuild, reinstall",
   ].join("\n") + "\n";
 }
 
@@ -1730,8 +1730,8 @@ async function main() {
   // Check for --help before anything else: display command-specific help
   // if recognized, otherwise show global usage.
   if (hasHelpFlag(args)) {
-    if (group === "tamandua") {
-      printHelp(getTamanduaHelp());
+    if (group === "canarinho") {
+      printHelp(getcanarinhoHelp());
     }
     if (group === "version" || group === "--version" || group === "-v") {
       printHelp(getVersionHelp());
@@ -1838,15 +1838,15 @@ async function main() {
   if (!shouldSkipUpdateWarning(group, action)) {
     const status = readVersionStatus();
     if (status.updateAvailable) {
-      process.stderr.write("WARNING: A new version of tamandua is available! Run: tamandua update\n");
+      process.stderr.write("WARNING: A new version of canarinho is available! Run: canarinho update\n");
     }
   }
 
   if (group === "version" || group === "--version" || group === "-v") {
     console.log(getVersion()); return;
   }
-  if (group === "tamandua") {
-    const { printTamandua } = await import("./ant.js"); printTamandua(); return;
+  if (group === "canarinho") {
+    const { printcanarinho } = await import("./ant.js"); printcanarinho(); return;
   }
   if (group === "skill-path") {
     console.log(resolveSkillPath()); return;
@@ -1860,7 +1860,7 @@ async function main() {
     const force = args.includes("--force");
     const unknownArgs = args.slice(1).filter((arg) => arg !== "--force");
     if (unknownArgs.length > 0) {
-      process.stderr.write(`Unknown update option: ${unknownArgs[0]}\nUsage: tamandua update [--force]\n`);
+      process.stderr.write(`Unknown update option: ${unknownArgs[0]}\nUsage: canarinho update [--force]\n`);
       process.exitCode = 1;
       return;
     }
@@ -1882,7 +1882,7 @@ async function main() {
     if (isRunning().running) { stopDaemon(); console.log("Dashboard stopped."); }
     if (isMcpRunning().running) { stopMcp(); console.log("MCP server stopped."); }
     await uninstallAllWorkflows();
-    console.log("Tamandua fully uninstalled."); return;
+    console.log("canarinho fully uninstalled."); return;
   }
 
   if (group === "get-ready" && !args[1]) {
@@ -1891,12 +1891,12 @@ async function main() {
     console.log(`Installing ${workflows.length} workflow(s)...`);
     for (const wf of workflows) { try { await installWorkflow({ workflowId: wf }); console.log(`  ✓ ${wf}`); } catch (err) { console.log(`  ✗ ${wf}: ${err instanceof Error ? err.message : String(err)}`); } }
     ensureCliSymlink();
-    console.log(`\nDone. Start with: tamandua workflow run <name> "your task"`);
-    if (!isRunning().running) { try { const r = await startDaemon(3334); console.log(`\nDashboard started (PID ${r.pid}): http://localhost:${r.port}`); } catch (err) { console.log(`\nNote: dashboard not started: ${err instanceof Error ? err.message : String(err)} (recover: tamandua dashboard restart)`); } }
+    console.log(`\nDone. Start with: canarinho workflow run <name> "your task"`);
+    if (!isRunning().running) { try { const r = await startDaemon(3334); console.log(`\nDashboard started (PID ${r.pid}): http://localhost:${r.port}`); } catch (err) { console.log(`\nNote: dashboard not started: ${err instanceof Error ? err.message : String(err)} (recover: canarinho dashboard restart)`); } }
     else console.log("\nDashboard already running.");
-    if (!getMcpStatus().running) { try { const r = await startMcp(); console.log(`\nMCP server started (PID ${r.pid}): http://localhost:${r.port}/mcp`); } catch (err) { console.log(`\nNote: MCP server not started: ${err instanceof Error ? err.message : String(err)} (recover: tamandua mcp start)`); } }
+    if (!getMcpStatus().running) { try { const r = await startMcp(); console.log(`\nMCP server started (PID ${r.pid}): http://localhost:${r.port}/mcp`); } catch (err) { console.log(`\nNote: MCP server not started: ${err instanceof Error ? err.message : String(err)} (recover: canarinho mcp start)`); } }
     else console.log("\nMCP server already running.");
-    if (!getControlPlaneStatus().running) { try { const r = await startControlPlane(); console.log(`\nControl plane started (PID ${r.pid}): http://localhost:${r.port}/control/health`); } catch (err) { console.log(`\nNote: control plane not started: ${err instanceof Error ? err.message : String(err)} (recover: tamandua control-plane start)`); } }
+    if (!getControlPlaneStatus().running) { try { const r = await startControlPlane(); console.log(`\nControl plane started (PID ${r.pid}): http://localhost:${r.port}/control/health`); } catch (err) { console.log(`\nNote: control plane not started: ${err instanceof Error ? err.message : String(err)} (recover: canarinho control-plane start)`); } }
     else console.log("\nControl plane already running.");
     return;
   }
@@ -1913,7 +1913,7 @@ async function main() {
       if (restartPortIdx !== -1 && args[restartPortIdx + 1]) {
         restartPort = parseInt(args[restartPortIdx + 1], 10) || undefined;
       }
-      // Support positional port: tamandua mcp restart 5555
+      // Support positional port: canarinho mcp restart 5555
       const restartPosIdx = args.indexOf("restart") + 1;
       const restartPosArg = args[restartPosIdx];
       if (restartPosArg && !restartPosArg.startsWith("-")) {
@@ -1948,7 +1948,7 @@ async function main() {
     if (portIdx !== -1 && args[portIdx + 1]) {
       port = parseInt(args[portIdx + 1], 10) || DEFAULT_MCP_PORT;
     }
-    // Support positional port as well: tamandua mcp start 5555
+    // Support positional port as well: canarinho mcp start 5555
     if (sub && sub !== "start" && !sub.startsWith("-")) {
       const p = parseInt(sub, 10);
       if (!Number.isNaN(p)) port = p;
@@ -1980,7 +1980,7 @@ async function main() {
       if (portIdx !== -1 && args[portIdx + 1]) {
         port = parseInt(args[portIdx + 1], 10) || undefined;
       }
-      // Support positional port: tamandua dashboard restart 5555
+      // Support positional port: canarinho dashboard restart 5555
       const posIdx = args.indexOf("restart") + 1;
       const posArg = args[posIdx];
       if (posArg && !posArg.startsWith("-")) {
@@ -2026,7 +2026,7 @@ async function main() {
 
   if (group === "doctor") {
     if (args.length > 1) {
-      process.stderr.write(`Unknown doctor option: ${args.slice(1).join(" ")}\nUsage: tamandua doctor\n`);
+      process.stderr.write(`Unknown doctor option: ${args.slice(1).join(" ")}\nUsage: canarinho doctor\n`);
       process.exit(1);
     }
     const groups = await runDoctorChecks();
@@ -2037,7 +2037,7 @@ async function main() {
 
   if (group === "nudge") {
     if (args.length > 1) {
-      process.stderr.write(`Unknown nudge option: ${args.slice(1).join(" ")}\nUsage: tamandua nudge\n`);
+      process.stderr.write(`Unknown nudge option: ${args.slice(1).join(" ")}\nUsage: canarinho nudge\n`);
       process.exit(1);
     }
     let response = await nudgeWithDaemon();
@@ -2053,7 +2053,7 @@ async function main() {
     const body = response.body;
     const runningRuns = typeof body.runningRuns === "number" ? body.runningRuns : 0;
     if (runningRuns === 0) {
-      console.log("No running Tamandua runs to nudge.");
+      console.log("No running canarinho runs to nudge.");
       return;
     }
     const launched = typeof body.launched === "number" ? body.launched : 0;
@@ -2074,7 +2074,7 @@ async function main() {
       if (restartPortIdx !== -1 && args[restartPortIdx + 1]) {
         restartPort = parseInt(args[restartPortIdx + 1], 10) || undefined;
       }
-      // Support positional port: tamandua control-plane restart 4444
+      // Support positional port: canarinho control-plane restart 4444
       const restartPosIdx = args.indexOf("restart") + 1;
       const restartPosArg = args[restartPosIdx];
       if (restartPosArg && !restartPosArg.startsWith("-")) {
@@ -2110,7 +2110,7 @@ async function main() {
     if (portIdx !== -1 && args[portIdx + 1]) {
       port = parseInt(args[portIdx + 1], 10) || DEFAULT_CONTROL_PORT;
     }
-    // Support positional port as well: tamandua control-plane start 4444
+    // Support positional port as well: canarinho control-plane start 4444
     if (sub && sub !== "start" && !sub.startsWith("-")) {
       const p = parseInt(sub, 10);
       if (!Number.isNaN(p)) port = p;
@@ -2139,7 +2139,7 @@ async function main() {
 
   if (group === "step") {
     if (action === "peek" || action === "claim") {
-      if (!target) { process.stderr.write(`Missing agent-id.\nUsage: tamandua step ${action} <agent-id> --run-id <run-id>\n`); process.exit(1); }
+      if (!target) { process.stderr.write(`Missing agent-id.\nUsage: canarinho step ${action} <agent-id> --run-id <run-id>\n`); process.exit(1); }
       // --run-id is required for peek/claim so concurrent runs of the same
       // workflow + agent can't cross-claim. No implicit inference — the
       // caller (typically the polling prompt) must pass it.
@@ -2153,7 +2153,7 @@ async function main() {
       }
       if (!runIdArg) {
         process.stderr.write(
-          `Missing --run-id for step ${action}.\nUsage: tamandua step ${action} <agent-id> --run-id <run-id>\n`,
+          `Missing --run-id for step ${action}.\nUsage: canarinho step ${action} <agent-id> --run-id <run-id>\n`,
         );
         process.exit(1);
       }
@@ -2161,13 +2161,13 @@ async function main() {
         console.log(peekStep(target, runIdArg));
         return;
       }
-      const jobId = process.env.TAMANDUA_WORKER_JOB_ID;
-      const pidStr = process.env.TAMANDUA_WORKER_PID;
+      const jobId = process.env.canarinho_WORKER_JOB_ID;
+      const pidStr = process.env.canarinho_WORKER_PID;
       // Harness process group: env override, else self-detected — the CLI
       // descends from the detached harness (its group leader), so our own
       // pgid IS the harness group. Lets the dead-worker sweep (C18) tell a
       // surviving harness apart from a fully dead one.
-      const pgidStr = process.env.TAMANDUA_WORKER_PGID;
+      const pgidStr = process.env.canarinho_WORKER_PGID;
       const pgid = pgidStr ? Number(pgidStr) : getOwnProcessGroupId();
       const workerOwnership = (jobId && pidStr)
         ? { jobId, pid: Number(pidStr), ...(pgid ? { pgid } : {}) }
@@ -2275,7 +2275,7 @@ async function main() {
 
     if (action === "status") {
       if (!target) {
-        process.stderr.write("Missing run-id.\nUsage: tamandua worktree status <run-id>\n");
+        process.stderr.write("Missing run-id.\nUsage: canarinho worktree status <run-id>\n");
         process.exit(1);
       }
       // Resolve the run ID prefix to a full run ID via getWorkflowStatus
@@ -2309,7 +2309,7 @@ async function main() {
 
     if (action === "remove") {
       if (!target) {
-        process.stderr.write("Missing run-id.\nUsage: tamandua worktree remove <run-id> [--force]\n");
+        process.stderr.write("Missing run-id.\nUsage: canarinho worktree remove <run-id> [--force]\n");
         process.exit(1);
       }
       const force = args.includes("--force");
@@ -2340,7 +2340,7 @@ async function main() {
       const completedFlagIdx = args.indexOf("--completed");
       if (completedFlagIdx === -1) {
         process.stderr.write(
-          "Missing --completed flag.\nUsage: tamandua worktree prune --completed --older-than <duration>\n",
+          "Missing --completed flag.\nUsage: canarinho worktree prune --completed --older-than <duration>\n",
         );
         process.exit(1);
       }
@@ -2348,7 +2348,7 @@ async function main() {
       const olderThanIdx = args.indexOf("--older-than");
       if (olderThanIdx === -1 || !args[olderThanIdx + 1]) {
         process.stderr.write(
-          "Missing --older-than <duration>.\nUsage: tamandua worktree prune --completed --older-than <duration>\n",
+          "Missing --older-than <duration>.\nUsage: canarinho worktree prune --completed --older-than <duration>\n",
         );
         process.exit(1);
       }
@@ -2419,7 +2419,7 @@ async function main() {
     }
 
     process.stderr.write(
-      `Unknown worktree action: ${action}\nUsage: tamandua worktree <list|status|remove|prune>\n`,
+      `Unknown worktree action: ${action}\nUsage: canarinho worktree <list|status|remove|prune>\n`,
     );
     process.exit(1);
   }
@@ -2427,7 +2427,7 @@ async function main() {
   if (group === "autoresearch") {
     const cwd = readOption(args, "--cwd");
     if (action === "init") {
-      const usage = "tamandua autoresearch init --goal <text> --metric <name> --direction <lower|higher> --command <cmd>";
+      const usage = "canarinho autoresearch init --goal <text> --metric <name> --direction <lower|higher> --command <cmd>";
       const entry = initExperiment({
         cwd,
         goal: requireOption(args, "--goal", usage),
@@ -2440,7 +2440,7 @@ async function main() {
         overwrite: args.includes("--overwrite"),
       });
       console.log(`Initialized AutoResearch session for metric ${entry.metric_name} (${entry.direction}).`);
-      console.log("Next: tamandua autoresearch run-experiment");
+      console.log("Next: canarinho autoresearch run-experiment");
       upsertAutoresearchSession(cwd ?? process.cwd());
       return;
     }
@@ -2471,7 +2471,7 @@ async function main() {
         process.stderr.write(`Invalid --metric "${metricRaw}".\n`);
         process.exit(1);
       }
-      const usage = "tamandua autoresearch log-experiment --description <text>";
+      const usage = "canarinho autoresearch log-experiment --description <text>";
       const entry = await logExperiment({
         cwd,
         metric,
@@ -2557,7 +2557,7 @@ async function main() {
       const olderThanIdx = args.indexOf("--older-than");
       if (olderThanIdx === -1 || !args[olderThanIdx + 1]) {
         process.stderr.write(
-          "Missing --older-than <duration>.\nUsage: tamandua autoresearch prune --older-than <duration> [--missing] [--dry-run]\n",
+          "Missing --older-than <duration>.\nUsage: canarinho autoresearch prune --older-than <duration> [--missing] [--dry-run]\n",
         );
         process.exit(1);
       }
@@ -2658,23 +2658,23 @@ async function main() {
     if (action === "wizard") {
       const wizardCwd = readOption(args, "--cwd");
       const { runWizard } = await import("./wizard-orchestrator.js");
-      await runWizard({ cwd: wizardCwd, binaryName: "tamandua" });
+      await runWizard({ cwd: wizardCwd, binaryName: "canarinho" });
       return;
     }
 
-    process.stderr.write(`Unknown autoresearch action: ${action}\nUsage: tamandua autoresearch <init|run-experiment|log-experiment|status|next|loop|run-loop-iteration|prune|wizard>\n`);
+    process.stderr.write(`Unknown autoresearch action: ${action}\nUsage: canarinho autoresearch <init|run-experiment|log-experiment|status|next|loop|run-loop-iteration|prune|wizard>\n`);
     process.exit(1);
   }
 
   if (group === "status") {
-    console.log("Tamandua Status");
+    console.log("canarinho Status");
     console.log("===============");
     console.log();
     console.log(await formatServiceStatusAsync());
     console.log();
     console.log("---");
     console.log();
-    console.log(formatTamanduaInfo({ getVersion }));
+    console.log(formatcanarinhoInfo({ getVersion }));
     console.log();
     console.log("---");
     console.log();
@@ -2751,7 +2751,7 @@ async function main() {
     }
     const response = await pauseRunWithDaemon(fullId, drain);
     if (response === null) {
-      process.stderr.write("Daemon is unreachable. Is the daemon running? Try: tamandua dashboard start\n");
+      process.stderr.write("Daemon is unreachable. Is the daemon running? Try: canarinho dashboard start\n");
       process.exit(1);
     }
     if (response.status !== 200) {
@@ -2778,7 +2778,7 @@ async function main() {
     if (runStatus === "paused") {
       const response = await resumeRunWithDaemon(fullId);
       if (response === null) {
-        process.stderr.write("Daemon is unreachable. Is the daemon running? Try: tamandua dashboard start\n");
+        process.stderr.write("Daemon is unreachable. Is the daemon running? Try: canarinho dashboard start\n");
         process.exit(1);
       }
       if (response.status !== 200 && response.status !== 202) {
@@ -2859,11 +2859,11 @@ async function main() {
       if (workflows.length === 0) { console.log("No bundled workflows found."); return; }
       console.log(`Installing ${workflows.length} workflow(s)...`);
       for (const wf of workflows) { try { await installWorkflow({ workflowId: wf }); console.log(`  ✓ ${wf}`); } catch (err) { console.log(`  ✗ ${wf}: ${err instanceof Error ? err.message : String(err)}`); } }
-      console.log(`\nDone. Start with: tamandua workflow run <name> "your task"`);
+      console.log(`\nDone. Start with: canarinho workflow run <name> "your task"`);
       return;
     }
     const result = await installWorkflow({ workflowId: target });
-    console.log(`Installed workflow: ${result.workflowId}\nAgent crons will start when a run begins.\n\nStart with: tamandua workflow run ${result.workflowId} "your task"`);
+    console.log(`Installed workflow: ${result.workflowId}\nAgent crons will start when a run begins.\n\nStart with: canarinho workflow run ${result.workflowId} "your task"`);
     return;
   }
 
@@ -2918,7 +2918,7 @@ async function main() {
       }
       console.log(`Run: ${result.runId.slice(0, 8)}\nWorkflow: ${result.workflowId}\nTask: ${result.taskTitle}\nRun created and admitted — control plane slow to respond.`);
       console.log(`The run is live and the reconciler sweep will admit it when ready.`);
-      console.log(`Check: tamandua workflow status ${result.runId.slice(0, 8)}${dashboardLine}`);
+      console.log(`Check: canarinho workflow status ${result.runId.slice(0, 8)}${dashboardLine}`);
     } else {
       console.log(`Run: ${result.runId.slice(0, 8)}\nWorkflow: ${result.workflowId}\nTask: ${result.taskTitle}\nStatus: ${result.status}\nHarness CWD: ${result.workingDirectoryForHarness}`);
     }
@@ -2949,7 +2949,7 @@ async function main() {
 
   if (action === "autoresearch") {
     if (!target) {
-      process.stderr.write("Missing run-id.\nUsage: tamandua workflow autoresearch <run-id>\n");
+      process.stderr.write("Missing run-id.\nUsage: canarinho workflow autoresearch <run-id>\n");
       process.exit(1);
     }
     printWorkflowAutoresearch(target);
@@ -2957,7 +2957,7 @@ async function main() {
   }
 
   if (action === "delete") {
-    if (!target) { process.stderr.write("Missing run-id.\nUsage: tamandua workflow delete <run-id> [--force]\n"); process.exit(1); }
+    if (!target) { process.stderr.write("Missing run-id.\nUsage: canarinho workflow delete <run-id> [--force]\n"); process.exit(1); }
     const force = args.includes("--force");
     try {
       let fullId: string;
@@ -2982,11 +2982,11 @@ async function main() {
   if (action === "ensure-crons") {
     // Polling jobs are now tied to (runId, agentId) and admitted via the
     // daemon control plane. There is no longer a workflow-wide
-    // "ensure-crons" notion — use `tamandua workflow run` instead
+    // "ensure-crons" notion — use `canarinho workflow run` instead
     // (which registers the new run with the daemon).
     process.stderr.write(
       "`workflow ensure-crons` is removed. Run-scoped scheduling makes it obsolete \u2014 " +
-      "start a run with `tamandua workflow run <id> '<task>'`.\n",
+      "start a run with `canarinho workflow run <id> '<task>'`.\n",
     );
     process.exit(1);
   }

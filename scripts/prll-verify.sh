@@ -6,15 +6,15 @@
 #
 # Environment variables:
 #   PRLL_RUN_COUNT     Number of iterations per config (default: 5)
-#   TAMANDUA_REPO_ROOT Override repo root for testability
-#   TAMANDUA_TEST_GUARD     (default: 1)
-#   TAMANDUA_PI_BINARY      (default: /usr/bin/false)
+#   canarinho_REPO_ROOT Override repo root for testability
+#   canarinho_TEST_GUARD     (default: 1)
+#   canarinho_PI_BINARY      (default: /usr/bin/false)
 #
 # Usage:
 #   ./scripts/prll-verify.sh           # run 5 before + 5 after
 #   PRLL_RUN_COUNT=2 ./scripts/prll-verify.sh  # quick check
 
-REPO_ROOT="${TAMANDUA_REPO_ROOT:-$(cd "$(dirname "$0")/.." && pwd)}"
+REPO_ROOT="${canarinho_REPO_ROOT:-$(cd "$(dirname "$0")/.." && pwd)}"
 RUN_COUNT="${PRLL_RUN_COUNT:-5}"
 RESULT_DIR="/tmp/prll-verify-$$"
 mkdir -p "$RESULT_DIR"
@@ -23,15 +23,15 @@ mkdir -p "$RESULT_DIR"
 timestamp() { date -u +%Y-%m-%dT%H:%M:%SZ; }
 HOST_CPUS="$(nproc 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || echo 'unknown')"
 
-bg_tamandua_count() {
-  pgrep -cf 'tamandua' 2>/dev/null || true
+bg_canarinho_count() {
+  pgrep -cf 'canarinho' 2>/dev/null || true
 }
 
 echo "=== PRLL Verification Run ==="
 echo "Repo:     $REPO_ROOT"
 echo "Host:     $(hostname) | CPUs: $HOST_CPUS"
 echo "Date:     $(timestamp)"
-echo "Bg load:  $(bg_tamandua_count) tamandua procs"
+echo "Bg load:  $(bg_canarinho_count) canarinho procs"
 echo "Iterations: ${RUN_COUNT} per config"
 echo ""
 
@@ -148,7 +148,7 @@ BEFORE_FILE_COUNT=$(echo "$BEFORE_FILES" | grep -c '.' || echo 0)
 # ----- BEFORE -----
 BEFORE_OUTPUT=$(run_config "before" \
   "BEFORE (all tests, default concurrency)" \
-  "TAMANDUA_TEST_GUARD=1 TAMANDUA_PI_BINARY=/usr/bin/false node --test \$BEFORE_FILES")
+  "canarinho_TEST_GUARD=1 canarinho_PI_BINARY=/usr/bin/false node --test \$BEFORE_FILES")
 
 # Parse BEFORE results
 BEFORE_PASS=$(echo "$BEFORE_OUTPUT" | grep '^RESULT_before_pass=' | cut -d= -f2)

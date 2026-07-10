@@ -48,13 +48,13 @@ async function createTempEnv(): Promise<{
   dashboardPort: number;
 }> {
   const [controlPort, dashboardPort] = await reserveDistinctRandomPorts(2);
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), "tamandua-mcp-lifecycle-"));
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "canarinho-mcp-lifecycle-"));
   const stateDir = path.join(root, "state");
   const homeDir = path.join(root, "home");
-  const tamanduaDir = path.join(homeDir, ".tamandua");
+  const canarinhoDir = path.join(homeDir, ".canarinho");
   fs.mkdirSync(stateDir, { recursive: true });
-  fs.mkdirSync(tamanduaDir, { recursive: true });
-  fs.writeFileSync(path.join(tamanduaDir, "port"), String(dashboardPort), "utf-8");
+  fs.mkdirSync(canarinhoDir, { recursive: true });
+  fs.writeFileSync(path.join(canarinhoDir, "port"), String(dashboardPort), "utf-8");
   return { root, stateDir, homeDir, controlPort, dashboardPort };
 }
 
@@ -301,12 +301,12 @@ describe("MCP lifecycle integration", { concurrency: 1 }, () => {
               `cat /proc/${pid}/environ 2>/dev/null | tr '\\0' '\\n' | grep '^HOME='`,
               { encoding: "utf8" },
             );
-            belongsToTest = env.includes("tamandua-mcp-lifecycle");
+            belongsToTest = env.includes("canarinho-mcp-lifecycle");
           } else {
             const fds = execSync(`lsof -p ${pid} -Fn 2>/dev/null || true`, {
               encoding: "utf8",
             });
-            belongsToTest = fds.includes("tamandua-mcp-lifecycle");
+            belongsToTest = fds.includes("canarinho-mcp-lifecycle");
           }
           if (belongsToTest) {
             process.kill(Number(pid), "SIGKILL");
@@ -339,8 +339,8 @@ describe("MCP lifecycle integration", { concurrency: 1 }, () => {
     const tempEnv = await createTempEnv();
     const cliEnv = {
       HOME: tempEnv.homeDir,
-      TAMANDUA_STATE_DIR: tempEnv.stateDir,
-      TAMANDUA_CONTROL_PORT: String(tempEnv.controlPort),
+      canarinho_STATE_DIR: tempEnv.stateDir,
+      canarinho_CONTROL_PORT: String(tempEnv.controlPort),
     };
 
     try {
@@ -363,7 +363,7 @@ describe("MCP lifecycle integration", { concurrency: 1 }, () => {
         capabilities: { tools: { listChanged: boolean } };
       };
       assert.equal(init.protocolVersion, "2025-06-18");
-      assert.equal(init.serverInfo.name, "tamandua-remote-mcp");
+      assert.equal(init.serverInfo.name, "canarinho-remote-mcp");
       assert.equal(init.capabilities.tools.listChanged, false);
 
       // Send tools/list with session ID
@@ -375,12 +375,12 @@ describe("MCP lifecycle integration", { concurrency: 1 }, () => {
       assert.ok(tools.length >= 6, `Expected at least 6 MCP tools, got ${tools.length}`);
 
       const toolNames = tools.map((t: { name: string }) => t.name);
-      assert.ok(toolNames.includes("tamandua.runs.list"), "Should include tamandua.runs.list tool");
-      assert.ok(toolNames.includes("tamandua.run.status"), "Should include tamandua.run.status tool");
-      assert.ok(toolNames.includes("tamandua.run.start"), "Should include tamandua.run.start tool");
-      assert.ok(toolNames.includes("tamandua.events.recent"), "Should include tamandua.events.recent tool");
-      assert.ok(toolNames.includes("tamandua.source.path"), "Should include tamandua.source.path tool");
-      assert.ok(toolNames.includes("tamandua.update.command"), "Should include tamandua.update.command tool");
+      assert.ok(toolNames.includes("canarinho.runs.list"), "Should include canarinho.runs.list tool");
+      assert.ok(toolNames.includes("canarinho.run.status"), "Should include canarinho.run.status tool");
+      assert.ok(toolNames.includes("canarinho.run.start"), "Should include canarinho.run.start tool");
+      assert.ok(toolNames.includes("canarinho.events.recent"), "Should include canarinho.events.recent tool");
+      assert.ok(toolNames.includes("canarinho.source.path"), "Should include canarinho.source.path tool");
+      assert.ok(toolNames.includes("canarinho.update.command"), "Should include canarinho.update.command tool");
 
       // Verify MCP is independently running
       const status = await runCli(["mcp", "status"], cliEnv);
@@ -394,7 +394,7 @@ describe("MCP lifecycle integration", { concurrency: 1 }, () => {
     }
   });
 
-  it("tamandua.run.start requires workingDirectoryForHarness and can start runs", async (t) => {
+  it("canarinho.run.start requires workingDirectoryForHarness and can start runs", async (t) => {
     if (!fs.existsSync(cliPath)) {
       t.skip("CLI script not built — run npm run build first");
       return;
@@ -404,8 +404,8 @@ describe("MCP lifecycle integration", { concurrency: 1 }, () => {
     const tempEnv = await createTempEnv();
     const cliEnv = {
       HOME: tempEnv.homeDir,
-      TAMANDUA_STATE_DIR: tempEnv.stateDir,
-      TAMANDUA_CONTROL_PORT: String(tempEnv.controlPort),
+      canarinho_STATE_DIR: tempEnv.stateDir,
+      canarinho_CONTROL_PORT: String(tempEnv.controlPort),
     };
 
     try {
@@ -421,7 +421,7 @@ describe("MCP lifecycle integration", { concurrency: 1 }, () => {
         baseUrl,
         "tools/call",
         {
-          name: "tamandua.run.start",
+          name: "canarinho.run.start",
           arguments: {
             workflowId: "mcp-run-start",
             taskTitle: "Remote start without harness cwd",
@@ -441,7 +441,7 @@ describe("MCP lifecycle integration", { concurrency: 1 }, () => {
         baseUrl,
         "tools/call",
         {
-          name: "tamandua.run.start",
+          name: "canarinho.run.start",
           arguments: {
             workflowId: "mcp-run-start",
             taskTitle: "Remote start with explicit harness cwd",
@@ -491,8 +491,8 @@ describe("MCP lifecycle integration", { concurrency: 1 }, () => {
     const tempEnv = await createTempEnv();
     const cliEnv = {
       HOME: tempEnv.homeDir,
-      TAMANDUA_STATE_DIR: tempEnv.stateDir,
-      TAMANDUA_CONTROL_PORT: String(tempEnv.controlPort),
+      canarinho_STATE_DIR: tempEnv.stateDir,
+      canarinho_CONTROL_PORT: String(tempEnv.controlPort),
     };
 
     try {
@@ -521,7 +521,7 @@ describe("MCP lifecycle integration", { concurrency: 1 }, () => {
       // port (3338), which may have a production MCP. Write an unused port so the
       // probe correctly reports DOWN.
       const unusedPort = await reserveRandomPort();
-      const portDir = path.join(tempEnv.homeDir, ".tamandua");
+      const portDir = path.join(tempEnv.homeDir, ".canarinho");
       fs.mkdirSync(portDir, { recursive: true });
       fs.writeFileSync(path.join(portDir, "mcp-port"), String(unusedPort), "utf-8");
 
@@ -533,7 +533,7 @@ describe("MCP lifecycle integration", { concurrency: 1 }, () => {
       await waitForHttpDown(baseUrl);
 
       // Also verify the PID file in the isolated environment is cleaned up
-      const isolatedPidFile = path.join(tempEnv.homeDir, ".tamandua", "mcp.pid");
+      const isolatedPidFile = path.join(tempEnv.homeDir, ".canarinho", "mcp.pid");
       assert.equal(
         fs.existsSync(isolatedPidFile),
         false,
@@ -564,8 +564,8 @@ describe("MCP lifecycle integration", { concurrency: 1 }, () => {
     const tempEnv = await createTempEnv();
     const cliEnv = {
       HOME: tempEnv.homeDir,
-      TAMANDUA_STATE_DIR: tempEnv.stateDir,
-      TAMANDUA_CONTROL_PORT: String(tempEnv.controlPort),
+      canarinho_STATE_DIR: tempEnv.stateDir,
+      canarinho_CONTROL_PORT: String(tempEnv.controlPort),
     };
 
     try {
@@ -616,8 +616,8 @@ describe("MCP lifecycle integration", { concurrency: 1 }, () => {
     const tempEnv = await createTempEnv();
     const cliEnv = {
       HOME: tempEnv.homeDir,
-      TAMANDUA_STATE_DIR: tempEnv.stateDir,
-      TAMANDUA_CONTROL_PORT: String(tempEnv.controlPort),
+      canarinho_STATE_DIR: tempEnv.stateDir,
+      canarinho_CONTROL_PORT: String(tempEnv.controlPort),
     };
 
     try {
@@ -683,8 +683,8 @@ describe("MCP lifecycle integration", { concurrency: 1 }, () => {
     const tempEnv = await createTempEnv();
     const cliEnv = {
       HOME: tempEnv.homeDir,
-      TAMANDUA_STATE_DIR: tempEnv.stateDir,
-      TAMANDUA_CONTROL_PORT: String(tempEnv.controlPort),
+      canarinho_STATE_DIR: tempEnv.stateDir,
+      canarinho_CONTROL_PORT: String(tempEnv.controlPort),
     };
 
     try {
@@ -733,12 +733,12 @@ describe("MCP lifecycle integration", { concurrency: 1 }, () => {
     const tempEnv = await createTempEnv();
     const cliEnv = {
       HOME: tempEnv.homeDir,
-      TAMANDUA_STATE_DIR: tempEnv.stateDir,
-      TAMANDUA_CONTROL_PORT: String(tempEnv.controlPort),
+      canarinho_STATE_DIR: tempEnv.stateDir,
+      canarinho_CONTROL_PORT: String(tempEnv.controlPort),
     };
 
     // The MCP port file path in the isolated environment
-    const isolatedPortFile = path.join(tempEnv.homeDir, ".tamandua", "mcp-port");
+    const isolatedPortFile = path.join(tempEnv.homeDir, ".canarinho", "mcp-port");
 
     try {
       // ── First cycle: start → verify port file → stop → verify cleanup ──
@@ -753,7 +753,7 @@ describe("MCP lifecycle integration", { concurrency: 1 }, () => {
       assert.equal(parseInt(portContent1, 10), mcpPort, `Port file should contain ${mcpPort}, got ${portContent1}`);
 
       // Also verify PID file exists
-      const isolatedPidFile = path.join(tempEnv.homeDir, ".tamandua", "mcp.pid");
+      const isolatedPidFile = path.join(tempEnv.homeDir, ".canarinho", "mcp.pid");
       assert.ok(fs.existsSync(isolatedPidFile), "PID file should exist after MCP start");
 
       // Stop MCP
@@ -834,8 +834,8 @@ describe("MCP lifecycle integration", { concurrency: 1 }, () => {
     const tempEnv = await createTempEnv();
     const cliEnv = {
       HOME: tempEnv.homeDir,
-      TAMANDUA_STATE_DIR: tempEnv.stateDir,
-      TAMANDUA_CONTROL_PORT: String(tempEnv.controlPort),
+      canarinho_STATE_DIR: tempEnv.stateDir,
+      canarinho_CONTROL_PORT: String(tempEnv.controlPort),
     };
 
     try {
@@ -844,7 +844,7 @@ describe("MCP lifecycle integration", { concurrency: 1 }, () => {
       assert.equal(startCmd.code, 0);
 
       // Verify via isMcpRunning() on the isolated PID file
-      const isolatedPidFile = path.join(tempEnv.homeDir, ".tamandua", "mcp.pid");
+      const isolatedPidFile = path.join(tempEnv.homeDir, ".canarinho", "mcp.pid");
 
       // Verify the isolated PID file directly.
       assert.ok(fs.existsSync(isolatedPidFile), "PID file should exist in isolated env");
@@ -908,8 +908,8 @@ describe("MCP lifecycle integration", { concurrency: 1 }, () => {
     const tempEnv = await createTempEnv();
     const cliEnv = {
       HOME: tempEnv.homeDir,
-      TAMANDUA_STATE_DIR: tempEnv.stateDir,
-      TAMANDUA_CONTROL_PORT: String(tempEnv.controlPort),
+      canarinho_STATE_DIR: tempEnv.stateDir,
+      canarinho_CONTROL_PORT: String(tempEnv.controlPort),
     };
 
     try {
@@ -974,9 +974,9 @@ describe("MCP lifecycle integration", { concurrency: 1 }, () => {
       // Verify the PID file was cleaned up (the child process hooks SIGTERM
       // but SIGKILL doesn't give it a chance — the test shouldn't leave a
       // stale PID file behind. The kill is direct, so we clean it ourselves.)
-      try { fs.unlinkSync(path.join(tempEnv.homeDir, ".tamandua", "mcp.pid")); } catch {}
-      try { fs.unlinkSync(path.join(tempEnv.homeDir, ".tamandua", "mcp-port")); } catch {}
-      try { fs.unlinkSync(path.join(tempEnv.homeDir, ".tamandua", "mcp.log")); } catch {}
+      try { fs.unlinkSync(path.join(tempEnv.homeDir, ".canarinho", "mcp.pid")); } catch {}
+      try { fs.unlinkSync(path.join(tempEnv.homeDir, ".canarinho", "mcp-port")); } catch {}
+      try { fs.unlinkSync(path.join(tempEnv.homeDir, ".canarinho", "mcp.log")); } catch {}
 
     } finally {
       // Belt: if anything survived, kill it via the direct handle
@@ -987,7 +987,7 @@ describe("MCP lifecycle integration", { concurrency: 1 }, () => {
       try {
         await runCli(["mcp", "stop"], {
           HOME: tempEnv.homeDir,
-          TAMANDUA_STATE_DIR: tempEnv.stateDir,
+          canarinho_STATE_DIR: tempEnv.stateDir,
         });
       } catch { /* best effort */ }
       fs.rmSync(tempEnv.root, { recursive: true, force: true });

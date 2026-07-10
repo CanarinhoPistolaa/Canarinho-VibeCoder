@@ -10,10 +10,10 @@ let _dbPath: string | null = null;
 import { DatabaseSync } from "node:sqlite";
 
 function resolveDbPath(): string {
-  const explicit = process.env.TAMANDUA_DB_PATH?.trim();
+  const explicit = process.env.canarinho_DB_PATH?.trim();
   if (explicit) return path.resolve(explicit);
 
-  return path.join(os.homedir(), ".tamandua", "tamandua.db");
+  return path.join(os.homedir(), ".canarinho", "canarinho.db");
 }
 
 export function getDb(): DatabaseSync {
@@ -238,16 +238,16 @@ function migrate(db: DatabaseSync): void {
 
   // ── Global stats ──
   const statsTableExists = db.prepare(
-    "SELECT name FROM sqlite_master WHERE type='table' AND name='tamandua_stats'",
+    "SELECT name FROM sqlite_master WHERE type='table' AND name='canarinho_stats'",
   ).get();
   if (!statsTableExists) {
     db.exec(`
-      CREATE TABLE tamandua_stats (
+      CREATE TABLE canarinho_stats (
         id INTEGER PRIMARY KEY DEFAULT 1 CHECK (id = 1),
         system_tokens_spent INTEGER NOT NULL DEFAULT 0
       );
     `);
-    db.exec("INSERT OR IGNORE INTO tamandua_stats (id, system_tokens_spent) VALUES (1, 0)");
+    db.exec("INSERT OR IGNORE INTO canarinho_stats (id, system_tokens_spent) VALUES (1, 0)");
   }
 
   // ── Worktree tracking ──
@@ -319,7 +319,7 @@ export function getDbPath(): string {
 export function getSystemTokenSpend(): number {
   const db = getDb();
   const row = db.prepare(
-    "SELECT system_tokens_spent FROM tamandua_stats WHERE id = 1",
+    "SELECT system_tokens_spent FROM canarinho_stats WHERE id = 1",
   ).get() as { system_tokens_spent: number } | undefined;
   return row?.system_tokens_spent ?? 0;
 }
@@ -327,7 +327,7 @@ export function getSystemTokenSpend(): number {
 export function incrementSystemTokenSpend(amount: number): number {
   const db = getDb();
   const row = db.prepare(`
-    UPDATE tamandua_stats
+    UPDATE canarinho_stats
     SET system_tokens_spent = system_tokens_spent + ?
     WHERE id = 1
     RETURNING system_tokens_spent

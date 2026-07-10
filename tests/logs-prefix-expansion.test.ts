@@ -25,7 +25,7 @@ function appendEvent(filePath: string, event: ReturnType<typeof makeEvent>): voi
 }
 
 function createTempEnv() {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), "tamandua-logs-prefix-"));
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "canarinho-logs-prefix-"));
   const stateDir = path.join(root, "state");
   const homeDir = path.join(root, "home");
   fs.mkdirSync(stateDir, { recursive: true });
@@ -35,7 +35,7 @@ function createTempEnv() {
 
 function setupDbWithRun(stateDir: string, runId: string, runNumber: number): void {
   const dbDir = stateDir;
-  const dbPath = path.join(dbDir, "tamandua.db");
+  const dbPath = path.join(dbDir, "canarinho.db");
   fs.mkdirSync(dbDir, { recursive: true });
 
   const db = new DatabaseSync(dbPath);
@@ -91,7 +91,7 @@ async function waitForContains(
   throw new Error(`Timed out waiting for output to include: ${text}`);
 }
 
-describe("tamandua logs prefix expansion", () => {
+describe("canarinho logs prefix expansion", () => {
   it("should resolve an 8-char short prefix to the full UUID and print events", async () => {
     const env = createTempEnv();
     const fullRunId = "aaaaaaaa-bbbb-cccc-dddd-eeeeffff0001";
@@ -105,7 +105,7 @@ describe("tamandua logs prefix expansion", () => {
 
     try {
       const result = await runCliOnce(["logs", shortPrefix], {
-        TAMANDUA_STATE_DIR: env.stateDir,
+        canarinho_STATE_DIR: env.stateDir,
         HOME: env.homeDir,
       });
 
@@ -132,7 +132,7 @@ describe("tamandua logs prefix expansion", () => {
 
     try {
       const result = await runCliOnce(["logs", "zzzzzzzz"], {
-        TAMANDUA_STATE_DIR: env.stateDir,
+        canarinho_STATE_DIR: env.stateDir,
         HOME: env.homeDir,
       });
 
@@ -157,9 +157,9 @@ describe("tamandua logs prefix expansion", () => {
     appendEvent(runFile, makeEvent(fullRunId, "tail-first"));
 
     const child = spawn(process.execPath, [cliPath, "logs-tail", shortPrefix], {
-      env: cleanChildEnv({ TAMANDUA_STATE_DIR: env.stateDir,
+      env: cleanChildEnv({ canarinho_STATE_DIR: env.stateDir,
         HOME: env.homeDir,
-        TAMANDUA_LOGS_TAIL_POLL_MS: "25", }),
+        canarinho_LOGS_TAIL_POLL_MS: "25", }),
       stdio: ["ignore", "pipe", "pipe"],
     });
 
@@ -197,7 +197,7 @@ describe("tamandua logs prefix expansion", () => {
 
     try {
       const result = await runCliOnce(["logs", fullRunId], {
-        TAMANDUA_STATE_DIR: env.stateDir,
+        canarinho_STATE_DIR: env.stateDir,
         HOME: env.homeDir,
       });
 
@@ -216,7 +216,7 @@ describe("tamandua logs prefix expansion", () => {
 
     try {
       const result = await runCliOnce(["logs-tail", "zzzzzzzz"], {
-        TAMANDUA_STATE_DIR: env.stateDir,
+        canarinho_STATE_DIR: env.stateDir,
         HOME: env.homeDir,
       });
 

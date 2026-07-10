@@ -1,11 +1,11 @@
 /**
- * Tamandua Dashboard Daemon Lifecycle Controller
+ * canarinho Dashboard Daemon Lifecycle Controller
  *
- * Manages the lifecycle of the tamandua dashboard daemon process.
+ * Manages the lifecycle of the canarinho dashboard daemon process.
  *
- * - PID file:    ~/.tamandua/tamandua.pid
- * - Port file:   ~/.tamandua/port
- * - Log file:    ~/.tamandua/dashboard.log
+ * - PID file:    ~/.canarinho/canarinho.pid
+ * - Port file:   ~/.canarinho/port
+ * - Log file:    ~/.canarinho/dashboard.log
  */
 import fs from "node:fs";
 import path from "node:path";
@@ -42,7 +42,7 @@ export function recordLifecycleEvent(
   opts?: DaemonctlPathOptions,
 ): void {
   try {
-    const file = path.join(getTamanduaDir(opts), "lifecycle.log");
+    const file = path.join(getcanarinhoDir(opts), "lifecycle.log");
     if (!opts?.homeDir) {
       try {
         assertStatePathIsolation(file, "recordLifecycleEvent()");
@@ -75,22 +75,22 @@ export function recordLifecycleEvent(
 
 // ── MCP file paths ─────────────────────────────────────────────────
 
-function defaultTamanduaDir(): string {
-  return path.join(process.env.HOME?.trim() || os.homedir(), ".tamandua");
+function defaultcanarinhoDir(): string {
+  return path.join(process.env.HOME?.trim() || os.homedir(), ".canarinho");
 }
 
-export const MCP_PID_FILE = path.join(defaultTamanduaDir(), "mcp.pid");
-export const MCP_PORT_FILE = path.join(defaultTamanduaDir(), "mcp-port");
+export const MCP_PID_FILE = path.join(defaultcanarinhoDir(), "mcp.pid");
+export const MCP_PORT_FILE = path.join(defaultcanarinhoDir(), "mcp-port");
 
 // ── Control plane file paths ──────────────────────────────────────
 
-export const CONTROL_PLANE_PID_FILE = path.join(defaultTamanduaDir(), "control-plane.pid");
-export const CONTROL_PLANE_PORT_FILE = path.join(defaultTamanduaDir(), "control-plane-port");
-export const CONTROL_PLANE_LOG_FILE = path.join(defaultTamanduaDir(), "control-plane.log");
+export const CONTROL_PLANE_PID_FILE = path.join(defaultcanarinhoDir(), "control-plane.pid");
+export const CONTROL_PLANE_PORT_FILE = path.join(defaultcanarinhoDir(), "control-plane-port");
+export const CONTROL_PLANE_LOG_FILE = path.join(defaultcanarinhoDir(), "control-plane.log");
 
 export interface DaemonctlPathOptions {
   /**
-   * When set, use this directory instead of ~/.tamandua for PID, port,
+   * When set, use this directory instead of ~/.canarinho for PID, port,
    * and log files. Tests should use this to avoid touching live state.
    */
   homeDir?: string;
@@ -98,12 +98,12 @@ export interface DaemonctlPathOptions {
 
 // ── File path helpers ───────────────────────────────────────────────
 
-function getTamanduaDir(opts?: DaemonctlPathOptions): string {
-  return opts?.homeDir ? path.join(opts.homeDir, ".tamandua") : defaultTamanduaDir();
+function getcanarinhoDir(opts?: DaemonctlPathOptions): string {
+  return opts?.homeDir ? path.join(opts.homeDir, ".canarinho") : defaultcanarinhoDir();
 }
 
 export function getPidFile(opts?: DaemonctlPathOptions): string {
-  const filePath = path.join(getTamanduaDir(opts), "tamandua.pid");
+  const filePath = path.join(getcanarinhoDir(opts), "canarinho.pid");
   if (!opts?.homeDir) {
     assertStatePathIsolation(filePath, "getPidFile()");
   }
@@ -111,7 +111,7 @@ export function getPidFile(opts?: DaemonctlPathOptions): string {
 }
 
 export function getPortFile(opts?: DaemonctlPathOptions): string {
-  const filePath = path.join(getTamanduaDir(opts), "port");
+  const filePath = path.join(getcanarinhoDir(opts), "port");
   if (!opts?.homeDir) {
     assertStatePathIsolation(filePath, "getPortFile()");
   }
@@ -119,15 +119,15 @@ export function getPortFile(opts?: DaemonctlPathOptions): string {
 }
 
 export function getLogFile(opts?: DaemonctlPathOptions): string {
-  return path.join(getTamanduaDir(opts), "dashboard.log");
+  return path.join(getcanarinhoDir(opts), "dashboard.log");
 }
 
 function getStartLockFile(opts?: DaemonctlPathOptions): string {
-  return path.join(getTamanduaDir(opts), "daemon-start.lock");
+  return path.join(getcanarinhoDir(opts), "daemon-start.lock");
 }
 
 export function getMcpPidFile(opts?: DaemonctlPathOptions): string {
-  const filePath = path.join(getTamanduaDir(opts), "mcp.pid");
+  const filePath = path.join(getcanarinhoDir(opts), "mcp.pid");
   if (!opts?.homeDir) {
     assertStatePathIsolation(filePath, "getMcpPidFile()");
   }
@@ -135,7 +135,7 @@ export function getMcpPidFile(opts?: DaemonctlPathOptions): string {
 }
 
 export function getMcpPortFile(opts?: DaemonctlPathOptions): string {
-  const filePath = path.join(getTamanduaDir(opts), "mcp-port");
+  const filePath = path.join(getcanarinhoDir(opts), "mcp-port");
   if (!opts?.homeDir) {
     assertStatePathIsolation(filePath, "getMcpPortFile()");
   }
@@ -143,11 +143,11 @@ export function getMcpPortFile(opts?: DaemonctlPathOptions): string {
 }
 
 function getMcpLogFile(opts?: DaemonctlPathOptions): string {
-  return path.join(getTamanduaDir(opts), "mcp.log");
+  return path.join(getcanarinhoDir(opts), "mcp.log");
 }
 
 export function getControlPlanePidFile(opts?: DaemonctlPathOptions): string {
-  const filePath = path.join(getTamanduaDir(opts), "control-plane.pid");
+  const filePath = path.join(getcanarinhoDir(opts), "control-plane.pid");
   if (!opts?.homeDir) {
     assertStatePathIsolation(filePath, "getControlPlanePidFile()");
   }
@@ -155,7 +155,7 @@ export function getControlPlanePidFile(opts?: DaemonctlPathOptions): string {
 }
 
 export function getControlPlanePortFile(opts?: DaemonctlPathOptions): string {
-  const filePath = path.join(getTamanduaDir(opts), "control-plane-port");
+  const filePath = path.join(getcanarinhoDir(opts), "control-plane-port");
   if (!opts?.homeDir) {
     assertStatePathIsolation(filePath, "getControlPlanePortFile()");
   }
@@ -163,7 +163,7 @@ export function getControlPlanePortFile(opts?: DaemonctlPathOptions): string {
 }
 
 export function getControlPlaneLogFile(opts?: DaemonctlPathOptions): string {
-  return path.join(getTamanduaDir(opts), "control-plane.log");
+  return path.join(getcanarinhoDir(opts), "control-plane.log");
 }
 
 export function readLogTail(logPath: string = getLogFile(), lines = STARTUP_ERROR_TAIL_LINES): string {
@@ -196,11 +196,11 @@ export function readPort(opts?: DaemonctlPathOptions): number {
 }
 
 export function writePort(port: number, opts?: DaemonctlPathOptions): void {
-  const tamanduaDir = getTamanduaDir(opts);
+  const canarinhoDir = getcanarinhoDir(opts);
   if (!opts?.homeDir) {
-    assertStatePathIsolation(tamanduaDir, "writePort()");
+    assertStatePathIsolation(canarinhoDir, "writePort()");
   }
-  fs.mkdirSync(tamanduaDir, { recursive: true });
+  fs.mkdirSync(canarinhoDir, { recursive: true });
   fs.writeFileSync(getPortFile(opts), String(port), "utf-8");
 }
 
@@ -254,11 +254,11 @@ function processHomeMatches(pid: number, homeDir: string): boolean {
   //      pidfile is written while the recorded process is alive, so a
   //      reused pid pointing at an unrelated (or production) process would
   //      have started AFTER the pidfile, i.e. be younger than it; or
-  //  (b) the process holds a file open under this homeDir's .tamandua dir
+  //  (b) the process holds a file open under this homeDir's .canarinho dir
   //      (services keep their log fd open for life) — kernel-verified via
   //      lsof, and covers healthy services whose pidfile was lost.
-  const dir = path.join(homeDir, ".tamandua");
-  for (const name of ["tamandua.pid", "mcp.pid", "control-plane.pid"]) {
+  const dir = path.join(homeDir, ".canarinho");
+  for (const name of ["canarinho.pid", "mcp.pid", "control-plane.pid"]) {
     try {
       const pidFile = path.join(dir, name);
       const recorded = parseInt(fs.readFileSync(pidFile, "utf-8").trim(), 10);
@@ -282,23 +282,23 @@ function canSignalPid(pid: number, opts?: DaemonctlPathOptions): boolean {
 /**
  * Guard: refuse to signal the daemon that is scheduling the CURRENT agent.
  *
- * Tamandua agents inherit the daemon's environment, including
- * TAMANDUA_WORKER_PID (the scheduling daemon's own pid). An agent working
- * on daemon-lifecycle features that runs `tamandua dashboard stop` (or
+ * canarinho agents inherit the daemon's environment, including
+ * canarinho_WORKER_PID (the scheduling daemon's own pid). An agent working
+ * on daemon-lifecycle features that runs `canarinho dashboard stop` (or
  * restart) with the real HOME would therefore SIGTERM the very daemon
  * dispatching it — the dying daemon then kills the agent mid-restart and
  * strands the run. Lifecycle testing from inside a run must target an
  * isolated instance instead.
  */
 function assertNotSchedulingDaemon(targetPid: number, what: string): void {
-  const workerPid = Number(process.env.TAMANDUA_WORKER_PID ?? "");
+  const workerPid = Number(process.env.canarinho_WORKER_PID ?? "");
   if (Number.isInteger(workerPid) && workerPid > 0 && workerPid === targetPid) {
     throw new Error(
       `Refusing to stop the ${what} (pid ${targetPid}): it is the daemon scheduling ` +
-        `the current tamandua agent run (TAMANDUA_WORKER_PID matches). Stopping it ` +
+        `the current canarinho agent run (canarinho_WORKER_PID matches). Stopping it ` +
         `would kill this agent and strand the run. To exercise daemon lifecycle from ` +
-        `inside a run, start an ISOLATED instance: point HOME/TAMANDUA_STATE_DIR at a ` +
-        `temp directory and use non-default ports (TAMANDUA_CONTROL_PORT plus a custom ` +
+        `inside a run, start an ISOLATED instance: point HOME/canarinho_STATE_DIR at a ` +
+        `temp directory and use non-default ports (canarinho_CONTROL_PORT plus a custom ` +
         `dashboard/MCP port), then stop/restart that instance.`,
     );
   }
@@ -423,7 +423,7 @@ export type StartControlPlaneResult = {
  * Start the dashboard daemon.
  *
  * Spawns a detached node process running dist/server/daemon.js.
- * Writes the port to ~/.tamandua/port before spawning.
+ * Writes the port to ~/.canarinho/port before spawning.
  *
  * If the daemon is already running, returns its info without restarting.
  *
@@ -435,7 +435,7 @@ export async function startDaemon(port: number, opts: StartOptions): Promise<{ p
 export async function startDaemon(port: number, opts: StartOptions & { keepHandle: true }): Promise<{ pid: number; port: number; child: ChildProcess }>;
 export async function startDaemon(port = 3334, opts?: StartOptions): Promise<{ pid: number; port: number } | { pid: number; port: number; child: ChildProcess }> {
   // When homeDir is set, compute isolated paths for all filesystem operations.
-  const tamanduaDir = getTamanduaDir(opts);
+  const canarinhoDir = getcanarinhoDir(opts);
   const pidFile = getPidFile(opts);
   const portFile = getPortFile(opts);
   const logFile = getLogFile(opts);
@@ -454,7 +454,7 @@ export async function startDaemon(port = 3334, opts?: StartOptions): Promise<{ p
     return { pid: status.pid, port: existingPort };
   }
 
-  fs.mkdirSync(tamanduaDir, { recursive: true });
+  fs.mkdirSync(canarinhoDir, { recursive: true });
   const lockFd = acquireStartLock(lockFile);
   if (lockFd === null) {
     const existing = await waitForDaemonPid(pidFile, portFile, port);
@@ -636,11 +636,11 @@ export function readMcpPort(opts?: DaemonctlPathOptions): number {
  * Write the MCP port to the MCP port file.
  */
 export function writeMcpPort(port: number, opts?: DaemonctlPathOptions): void {
-  const tamanduaDir = getTamanduaDir(opts);
+  const canarinhoDir = getcanarinhoDir(opts);
   if (!opts?.homeDir) {
-    assertStatePathIsolation(tamanduaDir, "writeMcpPort()");
+    assertStatePathIsolation(canarinhoDir, "writeMcpPort()");
   }
-  fs.mkdirSync(tamanduaDir, { recursive: true });
+  fs.mkdirSync(canarinhoDir, { recursive: true });
   fs.writeFileSync(getMcpPortFile(opts), String(port), "utf-8");
 }
 
@@ -695,7 +695,7 @@ export async function startMcp(port: number, opts: StartOptions): Promise<{ pid:
 export async function startMcp(port: number, opts: StartOptions & { keepHandle: true }): Promise<{ pid: number; port: number; child: ChildProcess }>;
 export async function startMcp(port?: number, opts?: StartOptions): Promise<{ pid: number; port: number } | { pid: number; port: number; child: ChildProcess }> {
   // When homeDir is set, compute isolated paths for all filesystem operations.
-  const tamanduaDir = getTamanduaDir(opts);
+  const canarinhoDir = getcanarinhoDir(opts);
   const mcpPidFile = getMcpPidFile(opts);
   const mcpPortFile = getMcpPortFile(opts);
   const mcpLogFile = getMcpLogFile(opts);
@@ -715,7 +715,7 @@ export async function startMcp(port?: number, opts?: StartOptions): Promise<{ pi
 
   const mcpPort = port ?? DEFAULT_MCP_PORT;
 
-  fs.mkdirSync(tamanduaDir, { recursive: true });
+  fs.mkdirSync(canarinhoDir, { recursive: true });
   fs.writeFileSync(mcpPortFile, String(mcpPort), "utf-8");
 
   const out = fs.openSync(mcpLogFile, "a");
@@ -952,7 +952,7 @@ async function detectExistingControlPlane(
   if (health.healthy) {
     if (health.pid !== null && !canSignalPid(health.pid, opts)) {
       throw new Error(
-        `Port ${port} is already used by a Tamandua control plane outside the requested HOME. ` +
+        `Port ${port} is already used by a canarinho control plane outside the requested HOME. ` +
         `Stop the other process or choose a different port.`,
       );
     }
@@ -971,7 +971,7 @@ async function detectExistingControlPlane(
   if (await isTcpPortOpen(port)) {
     const suffix = health.status ? `; health endpoint returned HTTP ${health.status}` : "";
     throw new Error(
-      `Port ${port} is already in use, but it is not a healthy Tamandua control plane${suffix}. ` +
+      `Port ${port} is already in use, but it is not a healthy canarinho control plane${suffix}. ` +
       `Stop the other process or choose a different port.`,
     );
   }
@@ -1003,11 +1003,11 @@ export function readControlPlanePort(opts?: DaemonctlPathOptions): number {
  * Write the control plane port to the control plane port file.
  */
 export function writeControlPlanePort(port: number, opts?: DaemonctlPathOptions): void {
-  const tamanduaDir = getTamanduaDir(opts);
+  const canarinhoDir = getcanarinhoDir(opts);
   if (!opts?.homeDir) {
-    assertStatePathIsolation(tamanduaDir, "writeControlPlanePort()");
+    assertStatePathIsolation(canarinhoDir, "writeControlPlanePort()");
   }
-  fs.mkdirSync(tamanduaDir, { recursive: true });
+  fs.mkdirSync(canarinhoDir, { recursive: true });
   fs.writeFileSync(getControlPlanePortFile(opts), String(port), "utf-8");
 }
 
@@ -1143,7 +1143,7 @@ export async function startControlPlane(port: number, opts: StartOptions): Promi
 export async function startControlPlane(port: number, opts: StartOptions & { keepHandle: true }): Promise<StartControlPlaneResult & { child: ChildProcess }>;
 export async function startControlPlane(port?: number, opts?: StartOptions): Promise<StartControlPlaneResult | (StartControlPlaneResult & { child: ChildProcess })> {
   // When homeDir is set, compute isolated paths for all filesystem operations.
-  const tamanduaDir = getTamanduaDir(opts);
+  const canarinhoDir = getcanarinhoDir(opts);
   const cpPidFile = getControlPlanePidFile(opts);
   const cpPortFile = getControlPlanePortFile(opts);
   const cpLogFile = getControlPlaneLogFile(opts);
@@ -1166,7 +1166,7 @@ export async function startControlPlane(port?: number, opts?: StartOptions): Pro
   const existing = await detectExistingControlPlane(cpPort, cpPidFile, cpPortFile, opts);
   if (existing) return existing;
 
-  fs.mkdirSync(tamanduaDir, { recursive: true });
+  fs.mkdirSync(canarinhoDir, { recursive: true });
   fs.writeFileSync(cpPortFile, String(cpPort), "utf-8");
 
   const out = fs.openSync(cpLogFile, "a");

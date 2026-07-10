@@ -2,7 +2,7 @@ import { spawn } from "node:child_process";
 import { createInterface } from "node:readline";
 import fs from "node:fs";
 import path from "node:path";
-import { resolveTamanduaCli, resolveWorkflowDir, resolveWorkflowWorkspaceDir } from "./paths.js";
+import { resolvecanarinhoCli, resolveWorkflowDir, resolveWorkflowWorkspaceDir } from "./paths.js";
 import type { WorkflowSpec, WorkflowAgent, HarnessType } from "./types.js";
 import { logger } from "../lib/logger.js";
 import { getRoleTimeoutSeconds, inferRole } from "./install.js";
@@ -15,7 +15,7 @@ import { lookupHermesSessionTokens } from "./hermes-usage.js";
 // ──────────────────────────────────────────────────────────────────────
 // Run-Scoped Deterministic Dispatch
 //
-// Job identity:  tamandua-${workflowId}-${runId}-${agentId}
+// Job identity:  canarinho-${workflowId}-${runId}-${agentId}
 // Scope:         every job is tied to ONE (runId, agentId) tuple
 // Ownership:    timers + in-flight pi children are owned by whatever
 //               process invokes the scheduler (daemon in production;
@@ -117,7 +117,7 @@ const pendingSweepTimers = new Map<string, NodeJS.Timeout>();
 const AGENT_PERSONA_FILES = ["AGENTS.md", "IDENTITY.md", "SOUL.md"] as const;
 
 export interface CronJobInfo {
-  /** tamandua-${workflowId}-${runId}-${agentId} */
+  /** canarinho-${workflowId}-${runId}-${agentId} */
   id: string;
   workflowId: string;
   runId: string;
@@ -166,7 +166,7 @@ export interface FindPiBinaryOptions {
    * over `hermes`). Resolution happens per invocation, so installing the
    * wrapper mid-run takes effect on the next work round; when it is absent,
    * the plain harness binary is used as usual. The per-harness env override
-   * (TAMANDUA_PI_BINARY / TAMANDUA_HERMES_BINARY) still wins over both —
+   * (canarinho_PI_BINARY / canarinho_HERMES_BINARY) still wins over both —
    * that is the explicit config/test seam.
    */
   preferTokenSaver?: boolean;
@@ -199,14 +199,14 @@ export async function findPiBinary(options: FindPiBinaryOptions = {}): Promise<s
 
 export function findHermesBinary(): string {
   // Prefer explicit env override
-  const envHermes = process.env.TAMANDUA_HERMES_BINARY?.trim();
+  const envHermes = process.env.canarinho_HERMES_BINARY?.trim();
   if (envHermes) {
     try {
       fs.accessSync(envHermes, fs.constants.X_OK);
       return envHermes;
     } catch {
       throw new Error(
-        `TAMANDUA_HERMES_BINARY set but not executable: ${envHermes}`
+        `canarinho_HERMES_BINARY set but not executable: ${envHermes}`
       );
     }
   }
@@ -224,7 +224,7 @@ export function findHermesBinary(): string {
   }
 
   throw new Error(
-    "hermes binary not found in PATH. Install hermes or set TAMANDUA_HERMES_BINARY."
+    "hermes binary not found in PATH. Install hermes or set canarinho_HERMES_BINARY."
   );
 }
 
@@ -335,7 +335,7 @@ async function buildAgentPersonaInstructions(agentId: string): Promise<string> {
   if (sections.length === 0) return "";
 
   return [
-    "The following files are the provisioned Tamandua persona instructions for this workflow agent.",
+    "The following files are the provisioned canarinho persona instructions for this workflow agent.",
     "Follow them when executing claimed work. Repository-level instructions from the harness working directory still apply for repository-specific conventions.",
     "",
     ...sections,
@@ -357,7 +357,7 @@ export function buildWorkPrompt(
   runId: string,
   agentPersonaInstructions = "",
 ): string {
-  const cli = resolveTamanduaCli();
+  const cli = resolvecanarinhoCli();
 
   const persona = agentPersonaInstructions.trim();
   const prompt = [
@@ -1174,16 +1174,16 @@ export async function executeDispatchRound(
 
     let output: string;
     const adapter = getHarnessAdapter(harnessType);
-    // Pre-resolve the binary path so we can pass TAMANDUA_HERMES_BINARY
+    // Pre-resolve the binary path so we can pass canarinho_HERMES_BINARY
     // to the child env for hermes dispatch (the old if/else did this
     // via findHermesBinary() before calling runHermes).
     const binaryPath = await adapter.findBinary({ preferTokenSaver });
     const harnessEnv: Record<string, string> = {
-      TAMANDUA_WORKER_JOB_ID: job.id,
-      TAMANDUA_WORKER_PID: String(process.pid),
+      canarinho_WORKER_JOB_ID: job.id,
+      canarinho_WORKER_PID: String(process.pid),
     };
     if (harnessType === "hermes") {
-      harnessEnv.TAMANDUA_HERMES_BINARY = binaryPath;
+      harnessEnv.canarinho_HERMES_BINARY = binaryPath;
     }
     const result = await adapter.runRound(workPrompt, {
       timeout,
@@ -1370,7 +1370,7 @@ function buildJobId(workflowId: string, runId: string, agentId: string): string 
   const shortAgent = agentId.startsWith(`${workflowId}_`)
     ? agentId.slice(workflowId.length + 1)
     : agentId;
-  return `tamandua-${workflowId}-${runId}-${shortAgent}`;
+  return `canarinho-${workflowId}-${runId}-${shortAgent}`;
 }
 
 /**

@@ -16,11 +16,11 @@ describe("PRAGMA synchronous", () => {
   let origDbPath: string | undefined;
 
   before(() => {
-    tempHome = mkdtempSync(path.join(os.tmpdir(), "tamandua-db-sync-test-"));
+    tempHome = mkdtempSync(path.join(os.tmpdir(), "canarinho-db-sync-test-"));
     origHome = process.env.HOME;
-    origDbPath = process.env.TAMANDUA_DB_PATH;
+    origDbPath = process.env.canarinho_DB_PATH;
     process.env.HOME = tempHome;
-    delete process.env.TAMANDUA_DB_PATH;
+    delete process.env.canarinho_DB_PATH;
   });
 
   after(() => {
@@ -30,9 +30,9 @@ describe("PRAGMA synchronous", () => {
       delete process.env.HOME;
     }
     if (origDbPath) {
-      process.env.TAMANDUA_DB_PATH = origDbPath;
+      process.env.canarinho_DB_PATH = origDbPath;
     } else {
-      delete process.env.TAMANDUA_DB_PATH;
+      delete process.env.canarinho_DB_PATH;
     }
     rmSync(tempHome, { recursive: true, force: true });
   });
@@ -50,12 +50,12 @@ describe("run_worktrees table migration", () => {
   let origDbPath: string | undefined;
 
   before(() => {
-    tempHome = mkdtempSync(path.join(os.tmpdir(), "tamandua-db-test-"));
+    tempHome = mkdtempSync(path.join(os.tmpdir(), "canarinho-db-test-"));
     origHome = process.env.HOME;
-    origDbPath = process.env.TAMANDUA_DB_PATH;
+    origDbPath = process.env.canarinho_DB_PATH;
     // Isolate DB to temp directory by changing HOME
     process.env.HOME = tempHome;
-    delete process.env.TAMANDUA_DB_PATH;
+    delete process.env.canarinho_DB_PATH;
   });
 
   after(() => {
@@ -65,9 +65,9 @@ describe("run_worktrees table migration", () => {
       delete process.env.HOME;
     }
     if (origDbPath) {
-      process.env.TAMANDUA_DB_PATH = origDbPath;
+      process.env.canarinho_DB_PATH = origDbPath;
     } else {
-      delete process.env.TAMANDUA_DB_PATH;
+      delete process.env.canarinho_DB_PATH;
     }
     rmSync(tempHome, { recursive: true, force: true });
   });
@@ -167,7 +167,7 @@ describe("run_worktrees table migration", () => {
     assert.ok(tableExists(db, "runs"), "runs table should exist");
     assert.ok(tableExists(db, "steps"), "steps table should exist");
     assert.ok(tableExists(db, "stories"), "stories table should exist");
-    assert.ok(tableExists(db, "tamandua_stats"), "tamandua_stats table should exist");
+    assert.ok(tableExists(db, "canarinho_stats"), "canarinho_stats table should exist");
 
     // Core runs columns should still be present
     const runCols = columnNames(db, "runs");
@@ -192,9 +192,9 @@ describe("run_worktrees table migration", () => {
     assert.ok(storyCols.has("story_id"), "stories.story_id should exist");
     assert.ok(storyCols.has("status"), "stories.status should exist");
 
-    // tamandua_stats should still be present
-    const statsCols = columnNames(db, "tamandua_stats");
-    assert.ok(statsCols.has("system_tokens_spent"), "tamandua_stats.system_tokens_spent should exist");
+    // canarinho_stats should still be present
+    const statsCols = columnNames(db, "canarinho_stats");
+    assert.ok(statsCols.has("system_tokens_spent"), "canarinho_stats.system_tokens_spent should exist");
   });
 
   it("migration is idempotent (second call does nothing harmful)", () => {
@@ -345,11 +345,11 @@ describe("stories abandoned_count migration", () => {
   let origDbPath: string | undefined;
 
   before(() => {
-    tempHome = mkdtempSync(path.join(os.tmpdir(), "tamandua-stories-migration-test-"));
+    tempHome = mkdtempSync(path.join(os.tmpdir(), "canarinho-stories-migration-test-"));
     origHome = process.env.HOME;
-    origDbPath = process.env.TAMANDUA_DB_PATH;
+    origDbPath = process.env.canarinho_DB_PATH;
     process.env.HOME = tempHome;
-    delete process.env.TAMANDUA_DB_PATH;
+    delete process.env.canarinho_DB_PATH;
   });
 
   after(() => {
@@ -359,9 +359,9 @@ describe("stories abandoned_count migration", () => {
       delete process.env.HOME;
     }
     if (origDbPath) {
-      process.env.TAMANDUA_DB_PATH = origDbPath;
+      process.env.canarinho_DB_PATH = origDbPath;
     } else {
-      delete process.env.TAMANDUA_DB_PATH;
+      delete process.env.canarinho_DB_PATH;
     }
     rmSync(tempHome, { recursive: true, force: true });
   });
@@ -450,19 +450,19 @@ describe("stories abandoned_count migration", () => {
 });
 
 describe("getDbPath", () => {
-  it("returns path ending with .tamandua/tamandua.db under HOME", () => {
+  it("returns path ending with .canarinho/canarinho.db under HOME", () => {
     const result = getDbPath();
-    assert.ok(result.endsWith(path.join(".tamandua", "tamandua.db")), `expected path ending with .tamandua/tamandua.db, got ${result}`);
+    assert.ok(result.endsWith(path.join(".canarinho", "canarinho.db")), `expected path ending with .canarinho/canarinho.db, got ${result}`);
   });
 
-  it("respects TAMANDUA_DB_PATH env var", () => {
-    const customPath = "/tmp/custom-tamandua.db";
-    process.env.TAMANDUA_DB_PATH = customPath;
+  it("respects canarinho_DB_PATH env var", () => {
+    const customPath = "/tmp/custom-canarinho.db";
+    process.env.canarinho_DB_PATH = customPath;
     try {
       const result = getDbPath();
       assert.equal(result, customPath);
     } finally {
-      delete process.env.TAMANDUA_DB_PATH;
+      delete process.env.canarinho_DB_PATH;
     }
   });
 });
@@ -474,21 +474,21 @@ describe("getSystemTokenSpend", () => {
   let origDbPath: string | undefined;
 
   before(() => {
-    // Isolate into a temp HOME — this suite mutates tamandua_stats and must
+    // Isolate into a temp HOME — this suite mutates canarinho_stats and must
     // never touch the real DB (it used to zero the production token counter
     // before the isolation guard existed; the file was invisible to npm test
     // until the find-based lanes picked it up).
-    tempHome = mkdtempSync(path.join(os.tmpdir(), "tamandua-db-token-test-"));
+    tempHome = mkdtempSync(path.join(os.tmpdir(), "canarinho-db-token-test-"));
     origHome = process.env.HOME;
-    origDbPath = process.env.TAMANDUA_DB_PATH;
+    origDbPath = process.env.canarinho_DB_PATH;
     process.env.HOME = tempHome;
-    delete process.env.TAMANDUA_DB_PATH;
+    delete process.env.canarinho_DB_PATH;
 
-    // Reset tamandua_stats to a known baseline
+    // Reset canarinho_stats to a known baseline
     const db = getDb();
-    db.prepare("UPDATE tamandua_stats SET system_tokens_spent = 0 WHERE id = 1").run();
+    db.prepare("UPDATE canarinho_stats SET system_tokens_spent = 0 WHERE id = 1").run();
     // Also ensure the row exists (migrate() creates it)
-    db.prepare("INSERT OR IGNORE INTO tamandua_stats (id, system_tokens_spent) VALUES (1, 0)").run();
+    db.prepare("INSERT OR IGNORE INTO canarinho_stats (id, system_tokens_spent) VALUES (1, 0)").run();
     startingSpend = getSystemTokenSpend();
   });
 
@@ -516,9 +516,9 @@ describe("getSystemTokenSpend", () => {
       delete process.env.HOME;
     }
     if (origDbPath !== undefined) {
-      process.env.TAMANDUA_DB_PATH = origDbPath;
+      process.env.canarinho_DB_PATH = origDbPath;
     } else {
-      delete process.env.TAMANDUA_DB_PATH;
+      delete process.env.canarinho_DB_PATH;
     }
     rmSync(tempHome, { recursive: true, force: true });
   });
@@ -540,11 +540,11 @@ describe("autoresearch_sessions table migration", () => {
   let origDbPath: string | undefined;
 
   before(() => {
-    tempHome = mkdtempSync(path.join(os.tmpdir(), "tamandua-ar-sessions-test-"));
+    tempHome = mkdtempSync(path.join(os.tmpdir(), "canarinho-ar-sessions-test-"));
     origHome = process.env.HOME;
-    origDbPath = process.env.TAMANDUA_DB_PATH;
+    origDbPath = process.env.canarinho_DB_PATH;
     process.env.HOME = tempHome;
-    delete process.env.TAMANDUA_DB_PATH;
+    delete process.env.canarinho_DB_PATH;
   });
 
   after(() => {
@@ -554,9 +554,9 @@ describe("autoresearch_sessions table migration", () => {
       delete process.env.HOME;
     }
     if (origDbPath) {
-      process.env.TAMANDUA_DB_PATH = origDbPath;
+      process.env.canarinho_DB_PATH = origDbPath;
     } else {
-      delete process.env.TAMANDUA_DB_PATH;
+      delete process.env.canarinho_DB_PATH;
     }
     rmSync(tempHome, { recursive: true, force: true });
   });
@@ -688,7 +688,7 @@ describe("autoresearch_sessions table migration", () => {
     assert.ok(tableExists(db, "runs"), "runs table should exist");
     assert.ok(tableExists(db, "steps"), "steps table should exist");
     assert.ok(tableExists(db, "stories"), "stories table should exist");
-    assert.ok(tableExists(db, "tamandua_stats"), "tamandua_stats table should exist");
+    assert.ok(tableExists(db, "canarinho_stats"), "canarinho_stats table should exist");
     assert.ok(tableExists(db, "run_worktrees"), "run_worktrees table should exist");
   });
 });
@@ -700,12 +700,12 @@ describe("upsertAutoresearchSession", () => {
   let origDbPath: string | undefined;
 
   before(() => {
-    tempHome = mkdtempSync(path.join(os.tmpdir(), "tamandua-ar-upsert-test-"));
-    tempSessionDir = mkdtempSync(path.join(os.tmpdir(), "tamandua-ar-session-"));
+    tempHome = mkdtempSync(path.join(os.tmpdir(), "canarinho-ar-upsert-test-"));
+    tempSessionDir = mkdtempSync(path.join(os.tmpdir(), "canarinho-ar-session-"));
     origHome = process.env.HOME;
-    origDbPath = process.env.TAMANDUA_DB_PATH;
+    origDbPath = process.env.canarinho_DB_PATH;
     process.env.HOME = tempHome;
-    delete process.env.TAMANDUA_DB_PATH;
+    delete process.env.canarinho_DB_PATH;
   });
 
   after(() => {
@@ -715,9 +715,9 @@ describe("upsertAutoresearchSession", () => {
       delete process.env.HOME;
     }
     if (origDbPath) {
-      process.env.TAMANDUA_DB_PATH = origDbPath;
+      process.env.canarinho_DB_PATH = origDbPath;
     } else {
-      delete process.env.TAMANDUA_DB_PATH;
+      delete process.env.canarinho_DB_PATH;
     }
     rmSync(tempHome, { recursive: true, force: true });
     rmSync(tempSessionDir, { recursive: true, force: true });
@@ -897,12 +897,12 @@ describe("getAutoresearchSessions", () => {
   let origDbPath: string | undefined;
 
   before(() => {
-    tempHome = mkdtempSync(path.join(os.tmpdir(), "tamandua-ar-list-test-"));
-    tempSessionDir = mkdtempSync(path.join(os.tmpdir(), "tamandua-ar-session2-"));
+    tempHome = mkdtempSync(path.join(os.tmpdir(), "canarinho-ar-list-test-"));
+    tempSessionDir = mkdtempSync(path.join(os.tmpdir(), "canarinho-ar-session2-"));
     origHome = process.env.HOME;
-    origDbPath = process.env.TAMANDUA_DB_PATH;
+    origDbPath = process.env.canarinho_DB_PATH;
     process.env.HOME = tempHome;
-    delete process.env.TAMANDUA_DB_PATH;
+    delete process.env.canarinho_DB_PATH;
   });
 
   after(() => {
@@ -912,9 +912,9 @@ describe("getAutoresearchSessions", () => {
       delete process.env.HOME;
     }
     if (origDbPath) {
-      process.env.TAMANDUA_DB_PATH = origDbPath;
+      process.env.canarinho_DB_PATH = origDbPath;
     } else {
-      delete process.env.TAMANDUA_DB_PATH;
+      delete process.env.canarinho_DB_PATH;
     }
     rmSync(tempHome, { recursive: true, force: true });
     rmSync(tempSessionDir, { recursive: true, force: true });
@@ -927,8 +927,8 @@ describe("getAutoresearchSessions", () => {
 
   it("returns all non-missing sessions ordered by updated_at DESC", () => {
     // Create two sessions
-    const dir1 = mkdtempSync(path.join(os.tmpdir(), "tamandua-ar-a-"));
-    const dir2 = mkdtempSync(path.join(os.tmpdir(), "tamandua-ar-b-"));
+    const dir1 = mkdtempSync(path.join(os.tmpdir(), "canarinho-ar-a-"));
+    const dir2 = mkdtempSync(path.join(os.tmpdir(), "canarinho-ar-b-"));
 
     try {
       writeSessionConfig(dir1, {
@@ -992,12 +992,12 @@ describe("getAutoresearchSessionById", () => {
   let origDbPath: string | undefined;
 
   before(() => {
-    tempHome = mkdtempSync(path.join(os.tmpdir(), "tamandua-ar-getbyid-test-"));
-    tempSessionDir = mkdtempSync(path.join(os.tmpdir(), "tamandua-ar-session3-"));
+    tempHome = mkdtempSync(path.join(os.tmpdir(), "canarinho-ar-getbyid-test-"));
+    tempSessionDir = mkdtempSync(path.join(os.tmpdir(), "canarinho-ar-session3-"));
     origHome = process.env.HOME;
-    origDbPath = process.env.TAMANDUA_DB_PATH;
+    origDbPath = process.env.canarinho_DB_PATH;
     process.env.HOME = tempHome;
-    delete process.env.TAMANDUA_DB_PATH;
+    delete process.env.canarinho_DB_PATH;
   });
 
   after(() => {
@@ -1007,9 +1007,9 @@ describe("getAutoresearchSessionById", () => {
       delete process.env.HOME;
     }
     if (origDbPath) {
-      process.env.TAMANDUA_DB_PATH = origDbPath;
+      process.env.canarinho_DB_PATH = origDbPath;
     } else {
-      delete process.env.TAMANDUA_DB_PATH;
+      delete process.env.canarinho_DB_PATH;
     }
     rmSync(tempHome, { recursive: true, force: true });
     rmSync(tempSessionDir, { recursive: true, force: true });
@@ -1046,11 +1046,11 @@ describe("getDb handle stability", () => {
   let origDbPath: string | undefined;
 
   before(() => {
-    tempHome = mkdtempSync(path.join(os.tmpdir(), "tamandua-db-handle-test-"));
+    tempHome = mkdtempSync(path.join(os.tmpdir(), "canarinho-db-handle-test-"));
     origHome = process.env.HOME;
-    origDbPath = process.env.TAMANDUA_DB_PATH;
+    origDbPath = process.env.canarinho_DB_PATH;
     process.env.HOME = tempHome;
-    delete process.env.TAMANDUA_DB_PATH;
+    delete process.env.canarinho_DB_PATH;
   });
 
   after(() => {
@@ -1060,9 +1060,9 @@ describe("getDb handle stability", () => {
       delete process.env.HOME;
     }
     if (origDbPath) {
-      process.env.TAMANDUA_DB_PATH = origDbPath;
+      process.env.canarinho_DB_PATH = origDbPath;
     } else {
-      delete process.env.TAMANDUA_DB_PATH;
+      delete process.env.canarinho_DB_PATH;
     }
     rmSync(tempHome, { recursive: true, force: true });
   });
@@ -1083,20 +1083,20 @@ describe("getDb handle stability", () => {
     assert.strictEqual(db1, db2, "getDb() should return the same handle after time elapses with unchanged path");
   });
 
-  it("returns a fresh handle when TAMANDUA_DB_PATH changes", () => {
+  it("returns a fresh handle when canarinho_DB_PATH changes", () => {
     const db1 = getDb();
 
     const newPath = path.join(tempHome, "new-db.sqlite");
-    process.env.TAMANDUA_DB_PATH = newPath;
+    process.env.canarinho_DB_PATH = newPath;
 
     const db2 = getDb();
     assert.notStrictEqual(db1, db2, "getDb() should return a new handle when DB path changes");
     assert.strictEqual(getDbPath(), newPath, "getDbPath should reflect the new path");
   });
 
-  it("returns the identical handle when TAMANDUA_DB_PATH is set and unchanged", () => {
+  it("returns the identical handle when canarinho_DB_PATH is set and unchanged", () => {
     const customPath = path.join(tempHome, "stable-db.sqlite");
-    process.env.TAMANDUA_DB_PATH = customPath;
+    process.env.canarinho_DB_PATH = customPath;
 
     const db1 = getDb();
     const db2 = getDb();
@@ -1111,12 +1111,12 @@ describe("deleteAutoresearchSession", () => {
   let origDbPath: string | undefined;
 
   before(() => {
-    tempHome = mkdtempSync(path.join(os.tmpdir(), "tamandua-ar-delete-test-"));
-    tempSessionDir = mkdtempSync(path.join(os.tmpdir(), "tamandua-ar-session4-"));
+    tempHome = mkdtempSync(path.join(os.tmpdir(), "canarinho-ar-delete-test-"));
+    tempSessionDir = mkdtempSync(path.join(os.tmpdir(), "canarinho-ar-session4-"));
     origHome = process.env.HOME;
-    origDbPath = process.env.TAMANDUA_DB_PATH;
+    origDbPath = process.env.canarinho_DB_PATH;
     process.env.HOME = tempHome;
-    delete process.env.TAMANDUA_DB_PATH;
+    delete process.env.canarinho_DB_PATH;
   });
 
   after(() => {
@@ -1126,9 +1126,9 @@ describe("deleteAutoresearchSession", () => {
       delete process.env.HOME;
     }
     if (origDbPath) {
-      process.env.TAMANDUA_DB_PATH = origDbPath;
+      process.env.canarinho_DB_PATH = origDbPath;
     } else {
-      delete process.env.TAMANDUA_DB_PATH;
+      delete process.env.canarinho_DB_PATH;
     }
     rmSync(tempHome, { recursive: true, force: true });
     rmSync(tempSessionDir, { recursive: true, force: true });

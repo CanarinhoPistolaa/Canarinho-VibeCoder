@@ -126,21 +126,21 @@ function createReadlineTerminal(): WizardTerminal {
 
 // ── Explanation text ───────────────────────────────────────────────
 
-const WIZARD_EXPLANATION = `AutoResearch lets Tamandua run an automated experiment loop to
+const WIZARD_EXPLANATION = `AutoResearch lets canarinho run an automated experiment loop to
 iteratively improve a measurable metric in your project.
 
 Key concepts:
   • autoresearch init — creates project-local config declaring the
     optimization goal, metric, measurement command, and direction.
   • autoresearch loop --prompt — runs a bounded experiment cycle:
-    Tamandua proposes one small change, measures the metric, records
+    canarinho proposes one small change, measures the metric, records
     the result, and repeats. The loop stops when it hits a target
     metric, max iterations, consecutive failures, or Ctrl-C.
 
 This wizard will guide you through configuring your AutoResearch session.`;
 
 const FIRST_QUESTION =
-  "What do you want AutoResearch to improve, and how should Tamandua measure success?";
+  "What do you want AutoResearch to improve, and how should canarinho measure success?";
 
 // ── Helpers ────────────────────────────────────────────────────────
 
@@ -179,7 +179,7 @@ function checkAutoResearchInitialized(cwd: string): {
 export interface RunWizardOptions {
   /** Working directory (default: process.cwd()). */
   cwd?: string;
-  /** Binary name for rendered commands (default: "tamandua"). */
+  /** Binary name for rendered commands (default: "canarinho"). */
   binaryName?: string;
   /** Injectable pi spawn function (for testing). */
   piSpawn?: PiSpawnFn;
@@ -201,7 +201,7 @@ export interface RunWizardOptions {
  */
 export async function runWizard(options: RunWizardOptions = {}): Promise<void> {
   const cwd = options.cwd ?? process.cwd();
-  const binaryName = options.binaryName ?? "tamandua";
+  const binaryName = options.binaryName ?? "canarinho";
   const piSpawn = options.piSpawn ?? spawn;
   const terminal = options.terminal ?? createReadlineTerminal();
   const commandSpawn = options.commandSpawn ?? spawn;

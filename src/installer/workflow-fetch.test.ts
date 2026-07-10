@@ -44,7 +44,7 @@ describe("workflow-fetch", () => {
     });
 
     it("falls back to workflow ID when description is missing", async () => {
-      const tmpDir = path.join(tmpdir(), `tamandua-test-${process.pid}-wf-missing-desc`);
+      const tmpDir = path.join(tmpdir(), `canarinho-test-${process.pid}-wf-missing-desc`);
       const wfDir = path.join(tmpDir, "workflows", "test-missing-desc");
       mkdirSync(wfDir, { recursive: true });
       writeFileSync(
@@ -52,9 +52,9 @@ describe("workflow-fetch", () => {
         "id: test-missing-desc\nname: Test No Description\n",
         "utf-8",
       );
-      const orig = process.env.TAMANDUA_STATE_DIR;
+      const orig = process.env.canarinho_STATE_DIR;
       try {
-        process.env.TAMANDUA_STATE_DIR = tmpDir;
+        process.env.canarinho_STATE_DIR = tmpDir;
         // We need to override the bundled dir resolution. Since the function
         // uses resolveBundledWorkflowDir which uses resolveBundledWorkflowsDir,
         // and that uses __dirname, we can't easily redirect. Test with a real
@@ -65,9 +65,9 @@ describe("workflow-fetch", () => {
         assert.ok(desc.length > 0);
       } finally {
         if (orig !== undefined) {
-          process.env.TAMANDUA_STATE_DIR = orig;
+          process.env.canarinho_STATE_DIR = orig;
         } else {
-          delete process.env.TAMANDUA_STATE_DIR;
+          delete process.env.canarinho_STATE_DIR;
         }
         rmSync(tmpDir, { recursive: true, force: true });
       }
@@ -138,10 +138,10 @@ describe("workflow-fetch", () => {
     });
 
     it("fetches a bundled workflow into target directory", async () => {
-      const tmpDir = path.join(tmpdir(), `tamandua-test-${process.pid}-fetch-wf`);
-      const orig = process.env.TAMANDUA_STATE_DIR;
+      const tmpDir = path.join(tmpdir(), `canarinho-test-${process.pid}-fetch-wf`);
+      const orig = process.env.canarinho_STATE_DIR;
       try {
-        process.env.TAMANDUA_STATE_DIR = tmpDir;
+        process.env.canarinho_STATE_DIR = tmpDir;
         const result = await fetchWorkflow("do-now");
         assert.ok(result.workflowDir.length > 0);
         assert.ok(result.bundledSourceDir.length > 0);
@@ -149,9 +149,9 @@ describe("workflow-fetch", () => {
         assert.ok(existsSync(path.join(result.workflowDir, "workflow.yml")), "workflow.yml should be copied");
       } finally {
         if (orig !== undefined) {
-          process.env.TAMANDUA_STATE_DIR = orig;
+          process.env.canarinho_STATE_DIR = orig;
         } else {
-          delete process.env.TAMANDUA_STATE_DIR;
+          delete process.env.canarinho_STATE_DIR;
         }
         rmSync(tmpDir, { recursive: true, force: true });
       }
@@ -160,12 +160,12 @@ describe("workflow-fetch", () => {
 
   describe("getWorkflowShortDescription edge cases", () => {
     it("falls back to workflowId when YAML is not a parseable object", async () => {
-      const tmpDir = path.join(tmpdir(), `tamandua-test-${process.pid}-wf-invalid-yaml`);
+      const tmpDir = path.join(tmpdir(), `canarinho-test-${process.pid}-wf-invalid-yaml`);
       const wfDir = path.join(tmpDir, "workflows", "test-invalid-yaml");
       mkdirSync(wfDir, { recursive: true });
       // Write a YAML file that parses to a non-object (e.g., a plain string)
       writeFileSync(path.join(wfDir, "workflow.yml"), "just a string\n", "utf-8");
-      const orig = process.env.TAMANDUA_STATE_DIR;
+      const orig = process.env.canarinho_STATE_DIR;
       try {
         // We can't redirect BUNDLED dir resolution, so test that a real
         // workflow with description works. For the invalid YAML fallback,
@@ -176,9 +176,9 @@ describe("workflow-fetch", () => {
         assert.ok(!desc.includes("\n"), "description should be single-line");
       } finally {
         if (orig !== undefined) {
-          process.env.TAMANDUA_STATE_DIR = orig;
+          process.env.canarinho_STATE_DIR = orig;
         } else {
-          delete process.env.TAMANDUA_STATE_DIR;
+          delete process.env.canarinho_STATE_DIR;
         }
         rmSync(tmpDir, { recursive: true, force: true });
       }
@@ -214,9 +214,9 @@ describe("workflow-fetch", () => {
       const path = await import("node:path");
       const { fetchWorkflow } = await import("../../dist/installer/workflow-fetch.js");
 
-      const tempHome = fsSync.mkdtempSync(path.join(os.tmpdir(), "tamandua-fetch-symlink-"));
-      const savedStateDir = process.env.TAMANDUA_STATE_DIR;
-      process.env.TAMANDUA_STATE_DIR = path.join(tempHome, ".tamandua");
+      const tempHome = fsSync.mkdtempSync(path.join(os.tmpdir(), "canarinho-fetch-symlink-"));
+      const savedStateDir = process.env.canarinho_STATE_DIR;
+      process.env.canarinho_STATE_DIR = path.join(tempHome, ".canarinho");
       try {
         // bug-fix-worktree ships symlinked agent dirs (shared personas).
         const { workflowDir } = await fetchWorkflow("bug-fix-worktree");
@@ -235,8 +235,8 @@ describe("workflow-fetch", () => {
           "symlink must still resolve to the shared persona",
         );
       } finally {
-        if (savedStateDir === undefined) delete process.env.TAMANDUA_STATE_DIR;
-        else process.env.TAMANDUA_STATE_DIR = savedStateDir;
+        if (savedStateDir === undefined) delete process.env.canarinho_STATE_DIR;
+        else process.env.canarinho_STATE_DIR = savedStateDir;
         fsSync.rmSync(tempHome, { recursive: true, force: true });
       }
     });
@@ -247,9 +247,9 @@ describe("workflow-fetch", () => {
       const path = await import("node:path");
       const { fetchWorkflow } = await import("../../dist/installer/workflow-fetch.js");
 
-      const tempHome = fsSync.mkdtempSync(path.join(os.tmpdir(), "tamandua-fetch-refresh-"));
-      const savedStateDir = process.env.TAMANDUA_STATE_DIR;
-      process.env.TAMANDUA_STATE_DIR = path.join(tempHome, ".tamandua");
+      const tempHome = fsSync.mkdtempSync(path.join(os.tmpdir(), "canarinho-fetch-refresh-"));
+      const savedStateDir = process.env.canarinho_STATE_DIR;
+      process.env.canarinho_STATE_DIR = path.join(tempHome, ".canarinho");
       try {
         // First install
         const { workflowDir } = await fetchWorkflow("do-now");
@@ -259,15 +259,15 @@ describe("workflow-fetch", () => {
         // Simulate a stale/customized installed copy
         fsSync.writeFileSync(ymlPath, "id: do-now\n# STALE INSTALLED COPY\n", "utf-8");
 
-        // Re-install (what tamandua update does) must refresh to current
+        // Re-install (what canarinho update does) must refresh to current
         await fetchWorkflow("do-now");
         const refreshed = fsSync.readFileSync(ymlPath, "utf-8");
         const assert = (await import("node:assert/strict")).default;
         assert.equal(refreshed, original, "reinstall must overwrite the installed definition with the bundled one");
         assert.ok(!refreshed.includes("STALE INSTALLED COPY"));
       } finally {
-        if (savedStateDir === undefined) delete process.env.TAMANDUA_STATE_DIR;
-        else process.env.TAMANDUA_STATE_DIR = savedStateDir;
+        if (savedStateDir === undefined) delete process.env.canarinho_STATE_DIR;
+        else process.env.canarinho_STATE_DIR = savedStateDir;
         fsSync.rmSync(tempHome, { recursive: true, force: true });
       }
     });

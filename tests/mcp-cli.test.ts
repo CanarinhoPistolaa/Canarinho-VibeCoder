@@ -1,14 +1,14 @@
 /**
- * Tests for tamandua mcp CLI commands (US-003).
+ * Tests for canarinho mcp CLI commands (US-003).
  *
  * Validates:
- * 1. tamandua mcp start prints PID and endpoint URL
- * 2. tamandua mcp start --port <random> starts MCP on a random port
- * 3. tamandua mcp start when already running shows existing status without restarting
- * 4. tamandua mcp status shows running state, PID, port, and endpoint when MCP is up
- * 5. tamandua mcp status shows not running when MCP is down
- * 6. tamandua mcp stop kills MCP process and prints confirmation
- * 7. tamandua mcp stop when not running prints not running message
+ * 1. canarinho mcp start prints PID and endpoint URL
+ * 2. canarinho mcp start --port <random> starts MCP on a random port
+ * 3. canarinho mcp start when already running shows existing status without restarting
+ * 4. canarinho mcp status shows running state, PID, port, and endpoint when MCP is up
+ * 5. canarinho mcp status shows not running when MCP is down
+ * 6. canarinho mcp stop kills MCP process and prints confirmation
+ * 7. canarinho mcp stop when not running prints not running message
  *
  * All tests use isolated temp HOME directories so they do not share
  * PID/port files with parallel tests (US-003 isolation).
@@ -147,15 +147,15 @@ function cleanStderr(stderr: string): string {
 // ═══════════════════════════════════════════════════════════════════
 
 function createTempHome(): string {
-  return fs.mkdtempSync(path.join(os.tmpdir(), "tamandua-mcp-cli-"));
+  return fs.mkdtempSync(path.join(os.tmpdir(), "canarinho-mcp-cli-"));
 }
 
 function getIsolatedMcpPidFile(homeDir: string): string {
-  return path.join(homeDir, ".tamandua", "mcp.pid");
+  return path.join(homeDir, ".canarinho", "mcp.pid");
 }
 
 function getIsolatedMcpPortFile(homeDir: string): string {
-  return path.join(homeDir, ".tamandua", "mcp-port");
+  return path.join(homeDir, ".canarinho", "mcp-port");
 }
 
 function readIsolatedMcpPort(homeDir: string): number {
@@ -202,8 +202,8 @@ function cleanupIsolatedMcpFiles(homeDir: string): void {
 // Tests
 // ═══════════════════════════════════════════════════════════════════
 
-describe("tamandua mcp CLI", { concurrency: 1 }, () => {
-  // AC 5: tamandua mcp status shows not running when MCP is down
+describe("canarinho mcp CLI", { concurrency: 1 }, () => {
+  // AC 5: canarinho mcp status shows not running when MCP is down
   it("mcp status shows not running when MCP is down", async () => {
     const unusedPort = await reserveRandomPort();
     const tempHome = createTempHome();
@@ -211,8 +211,8 @@ describe("tamandua mcp CLI", { concurrency: 1 }, () => {
       cleanupIsolatedMcpFiles(tempHome);
       // Write an isolated port file pointing to an unused port so the
       // async status probe doesn't detect a production MCP on the default 3338.
-      const tamanduaDir = path.join(tempHome, ".tamandua");
-      fs.mkdirSync(tamanduaDir, { recursive: true });
+      const canarinhoDir = path.join(tempHome, ".canarinho");
+      fs.mkdirSync(canarinhoDir, { recursive: true });
       fs.writeFileSync(getIsolatedMcpPortFile(tempHome), String(unusedPort), "utf-8");
 
       const { stdout, stderr, exitCode } = await runCli(["mcp", "status"], tempHome);
@@ -226,7 +226,7 @@ describe("tamandua mcp CLI", { concurrency: 1 }, () => {
     }
   });
 
-  // AC 1: tamandua mcp start prints PID and endpoint URL
+  // AC 1: canarinho mcp start prints PID and endpoint URL
   it("mcp start prints PID and endpoint URL", async (t) => {
     if (!fs.existsSync(CLI_SCRIPT)) {
       t.skip("CLI script not built — run npm run build first");
@@ -266,7 +266,7 @@ describe("tamandua mcp CLI", { concurrency: 1 }, () => {
     }
   });
 
-  // AC 2: tamandua mcp start --port <random> starts MCP on a random custom port
+  // AC 2: canarinho mcp start --port <random> starts MCP on a random custom port
   it("mcp start --port <random> starts MCP on a custom port", async (t) => {
     if (!fs.existsSync(CLI_SCRIPT)) {
       t.skip("CLI script not built — run npm run build first");
@@ -301,7 +301,7 @@ describe("tamandua mcp CLI", { concurrency: 1 }, () => {
     }
   });
 
-  // AC 3: tamandua mcp start when already running shows existing status without restarting
+  // AC 3: canarinho mcp start when already running shows existing status without restarting
   it("mcp start when already running shows existing status", async (t) => {
     if (!fs.existsSync(CLI_SCRIPT)) {
       t.skip("CLI script not built — run npm run build first");
@@ -344,7 +344,7 @@ describe("tamandua mcp CLI", { concurrency: 1 }, () => {
     }
   });
 
-  // AC 4: tamandua mcp status shows running state, PID, port, and endpoint when MCP is up
+  // AC 4: canarinho mcp status shows running state, PID, port, and endpoint when MCP is up
   it("mcp status shows running state when MCP is up", async (t) => {
     if (!fs.existsSync(CLI_SCRIPT)) {
       t.skip("CLI script not built — run npm run build first");
@@ -388,7 +388,7 @@ describe("tamandua mcp CLI", { concurrency: 1 }, () => {
     }
   });
 
-  // AC 6: tamandua mcp stop kills MCP process and prints confirmation
+  // AC 6: canarinho mcp stop kills MCP process and prints confirmation
   it("mcp stop kills MCP process and prints confirmation", async (t) => {
     if (!fs.existsSync(CLI_SCRIPT)) {
       t.skip("CLI script not built — run npm run build first");
@@ -436,7 +436,7 @@ describe("tamandua mcp CLI", { concurrency: 1 }, () => {
     }
   });
 
-  // AC 7: tamandua mcp stop when not running prints not running message
+  // AC 7: canarinho mcp stop when not running prints not running message
   it("mcp stop when not running prints not running", async () => {
     const tempHome = createTempHome();
     try {

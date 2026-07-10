@@ -7,7 +7,7 @@ import { once } from "node:events";
 import http from "node:http";
 import { DatabaseSync } from "node:sqlite";
 
-import type { TamanduaEvent } from "../../dist/installer/events.js";
+import type { canarinhoEvent } from "../../dist/installer/events.js";
 import { assertStatePathIsolation } from "../../dist/lib/test-guard.js";
 import {
   buildKanbanSnapshot,
@@ -288,7 +288,7 @@ function makeEvent(
   ts: string,
   event: string,
   opts: { runId?: string; stepId?: string; storyId?: string; detail?: string; tokenDelta?: number; tokensSpent?: number } = {},
-): TamanduaEvent {
+): canarinhoEvent {
   return {
     ts,
     event,
@@ -326,7 +326,7 @@ describe("kanban-data: buildKanbanCardDetail", () => {
       output: "STATUS: done\nCHANGES: Added login",
     });
 
-    const events: TamanduaEvent[] = [
+    const events: canarinhoEvent[] = [
       makeEvent("2025-01-01T10:00:00Z", "story.started", { runId: "r1", stepId: "implement", storyId: "US-001" }),
       makeEvent("2025-01-01T10:05:00Z", "story.done", { runId: "r1", stepId: "implement", storyId: "US-001" }),
     ];
@@ -356,7 +356,7 @@ describe("kanban-data: buildKanbanCardDetail", () => {
       output: "STATUS: done\nREPO: /home/repo",
     });
 
-    const events: TamanduaEvent[] = [
+    const events: canarinhoEvent[] = [
       makeEvent("2025-01-02T09:00:00Z", "step.running", { runId: "r2", stepId: "plan" }),
       makeEvent("2025-01-02T09:30:00Z", "step.done", { runId: "r2", stepId: "plan" }),
     ];
@@ -380,7 +380,7 @@ describe("kanban-data: buildKanbanCardDetail", () => {
       input_template: "Verify the changes",
     });
 
-    const events: TamanduaEvent[] = [
+    const events: canarinhoEvent[] = [
       makeEvent("2025-01-03T10:00:00Z", "step.running", { runId: "r3", stepId: "verify" }),
       makeEvent("2025-01-03T10:02:00Z", "step.failed", { runId: "r3", stepId: "verify", detail: "Agent terminated without completing step; retries exhausted" }),
     ];
@@ -399,7 +399,7 @@ describe("kanban-data: buildKanbanCardDetail", () => {
     });
     insertStory(db, "r4", "US-001", 0, "Broken story", "failed");
 
-    const events: TamanduaEvent[] = [
+    const events: canarinhoEvent[] = [
       makeEvent("2025-01-04T10:00:00Z", "story.started", { runId: "r4", stepId: "implement", storyId: "US-001" }),
       makeEvent("2025-01-04T10:01:00Z", "story.failed", { runId: "r4", stepId: "implement", storyId: "US-001", detail: "Abandoned — retries exhausted" }),
       makeEvent("2025-01-04T10:01:01Z", "step.failed", { runId: "r4", stepId: "implement", detail: "Loop step failed" }),
@@ -418,7 +418,7 @@ describe("kanban-data: buildKanbanCardDetail", () => {
       input_template: "Plan it",
     });
 
-    const events: TamanduaEvent[] = [
+    const events: canarinhoEvent[] = [
       makeEvent("2025-01-05T10:00:00Z", "step.running", { runId: "r5", stepId: "plan" }),
       makeEvent("2025-01-05T10:01:00Z", "run.tokens.updated", { runId: "r5", stepId: "plan", tokenDelta: 1500, tokensSpent: 1500 }),
       makeEvent("2025-01-05T10:02:00Z", "run.tokens.updated", { runId: "r5", stepId: "plan", tokenDelta: 800, tokensSpent: 2300 }),
@@ -438,7 +438,7 @@ describe("kanban-data: buildKanbanCardDetail", () => {
     insertRun(db, "r6", "running");
     insertStep(db, "r6", "plan", "planner", 0, "done", { input_template: "Plan" });
 
-    const events: TamanduaEvent[] = [
+    const events: canarinhoEvent[] = [
       makeEvent("2025-01-06T10:00:00Z", "step.running", { runId: "r6", stepId: "plan" }),
       makeEvent("2025-01-06T10:01:00Z", "step.done", { runId: "r6", stepId: "plan" }),
     ];
@@ -510,7 +510,7 @@ describe("kanban-data: buildKanbanCardDetail", () => {
     insertStep(db, "r11", "plan", "planner", 0, "done", { input_template: "Plan" });
     insertStep(db, "r11", "verify", "verifier", 1, "done", { input_template: "Verify" });
 
-    const events: TamanduaEvent[] = [
+    const events: canarinhoEvent[] = [
       makeEvent("2025-01-07T10:00:00Z", "step.running", { runId: "r11", stepId: "plan" }),
       makeEvent("2025-01-07T10:01:00Z", "step.done", { runId: "r11", stepId: "plan" }),
       makeEvent("2025-01-07T10:02:00Z", "step.running", { runId: "r11", stepId: "verify" }),
@@ -533,7 +533,7 @@ describe("kanban-data: buildKanbanCardDetail", () => {
     insertStory(db, "r12", "US-001", 0, "Story A", "done");
     insertStory(db, "r12", "US-002", 1, "Story B", "pending");
 
-    const events: TamanduaEvent[] = [
+    const events: canarinhoEvent[] = [
       makeEvent("2025-01-08T10:00:00Z", "story.started", { runId: "r12", stepId: "implement", storyId: "US-001" }),
       makeEvent("2025-01-08T10:01:00Z", "run.tokens.updated", { runId: "r12", stepId: "implement", tokenDelta: 500, tokensSpent: 500 }),
       makeEvent("2025-01-08T10:02:00Z", "story.done", { runId: "r12", stepId: "implement", storyId: "US-001" }),
@@ -573,7 +573,7 @@ describe("kanban-data: buildKanbanCardDetail", () => {
     // Simulate a scenario where only 5 of 500 total events are passed
     // (as happens when getRunEvents(runId, 200) is called but we want to
     //  exercise the extreme case of very few events)
-    const boundedEvents: TamanduaEvent[] = [
+    const boundedEvents: canarinhoEvent[] = [
       makeEvent("2025-02-01T10:00:00Z", "step.running", { runId: "r14", stepId: "plan" }),
       makeEvent("2025-02-01T10:01:00Z", "run.tokens.updated", { runId: "r14", stepId: "plan", tokenDelta: 100, tokensSpent: 100 }),
       makeEvent("2025-02-01T10:02:00Z", "step.done", { runId: "r14", stepId: "plan" }),
@@ -610,7 +610,7 @@ async function stopDashboard(server: http.Server): Promise<void> {
   await new Promise<void>((resolve) => server.close(() => resolve()));
 }
 
-function appendRunEvent(stateDir: string, runId: string, evt: TamanduaEvent): void {
+function appendRunEvent(stateDir: string, runId: string, evt: canarinhoEvent): void {
   const filePath = path.join(stateDir, "events", `${runId}.jsonl`);
   fs.mkdirSync(path.dirname(filePath), { recursive: true });
   fs.appendFileSync(filePath, `${JSON.stringify(evt)}\n`, "utf-8");
@@ -618,17 +618,17 @@ function appendRunEvent(stateDir: string, runId: string, evt: TamanduaEvent): vo
 
 describe("kanban-data: kanban-card-detail bounded events handler", () => {
   it("response includes totalEvents and truncated fields", async () => {
-    const root = fs.mkdtempSync(path.join(os.tmpdir(), "tamandua-kanban-bounded-"));
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "canarinho-kanban-bounded-"));
     const homeDir = path.join(root, "home");
-    const stateDir = path.join(homeDir, ".tamandua");
+    const stateDir = path.join(homeDir, ".canarinho");
     fs.mkdirSync(stateDir, { recursive: true });
-    const dbPath = path.join(stateDir, "tamandua.db");
+    const dbPath = path.join(stateDir, "canarinho.db");
     const previousHome = process.env.HOME;
-    const previousDbPath = process.env.TAMANDUA_DB_PATH;
-    const previousStateDir = process.env.TAMANDUA_STATE_DIR;
+    const previousDbPath = process.env.canarinho_DB_PATH;
+    const previousStateDir = process.env.canarinho_STATE_DIR;
     process.env.HOME = homeDir;
-    process.env.TAMANDUA_DB_PATH = dbPath;
-    process.env.TAMANDUA_STATE_DIR = stateDir;
+    process.env.canarinho_DB_PATH = dbPath;
+    process.env.canarinho_STATE_DIR = stateDir;
 
     const runId = "run-kanban-bounded";
 
@@ -665,7 +665,7 @@ describe("kanban-data: kanban-card-detail bounded events handler", () => {
         totalEvents: number;
         truncated: boolean;
         title: string;
-        events: TamanduaEvent[];
+        events: canarinhoEvent[];
         [key: string]: unknown;
       };
 
@@ -677,26 +677,26 @@ describe("kanban-data: kanban-card-detail bounded events handler", () => {
       await stopDashboard(server);
       if (previousHome === undefined) delete process.env.HOME;
       else process.env.HOME = previousHome;
-      if (previousDbPath === undefined) delete process.env.TAMANDUA_DB_PATH;
-      else process.env.TAMANDUA_DB_PATH = previousDbPath;
-      if (previousStateDir === undefined) delete process.env.TAMANDUA_STATE_DIR;
-      else process.env.TAMANDUA_STATE_DIR = previousStateDir;
+      if (previousDbPath === undefined) delete process.env.canarinho_DB_PATH;
+      else process.env.canarinho_DB_PATH = previousDbPath;
+      if (previousStateDir === undefined) delete process.env.canarinho_STATE_DIR;
+      else process.env.canarinho_STATE_DIR = previousStateDir;
       fs.rmSync(root, { recursive: true, force: true });
     }
   });
 
   it("response has truncated=true when totalEvents > bounded count", async () => {
-    const root = fs.mkdtempSync(path.join(os.tmpdir(), "tamandua-kanban-bounded-"));
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "canarinho-kanban-bounded-"));
     const homeDir = path.join(root, "home");
-    const stateDir = path.join(homeDir, ".tamandua");
+    const stateDir = path.join(homeDir, ".canarinho");
     fs.mkdirSync(stateDir, { recursive: true });
-    const dbPath = path.join(stateDir, "tamandua.db");
+    const dbPath = path.join(stateDir, "canarinho.db");
     const previousHome = process.env.HOME;
-    const previousDbPath = process.env.TAMANDUA_DB_PATH;
-    const previousStateDir = process.env.TAMANDUA_STATE_DIR;
+    const previousDbPath = process.env.canarinho_DB_PATH;
+    const previousStateDir = process.env.canarinho_STATE_DIR;
     process.env.HOME = homeDir;
-    process.env.TAMANDUA_DB_PATH = dbPath;
-    process.env.TAMANDUA_STATE_DIR = stateDir;
+    process.env.canarinho_DB_PATH = dbPath;
+    process.env.canarinho_STATE_DIR = stateDir;
 
     const runId = "run-kanban-many";
 
@@ -731,7 +731,7 @@ describe("kanban-data: kanban-card-detail bounded events handler", () => {
       const body = await response.json() as {
         totalEvents: number;
         truncated: boolean;
-        events: TamanduaEvent[];
+        events: canarinhoEvent[];
         [key: string]: unknown;
       };
 
@@ -742,10 +742,10 @@ describe("kanban-data: kanban-card-detail bounded events handler", () => {
       await stopDashboard(server);
       if (previousHome === undefined) delete process.env.HOME;
       else process.env.HOME = previousHome;
-      if (previousDbPath === undefined) delete process.env.TAMANDUA_DB_PATH;
-      else process.env.TAMANDUA_DB_PATH = previousDbPath;
-      if (previousStateDir === undefined) delete process.env.TAMANDUA_STATE_DIR;
-      else process.env.TAMANDUA_STATE_DIR = previousStateDir;
+      if (previousDbPath === undefined) delete process.env.canarinho_DB_PATH;
+      else process.env.canarinho_DB_PATH = previousDbPath;
+      if (previousStateDir === undefined) delete process.env.canarinho_STATE_DIR;
+      else process.env.canarinho_STATE_DIR = previousStateDir;
       fs.rmSync(root, { recursive: true, force: true });
     }
   });

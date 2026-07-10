@@ -5,15 +5,15 @@ import os from "node:os";
 import path from "node:path";
 import { logger, readRecentLogs, log, formatEntry } from "../dist/lib/logger.js";
 
-const originalStateDir = process.env.TAMANDUA_STATE_DIR;
-const testStateDir = fs.mkdtempSync(path.join(os.tmpdir(), "tamandua-logger-callers-"));
-process.env.TAMANDUA_STATE_DIR = testStateDir;
+const originalStateDir = process.env.canarinho_STATE_DIR;
+const testStateDir = fs.mkdtempSync(path.join(os.tmpdir(), "canarinho-logger-callers-"));
+process.env.canarinho_STATE_DIR = testStateDir;
 
 after(() => {
   if (originalStateDir === undefined) {
-    delete process.env.TAMANDUA_STATE_DIR;
+    delete process.env.canarinho_STATE_DIR;
   } else {
-    process.env.TAMANDUA_STATE_DIR = originalStateDir;
+    process.env.canarinho_STATE_DIR = originalStateDir;
   }
   fs.rmSync(testStateDir, { recursive: true, force: true });
 });

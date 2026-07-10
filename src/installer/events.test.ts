@@ -17,10 +17,10 @@ import {
   MAX_EVENTS_FILE_SIZE,
   MAX_ROTATED_EVENTS_FILES,
   _refreshSizeEstimate,
-  type TamanduaEvent,
+  type canarinhoEvent,
 } from "../../dist/installer/events.js";
 
-function makeEvent(runId: string, event: string): TamanduaEvent {
+function makeEvent(runId: string, event: string): canarinhoEvent {
   return {
     ts: new Date().toISOString(),
     event,
@@ -33,14 +33,14 @@ describe("events", () => {
   let originalStateDir: string | undefined;
 
   beforeEach(() => {
-    originalStateDir = process.env.TAMANDUA_STATE_DIR;
-    stateDir = fs.mkdtempSync(path.join(os.tmpdir(), "tamandua-events-"));
-    process.env.TAMANDUA_STATE_DIR = stateDir;
+    originalStateDir = process.env.canarinho_STATE_DIR;
+    stateDir = fs.mkdtempSync(path.join(os.tmpdir(), "canarinho-events-"));
+    process.env.canarinho_STATE_DIR = stateDir;
   });
 
   afterEach(() => {
-    if (originalStateDir === undefined) delete process.env.TAMANDUA_STATE_DIR;
-    else process.env.TAMANDUA_STATE_DIR = originalStateDir;
+    if (originalStateDir === undefined) delete process.env.canarinho_STATE_DIR;
+    else process.env.canarinho_STATE_DIR = originalStateDir;
 
     fs.rmSync(stateDir, { recursive: true, force: true });
   });
@@ -98,7 +98,7 @@ describe("events", () => {
     });
 
     it("includes optional fields when present", () => {
-      const evt: TamanduaEvent = {
+      const evt: canarinhoEvent = {
         ts: new Date().toISOString(),
         event: "story.done",
         runId: "run-5",
@@ -129,8 +129,8 @@ describe("events", () => {
     });
 
     it("suppresses nudge noise events by default", () => {
-      const prev = process.env.TAMANDUA_DEBUG_EVENTS;
-      delete process.env.TAMANDUA_DEBUG_EVENTS;
+      const prev = process.env.canarinho_DEBUG_EVENTS;
+      delete process.env.canarinho_DEBUG_EVENTS;
       try {
         emitEvent(makeEvent("run-7", "run.nudged"));
         emitEvent(makeEvent("run-7", "agent.nudged"));
@@ -141,13 +141,13 @@ describe("events", () => {
         assert.ok(!fs.existsSync(runFile), "run file must not be created for noise events");
         assert.ok(!fs.existsSync(globalFile), "global file must not be created for noise events");
       } finally {
-        if (prev !== undefined) process.env.TAMANDUA_DEBUG_EVENTS = prev;
+        if (prev !== undefined) process.env.canarinho_DEBUG_EVENTS = prev;
       }
     });
 
     it("still writes normal events while noise events are suppressed", () => {
-      const prev = process.env.TAMANDUA_DEBUG_EVENTS;
-      delete process.env.TAMANDUA_DEBUG_EVENTS;
+      const prev = process.env.canarinho_DEBUG_EVENTS;
+      delete process.env.canarinho_DEBUG_EVENTS;
       try {
         emitEvent(makeEvent("run-8", "run.nudged"));
         emitEvent(makeEvent("run-8", "step.completed"));
@@ -157,13 +157,13 @@ describe("events", () => {
         assert.ok(content.includes("step.completed"));
         assert.ok(!content.includes("run.nudged"));
       } finally {
-        if (prev !== undefined) process.env.TAMANDUA_DEBUG_EVENTS = prev;
+        if (prev !== undefined) process.env.canarinho_DEBUG_EVENTS = prev;
       }
     });
 
-    it("writes nudge events when TAMANDUA_DEBUG_EVENTS=1", () => {
-      const prev = process.env.TAMANDUA_DEBUG_EVENTS;
-      process.env.TAMANDUA_DEBUG_EVENTS = "1";
+    it("writes nudge events when canarinho_DEBUG_EVENTS=1", () => {
+      const prev = process.env.canarinho_DEBUG_EVENTS;
+      process.env.canarinho_DEBUG_EVENTS = "1";
       try {
         emitEvent(makeEvent("run-9", "agent.nudged"));
 
@@ -171,22 +171,22 @@ describe("events", () => {
         const content = fs.readFileSync(globalFile, "utf-8");
         assert.ok(content.includes("agent.nudged"));
       } finally {
-        if (prev === undefined) delete process.env.TAMANDUA_DEBUG_EVENTS;
-        else process.env.TAMANDUA_DEBUG_EVENTS = prev;
+        if (prev === undefined) delete process.env.canarinho_DEBUG_EVENTS;
+        else process.env.canarinho_DEBUG_EVENTS = prev;
       }
     });
 
     describe("test-guard", () => {
-      it("does not fire when TAMANDUA_STATE_DIR isolates into a temp dir (guard active, path isolated)", () => {
-        // The beforeEach already sets TAMANDUA_STATE_DIR to a temp dir.
-        // Set TAMANDUA_TEST_GUARD=1 to activate the guard — it should NOT drop
+      it("does not fire when canarinho_STATE_DIR isolates into a temp dir (guard active, path isolated)", () => {
+        // The beforeEach already sets canarinho_STATE_DIR to a temp dir.
+        // Set canarinho_TEST_GUARD=1 to activate the guard — it should NOT drop
         // the event because the resolved events paths are under the temp dir.
-        const prevGuard = process.env.TAMANDUA_TEST_GUARD;
-        process.env.TAMANDUA_TEST_GUARD = "1";
+        const prevGuard = process.env.canarinho_TEST_GUARD;
+        process.env.canarinho_TEST_GUARD = "1";
         try {
           assert.doesNotThrow(() => {
             emitEvent(makeEvent("run-isolated", "run.started"));
-          }, "guard must not fire when TAMANDUA_STATE_DIR isolates the events path");
+          }, "guard must not fire when canarinho_STATE_DIR isolates the events path");
 
           const globalFile = path.join(stateDir, "events", "all.jsonl");
           assert.ok(fs.existsSync(globalFile), "event should be written when isolated");
@@ -194,28 +194,28 @@ describe("events", () => {
           const content = fs.readFileSync(globalFile, "utf-8");
           assert.ok(content.includes("run-isolated"), "event content should be written");
         } finally {
-          process.env.TAMANDUA_TEST_GUARD = prevGuard;
+          process.env.canarinho_TEST_GUARD = prevGuard;
         }
       });
 
       it("drops events without throwing when guard is active and path resolves into real state dir", () => {
-        // Simulate a test process that forgot to set TAMANDUA_STATE_DIR and
+        // Simulate a test process that forgot to set canarinho_STATE_DIR and
         // os.homedir() returns the real user home → events paths are real
-        // ~/.tamandua/events/. The guard must PROTECT production (no write) but
+        // ~/.canarinho/events/. The guard must PROTECT production (no write) but
         // must NOT throw: production timers fire after tests restore env, and a
         // throwing emitEvent would turn late writes into unhandled rejections.
-        const prevGuard = process.env.TAMANDUA_TEST_GUARD;
+        const prevGuard = process.env.canarinho_TEST_GUARD;
         // Save and restore the module-scoped isolationViolationReported at the
         // dist boundary. Since we import from dist, reloading the module per test
         // is tricky. Instead, test that multiple calls don't throw and that no
         // events file is created in the real state dir (the guard blocks
         // mkdirSync).
         try {
-          process.env.TAMANDUA_TEST_GUARD = "1";
-          // Point TAMANDUA_STATE_DIR into the real state dir to trigger the guard.
-          const realStateRoot = path.join(os.userInfo().homedir, ".tamandua");
+          process.env.canarinho_TEST_GUARD = "1";
+          // Point canarinho_STATE_DIR into the real state dir to trigger the guard.
+          const realStateRoot = path.join(os.userInfo().homedir, ".canarinho");
           const leakedDir = path.join(realStateRoot, "should-not-be-created-by-test");
-          process.env.TAMANDUA_STATE_DIR = leakedDir;
+          process.env.canarinho_STATE_DIR = leakedDir;
 
           // Clear any state files that might exist from previous runs.
           try { fs.rmSync(leakedDir, { recursive: true, force: true }); } catch {}
@@ -235,24 +235,24 @@ describe("events", () => {
             "guard must prevent writing events into the real state dir",
           );
         } finally {
-          process.env.TAMANDUA_TEST_GUARD = prevGuard;
+          process.env.canarinho_TEST_GUARD = prevGuard;
           // Restore the isolated stateDir for subsequent tests.
-          process.env.TAMANDUA_STATE_DIR = stateDir;
+          process.env.canarinho_STATE_DIR = stateDir;
         }
       });
 
       it("HOME-spoof resistance: guard uses os.userInfo().homedir, not os.homedir()", () => {
-        // Set HOME to a temp dir (spoof) but TAMANDUA_STATE_DIR to the real state dir.
+        // Set HOME to a temp dir (spoof) but canarinho_STATE_DIR to the real state dir.
         // The guard must still detect the violation (via os.userInfo().homedir) and
         // silently drop the event.
-        const prevGuard = process.env.TAMANDUA_TEST_GUARD;
+        const prevGuard = process.env.canarinho_TEST_GUARD;
         const prevHome = process.env.HOME;
         try {
-          process.env.TAMANDUA_TEST_GUARD = "1";
+          process.env.canarinho_TEST_GUARD = "1";
           process.env.HOME = path.join(os.tmpdir(), "spoofed-home-" + Date.now());
-          const realStateRoot = path.join(os.userInfo().homedir, ".tamandua");
+          const realStateRoot = path.join(os.userInfo().homedir, ".canarinho");
           const spoofDir = path.join(realStateRoot, "spoofed-leak-events");
-          process.env.TAMANDUA_STATE_DIR = spoofDir;
+          process.env.canarinho_STATE_DIR = spoofDir;
 
           try { fs.rmSync(spoofDir, { recursive: true, force: true }); } catch {}
 
@@ -265,13 +265,13 @@ describe("events", () => {
             "guard must prevent the write even with spoofed HOME",
           );
         } finally {
-          process.env.TAMANDUA_TEST_GUARD = prevGuard;
+          process.env.canarinho_TEST_GUARD = prevGuard;
           if (prevHome === undefined) {
             delete process.env.HOME;
           } else {
             process.env.HOME = prevHome;
           }
-          process.env.TAMANDUA_STATE_DIR = stateDir;
+          process.env.canarinho_STATE_DIR = stateDir;
         }
       });
 
@@ -664,9 +664,9 @@ describe("events", () => {
     let webhookReceived: string | null = null;
 
     beforeEach(() => {
-      originalDbPath = process.env.TAMANDUA_DB_PATH;
-      dbPath = path.join(stateDir, "tamandua.db");
-      process.env.TAMANDUA_DB_PATH = dbPath;
+      originalDbPath = process.env.canarinho_DB_PATH;
+      dbPath = path.join(stateDir, "canarinho.db");
+      process.env.canarinho_DB_PATH = dbPath;
 
       fs.mkdirSync(stateDir, { recursive: true });
       db = new DatabaseSync(dbPath);
@@ -685,8 +685,8 @@ describe("events", () => {
     });
 
     afterEach(async () => {
-      if (originalDbPath !== undefined) process.env.TAMANDUA_DB_PATH = originalDbPath;
-      else delete process.env.TAMANDUA_DB_PATH;
+      if (originalDbPath !== undefined) process.env.canarinho_DB_PATH = originalDbPath;
+      else delete process.env.canarinho_DB_PATH;
       try { db.close(); } catch {}
       if (server) { server.close(); server = null; }
     });
@@ -754,14 +754,14 @@ describe("emitEvent", () => {
   let originalStateDir: string | undefined;
 
   beforeEach(() => {
-    originalStateDir = process.env.TAMANDUA_STATE_DIR;
-    stateDir = fs.mkdtempSync(path.join(os.tmpdir(), "tamandua-emit-"));
-    process.env.TAMANDUA_STATE_DIR = stateDir;
+    originalStateDir = process.env.canarinho_STATE_DIR;
+    stateDir = fs.mkdtempSync(path.join(os.tmpdir(), "canarinho-emit-"));
+    process.env.canarinho_STATE_DIR = stateDir;
   });
 
   afterEach(() => {
-    if (originalStateDir === undefined) delete process.env.TAMANDUA_STATE_DIR;
-    else process.env.TAMANDUA_STATE_DIR = originalStateDir;
+    if (originalStateDir === undefined) delete process.env.canarinho_STATE_DIR;
+    else process.env.canarinho_STATE_DIR = originalStateDir;
 
     fs.rmSync(stateDir, { recursive: true, force: true });
   });
@@ -796,14 +796,14 @@ describe("getRecentEvents", () => {
   let originalStateDir: string | undefined;
 
   beforeEach(() => {
-    originalStateDir = process.env.TAMANDUA_STATE_DIR;
-    stateDir = fs.mkdtempSync(path.join(os.tmpdir(), "tamandua-recent-"));
-    process.env.TAMANDUA_STATE_DIR = stateDir;
+    originalStateDir = process.env.canarinho_STATE_DIR;
+    stateDir = fs.mkdtempSync(path.join(os.tmpdir(), "canarinho-recent-"));
+    process.env.canarinho_STATE_DIR = stateDir;
   });
 
   afterEach(() => {
-    if (originalStateDir === undefined) delete process.env.TAMANDUA_STATE_DIR;
-    else process.env.TAMANDUA_STATE_DIR = originalStateDir;
+    if (originalStateDir === undefined) delete process.env.canarinho_STATE_DIR;
+    else process.env.canarinho_STATE_DIR = originalStateDir;
 
     fs.rmSync(stateDir, { recursive: true, force: true });
   });
@@ -915,14 +915,14 @@ describe("getRunEvents", () => {
   let originalStateDir: string | undefined;
 
   beforeEach(() => {
-    originalStateDir = process.env.TAMANDUA_STATE_DIR;
-    stateDir = fs.mkdtempSync(path.join(os.tmpdir(), "tamandua-runevents-"));
-    process.env.TAMANDUA_STATE_DIR = stateDir;
+    originalStateDir = process.env.canarinho_STATE_DIR;
+    stateDir = fs.mkdtempSync(path.join(os.tmpdir(), "canarinho-runevents-"));
+    process.env.canarinho_STATE_DIR = stateDir;
   });
 
   afterEach(() => {
-    if (originalStateDir === undefined) delete process.env.TAMANDUA_STATE_DIR;
-    else process.env.TAMANDUA_STATE_DIR = originalStateDir;
+    if (originalStateDir === undefined) delete process.env.canarinho_STATE_DIR;
+    else process.env.canarinho_STATE_DIR = originalStateDir;
 
     fs.rmSync(stateDir, { recursive: true, force: true });
   });
@@ -1065,14 +1065,14 @@ describe("countRunEvents", () => {
   let originalStateDir: string | undefined;
 
   beforeEach(() => {
-    originalStateDir = process.env.TAMANDUA_STATE_DIR;
-    stateDir = fs.mkdtempSync(path.join(os.tmpdir(), "tamandua-count-"));
-    process.env.TAMANDUA_STATE_DIR = stateDir;
+    originalStateDir = process.env.canarinho_STATE_DIR;
+    stateDir = fs.mkdtempSync(path.join(os.tmpdir(), "canarinho-count-"));
+    process.env.canarinho_STATE_DIR = stateDir;
   });
 
   afterEach(() => {
-    if (originalStateDir === undefined) delete process.env.TAMANDUA_STATE_DIR;
-    else process.env.TAMANDUA_STATE_DIR = originalStateDir;
+    if (originalStateDir === undefined) delete process.env.canarinho_STATE_DIR;
+    else process.env.canarinho_STATE_DIR = originalStateDir;
 
     fs.rmSync(stateDir, { recursive: true, force: true });
   });
@@ -1141,7 +1141,7 @@ describe("countRunEvents", () => {
 });
 
 describe("getEventsPath", () => {
-  it("returns the events directory under TAMANDUA_STATE_DIR", () => {
+  it("returns the events directory under canarinho_STATE_DIR", () => {
     const p = getEventsPath();
     assert.ok(p.includes("events"));
   });
@@ -1152,14 +1152,14 @@ describe("emitEvent rotation integration", () => {
   let originalStateDir: string | undefined;
 
   beforeEach(() => {
-    originalStateDir = process.env.TAMANDUA_STATE_DIR;
-    stateDir = fs.mkdtempSync(path.join(os.tmpdir(), "tamandua-emit-rotate-"));
-    process.env.TAMANDUA_STATE_DIR = stateDir;
+    originalStateDir = process.env.canarinho_STATE_DIR;
+    stateDir = fs.mkdtempSync(path.join(os.tmpdir(), "canarinho-emit-rotate-"));
+    process.env.canarinho_STATE_DIR = stateDir;
   });
 
   afterEach(() => {
-    if (originalStateDir === undefined) delete process.env.TAMANDUA_STATE_DIR;
-    else process.env.TAMANDUA_STATE_DIR = originalStateDir;
+    if (originalStateDir === undefined) delete process.env.canarinho_STATE_DIR;
+    else process.env.canarinho_STATE_DIR = originalStateDir;
     fs.rmSync(stateDir, { recursive: true, force: true });
   });
 
@@ -1378,14 +1378,14 @@ describe("rotation infrastructure", () => {
   let originalStateDir: string | undefined;
 
   beforeEach(() => {
-    originalStateDir = process.env.TAMANDUA_STATE_DIR;
-    stateDir = fs.mkdtempSync(path.join(os.tmpdir(), "tamandua-rotate-"));
-    process.env.TAMANDUA_STATE_DIR = stateDir;
+    originalStateDir = process.env.canarinho_STATE_DIR;
+    stateDir = fs.mkdtempSync(path.join(os.tmpdir(), "canarinho-rotate-"));
+    process.env.canarinho_STATE_DIR = stateDir;
   });
 
   afterEach(() => {
-    if (originalStateDir === undefined) delete process.env.TAMANDUA_STATE_DIR;
-    else process.env.TAMANDUA_STATE_DIR = originalStateDir;
+    if (originalStateDir === undefined) delete process.env.canarinho_STATE_DIR;
+    else process.env.canarinho_STATE_DIR = originalStateDir;
     fs.rmSync(stateDir, { recursive: true, force: true });
   });
 
@@ -1588,14 +1588,14 @@ describe("getRecentEvents after rotation", () => {
   let originalStateDir: string | undefined;
 
   beforeEach(() => {
-    originalStateDir = process.env.TAMANDUA_STATE_DIR;
-    stateDir = fs.mkdtempSync(path.join(os.tmpdir(), "tamandua-recent-rot-"));
-    process.env.TAMANDUA_STATE_DIR = stateDir;
+    originalStateDir = process.env.canarinho_STATE_DIR;
+    stateDir = fs.mkdtempSync(path.join(os.tmpdir(), "canarinho-recent-rot-"));
+    process.env.canarinho_STATE_DIR = stateDir;
   });
 
   afterEach(() => {
-    if (originalStateDir === undefined) delete process.env.TAMANDUA_STATE_DIR;
-    else process.env.TAMANDUA_STATE_DIR = originalStateDir;
+    if (originalStateDir === undefined) delete process.env.canarinho_STATE_DIR;
+    else process.env.canarinho_STATE_DIR = originalStateDir;
     fs.rmSync(stateDir, { recursive: true, force: true });
   });
 

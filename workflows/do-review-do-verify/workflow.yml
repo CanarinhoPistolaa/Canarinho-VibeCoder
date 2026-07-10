@@ -15,7 +15,7 @@ agents:
     workspace:
       baseDir: agents/doer
       skills:
-        - tamandua-agents
+        - canarinho-agents
       files:
         AGENTS.md: agents/doer/AGENTS.md
         SOUL.md: agents/doer/SOUL.md
@@ -29,7 +29,7 @@ agents:
     workspace:
       baseDir: agents/reviewer
       skills:
-        - tamandua-agents
+        - canarinho-agents
       files:
         AGENTS.md: agents/reviewer/AGENTS.md
         SOUL.md: agents/reviewer/SOUL.md
@@ -43,7 +43,7 @@ agents:
     workspace:
       baseDir: agents/verifier
       skills:
-        - tamandua-agents
+        - canarinho-agents
       files:
         AGENTS.md: agents/verifier/AGENTS.md
         SOUL.md: agents/verifier/SOUL.md

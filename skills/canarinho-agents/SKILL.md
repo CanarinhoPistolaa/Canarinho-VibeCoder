@@ -1,65 +1,65 @@
 ---
-name: tamandua-agents
-description: Tamandua is a local CLI/workflow orchestrator for coordinating multi-agent coding runs on top of pi. Use this skill when the user mentions the word tamandua or when a task involves Tamandua workflows, runs, steps, agents, worktrees, dashboard/control-plane services, logs, pause/resume, or Tamandua-specific output contracts and documentation.
+name: canarinho-agents
+description: canarinho is a local CLI/workflow orchestrator for coordinating multi-agent coding runs on top of pi. Use this skill when the user mentions the word canarinho or when a task involves canarinho workflows, runs, steps, agents, worktrees, dashboard/control-plane services, logs, pause/resume, or canarinho-specific output contracts and documentation.
 ---
 
-# Tamandua Agents
+# canarinho Agents
 
 ## Instructions
 
-Use this skill when operating as a Tamandua workflow agent.
+Use this skill when operating as a canarinho workflow agent.
 
 ### 1) Confirm CLI access
 
-Use the `tamandua` CLI if available on PATH.
+Use the `canarinho` CLI if available on PATH.
 
 ```bash
-tamandua version
-tamandua source-path
-tamandua skill-path
+canarinho version
+canarinho source-path
+canarinho skill-path
 ```
 
 If the binary is not on PATH, use the Node entrypoint directly:
 
 ```bash
-node /path/to/tamandua/dist/cli/cli.js <command>
+node /path/to/canarinho/dist/cli/cli.js <command>
 ```
 
-If neither the `tamandua` binary nor the Node entrypoint can be found,
-clone and install Tamandua from its GitHub repository:
+If neither the `canarinho` binary nor the Node entrypoint can be found,
+clone and install canarinho from its GitHub repository:
 
 ```bash
-git clone https://github.com/igorhvr/tamandua ~/my-tamandua
-cd ~/my-tamandua
+git clone https://github.com/igorhvr/canarinho ~/my-canarinho
+cd ~/my-canarinho
 ./build
 ./install
 ```
 
-This places a `tamandua` symlink at `~/.local/bin/tamandua`. Verify the
-install worked by running `tamandua version`.
+This places a `canarinho` symlink at `~/.local/bin/canarinho`. Verify the
+install worked by running `canarinho version`.
 
 ### 2) Know the workflow-level commands
 
 Use these when managing workflow runs (outside individual step execution):
 
 ```bash
-tamandua workflow list [--json]
-tamandua workflow install <workflow-id|--all>
-tamandua workflow uninstall <workflow-id|--all> [--force]
-tamandua workflow run <workflow-id> "<task>" [--working-directory-for-harness <dir>] [--worktree-origin-repository <dir>] [--worktree-origin-ref <ref>] [--pi-as-harness | --hermes-as-harness] [--no-hurry-please-save-tokens-mode] [--no-relaunch-upon-rugpull]
-tamandua workflow status <query>
-tamandua workflow runs
-tamandua workflow pause <run-id>
-tamandua workflow pause-all [--drain]
-tamandua workflow resume <run-id>
-tamandua workflow resume-all
-tamandua workflow stop <run-id>
-tamandua workflow autoresearch <run-id>
-tamandua workflow delete <run-id> [--force]
-tamandua nudge
+canarinho workflow list [--json]
+canarinho workflow install <workflow-id|--all>
+canarinho workflow uninstall <workflow-id|--all> [--force]
+canarinho workflow run <workflow-id> "<task>" [--working-directory-for-harness <dir>] [--worktree-origin-repository <dir>] [--worktree-origin-ref <ref>] [--pi-as-harness | --hermes-as-harness] [--no-hurry-please-save-tokens-mode] [--no-relaunch-upon-rugpull]
+canarinho workflow status <query>
+canarinho workflow runs
+canarinho workflow pause <run-id>
+canarinho workflow pause-all [--drain]
+canarinho workflow resume <run-id>
+canarinho workflow resume-all
+canarinho workflow stop <run-id>
+canarinho workflow autoresearch <run-id>
+canarinho workflow delete <run-id> [--force]
+canarinho nudge
 ```
 
-`tamandua nudge` wakes all scheduled agents for all currently running runs,
+`canarinho nudge` wakes all scheduled agents for all currently running runs,
 causing them to poll once immediately without waiting for their normal
 timers. Does not resume paused runs or interrupt in-flight agents.
 
@@ -72,23 +72,23 @@ and managed worktree data. Active runs are refused by default; use `--force`
 to cancel and delete a running or paused run in one step.
 
 `install` fetches workflow files, provisions agent workspaces, and registers
-agents in `~/.tamandua/agents.json`. Use `--all` (or `all`) to install every
+agents in `~/.canarinho/agents.json`. Use `--all` (or `all`) to install every
 bundled workflow in one command. `uninstall` removes the workflow and its
 agent configuration. Use `--force` to skip the active-runs safety check.
 `uninstall --all` removes every installed workflow.
 
 Installed bundled workflow files are **refreshed on every install and every
-`tamandua update`** — local edits are silently overwritten. To customize a
+`canarinho update`** — local edits are silently overwritten. To customize a
 workflow, copy it under a NEW workflow id instead of editing the installed
 copy.
 
-Use `tamandua update [--force]` only for local Tamandua maintenance. Without
+Use `canarinho update [--force]` only for local canarinho maintenance. Without
 `--force`, update blocks after rebuilding if active runs are present — it
 leaves services and installed workflows unchanged. Use `--force` to proceed
 despite active runs (services are stopped and restarted, workflows reinstalled
 — this reinstalls all workflows, refreshing bundled files).
 Remote MCP clients can discover the same maintenance command via
-`tamandua.update.command`; run the actual update through the local CLI because
+`canarinho.update.command`; run the actual update through the local CLI because
 it may restart dashboard, MCP, and the control plane.
 
 Harness working directory guidance:
@@ -113,47 +113,47 @@ scheduling — idle dispatch is free either way.
 
 Use `--no-relaunch-upon-rugpull` to disable automatic replacement-run
 creation after a rugpull (base branch move) is detected on a failed
-merge or merge-worktree run. By default, Tamandua creates a replacement
+merge or merge-worktree run. By default, canarinho creates a replacement
 run when a rugpull is detected, so the merge can target the updated base.
 The rugpull mechanism is narrow in scope: it only applies to
 `finalize_merge` failures in merge workflows where the base branch
 tip moved during the run. Mid-pipeline step retry exhaustion, expects
 validation exhaustion, and worker death permanently fail runs by design —
-no automatic replacement is triggered. Use `tamandua workflow resume
+no automatic replacement is triggered. Use `canarinho workflow resume
 <run-id>` to reattempt a permanently failed run; fix the underlying issue
 before resuming.
 
-`tamandua workflow autoresearch <run-id>` shows AutoResearch progress
+`canarinho workflow autoresearch <run-id>` shows AutoResearch progress
 for a workflow run. It resolves the run's harness working directory,
 reads the project-local `autoresearch.config.json` and
 `autoresearch.jsonl` files, and prints the current metric summary and
 recent experiment timeline.
 
-### 2.7) System status with tamandua status
+### 2.7) System status with canarinho status
 
-Use `tamandua status` for a comprehensive overview of the Tamandua system:
+Use `canarinho status` for a comprehensive overview of the canarinho system:
 
 ```bash
-tamandua status
+canarinho status
 ```
 
 `status` reports:
 
 - **Services** — Dashboard, MCP, and control-plane status (up/down, PID, port)
-- **Tamandua Info** — Source path, skill path, version, and source tree SHA256
+- **canarinho Info** — Source path, skill path, version, and source tree SHA256
 - **Workflow Runs** — Summary of all runs (running, paused, done, failed)
-- **Running Processes** — Active pi/hermes harness processes spawned by Tamandua
+- **Running Processes** — Active pi/hermes harness processes spawned by canarinho
 
 ### 2.8) Worktree management
 
-Worktree commands manage the git worktrees Tamandua creates for isolated
+Worktree commands manage the git worktrees canarinho creates for isolated
 workflow runs.
 
 ```bash
-tamandua worktree list
-tamandua worktree status <run-id>
-tamandua worktree remove <run-id> [--force]
-tamandua worktree prune --completed --older-than <duration>
+canarinho worktree list
+canarinho worktree status <run-id>
+canarinho worktree remove <run-id> [--force]
+canarinho worktree prune --completed --older-than <duration>
 ```
 
 `list` shows all managed worktrees with run ID, status, cleanup policy, and
@@ -174,23 +174,23 @@ duration (e.g. `7d`, `24h`, `30m`). Requires both `--completed` and
 The control plane provides run-scoped scheduling that the dashboard daemon
 uses to manage deterministic work dispatch.
 
-**Live-instance isolation (for agents running INSIDE a tamandua run):** the
-`tamandua step` reporting commands (claim / complete / fail, documented
-below) are the ONLY sanctioned interaction with the live tamandua instance
+**Live-instance isolation (for agents running INSIDE a canarinho run):** the
+`canarinho step` reporting commands (claim / complete / fail, documented
+below) are the ONLY sanctioned interaction with the live canarinho instance
 that is scheduling you. Never start/stop/restart the live daemon, MCP, or control plane — to
 exercise lifecycle behavior, spin up an ISOLATED instance instead: point
-`HOME`/`TAMANDUA_STATE_DIR` at a temp directory and use non-default ports
-(`TAMANDUA_CONTROL_PORT` plus explicit `--port` values). As a backstop,
+`HOME`/`canarinho_STATE_DIR` at a temp directory and use non-default ports
+(`canarinho_CONTROL_PORT` plus explicit `--port` values). As a backstop,
 `stop`/`restart` refuse to signal the daemon that scheduled you
 ("Refusing to stop the dashboard daemon…"): that error means you targeted
 the live instance — switch to an isolated one.
 
 ```bash
-tamandua control-plane start [--port N]
-tamandua control-plane stop
-tamandua control-plane restart [--port N]
-tamandua control-plane status
-tamandua control-plane status
+canarinho control-plane start [--port N]
+canarinho control-plane stop
+canarinho control-plane restart [--port N]
+canarinho control-plane status
+canarinho control-plane status
 ```
 
 Default port: 3339.
@@ -201,21 +201,21 @@ Start will refuse if the control plane is already running, printing its
 current status instead. Stop is safe to run even when no control plane
 is active.
 
-### 2.10) Full uninstall with tamandua uninstall
+### 2.10) Full uninstall with canarinho uninstall
 
-`tamandua uninstall [--force]` stops all Tamandua services and removes every
+`canarinho uninstall [--force]` stops all canarinho services and removes every
 installed workflow, including agent workspaces, agent registrations, and cron
 jobs.
 
 ```bash
-tamandua uninstall [--force]
+canarinho uninstall [--force]
 ```
 
 By default, uninstall checks for active runs (running or paused) and refuses
 if any exist. Use `--force` to skip this check.
 
-Compare with `tamandua workflow uninstall <name> [--force]` which removes a
-single workflow without stopping services, and `tamandua workflow uninstall
+Compare with `canarinho workflow uninstall <name> [--force]` which removes a
+single workflow without stopping services, and `canarinho workflow uninstall
 --all [--force]` which removes all workflows (also no service stops).
 
 ### 2.11) On-failure routing and rerouting
@@ -237,9 +237,9 @@ Events emitted during routing:
 - `step.rerouted` — step was sent back to an upstream producer
 - `step.reroute_budget_exhausted` — reroute limit reached; step is
   permanently failed
-These events are visible in `tamandua logs` and `tamandua logs-tail`.
+These events are visible in `canarinho logs` and `canarinho logs-tail`.
 Permanently failed runs can be reattempted with
-`tamandua workflow resume <run-id>`; fix the underlying issue before
+`canarinho workflow resume <run-id>`; fix the underlying issue before
 resuming.
 
 ### 2.12) AutoResearch experiment commands
@@ -251,10 +251,10 @@ log-experiment.
 
 #### Init
 
-`tamandua autoresearch init` creates a new AutoResearch session.
+`canarinho autoresearch init` creates a new AutoResearch session.
 
 ```bash
-tamandua autoresearch init --goal <text> --metric <name> --direction <lower|higher> --command <cmd> [options]
+canarinho autoresearch init --goal <text> --metric <name> --direction <lower|higher> --command <cmd> [options]
 ```
 
 Required options:
@@ -273,7 +273,7 @@ Optional options:
 Example:
 
 ```bash
-tamandua autoresearch init \
+canarinho autoresearch init \
   --goal "speed up test suite" \
   --metric total_ms \
   --unit ms \
@@ -283,12 +283,12 @@ tamandua autoresearch init \
 
 #### Run-Experiment
 
-`tamandua autoresearch run-experiment` executes the configured benchmark
+`canarinho autoresearch run-experiment` executes the configured benchmark
 command, captures output, parses the metric, runs optional checks, and
 appends a result to `autoresearch.jsonl`.
 
 ```bash
-tamandua autoresearch run-experiment [options]
+canarinho autoresearch run-experiment [options]
 ```
 
 Options:
@@ -301,18 +301,18 @@ Options:
 Example:
 
 ```bash
-tamandua autoresearch run-experiment
+canarinho autoresearch run-experiment
 ```
 
 #### Log-Experiment
 
-`tamandua autoresearch log-experiment` records the keep/discard decision,
+`canarinho autoresearch log-experiment` records the keep/discard decision,
 learning, and next focus for an experiment. By default, `--status auto`
 classifies the latest measured result by comparing it with prior accepted
 runs.
 
 ```bash
-tamandua autoresearch log-experiment --description <text> [options]
+canarinho autoresearch log-experiment --description <text> [options]
 ```
 
 Options:
@@ -334,7 +334,7 @@ stacking more changes.
 Example:
 
 ```bash
-tamandua autoresearch log-experiment \
+canarinho autoresearch log-experiment \
   --status auto \
   --description "cache parser hot path" \
   --learned "faster but flaky on invalid input" \
@@ -350,11 +350,11 @@ transactionally (commit on keep, revert on discard/crash).
 
 #### Loop
 
-`tamandua autoresearch loop` runs a bounded experiment loop with live
+`canarinho autoresearch loop` runs a bounded experiment loop with live
 terminal progress.
 
 ```bash
-tamandua autoresearch loop [options]
+canarinho autoresearch loop [options]
 ```
 
 An action mode is REQUIRED — the loop will fail without one.
@@ -395,19 +395,19 @@ and leaves `autoresearch.jsonl` in a consistent state.
 Examples:
 
 ```bash
-tamandua autoresearch loop --measure-only --max-iterations 10
-tamandua autoresearch loop --prompt --target-metric 0.5 --max-iterations 30
-tamandua autoresearch loop --prompt --max-consecutive-failures 5
-tamandua autoresearch loop --prompt --timeout 10m --max-iterations 10
+canarinho autoresearch loop --measure-only --max-iterations 10
+canarinho autoresearch loop --prompt --target-metric 0.5 --max-iterations 30
+canarinho autoresearch loop --prompt --max-consecutive-failures 5
+canarinho autoresearch loop --prompt --timeout 10m --max-iterations 10
 ```
 
 #### Run-Loop-Iteration
 
-`tamandua autoresearch run-loop-iteration` runs a single transactional
+`canarinho autoresearch run-loop-iteration` runs a single transactional
 experiment iteration.
 
 ```bash
-tamandua autoresearch run-loop-iteration [options]
+canarinho autoresearch run-loop-iteration [options]
 ```
 
 Transactional lifecycle:
@@ -436,9 +436,9 @@ committed/reverted flags, and the full log entry.
 Examples:
 
 ```bash
-tamandua autoresearch run-loop-iteration --prompt "try smaller LR" --iteration 1
-tamandua autoresearch run-loop-iteration --command "uv run train.py" --iteration 5
-tamandua autoresearch run-loop-iteration --prompt test --iteration 1
+canarinho autoresearch run-loop-iteration --prompt "try smaller LR" --iteration 1
+canarinho autoresearch run-loop-iteration --command "uv run train.py" --iteration 5
+canarinho autoresearch run-loop-iteration --prompt test --iteration 1
 ```
 
 ### 2.14) AutoResearch monitoring and setup commands
@@ -448,10 +448,10 @@ evidence-driven prompts, pruning stale sessions, and interactive setup.
 
 #### Status
 
-`tamandua autoresearch status` summarizes the experiment loop state.
+`canarinho autoresearch status` summarizes the experiment loop state.
 
 ```bash
-tamandua autoresearch status [--cwd <dir>]
+canarinho autoresearch status [--cwd <dir>]
 ```
 
 Options:
@@ -475,17 +475,17 @@ session exists.
 Example:
 
 ```bash
-tamandua autoresearch status
-tamandua autoresearch status --cwd /path/to/project
+canarinho autoresearch status
+canarinho autoresearch status --cwd /path/to/project
 ```
 
 #### Next
 
-`tamandua autoresearch next` prints the evidence-driven ratchet prompt that
+`canarinho autoresearch next` prints the evidence-driven ratchet prompt that
 agents should read before proposing the next experiment.
 
 ```bash
-tamandua autoresearch next [--cwd <dir>]
+canarinho autoresearch next [--cwd <dir>]
 ```
 
 Options:
@@ -503,18 +503,18 @@ intended to be consumed programmatically by agents or scripts.
 Example:
 
 ```bash
-tamandua autoresearch next
-tamandua autoresearch next --cwd /path/to/project
+canarinho autoresearch next
+canarinho autoresearch next --cwd /path/to/project
 ```
 
 #### Prune
 
-`tamandua autoresearch prune` removes stale session registry rows from the
+`canarinho autoresearch prune` removes stale session registry rows from the
 SQLite database. It does **not** touch project-local `autoresearch.jsonl` or
 `autoresearch.config.json` — those files remain safe on disk.
 
 ```bash
-tamandua autoresearch prune --older-than <duration> [--missing] [--dry-run]
+canarinho autoresearch prune --older-than <duration> [--missing] [--dry-run]
 ```
 
 Options:
@@ -535,18 +535,18 @@ no longer accessible are pruned.
 Examples:
 
 ```bash
-tamandua autoresearch prune --older-than 30d
-tamandua autoresearch prune --older-than 7d --missing
-tamandua autoresearch prune --older-than 30d --dry-run
+canarinho autoresearch prune --older-than 30d
+canarinho autoresearch prune --older-than 7d --missing
+canarinho autoresearch prune --older-than 30d --dry-run
 ```
 
 #### Wizard
 
-`tamandua autoresearch wizard` launches an interactive setup flow that guides
+`canarinho autoresearch wizard` launches an interactive setup flow that guides
 you through creating a new AutoResearch session.
 
 ```bash
-tamandua autoresearch wizard [--cwd <dir>]
+canarinho autoresearch wizard [--cwd <dir>]
 ```
 
 Options:
@@ -560,36 +560,36 @@ The wizard interactively asks:
 - **Unit** (optional) — metric unit (e.g. `seconds`, `ms`, `bpb`)
 - **Checks command** (optional) — correctness validation after benchmarks
 
-After collecting answers, the wizard generates the exact `tamandua
+After collecting answers, the wizard generates the exact `canarinho
 autoresearch init` command needed. If initialization is requested, it
-optionally executes the init command, then generates the `tamandua
+optionally executes the init command, then generates the `canarinho
 autoresearch loop` command to start the optimization loop. No project files
 are created directly by the wizard — it delegates to the init command.
 
 Example:
 
 ```bash
-tamandua autoresearch wizard
-tamandua autoresearch wizard --cwd /path/to/project
+canarinho autoresearch wizard
+canarinho autoresearch wizard --cwd /path/to/project
 ```
 
 ### 3) Follow the step lifecycle exactly
 
 Always execute step commands in this order:
 
-1. `tamandua step peek <agent-id> --run-id <run-id>`
-2. If result is `HAS_WORK`, run `tamandua step claim <agent-id> --run-id <run-id>`
+1. `canarinho step peek <agent-id> --run-id <run-id>`
+2. If result is `HAS_WORK`, run `canarinho step claim <agent-id> --run-id <run-id>`
 3. Parse claim JSON: `{"stepId":"...","runId":"...","input":"..."}`
 4. **SAVE `stepId` immediately** and execute the `input` task
 5. Report with the saved step id:
-   - Success: `tamandua step complete <stepId>` (send status output through stdin)
-   - Failure: `tamandua step fail <stepId> "<reason>"`
+   - Success: `canarinho step complete <stepId>` (send status output through stdin)
+   - Failure: `canarinho step fail <stepId> "<reason>"`
 
 Use the run ID supplied by your scheduler prompt or workflow context. `step peek` and `step claim` require `--run-id` so agents serving concurrent runs cannot claim each other's work.
 
 Never call `step complete` or `step fail` with an agent ID. They require the claimed step UUID.
 
-For diagnostics, use `tamandua step stories <run-id>` to list all stories
+For diagnostics, use `canarinho step stories <run-id>` to list all stories
 for a run and their statuses. This is useful when diagnosing blocked
 pipelines or understanding story progress.
 
@@ -601,9 +601,9 @@ On success, provide structured output that includes:
 - `CHANGES: ...`
 - `TESTS: ...`
 
-Then pipe that output into `tamandua step complete <stepId>`.
+Then pipe that output into `canarinho step complete <stepId>`.
 
-On failure, call `tamandua step fail <stepId> "<clear reason>"` with actionable detail.
+On failure, call `canarinho step fail <stepId> "<clear reason>"` with actionable detail.
 
 **CRITICAL — STATUS markers are parsed by the scheduler.** Output is
 classified by exact markers: `STATUS: done` (success) or `STATUS: failed` /
@@ -615,7 +615,7 @@ it — wasting a retry slot even when the work was completed.
 
 ### 2.1) MCP run start (remote)
 
-When using MCP, `tamandua.run.start` requires a harness working directory.
+When using MCP, `canarinho.run.start` requires a harness working directory.
 `workingDirectoryForHarness` is mandatory (not optional) for MCP runs.
 
 Required MCP args:
@@ -633,7 +633,7 @@ Optional MCP args:
 
 Additional MCP tools:
 
-- `tamandua.run.delete` — permanently delete a run. Requires `runId`. Optional
+- `canarinho.run.delete` — permanently delete a run. Requires `runId`. Optional
   `force` (boolean) to cancel and delete active runs.
 
 Recovery pattern for tool-calling models:
@@ -652,24 +652,24 @@ The selector can be:
 
 ```bash
 # Show recent entries
-tamandua logs                        # default: last 20 entries
-tamandua logs 50                     # last 50 entries
-tamandua logs <run-id>               # entries for a specific run
-tamandua logs #3                     # entries for run number 3
+canarinho logs                        # default: last 20 entries
+canarinho logs 50                     # last 50 entries
+canarinho logs <run-id>               # entries for a specific run
+canarinho logs #3                     # entries for run number 3
 
 # Follow activity as new events arrive
-tamandua logs-tail                   # tail recent activity (live)
-tamandua logs-tail 50                # tail, starting with last 50 entries
-tamandua logs-tail <run-id>          # tail events for a specific run
-tamandua logs-tail #3                # tail events for run number 3
+canarinho logs-tail                   # tail recent activity (live)
+canarinho logs-tail 50                # tail, starting with last 50 entries
+canarinho logs-tail <run-id>          # tail events for a specific run
+canarinho logs-tail #3                # tail events for run number 3
 ```
 
 Example: after starting a workflow, follow its progress:
 
 ```bash
-tamandua workflow run feature-dev "Add login page"
+canarinho workflow run feature-dev "Add login page"
 # -> Run started: 8a3b2c1d-...
-tamandua logs-tail 8a3b2c1d          # follow events as they arrive
+canarinho logs-tail 8a3b2c1d          # follow events as they arrive
 ```
 
 ### 2.3) Dashboard lifecycle and source path
@@ -677,51 +677,51 @@ tamandua logs-tail 8a3b2c1d          # follow events as they arrive
 Start, stop, and check the web dashboard:
 
 ```bash
-tamandua dashboard start [--port N]    # Start dashboard (default: 3334)
-tamandua dashboard stop                # Stop dashboard
-tamandua dashboard restart [--port N]  # Stop then start (also picks up rebuilt code)
-tamandua dashboard status              # Check dashboard + MCP status
+canarinho dashboard start [--port N]    # Start dashboard (default: 3334)
+canarinho dashboard stop                # Stop dashboard
+canarinho dashboard restart [--port N]  # Stop then start (also picks up rebuilt code)
+canarinho dashboard status              # Check dashboard + MCP status
 ```
 
 `dashboard status` reports both dashboard and MCP server status in a single
 output. The remote MCP server can be managed independently with
-`tamandua mcp start [--port N]`, `tamandua mcp stop`, `tamandua mcp restart [--port N]`, and `tamandua mcp status`
+`canarinho mcp start [--port N]`, `canarinho mcp stop`, `canarinho mcp restart [--port N]`, and `canarinho mcp status`
 (standalone on port 3338 by default).
 
-`tamandua source-path` prints the source checkout path that `tamandua update`
+`canarinho source-path` prints the source checkout path that `canarinho update`
 uses to pull, rebuild, and reinstall.
 
 ### 2.4) First-time setup with get-ready
 
-Use `tamandua get-ready` to prepare a fresh Tamandua checkout.
+Use `canarinho get-ready` to prepare a fresh canarinho checkout.
 
 ```bash
-tamandua get-ready
+canarinho get-ready
 ```
 
 `get-ready` performs these setup steps in order:
 
-1. Installs all bundled workflows into your Tamandua state directory
-2. Ensures the CLI launcher symlink exists at `~/.local/bin/tamandua`
+1. Installs all bundled workflows into your canarinho state directory
+2. Ensures the CLI launcher symlink exists at `~/.local/bin/canarinho`
 3. Starts the dashboard daemon if it is not already running
    (the daemon co-manages the dashboard HTTP server and the in-process control plane)
 4. Reports dashboard and MCP server status
 
-Run `get-ready` after pulling a new Tamandua checkout or after
-`tamandua update` if workflows or services need reinstallation.
+Run `get-ready` after pulling a new canarinho checkout or after
+`canarinho update` if workflows or services need reinstallation.
 It is safe to run multiple times — already-installed workflows are
 skipped and a running daemon is left untouched.
 
 Example session:
 
 ```bash
-cd /path/to/tamandua
+cd /path/to/canarinho
 ./build && ./install
-tamandua get-ready
+canarinho get-ready
 # -> Installs bundled workflows
 # -> Ensures CLI symlink exists
 # -> Dashboard is running on port 3334
-# -> MCP server is not running (start it with: tamandua mcp start)
+# -> MCP server is not running (start it with: canarinho mcp start)
 ```
 
 ### 2.5) Hermes harness support (Alpha)
@@ -730,7 +730,7 @@ The `--hermes-as-harness` flag runs agents with the Hermes harness instead of
 the default pi harness.
 
 ```bash
-tamandua workflow run <workflow-id> "<task>" --hermes-as-harness
+canarinho workflow run <workflow-id> "<task>" --hermes-as-harness
 ```
 
 > ⚠️ **Hermes support is in alpha.** It is **very slow** compared to pi.
@@ -744,21 +744,21 @@ default, so the flag is rarely needed unless a previous run used
 
 These flags are mutually exclusive — you cannot specify both in the same run.
 
-To use a custom Hermes binary, set the `TAMANDUA_HERMES_BINARY` environment
+To use a custom Hermes binary, set the `canarinho_HERMES_BINARY` environment
 variable:
 
 ```bash
-export TAMANDUA_HERMES_BINARY=/path/to/hermes
-tamandua workflow run <workflow-id> "<task>" --hermes-as-harness
+export canarinho_HERMES_BINARY=/path/to/hermes
+canarinho workflow run <workflow-id> "<task>" --hermes-as-harness
 ```
 
-If `TAMANDUA_HERMES_BINARY` is not set, Tamandua searches for `hermes` on
+If `canarinho_HERMES_BINARY` is not set, canarinho searches for `hermes` on
 `PATH`. The binary is validated at scheduling time — if it is not found or
 not executable, the run fails at startup.
 
-### 2.6) Troubleshooting with tamandua doctor
+### 2.6) Troubleshooting with canarinho doctor
 
-`tamandua doctor` is a one-shot diagnostic that checks environment
+`canarinho doctor` is a one-shot diagnostic that checks environment
 (Node.js >= 22, pi on PATH, gh on PATH), services (dashboard daemon,
 control plane, MCP), daemon staleness (running daemon matches installed
 build), database state (run-level anomalies), and LLM prompt adherence
@@ -767,8 +767,8 @@ agents deliver expected output keys). Each check prints **pass/fail**
 status and on failure prints the **exact remedy command** to run.
 
 ```bash
-tamandua doctor
-tamandua doctor --help
+canarinho doctor
+canarinho doctor --help
 ```
 
 ### 5) Review artifacts on changes
@@ -797,11 +797,11 @@ files reflect the change.
 
 ```bash
 # Phase 1: Peek
-tamandua step peek feature-dev_developer --run-id 7aeb4da9-1111-4222-8333-abcdefabcdef
+canarinho step peek feature-dev_developer --run-id 7aeb4da9-1111-4222-8333-abcdefabcdef
 # -> NO_WORK (stop) OR HAS_WORK (continue)
 
 # Phase 2: Claim
-tamandua step claim feature-dev_developer --run-id 7aeb4da9-1111-4222-8333-abcdefabcdef
+canarinho step claim feature-dev_developer --run-id 7aeb4da9-1111-4222-8333-abcdefabcdef
 # -> {"stepId":"87409f73-...","runId":"7aeb4da9-...","input":"Implement ..."}
 # Save stepId=87409f73-...
 
@@ -810,16 +810,16 @@ tamandua step claim feature-dev_developer --run-id 7aeb4da9-1111-4222-8333-abcde
 # Success report (uses saved stepId)
 echo 'STATUS: done
 CHANGES: Added skill docs and tests
-TESTS: node --test tests/*.test.ts' | tamandua step complete 87409f73-4ba6-492a-be44-30b2b6ffbadb
+TESTS: node --test tests/*.test.ts' | canarinho step complete 87409f73-4ba6-492a-be44-30b2b6ffbadb
 
 # Failure alternative
-# tamandua step fail 87409f73-4ba6-492a-be44-30b2b6ffbadb "Missing repository path"
+# canarinho step fail 87409f73-4ba6-492a-be44-30b2b6ffbadb "Missing repository path"
 ```
 
 ### Manual step inspection
 
 ```bash
-tamandua step stories <run-id>
+canarinho step stories <run-id>
 ```
 
 Use `step stories` to inspect current story status for a run when diagnosing blocked pipelines.

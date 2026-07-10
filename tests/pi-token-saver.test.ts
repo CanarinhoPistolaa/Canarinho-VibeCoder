@@ -4,7 +4,7 @@
  * No-hurry runs prefer a `pi-token-saver` command from PATH over `pi` for
  * every work spawn. Resolution happens PER INVOCATION, so installing
  * pi-token-saver mid-run takes effect on the next round; when absent, `pi`
- * is used as usual. TAMANDUA_PI_BINARY (the config/test seam) always wins.
+ * is used as usual. canarinho_PI_BINARY (the config/test seam) always wins.
  */
 
 import { describe, it, beforeEach, afterEach } from "node:test";
@@ -28,25 +28,25 @@ function makeExecutable(dir: string, name: string, body = "#!/bin/sh\nexit 0\n")
 }
 
 beforeEach(() => {
-  tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "tamandua-token-saver-"));
+  tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "canarinho-token-saver-"));
   savedPath = process.env.PATH;
-  savedPiBinary = process.env.TAMANDUA_PI_BINARY;
+  savedPiBinary = process.env.canarinho_PI_BINARY;
   savedHome = process.env.HOME;
-  savedStateDir = process.env.TAMANDUA_STATE_DIR;
-  savedDbPath = process.env.TAMANDUA_DB_PATH;
-  delete process.env.TAMANDUA_PI_BINARY;
+  savedStateDir = process.env.canarinho_STATE_DIR;
+  savedDbPath = process.env.canarinho_DB_PATH;
+  delete process.env.canarinho_PI_BINARY;
 });
 
 afterEach(() => {
   process.env.PATH = savedPath!;
-  if (savedPiBinary === undefined) delete process.env.TAMANDUA_PI_BINARY;
-  else process.env.TAMANDUA_PI_BINARY = savedPiBinary;
+  if (savedPiBinary === undefined) delete process.env.canarinho_PI_BINARY;
+  else process.env.canarinho_PI_BINARY = savedPiBinary;
   if (savedHome === undefined) delete process.env.HOME;
   else process.env.HOME = savedHome;
-  if (savedStateDir === undefined) delete process.env.TAMANDUA_STATE_DIR;
-  else process.env.TAMANDUA_STATE_DIR = savedStateDir;
-  if (savedDbPath === undefined) delete process.env.TAMANDUA_DB_PATH;
-  else process.env.TAMANDUA_DB_PATH = savedDbPath;
+  if (savedStateDir === undefined) delete process.env.canarinho_STATE_DIR;
+  else process.env.canarinho_STATE_DIR = savedStateDir;
+  if (savedDbPath === undefined) delete process.env.canarinho_DB_PATH;
+  else process.env.canarinho_DB_PATH = savedDbPath;
   fs.rmSync(tempDir, { recursive: true, force: true });
 });
 
@@ -85,14 +85,14 @@ describe("findPiBinary pi-token-saver preference", () => {
     assert.equal(await findPiBinary({ preferTokenSaver: true }), saver);
   });
 
-  it("TAMANDUA_PI_BINARY overrides pi-token-saver preference (test/config seam)", async () => {
+  it("canarinho_PI_BINARY overrides pi-token-saver preference (test/config seam)", async () => {
     const binDir = path.join(tempDir, "bin");
     fs.mkdirSync(binDir);
     makeExecutable(binDir, "pi");
     makeExecutable(binDir, "pi-token-saver");
     const pinned = makeExecutable(tempDir, "pinned-pi");
     process.env.PATH = binDir;
-    process.env.TAMANDUA_PI_BINARY = pinned;
+    process.env.canarinho_PI_BINARY = pinned;
 
     assert.equal(await findPiBinary({ preferTokenSaver: true }), pinned);
   });
@@ -106,7 +106,7 @@ describe("findPiBinary pi-token-saver preference", () => {
 describe("dispatch round spawns pi-token-saver for no-hurry runs", () => {
   it("no-hurry run context routes the work spawn to pi-token-saver; normal runs use pi", async () => {
     const homeDir = path.join(tempDir, "home");
-    const stateDir = path.join(homeDir, ".tamandua");
+    const stateDir = path.join(homeDir, ".canarinho");
     const workdir = path.join(tempDir, "work");
     const binDir = path.join(tempDir, "bin");
     fs.mkdirSync(stateDir, { recursive: true });
@@ -120,9 +120,9 @@ describe("dispatch round spawns pi-token-saver for no-hurry runs", () => {
 
     process.env.PATH = binDir;
     process.env.HOME = homeDir;
-    process.env.TAMANDUA_STATE_DIR = stateDir;
-    process.env.TAMANDUA_DB_PATH = path.join(stateDir, "tamandua.db");
-    delete process.env.TAMANDUA_PI_BINARY;
+    process.env.canarinho_STATE_DIR = stateDir;
+    process.env.canarinho_DB_PATH = path.join(stateDir, "canarinho.db");
+    delete process.env.canarinho_PI_BINARY;
 
     const { getDb } = await import("../dist/db.js");
     const db = getDb();

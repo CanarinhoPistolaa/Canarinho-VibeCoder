@@ -214,7 +214,7 @@ describe("runWizard", () => {
     try {
       await runWizard({
         cwd: tempDir,
-        binaryName: "tamandua",
+        binaryName: "canarinho",
         piSpawn,
         terminal,
         commandSpawn: cmdSpawn,
@@ -269,7 +269,7 @@ describe("runWizard", () => {
     try {
       await runWizard({
         cwd: tempDir,
-        binaryName: "tamandua",
+        binaryName: "canarinho",
         piSpawn,
         terminal,
         commandSpawn: cmdSpawn,
@@ -339,7 +339,7 @@ describe("runWizard", () => {
     try {
       await runWizard({
         cwd: tempDir,
-        binaryName: "tamandua",
+        binaryName: "canarinho",
         piSpawn,
         terminal,
         commandSpawn: cmdSpawn,
@@ -402,7 +402,7 @@ describe("runWizard", () => {
     try {
       await runWizard({
         cwd: tempDir,
-        binaryName: "tamandua",
+        binaryName: "canarinho",
         piSpawn,
         terminal,
         commandSpawn: cmdSpawn,
@@ -461,7 +461,7 @@ describe("runWizard", () => {
     try {
       await runWizard({
         cwd: tempDir,
-        binaryName: "tamandua",
+        binaryName: "canarinho",
         piSpawn,
         terminal,
         commandSpawn: cmdSpawn,
@@ -521,7 +521,7 @@ describe("runWizard", () => {
     try {
       await runWizard({
         cwd: tempDir,
-        binaryName: "tamandua",
+        binaryName: "canarinho",
         piSpawn,
         terminal,
         commandSpawn: cmdSpawn,
@@ -588,7 +588,7 @@ describe("runWizard", () => {
     try {
       await runWizard({
         cwd: tempDir,
-        binaryName: "tamandua",
+        binaryName: "canarinho",
         piSpawn,
         terminal,
         commandSpawn: cmdSpawn,
@@ -649,7 +649,7 @@ describe("runWizard", () => {
     try {
       await runWizard({
         cwd: tempDir,
-        binaryName: "tamandua",
+        binaryName: "canarinho",
         piSpawn,
         terminal,
         commandSpawn: cmdSpawn,
@@ -693,7 +693,7 @@ describe("runWizard", () => {
     try {
       await runWizard({
         cwd: tempDir,
-        binaryName: "tamandua",
+        binaryName: "canarinho",
         piSpawn,
         terminal,
         commandSpawn: cmdSpawn,
@@ -704,7 +704,7 @@ describe("runWizard", () => {
 
     // First output lines should contain the explanation
     const firstOutputs = terminal.output.slice(0, 15).join("\n");
-    assert.ok(firstOutputs.includes("AutoResearch lets Tamandua"));
+    assert.ok(firstOutputs.includes("AutoResearch lets canarinho"));
     assert.ok(firstOutputs.includes("autoresearch init"));
     assert.ok(firstOutputs.includes("autoresearch loop --prompt"));
   });
@@ -735,7 +735,7 @@ describe("runWizard", () => {
     try {
       await runWizard({
         cwd: tempDir,
-        binaryName: "tamandua",
+        binaryName: "canarinho",
         piSpawn,
         terminal,
         commandSpawn: cmdSpawn,
@@ -798,7 +798,7 @@ describe("runWizard", () => {
     try {
       await runWizard({
         cwd: tempDir,
-        binaryName: "tamandua",
+        binaryName: "canarinho",
         piSpawn,
         terminal,
         commandSpawn: cmdSpawn,
@@ -849,7 +849,7 @@ describe("runWizard", () => {
     try {
       await runWizard({
         cwd: tempDir,
-        binaryName: "tamandua",
+        binaryName: "canarinho",
         piSpawn,
         terminal,
         commandSpawn: cmdSpawn,
@@ -890,7 +890,7 @@ describe("runWizard", () => {
     try {
       await runWizard({
         cwd: tempDir,
-        binaryName: "tamandua",
+        binaryName: "canarinho",
         piSpawn,
         terminal,
         commandSpawn: cmdSpawn,
@@ -940,7 +940,7 @@ describe("runWizard", () => {
     try {
       await runWizard({
         cwd: tempDir,
-        binaryName: "tamandua",
+        binaryName: "canarinho",
         piSpawn,
         terminal,
         commandSpawn: cmdSpawn,
@@ -981,7 +981,7 @@ describe("runWizard", () => {
     try {
       await runWizard({
         cwd: tempDir,
-        binaryName: "my-tamandua",
+        binaryName: "my-canarinho",
         piSpawn,
         terminal,
         commandSpawn: cmdSpawn,
@@ -992,6 +992,6 @@ describe("runWizard", () => {
 
     // Spawned command should use custom binary name
     assert.equal(cmdSpawn.spawnedCommands.length, 1);
-    assert.equal(cmdSpawn.spawnedCommands[0].command, "my-tamandua");
+    assert.equal(cmdSpawn.spawnedCommands[0].command, "my-canarinho");
   });
 });

@@ -52,10 +52,10 @@ describe("test isolation guard", () => {
     assert.deepEqual(violations, []);
   });
 
-  it("test files that use logger or agent-scheduler must set TAMANDUA_STATE_DIR", () => {
+  it("test files that use logger or agent-scheduler must set canarinho_STATE_DIR", () => {
     // Test files that import logger or agent-scheduler functions must isolate
-    // their log output using TAMANDUA_STATE_DIR to avoid polluting the live
-    // ~/.tamandua/tamandua.log. This regression test guards against that.
+    // their log output using canarinho_STATE_DIR to avoid polluting the live
+    // ~/.canarinho/canarinho.log. This regression test guards against that.
     const testFiles = [
       ...collectTestFiles(path.join(process.cwd(), "tests")),
       ...collectTestFiles(path.join(process.cwd(), "e2e-tests")),
@@ -71,8 +71,8 @@ describe("test isolation guard", () => {
       /from\s+["'].*\/installer\/agent-scheduler\.js["'].*\bexecuteDispatchRound\b/,
     ];
 
-    const logsViaTamanduaDir = /TAMANDUA_STATE_DIR/;
-    // Acceptable alternatives to TAMANDUA_STATE_DIR: monkey-patching logger so it never writes to disk
+    const logsViacanarinhoDir = /canarinho_STATE_DIR/;
+    // Acceptable alternatives to canarinho_STATE_DIR: monkey-patching logger so it never writes to disk
     const hasLoggerPatch = /captureLoggerCalls|mutableLogger\.(?:info|warn|error)\s*=/;
 
     const violations: string[] = [];
@@ -83,9 +83,9 @@ describe("test isolation guard", () => {
       const importsLogger = loggerSensitiveImports.some((p) => p.test(content));
       if (!importsLogger) continue;
 
-      if (!logsViaTamanduaDir.test(content) && !hasLoggerPatch.test(content)) {
+      if (!logsViacanarinhoDir.test(content) && !hasLoggerPatch.test(content)) {
         violations.push(
-          `${relative}: imports logger or agent-scheduler without setting TAMANDUA_STATE_DIR or monkey-patching logger`,
+          `${relative}: imports logger or agent-scheduler without setting canarinho_STATE_DIR or monkey-patching logger`,
         );
       }
     }
@@ -225,14 +225,14 @@ describe("test isolation guard", () => {
 });
 
 describe("test guard disarm protection", () => {
-  it("test files that disable TAMANDUA_TEST_GUARD must save the prior value first", () => {
+  it("test files that disable canarinho_TEST_GUARD must save the prior value first", () => {
     // Regression guard for the disarm bug found 2026-07-05: several tests set
-    // TAMANDUA_TEST_GUARD = "0" and then `delete`d the variable in finally
+    // canarinho_TEST_GUARD = "0" and then `delete`d the variable in finally
     // instead of restoring the previous value ("1" under npm test) — leaving
     // the isolation guard PERMANENTLY DISARMED for every subsequent test in
     // that file's process. Any test file that assigns a disabling value must
-    // contain a save-read of process.env.TAMANDUA_TEST_GUARD (inline
-    // `const prev = process.env.TAMANDUA_TEST_GUARD` or a beforeEach hook
+    // contain a save-read of process.env.canarinho_TEST_GUARD (inline
+    // `const prev = process.env.canarinho_TEST_GUARD` or a beforeEach hook
     // capture) so the finally can restore rather than delete.
     const testFiles = [
       ...collectTestFiles(path.join(process.cwd(), "tests")),
@@ -240,8 +240,8 @@ describe("test guard disarm protection", () => {
       ...collectTestFiles(path.join(process.cwd(), "src")),
     ];
 
-    const disables = /process\.env\.TAMANDUA_TEST_GUARD\s*=\s*["'](?:0|false|)["']/;
-    const savesPrior = /=\s*process\.env\.TAMANDUA_TEST_GUARD\s*[;,)]/;
+    const disables = /process\.env\.canarinho_TEST_GUARD\s*=\s*["'](?:0|false|)["']/;
+    const savesPrior = /=\s*process\.env\.canarinho_TEST_GUARD\s*[;,)]/;
 
     const violations: string[] = [];
     for (const file of testFiles) {
@@ -253,7 +253,7 @@ describe("test guard disarm protection", () => {
       const saveIndex = content.search(savesPrior);
       if (saveIndex === -1 || saveIndex > disableIndex) {
         violations.push(
-          `${relative}: disables TAMANDUA_TEST_GUARD without first saving the prior value — ` +
+          `${relative}: disables canarinho_TEST_GUARD without first saving the prior value — ` +
             `restore-by-delete disarms the guard for the rest of the test process`,
         );
       }

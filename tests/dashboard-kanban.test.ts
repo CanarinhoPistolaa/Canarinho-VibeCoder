@@ -9,7 +9,7 @@ import { describe, it } from "node:test";
 const repoRoot = process.cwd();
 
 function createTempHome(): { root: string; homeDir: string } {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), "tamandua-dashboard-kanban-"));
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "canarinho-dashboard-kanban-"));
   const homeDir = path.join(root, "home");
   fs.mkdirSync(homeDir, { recursive: true });
   return { root, homeDir };
@@ -100,7 +100,7 @@ describe("dashboard kanban view", () => {
             console.log(JSON.stringify({
               apiStatus: apiRes.status,
               htmlStatus: htmlRes.status,
-              htmlIsKanban: htmlBody.includes("Tamandua Kanban") || htmlBody.includes("workflow kanban"),
+              htmlIsKanban: htmlBody.includes("canarinho Kanban") || htmlBody.includes("workflow kanban"),
               missingStatus: missingRes.status,
               laneCount: (apiBody.lanes || []).length,
               laneAgents: (apiBody.lanes || []).map((l) => l.agent),

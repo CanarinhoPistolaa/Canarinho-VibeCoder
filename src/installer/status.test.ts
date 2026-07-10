@@ -13,11 +13,11 @@ const cliPath = path.resolve(process.cwd(), "dist", "cli", "cli.js");
 // ── Helpers ──
 
 function createTempEnv() {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), "tamandua-status-test-"));
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "canarinho-status-test-"));
   const homeDir = path.join(root, "home");
-  const tamanduaDir = path.join(homeDir, ".tamandua");
-  fs.mkdirSync(tamanduaDir, { recursive: true });
-  return { root, homeDir, tamanduaDir };
+  const canarinhoDir = path.join(homeDir, ".canarinho");
+  fs.mkdirSync(canarinhoDir, { recursive: true });
+  return { root, homeDir, canarinhoDir };
 }
 
 function spawnCli(args: string[], env: Record<string, string>): {
@@ -151,13 +151,13 @@ function seedDb(dbPath: string, runId: string, context: Record<string, string>, 
 describe("CLI workflow status worktree display", () => {
   it("shows worktree path and origin ref for worktree runs", async () => {
     const env = createTempEnv();
-    const dbPath = path.join(env.tamanduaDir, "tamandua.db");
+    const dbPath = path.join(env.canarinhoDir, "canarinho.db");
     const runId = "eeee5555-bbbb-4ccc-8ddd-eeeeeeeeeeee";
 
     seedDb(dbPath, runId, { workspace_mode: "worktree" }, {
       worktreeOriginRepository: "/home/user/my-repo",
       worktreeOriginGitCommonDir: "/home/user/my-repo/.git",
-      worktreePath: "/tmp/tamandua-worktrees/my-repo-hash/5-eeee5555",
+      worktreePath: "/tmp/canarinho-worktrees/my-repo-hash/5-eeee5555",
       worktreeOriginRef: "feature/cool-thing",
       worktreeOriginSha: "def789abc",
     });
@@ -174,7 +174,7 @@ describe("CLI workflow status worktree display", () => {
     const stdout = getStdout();
     assert.match(stdout, /Run: eeee5555/);
     assert.match(stdout, /Workspace: worktree/);
-    assert.match(stdout, /Worktree: \/tmp\/tamandua-worktrees\/my-repo-hash\/5-eeee5555/);
+    assert.match(stdout, /Worktree: \/tmp\/canarinho-worktrees\/my-repo-hash\/5-eeee5555/);
     assert.match(stdout, /Origin ref: feature\/cool-thing/);
     assert.match(stdout, /Tokens: 0/);
 
@@ -183,7 +183,7 @@ describe("CLI workflow status worktree display", () => {
 
   it("does NOT show worktree info for direct runs", async () => {
     const env = createTempEnv();
-    const dbPath = path.join(env.tamanduaDir, "tamandua.db");
+    const dbPath = path.join(env.canarinhoDir, "canarinho.db");
     const runId = "ffff6666-bbbb-4ccc-8ddd-eeeeeeeeeeee";
 
     seedDb(dbPath, runId, { workspace_mode: "direct" });
@@ -208,7 +208,7 @@ describe("CLI workflow status worktree display", () => {
 
   it("compact workflow runs list does not show worktree info", async () => {
     const env = createTempEnv();
-    const dbPath = path.join(env.tamanduaDir, "tamandua.db");
+    const dbPath = path.join(env.canarinhoDir, "canarinho.db");
     const runId = "abab7777-bbbb-4ccc-8ddd-eeeeeeeeeeee";
 
     seedDb(dbPath, runId, { workspace_mode: "worktree" }, {
@@ -240,13 +240,13 @@ describe("CLI workflow status worktree display", () => {
 describe("dashboard run detail worktree enrichment", () => {
   it("includes worktree data in API response for worktree runs", async () => {
     const env = createTempEnv();
-    const dbPath = path.join(env.tamanduaDir, "tamandua.db");
+    const dbPath = path.join(env.canarinhoDir, "canarinho.db");
     const runId = "caca8888-bbbb-4ccc-8ddd-eeeeeeeeeeee";
 
     seedDb(dbPath, runId, { workspace_mode: "worktree" }, {
       worktreeOriginRepository: "/home/user/my-repo",
       worktreeOriginGitCommonDir: "/home/user/my-repo/.git",
-      worktreePath: "/tmp/tamandua-worktrees/my-repo-hash/8-caca8888",
+      worktreePath: "/tmp/canarinho-worktrees/my-repo-hash/8-caca8888",
       worktreeOriginRef: "main",
       worktreeOriginSha: "abc123",
       status: "ready",
@@ -277,7 +277,7 @@ describe("dashboard run detail worktree enrichment", () => {
 
         assert.equal(response.status, 200);
         assert.ok(data.worktree !== null, "worktree should be present");
-        assert.equal(data.worktree!.worktree_path, "/tmp/tamandua-worktrees/my-repo-hash/8-caca8888");
+        assert.equal(data.worktree!.worktree_path, "/tmp/canarinho-worktrees/my-repo-hash/8-caca8888");
         assert.equal(data.worktree!.worktree_origin_repository, "/home/user/my-repo");
         assert.equal(data.worktree!.worktree_origin_ref, "main");
         assert.equal(data.worktree!.worktree_origin_sha, "abc123");
@@ -295,7 +295,7 @@ describe("dashboard run detail worktree enrichment", () => {
 
   it("does not include worktree data in API response for direct runs", async () => {
     const env = createTempEnv();
-    const dbPath = path.join(env.tamanduaDir, "tamandua.db");
+    const dbPath = path.join(env.canarinhoDir, "canarinho.db");
     const runId = "dada9999-bbbb-4ccc-8ddd-eeeeeeeeeeee";
 
     seedDb(dbPath, runId, { workspace_mode: "direct" });
@@ -339,11 +339,11 @@ describe("stopWorkflow", () => {
   let db: DatabaseSync;
 
   beforeEach(() => {
-    originalDbPath = process.env.TAMANDUA_DB_PATH;
+    originalDbPath = process.env.canarinho_DB_PATH;
     originalHome = process.env.HOME;
-    tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), "tamandua-stopwf-"));
-    const dbPath = path.join(tempRoot, ".tamandua", "tamandua.db");
-    process.env.TAMANDUA_DB_PATH = dbPath;
+    tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), "canarinho-stopwf-"));
+    const dbPath = path.join(tempRoot, ".canarinho", "canarinho.db");
+    process.env.canarinho_DB_PATH = dbPath;
     process.env.HOME = tempRoot;
 
     fs.mkdirSync(path.dirname(dbPath), { recursive: true });
@@ -411,8 +411,8 @@ describe("stopWorkflow", () => {
   });
 
   afterEach(() => {
-    if (originalDbPath) process.env.TAMANDUA_DB_PATH = originalDbPath;
-    else delete process.env.TAMANDUA_DB_PATH;
+    if (originalDbPath) process.env.canarinho_DB_PATH = originalDbPath;
+    else delete process.env.canarinho_DB_PATH;
     if (originalHome) process.env.HOME = originalHome;
     else delete process.env.HOME;
     try { db.close(); } catch {}

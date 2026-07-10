@@ -2,9 +2,9 @@
  * Scripted-agent test helper — generalized "fake pi" for full-pipeline e2e.
  *
  * createScriptedAgent() materializes an executable that the agent scheduler
- * can spawn in place of the real pi binary (via TAMANDUA_PI_BINARY). Unlike
+ * can spawn in place of the real pi binary (via canarinho_PI_BINARY). Unlike
  * the canned fake-pi in unit tests, the scripted agent executes the real
- * work protocol — step claim / complete against the isolated tamandua DB
+ * work protocol — step claim / complete against the isolated canarinho DB
  * (plus a defensive peek) — and applies deterministic per-agent behaviors
  * (file edits, shell commands, canned STATUS outputs) in the harness workdir.
  *
@@ -116,7 +116,7 @@ export interface InvocationLogEntry {
 }
 
 export interface ScriptedAgent {
-  /** Path to the executable to expose as TAMANDUA_PI_BINARY. */
+  /** Path to the executable to expose as canarinho_PI_BINARY. */
   binPath: string;
   /** Directory holding invocations.jsonl and per-agent work counters. */
   stateDir: string;
@@ -173,9 +173,9 @@ export function createScriptedAgent(
     binPath,
     stateDir,
     env: {
-      TAMANDUA_PI_BINARY: binPath,
-      TAMANDUA_SCRIPTED_BEHAVIORS: behaviorsPath,
-      TAMANDUA_SCRIPTED_STATE: stateDir,
+      canarinho_PI_BINARY: binPath,
+      canarinho_SCRIPTED_BEHAVIORS: behaviorsPath,
+      canarinho_SCRIPTED_STATE: stateDir,
     },
     readInvocations,
     workInvocations: (shortAgent?: string) =>

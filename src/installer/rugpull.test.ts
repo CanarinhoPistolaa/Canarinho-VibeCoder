@@ -73,8 +73,8 @@ function runGit(args: string[], cwd: string): string | null {
 function initGitRepo(dir: string): string {
   fs.mkdirSync(dir, { recursive: true });
   runGit(["init", "--initial-branch=main"], dir);
-  runGit(["config", "user.email", "test@tamandua.local"], dir);
-  runGit(["config", "user.name", "Tamandua Test"], dir);
+  runGit(["config", "user.email", "test@canarinho.local"], dir);
+  runGit(["config", "user.name", "canarinho Test"], dir);
   fs.writeFileSync(path.join(dir, "README.md"), "# Test Repo\n", "utf-8");
   runGit(["add", "README.md"], dir);
   runGit(["commit", "-m", "initial commit"], dir);
@@ -150,16 +150,16 @@ describe("detectRugpull", () => {
   let origStateDir: string | undefined;
 
   before(() => {
-    tempHome = fs.mkdtempSync(path.join(os.tmpdir(), "tamandua-rugpull-"));
+    tempHome = fs.mkdtempSync(path.join(os.tmpdir(), "canarinho-rugpull-"));
     origHome = process.env.HOME;
-    origDbPath = process.env.TAMANDUA_DB_PATH;
-    origStateDir = process.env.TAMANDUA_STATE_DIR;
+    origDbPath = process.env.canarinho_DB_PATH;
+    origStateDir = process.env.canarinho_STATE_DIR;
 
-    const tamanduaDir = path.join(tempHome, ".tamandua");
-    fs.mkdirSync(tamanduaDir, { recursive: true });
+    const canarinhoDir = path.join(tempHome, ".canarinho");
+    fs.mkdirSync(canarinhoDir, { recursive: true });
     process.env.HOME = tempHome;
-    process.env.TAMANDUA_DB_PATH = path.join(tamanduaDir, "tamandua.db");
-    process.env.TAMANDUA_STATE_DIR = tamanduaDir;
+    process.env.canarinho_DB_PATH = path.join(canarinhoDir, "canarinho.db");
+    process.env.canarinho_STATE_DIR = canarinhoDir;
 
     // Create a git repo for direct-mode tests
     repoDir = path.join(tempHome, "test-repo");
@@ -173,14 +173,14 @@ describe("detectRugpull", () => {
       delete process.env.HOME;
     }
     if (origDbPath !== undefined) {
-      process.env.TAMANDUA_DB_PATH = origDbPath;
+      process.env.canarinho_DB_PATH = origDbPath;
     } else {
-      delete process.env.TAMANDUA_DB_PATH;
+      delete process.env.canarinho_DB_PATH;
     }
     if (origStateDir !== undefined) {
-      process.env.TAMANDUA_STATE_DIR = origStateDir;
+      process.env.canarinho_STATE_DIR = origStateDir;
     } else {
-      delete process.env.TAMANDUA_STATE_DIR;
+      delete process.env.canarinho_STATE_DIR;
     }
     fs.rmSync(tempHome, { recursive: true, force: true });
   });
@@ -730,7 +730,7 @@ function writeWorkflowYml(
   workflowId: string,
   workspaceMode: "direct" | "worktree",
 ): void {
-  const workflowDir = path.join(homeDir, ".tamandua", "workflows", workflowId);
+  const workflowDir = path.join(homeDir, ".canarinho", "workflows", workflowId);
   fs.mkdirSync(workflowDir, { recursive: true });
   fs.writeFileSync(
     path.join(workflowDir, "workflow.yml"),
@@ -751,20 +751,20 @@ describe("relaunchRunAfterRugpull", () => {
   let origWorktreeRoot: string | undefined;
 
   before(async () => {
-    tempHome = fs.mkdtempSync(path.join(os.tmpdir(), "tamandua-relaunch-"));
+    tempHome = fs.mkdtempSync(path.join(os.tmpdir(), "canarinho-relaunch-"));
     origHome = process.env.HOME;
-    origControlPort = process.env.TAMANDUA_CONTROL_PORT;
-    origDbPath = process.env.TAMANDUA_DB_PATH;
-    origStateDir = process.env.TAMANDUA_STATE_DIR;
-    origWorktreeRoot = process.env.TAMANDUA_WORKTREE_ROOT;
+    origControlPort = process.env.canarinho_CONTROL_PORT;
+    origDbPath = process.env.canarinho_DB_PATH;
+    origStateDir = process.env.canarinho_STATE_DIR;
+    origWorktreeRoot = process.env.canarinho_WORKTREE_ROOT;
 
-    const tamanduaDir = path.join(tempHome, ".tamandua");
-    fs.mkdirSync(tamanduaDir, { recursive: true });
+    const canarinhoDir = path.join(tempHome, ".canarinho");
+    fs.mkdirSync(canarinhoDir, { recursive: true });
 
     process.env.HOME = tempHome;
-    process.env.TAMANDUA_DB_PATH = path.join(tamanduaDir, "tamandua.db");
-    process.env.TAMANDUA_STATE_DIR = tamanduaDir;
-    process.env.TAMANDUA_WORKTREE_ROOT = path.join(tamanduaDir, "worktrees");
+    process.env.canarinho_DB_PATH = path.join(canarinhoDir, "canarinho.db");
+    process.env.canarinho_STATE_DIR = canarinhoDir;
+    process.env.canarinho_WORKTREE_ROOT = path.join(canarinhoDir, "worktrees");
 
     // Start a mock daemon control server that responds 200 to all requests.
     // This is shared across all tests so runWorkflow can register runs successfully.
@@ -779,7 +779,7 @@ describe("relaunchRunAfterRugpull", () => {
         resolve(addr.port);
       });
     });
-    process.env.TAMANDUA_CONTROL_PORT = String(controlPort);
+    process.env.canarinho_CONTROL_PORT = String(controlPort);
 
     // Create a git repo for direct-mode tests
     repoDir = path.join(tempHome, "test-repo");
@@ -796,24 +796,24 @@ describe("relaunchRunAfterRugpull", () => {
       delete process.env.HOME;
     }
     if (origControlPort !== undefined) {
-      process.env.TAMANDUA_CONTROL_PORT = origControlPort;
+      process.env.canarinho_CONTROL_PORT = origControlPort;
     } else {
-      delete process.env.TAMANDUA_CONTROL_PORT;
+      delete process.env.canarinho_CONTROL_PORT;
     }
     if (origDbPath !== undefined) {
-      process.env.TAMANDUA_DB_PATH = origDbPath;
+      process.env.canarinho_DB_PATH = origDbPath;
     } else {
-      delete process.env.TAMANDUA_DB_PATH;
+      delete process.env.canarinho_DB_PATH;
     }
     if (origStateDir !== undefined) {
-      process.env.TAMANDUA_STATE_DIR = origStateDir;
+      process.env.canarinho_STATE_DIR = origStateDir;
     } else {
-      delete process.env.TAMANDUA_STATE_DIR;
+      delete process.env.canarinho_STATE_DIR;
     }
     if (origWorktreeRoot !== undefined) {
-      process.env.TAMANDUA_WORKTREE_ROOT = origWorktreeRoot;
+      process.env.canarinho_WORKTREE_ROOT = origWorktreeRoot;
     } else {
-      delete process.env.TAMANDUA_WORKTREE_ROOT;
+      delete process.env.canarinho_WORKTREE_ROOT;
     }
     fs.rmSync(tempHome, { recursive: true, force: true });
   });
@@ -839,7 +839,7 @@ describe("relaunchRunAfterRugpull", () => {
 
     // Verify suppression event was emitted
     const events = readEventsForRun(
-      process.env.TAMANDUA_STATE_DIR!,
+      process.env.canarinho_STATE_DIR!,
       runId,
     );
     const suppressionEvents = events.filter(
@@ -904,7 +904,7 @@ describe("relaunchRunAfterRugpull", () => {
 
     // Verify failure event was emitted
     const events = readEventsForRun(
-      process.env.TAMANDUA_STATE_DIR!,
+      process.env.canarinho_STATE_DIR!,
       runId,
     );
     const failedEvents = events.filter(
@@ -934,7 +934,7 @@ describe("relaunchRunAfterRugpull", () => {
 
     // Verify failure event was emitted
     const events = readEventsForRun(
-      process.env.TAMANDUA_STATE_DIR!,
+      process.env.canarinho_STATE_DIR!,
       runId,
     );
     const failedEvents = events.filter(
@@ -987,15 +987,15 @@ describe("relaunchRunAfterRugpull", () => {
       });
     });
 
-    const savedPort = process.env.TAMANDUA_CONTROL_PORT;
-    process.env.TAMANDUA_CONTROL_PORT = String(rejectingPort);
+    const savedPort = process.env.canarinho_CONTROL_PORT;
+    process.env.canarinho_CONTROL_PORT = String(rejectingPort);
     try {
       const result = await relaunchRunAfterRugpull(runId);
       assert.equal(result.relaunched, false, "should not relaunch when the daemon rejects registration");
 
       // Verify failure event was emitted
       const events = readEventsForRun(
-        process.env.TAMANDUA_STATE_DIR!,
+        process.env.canarinho_STATE_DIR!,
         runId,
       );
       const failedEvents = events.filter(
@@ -1004,9 +1004,9 @@ describe("relaunchRunAfterRugpull", () => {
       assert.equal(failedEvents.length, 1, "should emit relaunch_failed event on registration rejection");
     } finally {
       if (savedPort === undefined) {
-        delete process.env.TAMANDUA_CONTROL_PORT;
+        delete process.env.canarinho_CONTROL_PORT;
       } else {
-        process.env.TAMANDUA_CONTROL_PORT = savedPort;
+        process.env.canarinho_CONTROL_PORT = savedPort;
       }
       await new Promise<void>((resolve) => rejectingServer.close(() => resolve()));
     }
@@ -1038,8 +1038,8 @@ describe("relaunchRunAfterRugpull", () => {
     // simulate unreachability — the fallback default port may host a real
     // production daemon (observed 2026-07-05: this test registered its
     // relaunch against the live control plane the moment it came up).
-    const savedPort = process.env.TAMANDUA_CONTROL_PORT;
-    process.env.TAMANDUA_CONTROL_PORT = "1";
+    const savedPort = process.env.canarinho_CONTROL_PORT;
+    process.env.canarinho_CONTROL_PORT = "1";
     try {
       const result = await relaunchRunAfterRugpull(runId);
       assert.equal(result.relaunched, true, "unreachable control plane must not fail the relaunch");
@@ -1054,9 +1054,9 @@ describe("relaunchRunAfterRugpull", () => {
         "replacement run should await reconciler admission");
     } finally {
       if (savedPort === undefined) {
-        delete process.env.TAMANDUA_CONTROL_PORT;
+        delete process.env.canarinho_CONTROL_PORT;
       } else {
-        process.env.TAMANDUA_CONTROL_PORT = savedPort;
+        process.env.canarinho_CONTROL_PORT = savedPort;
       }
     }
   });
@@ -1105,7 +1105,7 @@ describe("relaunchRunAfterRugpull", () => {
 
     // Verify relaunch event was emitted on the failed run
     const events = readEventsForRun(
-      process.env.TAMANDUA_STATE_DIR!,
+      process.env.canarinho_STATE_DIR!,
       failedRunId,
     );
     const relaunchEvents = events.filter(
@@ -1177,7 +1177,7 @@ describe("relaunchRunAfterRugpull", () => {
 
     // Verify relaunch event
     const events = readEventsForRun(
-      process.env.TAMANDUA_STATE_DIR!,
+      process.env.canarinho_STATE_DIR!,
       failedRunId,
     );
     const relaunchEvents = events.filter(
@@ -1241,21 +1241,21 @@ describe("failStep rugpull integration", () => {
 
   before(async () => {
     tempHome = fs.mkdtempSync(
-      path.join(os.tmpdir(), "tamandua-failstep-rugpull-"),
+      path.join(os.tmpdir(), "canarinho-failstep-rugpull-"),
     );
     origHome = process.env.HOME;
-    origControlPort = process.env.TAMANDUA_CONTROL_PORT;
-    origDbPath = process.env.TAMANDUA_DB_PATH;
-    origStateDir = process.env.TAMANDUA_STATE_DIR;
-    origWorktreeRoot = process.env.TAMANDUA_WORKTREE_ROOT;
+    origControlPort = process.env.canarinho_CONTROL_PORT;
+    origDbPath = process.env.canarinho_DB_PATH;
+    origStateDir = process.env.canarinho_STATE_DIR;
+    origWorktreeRoot = process.env.canarinho_WORKTREE_ROOT;
 
-    const tamanduaDir = path.join(tempHome, ".tamandua");
-    fs.mkdirSync(tamanduaDir, { recursive: true });
+    const canarinhoDir = path.join(tempHome, ".canarinho");
+    fs.mkdirSync(canarinhoDir, { recursive: true });
 
     process.env.HOME = tempHome;
-    process.env.TAMANDUA_DB_PATH = path.join(tamanduaDir, "tamandua.db");
-    process.env.TAMANDUA_STATE_DIR = tamanduaDir;
-    process.env.TAMANDUA_WORKTREE_ROOT = path.join(tamanduaDir, "worktrees");
+    process.env.canarinho_DB_PATH = path.join(canarinhoDir, "canarinho.db");
+    process.env.canarinho_STATE_DIR = canarinhoDir;
+    process.env.canarinho_WORKTREE_ROOT = path.join(canarinhoDir, "worktrees");
 
     // Mock daemon control server for runWorkflow (called by relaunchRunAfterRugpull)
     controlPort = await new Promise<number>((resolve) => {
@@ -1269,7 +1269,7 @@ describe("failStep rugpull integration", () => {
         resolve(addr.port);
       });
     });
-    process.env.TAMANDUA_CONTROL_PORT = String(controlPort);
+    process.env.canarinho_CONTROL_PORT = String(controlPort);
 
     // Create a git repo for tests
     repoDir = path.join(tempHome, "test-repo");
@@ -1286,24 +1286,24 @@ describe("failStep rugpull integration", () => {
       delete process.env.HOME;
     }
     if (origControlPort !== undefined) {
-      process.env.TAMANDUA_CONTROL_PORT = origControlPort;
+      process.env.canarinho_CONTROL_PORT = origControlPort;
     } else {
-      delete process.env.TAMANDUA_CONTROL_PORT;
+      delete process.env.canarinho_CONTROL_PORT;
     }
     if (origDbPath !== undefined) {
-      process.env.TAMANDUA_DB_PATH = origDbPath;
+      process.env.canarinho_DB_PATH = origDbPath;
     } else {
-      delete process.env.TAMANDUA_DB_PATH;
+      delete process.env.canarinho_DB_PATH;
     }
     if (origStateDir !== undefined) {
-      process.env.TAMANDUA_STATE_DIR = origStateDir;
+      process.env.canarinho_STATE_DIR = origStateDir;
     } else {
-      delete process.env.TAMANDUA_STATE_DIR;
+      delete process.env.canarinho_STATE_DIR;
     }
     if (origWorktreeRoot !== undefined) {
-      process.env.TAMANDUA_WORKTREE_ROOT = origWorktreeRoot;
+      process.env.canarinho_WORKTREE_ROOT = origWorktreeRoot;
     } else {
-      delete process.env.TAMANDUA_WORKTREE_ROOT;
+      delete process.env.canarinho_WORKTREE_ROOT;
     }
     fs.rmSync(tempHome, { recursive: true, force: true });
   });
@@ -1343,7 +1343,7 @@ describe("failStep rugpull integration", () => {
 
     // Wait for the fire-and-forget rugpull detection (setImmediate + async)
     const events = await waitForRugpullEvents(
-      process.env.TAMANDUA_STATE_DIR!,
+      process.env.canarinho_STATE_DIR!,
       runId,
     );
 
@@ -1401,7 +1401,7 @@ describe("failStep rugpull integration", () => {
 
     // Wait and verify no rugpull events
     const events = await waitForRugpullEvents(
-      process.env.TAMANDUA_STATE_DIR!,
+      process.env.canarinho_STATE_DIR!,
       runId,
     );
     assert.equal(
@@ -1444,7 +1444,7 @@ describe("failStep rugpull integration", () => {
 
     // Wait and verify no rugpull events
     const events = await waitForRugpullEvents(
-      process.env.TAMANDUA_STATE_DIR!,
+      process.env.canarinho_STATE_DIR!,
       runId,
       1000,
     );
@@ -1522,7 +1522,7 @@ describe("failStep rugpull integration", () => {
 
     // Wait for fire-and-forget events
     const events = await waitForRugpullEvents(
-      process.env.TAMANDUA_STATE_DIR!,
+      process.env.canarinho_STATE_DIR!,
       runId,
     );
 
@@ -1576,7 +1576,7 @@ describe("failStep rugpull integration", () => {
     assert.equal(result.status, "failed");
 
     const events = await waitForRugpullEvents(
-      process.env.TAMANDUA_STATE_DIR!,
+      process.env.canarinho_STATE_DIR!,
       runId,
     );
     assert.equal(events.length, 0, "planner failure should not emit rugpull events");
@@ -1609,7 +1609,7 @@ describe("failStep rugpull integration", () => {
     assert.equal(result.status, "failed");
 
     const events = await waitForRugpullEvents(
-      process.env.TAMANDUA_STATE_DIR!,
+      process.env.canarinho_STATE_DIR!,
       runId,
     );
     assert.equal(events.length, 0, "verifier failure should not emit rugpull events");
@@ -1644,7 +1644,7 @@ describe("failStep rugpull integration", () => {
 
     // Wait and verify no rugpull events
     const events = await waitForRugpullEvents(
-      process.env.TAMANDUA_STATE_DIR!,
+      process.env.canarinho_STATE_DIR!,
       runId,
     );
     // Note: failStep fires rugpull detection for ALL single step failures.

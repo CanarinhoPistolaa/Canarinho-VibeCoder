@@ -21,15 +21,15 @@ const BASE_ENV_KEYS = [
   "GIT_CONFIG_GLOBAL",
   "GIT_CONFIG_NOSYSTEM",
   // Harness binary pins pass through so the npm-test-level
-  // TAMANDUA_PI_BINARY=/usr/bin/false safety net reaches spawned daemons and
+  // canarinho_PI_BINARY=/usr/bin/false safety net reaches spawned daemons and
   // scripts. Tiers that need a real or scripted harness set their own
   // value (explicit overrides win over the passthrough).
-  "TAMANDUA_PI_BINARY",
-  "TAMANDUA_HERMES_BINARY",
-  // Isolation guard: npm test sets TAMANDUA_TEST_GUARD=1 so any spawned
-  // daemon/script that reaches the real ~/.tamandua or a production port
+  "canarinho_PI_BINARY",
+  "canarinho_HERMES_BINARY",
+  // Isolation guard: npm test sets canarinho_TEST_GUARD=1 so any spawned
+  // daemon/script that reaches the real ~/.canarinho or a production port
   // fails loudly instead of silently interfering with the live instance.
-  "TAMANDUA_TEST_GUARD",
+  "canarinho_TEST_GUARD",
 ];
 
 export function cleanChildEnv(
@@ -52,13 +52,13 @@ export function cleanChildEnv(
   }
 
   const homeDir = env.HOME?.trim();
-  const configuredStateDir = env.TAMANDUA_STATE_DIR?.trim();
-  const stateDir = configuredStateDir || (homeDir ? path.join(homeDir, ".tamandua") : undefined);
+  const configuredStateDir = env.canarinho_STATE_DIR?.trim();
+  const stateDir = configuredStateDir || (homeDir ? path.join(homeDir, ".canarinho") : undefined);
   if (stateDir) {
-    env.TAMANDUA_STATE_DIR = stateDir;
-    env.TAMANDUA_DB_PATH = env.TAMANDUA_DB_PATH?.trim() || path.join(stateDir, "tamandua.db");
-    env.TAMANDUA_WORKTREE_ROOT =
-      env.TAMANDUA_WORKTREE_ROOT?.trim() || path.join(stateDir, "worktrees");
+    env.canarinho_STATE_DIR = stateDir;
+    env.canarinho_DB_PATH = env.canarinho_DB_PATH?.trim() || path.join(stateDir, "canarinho.db");
+    env.canarinho_WORKTREE_ROOT =
+      env.canarinho_WORKTREE_ROOT?.trim() || path.join(stateDir, "worktrees");
   }
 
   return env;

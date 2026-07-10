@@ -15,14 +15,14 @@ describe("uninstall", () => {
   let originalStateDir: string | undefined;
 
   beforeEach(() => {
-    originalDbPath = process.env.TAMANDUA_DB_PATH;
+    originalDbPath = process.env.canarinho_DB_PATH;
     originalHome = process.env.HOME;
-    originalStateDir = process.env.TAMANDUA_STATE_DIR;
-    tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "tamandua-uninstall-"));
-    dbPath = path.join(tempDir, ".tamandua", "tamandua.db");
-    process.env.TAMANDUA_DB_PATH = dbPath;
+    originalStateDir = process.env.canarinho_STATE_DIR;
+    tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "canarinho-uninstall-"));
+    dbPath = path.join(tempDir, ".canarinho", "canarinho.db");
+    process.env.canarinho_DB_PATH = dbPath;
     process.env.HOME = tempDir;
-    process.env.TAMANDUA_STATE_DIR = path.join(tempDir, ".tamandua");
+    process.env.canarinho_STATE_DIR = path.join(tempDir, ".canarinho");
 
     fs.mkdirSync(path.dirname(dbPath), { recursive: true });
     db = new DatabaseSync(dbPath);
@@ -62,12 +62,12 @@ describe("uninstall", () => {
   });
 
   afterEach(() => {
-    if (originalDbPath) process.env.TAMANDUA_DB_PATH = originalDbPath;
-    else delete process.env.TAMANDUA_DB_PATH;
+    if (originalDbPath) process.env.canarinho_DB_PATH = originalDbPath;
+    else delete process.env.canarinho_DB_PATH;
     if (originalHome) process.env.HOME = originalHome;
     else delete process.env.HOME;
-    if (originalStateDir) process.env.TAMANDUA_STATE_DIR = originalStateDir;
-    else delete process.env.TAMANDUA_STATE_DIR;
+    if (originalStateDir) process.env.canarinho_STATE_DIR = originalStateDir;
+    else delete process.env.canarinho_STATE_DIR;
     try { db.close(); } catch {}
     fs.rmSync(tempDir, { recursive: true, force: true });
   });
@@ -122,7 +122,7 @@ describe("uninstall", () => {
 
   describe("uninstallWorkflow", () => {
     it("refuses when workflow has active (running) runs", async () => {
-      const wfDir = path.join(tempDir, ".tamandua", "workflows", "wf-active");
+      const wfDir = path.join(tempDir, ".canarinho", "workflows", "wf-active");
       fs.mkdirSync(wfDir, { recursive: true });
 
       db.prepare(
@@ -136,7 +136,7 @@ describe("uninstall", () => {
     });
 
     it("refuses when workflow has active (paused) runs", async () => {
-      const wfDir = path.join(tempDir, ".tamandua", "workflows", "wf-paused");
+      const wfDir = path.join(tempDir, ".canarinho", "workflows", "wf-paused");
       fs.mkdirSync(wfDir, { recursive: true });
 
       db.prepare(
@@ -153,26 +153,26 @@ describe("uninstall", () => {
 
     it("successfully uninstalls a workflow with no active runs", async () => {
       const wfId = "wf-clean";
-      const tamanduaDir = path.join(tempDir, ".tamandua");
+      const canarinhoDir = path.join(tempDir, ".canarinho");
 
       // Create workflow directory
-      const wfDir = path.join(tamanduaDir, "workflows", wfId);
+      const wfDir = path.join(canarinhoDir, "workflows", wfId);
       fs.mkdirSync(wfDir, { recursive: true });
       fs.writeFileSync(path.join(wfDir, "workflow.yml"), "id: test", "utf-8");
 
       // Create workspace directories
-      const wsRoot = path.join(tamanduaDir, "workspaces", "workflows");
+      const wsRoot = path.join(canarinhoDir, "workspaces", "workflows");
       const wsDir = path.join(wsRoot, `${wfId}_some-agent`);
       fs.mkdirSync(wsDir, { recursive: true });
       fs.writeFileSync(path.join(wsDir, "README.md"), "workspace", "utf-8");
 
       // Create agent directory
-      const agentDir = path.join(tamanduaDir, "agents", `${wfId}_some-agent`);
+      const agentDir = path.join(canarinhoDir, "agents", `${wfId}_some-agent`);
       fs.mkdirSync(agentDir, { recursive: true });
       fs.writeFileSync(path.join(agentDir, "AGENTS.md"), "agent", "utf-8");
 
       // Create agents.json with entries
-      const agentsJson = path.join(tamanduaDir, "agents.json");
+      const agentsJson = path.join(canarinhoDir, "agents.json");
       fs.writeFileSync(
         agentsJson,
         JSON.stringify([
@@ -211,8 +211,8 @@ describe("uninstall", () => {
 
     it("handles missing workflow directory gracefully", async () => {
       const wfId = "wf-no-dir";
-      const tamanduaDir = path.join(tempDir, ".tamandua");
-      fs.mkdirSync(tamanduaDir, { recursive: true });
+      const canarinhoDir = path.join(tempDir, ".canarinho");
+      fs.mkdirSync(canarinhoDir, { recursive: true });
 
       // No workflow dir exists — the fs.rm will fail (ENOENT) but force:true means no error
       const result = await uninstallWorkflow(wfId);
@@ -221,10 +221,10 @@ describe("uninstall", () => {
 
     it("handles missing workspace and agent directories", async () => {
       const wfId = "wf-minimal";
-      const tamanduaDir = path.join(tempDir, ".tamandua");
+      const canarinhoDir = path.join(tempDir, ".canarinho");
 
       // Create only the workflow directory
-      const wfDir = path.join(tamanduaDir, "workflows", wfId);
+      const wfDir = path.join(canarinhoDir, "workflows", wfId);
       fs.mkdirSync(wfDir, { recursive: true });
 
       // No workspaces, no agents — should still succeed
@@ -240,13 +240,13 @@ describe("uninstall", () => {
     });
 
     it("processes workflow dirs when present", async () => {
-      const wfDir = path.join(tempDir, ".tamandua", "workflows", "wf-empty");
+      const wfDir = path.join(tempDir, ".canarinho", "workflows", "wf-empty");
       fs.mkdirSync(wfDir, { recursive: true });
 
-      const tamanduaDir = path.join(tempDir, ".tamandua");
-      fs.mkdirSync(path.join(tamanduaDir, "agents"), { recursive: true });
+      const canarinhoDir = path.join(tempDir, ".canarinho");
+      fs.mkdirSync(path.join(canarinhoDir, "agents"), { recursive: true });
       fs.writeFileSync(
-        path.join(tamanduaDir, "agents.json"),
+        path.join(canarinhoDir, "agents.json"),
         JSON.stringify([
           { id: "wf-empty_dev-agent", workflowId: "wf-empty", name: "Dev" },
         ]),
@@ -258,12 +258,12 @@ describe("uninstall", () => {
     });
 
     it("handles inner uninstall failure for one workflow", async () => {
-      const tamanduaDir = path.join(tempDir, ".tamandua");
+      const canarinhoDir = path.join(tempDir, ".canarinho");
 
       // Create two workflow dirs
-      const wfGood = path.join(tamanduaDir, "workflows", "wf-good");
+      const wfGood = path.join(canarinhoDir, "workflows", "wf-good");
       fs.mkdirSync(wfGood, { recursive: true });
-      const wfBad = path.join(tamanduaDir, "workflows", "wf-bad");
+      const wfBad = path.join(canarinhoDir, "workflows", "wf-bad");
       fs.mkdirSync(wfBad, { recursive: true });
 
       // Insert an active run for wf-bad so uninstallWorkflow throws

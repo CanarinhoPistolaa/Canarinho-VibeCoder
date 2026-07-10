@@ -6,13 +6,13 @@
  * measurement, prompted improvement (fake pi edits score.txt), git
  * commit, and working-tree cleanliness.
  *
- * No models are invoked and NO tokens are spent. TAMANDUA_PI_BINARY
+ * No models are invoked and NO tokens are spent. canarinho_PI_BINARY
  * points at a deterministic fake pi that writes a lower score and emits
  * pi-shaped JSON output.
  *
- * TEST ISOLATION: temp HOME, TAMANDUA_TEST_GUARD=1, random ports,
- * TAMANDUA_PI_BINARY pointing at deterministic fake pi. Never touches
- * real ~/.tamandua or default ports.
+ * TEST ISOLATION: temp HOME, canarinho_TEST_GUARD=1, random ports,
+ * canarinho_PI_BINARY pointing at deterministic fake pi. Never touches
+ * real ~/.canarinho or default ports.
  *
  * Run via: ./run-all-scripted-e2e-tests (or ./run-all-e2e-tests)
  */
@@ -49,8 +49,8 @@ function setUpGitRepo(dir: string): void {
   }
 
   git(["init"]);
-  git(["config", "user.email", "test@tamandua.local"]);
-  git(["config", "user.name", "Tamandua ARSE Test"]);
+  git(["config", "user.email", "test@canarinho.local"]);
+  git(["config", "user.name", "canarinho ARSE Test"]);
   git(["add", "score.txt"]);
   git(["commit", "-m", "initial commit with score=10"]);
 }
@@ -227,7 +227,7 @@ describe("autoresearch scripted e2e", () => {
         "--iteration", "1",
         "--description", "baseline measurement",
       ],
-      { ...env, TAMANDUA_PI_BINARY: fakePiPath },
+      { ...env, canarinho_PI_BINARY: fakePiPath },
       "baseline run-loop-iteration",
     );
     const baselineResult = JSON.parse(baselineOut.trim());
@@ -252,7 +252,7 @@ describe("autoresearch scripted e2e", () => {
         "--iteration", "2",
         "--description", "test improvement",
       ],
-      { ...env, TAMANDUA_PI_BINARY: fakePiPath },
+      { ...env, canarinho_PI_BINARY: fakePiPath },
       "improvement run-loop-iteration",
     );
     const improveResult = JSON.parse(improveOut.trim());
@@ -345,7 +345,7 @@ describe("autoresearch scripted e2e", () => {
         "--iteration", "1",
         "--description", "baseline measurement",
       ],
-      { ...env, TAMANDUA_PI_BINARY: fakePiPath },
+      { ...env, canarinho_PI_BINARY: fakePiPath },
       "baseline run-loop-iteration",
     );
     const baselineResult = JSON.parse(baselineOut.trim());
@@ -367,7 +367,7 @@ describe("autoresearch scripted e2e", () => {
         "--iteration", "2",
         "--description", "test regression",
       ],
-      { ...env, TAMANDUA_PI_BINARY: fakePiPath },
+      { ...env, canarinho_PI_BINARY: fakePiPath },
       "regression run-loop-iteration",
     );
     const regressResult = JSON.parse(regressOut.trim());

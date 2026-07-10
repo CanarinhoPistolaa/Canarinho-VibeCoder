@@ -23,27 +23,27 @@ let previousDbPath: string | undefined;
 
 beforeEach(() => {
   previousHome = process.env.HOME;
-  previousStateDir = process.env.TAMANDUA_STATE_DIR;
-  previousDbPath = process.env.TAMANDUA_DB_PATH;
+  previousStateDir = process.env.canarinho_STATE_DIR;
+  previousDbPath = process.env.canarinho_DB_PATH;
 
-  envRoot = fs.mkdtempSync(path.join(os.tmpdir(), "tamandua-update-env-"));
+  envRoot = fs.mkdtempSync(path.join(os.tmpdir(), "canarinho-update-env-"));
   const home = path.join(envRoot, "home");
   const state = path.join(envRoot, "state");
   fs.mkdirSync(home, { recursive: true });
   fs.mkdirSync(state, { recursive: true });
 
   process.env.HOME = home;
-  process.env.TAMANDUA_STATE_DIR = state;
-  process.env.TAMANDUA_DB_PATH = path.join(state, "tamandua.db");
+  process.env.canarinho_STATE_DIR = state;
+  process.env.canarinho_DB_PATH = path.join(state, "canarinho.db");
 });
 
 afterEach(() => {
   if (previousHome === undefined) delete process.env.HOME;
   else process.env.HOME = previousHome;
-  if (previousStateDir === undefined) delete process.env.TAMANDUA_STATE_DIR;
-  else process.env.TAMANDUA_STATE_DIR = previousStateDir;
-  if (previousDbPath === undefined) delete process.env.TAMANDUA_DB_PATH;
-  else process.env.TAMANDUA_DB_PATH = previousDbPath;
+  if (previousStateDir === undefined) delete process.env.canarinho_STATE_DIR;
+  else process.env.canarinho_STATE_DIR = previousStateDir;
+  if (previousDbPath === undefined) delete process.env.canarinho_DB_PATH;
+  else process.env.canarinho_DB_PATH = previousDbPath;
 
   if (envRoot) {
     fs.rmSync(envRoot, { recursive: true, force: true });
@@ -52,8 +52,8 @@ afterEach(() => {
 });
 
 function createSourceRoot(): string {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), "tamandua-update-source-"));
-  fs.writeFileSync(path.join(root, "package.json"), "{\"name\":\"tamandua-test\"}\n", "utf-8");
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "canarinho-update-source-"));
+  fs.writeFileSync(path.join(root, "package.json"), "{\"name\":\"canarinho-test\"}\n", "utf-8");
   fs.writeFileSync(path.join(root, "build-and-install"), "#!/bin/sh\nexit 0\n", { encoding: "utf-8", mode: 0o755 });
   return root;
 }
@@ -130,7 +130,7 @@ function createServices(snapshot: UpdateServiceSnapshot, calls: string[] = []): 
   };
 }
 
-describe("tamandua update command helpers", () => {
+describe("canarinho update command helpers", () => {
   it("resolves the source checkout path", () => {
     assert.equal(resolveSourcePath(), fs.realpathSync(REPO_ROOT));
   });
@@ -211,8 +211,8 @@ describe("tamandua update command helpers", () => {
         "./build-and-install",
       ]);
       assert.deepEqual(serviceCalls, ["snapshot"]);
-      assert.match(warnings.join("\n"), /Active Tamandua runs detected \(1\)/);
-      assert.match(warnings.join("\n"), /tamandua update --force/);
+      assert.match(warnings.join("\n"), /Active canarinho runs detected \(1\)/);
+      assert.match(warnings.join("\n"), /canarinho update --force/);
     } finally {
       fs.rmSync(sourcePath, { recursive: true, force: true });
     }

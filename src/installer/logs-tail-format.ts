@@ -1,4 +1,4 @@
-import { type TamanduaEvent } from "./events.js";
+import { type canarinhoEvent } from "./events.js";
 
 const EVENT_LABELS: Record<string, string> = {
   "run.started": "Run started",
@@ -31,11 +31,11 @@ export function formatLogsTailTime(ts: string): string {
   });
 }
 
-export function formatLogsTailLabel(evt: TamanduaEvent): string {
+export function formatLogsTailLabel(evt: canarinhoEvent): string {
   return EVENT_LABELS[evt.event] ?? evt.event;
 }
 
-function formatTokenSpend(evt: TamanduaEvent): string {
+function formatTokenSpend(evt: canarinhoEvent): string {
   const hasDelta = Number.isFinite(evt.tokenDelta);
   const hasTotal = Number.isFinite(evt.tokensSpent);
   if (!hasDelta && !hasTotal) return "";
@@ -53,7 +53,7 @@ function formatTokenSpend(evt: TamanduaEvent): string {
   return ` [tokens: ${parts.join(", ")}]`;
 }
 
-export function formatLogsTailLine(evt: TamanduaEvent): string {
+export function formatLogsTailLine(evt: canarinhoEvent): string {
   const time = formatLogsTailTime(evt.ts);
   const agent = evt.agentId ? `  ${evt.agentId.split("_").slice(-1)[0]}` : "";
   const label = formatLogsTailLabel(evt);
@@ -64,6 +64,6 @@ export function formatLogsTailLine(evt: TamanduaEvent): string {
   return `${time}${run}${agent}  ${label}${story}${detail}${tokenSpend}`;
 }
 
-export function formatLogsTailLines(events: TamanduaEvent[]): string[] {
+export function formatLogsTailLines(events: canarinhoEvent[]): string[] {
   return events.map((evt) => formatLogsTailLine(evt));
 }

@@ -404,7 +404,7 @@ describe("tryMarkJobInFlight", () => {
 describe("buildDispatchRoundContext", () => {
   function makeJob(overrides: Partial<CronJobInfo> = {}): CronJobInfo {
     return {
-      id: "tamandua-wf-1-run-1-agent-1",
+      id: "canarinho-wf-1-run-1-agent-1",
       workflowId: "wf-1",
       runId: "run-1",
       agentId: "agent-1",
@@ -478,7 +478,7 @@ describe("buildDispatchRoundContext", () => {
 
 describe("findHermesBinary", () => {
   const savedPath = process.env.PATH;
-  const savedHermes = process.env.TAMANDUA_HERMES_BINARY;
+  const savedHermes = process.env.canarinho_HERMES_BINARY;
   let tmpDir: string;
 
   beforeEach(() => {
@@ -487,26 +487,26 @@ describe("findHermesBinary", () => {
 
   afterEach(() => {
     process.env.PATH = savedPath;
-    process.env.TAMANDUA_HERMES_BINARY = savedHermes;
+    process.env.canarinho_HERMES_BINARY = savedHermes;
     fs.rmSync(tmpDir, { recursive: true, force: true });
   });
 
-  it("returns TAMANDUA_HERMES_BINARY when set and executable", () => {
+  it("returns canarinho_HERMES_BINARY when set and executable", () => {
     const fakeBin = path.join(tmpDir, "hermes");
     fs.writeFileSync(fakeBin, "#!/bin/bash\necho hermes\n");
     fs.chmodSync(fakeBin, 0o755);
-    process.env.TAMANDUA_HERMES_BINARY = fakeBin;
+    process.env.canarinho_HERMES_BINARY = fakeBin;
     assert.strictEqual(findHermesBinary(), fakeBin);
   });
 
-  it("throws when TAMANDUA_HERMES_BINARY is set but not executable", () => {
+  it("throws when canarinho_HERMES_BINARY is set but not executable", () => {
     const fakeBin = path.join(tmpDir, "hermes");
     fs.writeFileSync(fakeBin, "#!/bin/bash\necho hermes\n");
     fs.chmodSync(fakeBin, 0o644); // not executable
-    process.env.TAMANDUA_HERMES_BINARY = fakeBin;
+    process.env.canarinho_HERMES_BINARY = fakeBin;
     assert.throws(
       () => findHermesBinary(),
-      /TAMANDUA_HERMES_BINARY set but not executable/,
+      /canarinho_HERMES_BINARY set but not executable/,
     );
   });
 
@@ -514,13 +514,13 @@ describe("findHermesBinary", () => {
     const fakeBin = path.join(tmpDir, "hermes");
     fs.writeFileSync(fakeBin, "#!/bin/bash\necho hermes\n");
     fs.chmodSync(fakeBin, 0o755);
-    process.env.TAMANDUA_HERMES_BINARY = "";
+    process.env.canarinho_HERMES_BINARY = "";
     process.env.PATH = tmpDir;
     assert.strictEqual(findHermesBinary(), fakeBin);
   });
 
   it("throws when hermes not found anywhere", () => {
-    process.env.TAMANDUA_HERMES_BINARY = "";
+    process.env.canarinho_HERMES_BINARY = "";
     process.env.PATH = "/usr/bin:/bin";
     assert.throws(
       () => findHermesBinary(),

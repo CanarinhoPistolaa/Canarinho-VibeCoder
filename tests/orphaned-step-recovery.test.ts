@@ -23,27 +23,27 @@ import { getRunEvents } from "../dist/installer/events.js";
 // ── Environment isolation ──────────────────────────────────────────────
 // Production modules imported at file scope (getDb, recoverOrphanedStepsForAgent,
 // claimStep) call emitEvent() and logger.info/warn which write to
-// ~/.tamandua/ by default. Without isolation, test runs pollute the real
-// events/all.jsonl and tamandua.log with realistic-looking events.
-// TAMANDUA_STATE_DIR controls events/log paths; TAMANDUA_DB_PATH controls
+// ~/.canarinho/ by default. Without isolation, test runs pollute the real
+// events/all.jsonl and canarinho.log with realistic-looking events.
+// canarinho_STATE_DIR controls events/log paths; canarinho_DB_PATH controls
 // the DB path. Both must be set because the DB-path resolver is independent
 // of the events/log resolver.
 
-const _savedStateDir = process.env.TAMANDUA_STATE_DIR;
-const _savedDbPath = process.env.TAMANDUA_DB_PATH;
-const _testIsolationDir = fs.mkdtempSync(path.join(os.tmpdir(), "tamandua-orphaned-test-"));
-process.env.TAMANDUA_STATE_DIR = _testIsolationDir;
-process.env.TAMANDUA_DB_PATH = path.join(_testIsolationDir, "tamandua.db");
+const _savedStateDir = process.env.canarinho_STATE_DIR;
+const _savedDbPath = process.env.canarinho_DB_PATH;
+const _testIsolationDir = fs.mkdtempSync(path.join(os.tmpdir(), "canarinho-orphaned-test-"));
+process.env.canarinho_STATE_DIR = _testIsolationDir;
+process.env.canarinho_DB_PATH = path.join(_testIsolationDir, "canarinho.db");
 
 // Restore original env vars and clean up temp dir when the process exits.
 // Node test runner processes exit after all tests complete, so an exit
 // handler is the safest way to clean up file-wide setup that has no
 // corresponding file-wide teardown hook.
 process.on("exit", () => {
-  if (_savedStateDir === undefined) delete process.env.TAMANDUA_STATE_DIR;
-  else process.env.TAMANDUA_STATE_DIR = _savedStateDir;
-  if (_savedDbPath === undefined) delete process.env.TAMANDUA_DB_PATH;
-  else process.env.TAMANDUA_DB_PATH = _savedDbPath;
+  if (_savedStateDir === undefined) delete process.env.canarinho_STATE_DIR;
+  else process.env.canarinho_STATE_DIR = _savedStateDir;
+  if (_savedDbPath === undefined) delete process.env.canarinho_DB_PATH;
+  else process.env.canarinho_DB_PATH = _savedDbPath;
   try { fs.rmSync(_testIsolationDir, { recursive: true, force: true }); } catch { /* best effort */ }
 });
 
@@ -1191,7 +1191,7 @@ describe("US-004: Worker-lifecycle recovery regression tests", () => {
     // trailing prose — the exact shape that wedged run 24cb9c10.
     const assistantOutput = [
       "STATUS: done",
-      "REPO: /home/igorhvr/idm/tamandua",
+      "REPO: /home/igorhvr/idm/canarinho",
       "BRANCH: feature/test-wedge",
       'STORIES_JSON: [{"id":"US-001","title":"Test","description":"Test story","acceptanceCriteria":["Tests pass","Typecheck passes"]}]',
       "",

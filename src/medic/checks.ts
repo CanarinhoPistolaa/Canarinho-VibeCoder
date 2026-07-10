@@ -93,7 +93,7 @@ export function checkOrphanedCrons(): OrphanedCron[] {
 
   try {
     // Read cron jobs config
-    const cronFile = path.join(os.homedir(), ".tamandua", "cron-jobs.json");
+    const cronFile = path.join(os.homedir(), ".canarinho", "cron-jobs.json");
     let cronJobs: Array<{ id: string; workflowId: string; name: string }> = [];
 
     try {

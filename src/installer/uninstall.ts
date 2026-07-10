@@ -56,7 +56,7 @@ export async function uninstallWorkflow(
     );
   }
 
-  // Remove workflow directory (~/.tamandua/workflows/<id>)
+  // Remove workflow directory (~/.canarinho/workflows/<id>)
   const workflowDir = resolveWorkflowDir(workflowId);
   try {
     await fs.rm(workflowDir, { recursive: true, force: true });
@@ -68,7 +68,7 @@ export async function uninstallWorkflow(
   }
 
   // Remove workspace directories for this workflow's agents
-  // Agent workspaces are under ~/.tamandua/workspaces/workflows/<workflowId>_<agentId>
+  // Agent workspaces are under ~/.canarinho/workspaces/workflows/<workflowId>_<agentId>
   const workspaceRoot = resolveWorkflowWorkspaceRoot();
   try {
     const entries = await fs.readdir(workspaceRoot, { withFileTypes: true });
@@ -95,7 +95,7 @@ export async function uninstallWorkflow(
     }
   }
 
-  // Remove agent directories under ~/.tamandua/agents/<workflowId>_<agentId>
+  // Remove agent directories under ~/.canarinho/agents/<workflowId>_<agentId>
   const agentsRoot = path.join(resolvePiStateDir(), "agents");
   try {
     const entries = await fs.readdir(agentsRoot, { withFileTypes: true });
@@ -214,7 +214,7 @@ export async function checkActiveRuns(
 }
 
 /**
- * Remove agent entries from ~/.tamandua/agents.json for a given workflow.
+ * Remove agent entries from ~/.canarinho/agents.json for a given workflow.
  */
 async function removeAgentsFromList(
   workflowId: string,

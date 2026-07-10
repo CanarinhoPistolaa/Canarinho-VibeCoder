@@ -22,7 +22,7 @@ import { cleanChildEnv } from "./helpers/test-env.ts";
 const repoRoot = process.cwd();
 
 function createTempHome() {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), "tamandua-hermes-attribution-"));
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "canarinho-hermes-attribution-"));
   const homeDir = path.join(root, "home");
   fs.mkdirSync(homeDir, { recursive: true });
   return { root, homeDir };
@@ -102,7 +102,7 @@ function runHermesDispatchRound(
     await executeDispatchRound(job, { id: "dev", role: "coding", workspace: { baseDir: process.cwd(), files: {} } });
 
     const run = db.prepare("SELECT tokens_spent FROM runs WHERE id = ?").get(runId);
-    const eventsPath = path.join(process.env.HOME, ".tamandua", "events", runId + ".jsonl");
+    const eventsPath = path.join(process.env.HOME, ".canarinho", "events", runId + ".jsonl");
     const events = fs.existsSync(eventsPath)
       ? fs.readFileSync(eventsPath, "utf-8").split(/\\r?\\n/).filter(Boolean).map((l) => JSON.parse(l))
       : [];
@@ -119,7 +119,7 @@ function runHermesDispatchRound(
     cwd: repoRoot,
     env: cleanChildEnv({
       HOME: homeDir,
-      TAMANDUA_HERMES_BINARY: fakeHermes,
+      canarinho_HERMES_BINARY: fakeHermes,
       HERMES_HOME: hermesHome,
     }),
     encoding: "utf-8",
@@ -284,7 +284,7 @@ describe("hermes token attribution", () => {
         cwd: repoRoot,
         env: cleanChildEnv({
           HOME: temp.homeDir,
-          TAMANDUA_PI_BINARY: fakePi,
+          canarinho_PI_BINARY: fakePi,
           HERMES_HOME: hermesHome,
         }),
         encoding: "utf-8",

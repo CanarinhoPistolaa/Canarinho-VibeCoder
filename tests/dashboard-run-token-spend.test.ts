@@ -9,7 +9,7 @@ import { describe, it } from "node:test";
 const repoRoot = process.cwd();
 
 function createTempHome() {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), "tamandua-dashboard-run-tokens-"));
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "canarinho-dashboard-run-tokens-"));
   const homeDir = path.join(root, "home");
   fs.mkdirSync(homeDir, { recursive: true });
   return { root, homeDir };

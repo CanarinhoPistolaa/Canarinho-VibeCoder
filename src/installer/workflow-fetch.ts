@@ -8,7 +8,7 @@ import {
 } from "./paths.js";
 
 /**
- * Copy a bundled workflow from the tamandua source checkout to ~/.tamandua/workflows/.
+ * Copy a bundled workflow from the canarinho source checkout to ~/.canarinho/workflows/.
  * Returns the target workflow directory and the bundled source directory.
  */
 export async function fetchWorkflow(
@@ -113,7 +113,7 @@ export async function getWorkflowShortDescription(
  * OVERWRITING existing files.
  *
  * Workflow definitions are owned by the bundled source: installs and
- * `tamandua update` must deliver the current definitions, not freeze the
+ * `canarinho update` must deliver the current definitions, not freeze the
  * copy made at first install. (The previous "fetch once" skip-existing
  * semantic silently pinned every user to the workflow YAML of their first
  * install — shipped workflow fixes never arrived, and update's

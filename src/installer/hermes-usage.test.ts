@@ -12,7 +12,7 @@ import { DatabaseSync } from "node:sqlite";
 import { lookupHermesSessionTokens, probeHermesStateContract } from "../../dist/installer/hermes-usage.js";
 
 function createTempHome(): string {
-  return fs.mkdtempSync(path.join(os.tmpdir(), "tamandua-test-hermes-usage-"));
+  return fs.mkdtempSync(path.join(os.tmpdir(), "canarinho-test-hermes-usage-"));
 }
 
 function seedStateDb(hermesHome: string, rows: Array<Record<string, unknown>>): string {
@@ -43,7 +43,7 @@ function seedStateDb(hermesHome: string, rows: Array<Record<string, unknown>>): 
 
 function makeEnv(hermesHome: string): NodeJS.ProcessEnv {
   // Only pass the HERMES_HOME var; avoid spreading process.env which
-  // triggers the test-isolation guard (TAMANDUA_TEST_GUARD leakage).
+  // triggers the test-isolation guard (canarinho_TEST_GUARD leakage).
   // The lookupHermesSessionTokens function only reads HERMES_HOME and
   // os.homedir() — no other env vars are consumed.
   return { HERMES_HOME: hermesHome };

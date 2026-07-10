@@ -14,11 +14,11 @@ describe("parseAndInsertStories", () => {
   let originalHome: string | undefined;
 
   beforeEach(() => {
-    originalDbPath = process.env.TAMANDUA_DB_PATH;
+    originalDbPath = process.env.canarinho_DB_PATH;
     originalHome = process.env.HOME;
-    tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "tamandua-stories-"));
-    dbPath = path.join(tempDir, "tamandua.db");
-    process.env.TAMANDUA_DB_PATH = dbPath;
+    tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "canarinho-stories-"));
+    dbPath = path.join(tempDir, "canarinho.db");
+    process.env.canarinho_DB_PATH = dbPath;
     process.env.HOME = tempDir;
 
     db = new DatabaseSync(dbPath);
@@ -59,8 +59,8 @@ describe("parseAndInsertStories", () => {
   });
 
   afterEach(() => {
-    if (originalDbPath) process.env.TAMANDUA_DB_PATH = originalDbPath;
-    else delete process.env.TAMANDUA_DB_PATH;
+    if (originalDbPath) process.env.canarinho_DB_PATH = originalDbPath;
+    else delete process.env.canarinho_DB_PATH;
     if (originalHome) process.env.HOME = originalHome;
     else delete process.env.HOME;
     try { db.close(); } catch {}

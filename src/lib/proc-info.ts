@@ -4,7 +4,7 @@
  * Linux exposes everything through procfs, which is cheap and exact, so it
  * is always tried first. macOS/BSD have no /proc; there the helpers fall
  * back to `ps` (pgid, cmdline, elapsed time) and `lsof` (cwd). The fallbacks
- * only see same-user processes — sufficient for every process tamandua
+ * only see same-user processes — sufficient for every process canarinho
  * manages, since the daemon, harnesses, and CLI all run as the same user.
  *
  * IMPORTANT macOS limitation: the kernel does not let unprivileged callers

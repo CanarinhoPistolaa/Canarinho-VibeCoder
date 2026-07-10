@@ -25,21 +25,21 @@ import {
 
 let tempRoot: string;
 let homeDir: string;
-let tamanduaDir: string;
+let canarinhoDir: string;
 let controlPort: number;
 let dashboardPort: number;
 
 function createTempHome() {
   tempRoot = fs.mkdtempSync(
-    path.join(os.tmpdir(), "tamandua-e2e-helpers-test-"),
+    path.join(os.tmpdir(), "canarinho-e2e-helpers-test-"),
   );
   homeDir = path.join(tempRoot, "home");
-  tamanduaDir = path.join(homeDir, ".tamandua");
-  fs.mkdirSync(tamanduaDir, { recursive: true });
+  canarinhoDir = path.join(homeDir, ".canarinho");
+  fs.mkdirSync(canarinhoDir, { recursive: true });
 
   // Write port file (required by daemon)
   fs.writeFileSync(
-    path.join(tamanduaDir, "port"),
+    path.join(canarinhoDir, "port"),
     String(dashboardPort),
     "utf-8",
   );
@@ -102,11 +102,11 @@ describe("e2e-helpers (real e2e test helpers)", () => {
       await new Promise((resolve) => setTimeout(resolve, 1000));
 
       // PID file is created by the daemon on startup
-      const pidFile = path.join(tamanduaDir, "tamandua.pid");
+      const pidFile = path.join(canarinhoDir, "canarinho.pid");
       assert.ok(fs.existsSync(pidFile), `PID file should exist at ${pidFile}`);
 
       // Port file was pre-written by createTempHome
-      const portFile = path.join(tamanduaDir, "port");
+      const portFile = path.join(canarinhoDir, "port");
       assert.ok(fs.existsSync(portFile), `Port file should exist at ${portFile}`);
 
       // DB is created lazily on first access and may not exist yet — that's OK.
@@ -125,7 +125,7 @@ describe("e2e-helpers (real e2e test helpers)", () => {
 
       await assert.rejects(
         () =>
-          pollForRunCompletion(fakeRunId, { HOME: homeDir, TAMANDUA_CONTROL_PORT: String(controlPort) }, shortTimeout, shortPoll),
+          pollForRunCompletion(fakeRunId, { HOME: homeDir, canarinho_CONTROL_PORT: String(controlPort) }, shortTimeout, shortPoll),
         (err: Error) => {
           return (
             err.message.includes("Timeout after") &&
@@ -153,7 +153,7 @@ describe("e2e-helpers (real e2e test helpers)", () => {
 
       await assert.rejects(
         () =>
-          waitForRunTerminal(fakeRunId, { HOME: homeDir, TAMANDUA_CONTROL_PORT: String(controlPort) }, shortTimeout, 200),
+          waitForRunTerminal(fakeRunId, { HOME: homeDir, canarinho_CONTROL_PORT: String(controlPort) }, shortTimeout, 200),
         /Timeout after/,
       );
     });

@@ -30,7 +30,7 @@ import {
 // ── Helpers ────────────────────────────────────────────────────────
 
 function createTempHome(): string {
-  return fs.mkdtempSync(path.join(os.tmpdir(), "tamandua-restart-"));
+  return fs.mkdtempSync(path.join(os.tmpdir(), "canarinho-restart-"));
 }
 
 async function getAvailablePort(): Promise<number> {
@@ -65,12 +65,12 @@ describe("daemonctl restartDaemon", { concurrency: 1 }, () => {
   // the suite never touches the production control port (3339).
   let savedControlPort: string | undefined;
   beforeEach(async () => {
-    savedControlPort = process.env.TAMANDUA_CONTROL_PORT;
-    process.env.TAMANDUA_CONTROL_PORT = String(await getAvailablePort());
+    savedControlPort = process.env.canarinho_CONTROL_PORT;
+    process.env.canarinho_CONTROL_PORT = String(await getAvailablePort());
   });
   afterEach(() => {
-    if (savedControlPort === undefined) delete process.env.TAMANDUA_CONTROL_PORT;
-    else process.env.TAMANDUA_CONTROL_PORT = savedControlPort;
+    if (savedControlPort === undefined) delete process.env.canarinho_CONTROL_PORT;
+    else process.env.canarinho_CONTROL_PORT = savedControlPort;
   });
 
   it("restartDaemon is exported and callable — returns { pid, port }", async (t) => {

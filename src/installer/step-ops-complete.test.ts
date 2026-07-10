@@ -15,14 +15,14 @@ describe("completeStep basic paths", () => {
   let originalStateDir: string | undefined;
 
   beforeEach(() => {
-    originalDbPath = process.env.TAMANDUA_DB_PATH;
+    originalDbPath = process.env.canarinho_DB_PATH;
     originalHome = process.env.HOME;
-    originalStateDir = process.env.TAMANDUA_STATE_DIR;
-    tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "tamandua-complete-step-"));
-    dbPath = path.join(tempDir, ".tamandua", "tamandua.db");
-    process.env.TAMANDUA_DB_PATH = dbPath;
+    originalStateDir = process.env.canarinho_STATE_DIR;
+    tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "canarinho-complete-step-"));
+    dbPath = path.join(tempDir, ".canarinho", "canarinho.db");
+    process.env.canarinho_DB_PATH = dbPath;
     process.env.HOME = tempDir;
-    process.env.TAMANDUA_STATE_DIR = path.join(tempDir, ".tamandua");
+    process.env.canarinho_STATE_DIR = path.join(tempDir, ".canarinho");
 
     fs.mkdirSync(path.dirname(dbPath), { recursive: true });
     db = new DatabaseSync(dbPath);
@@ -75,12 +75,12 @@ describe("completeStep basic paths", () => {
   });
 
   afterEach(() => {
-    if (originalDbPath) process.env.TAMANDUA_DB_PATH = originalDbPath;
-    else delete process.env.TAMANDUA_DB_PATH;
+    if (originalDbPath) process.env.canarinho_DB_PATH = originalDbPath;
+    else delete process.env.canarinho_DB_PATH;
     if (originalHome) process.env.HOME = originalHome;
     else delete process.env.HOME;
-    if (originalStateDir) process.env.TAMANDUA_STATE_DIR = originalStateDir;
-    else delete process.env.TAMANDUA_STATE_DIR;
+    if (originalStateDir) process.env.canarinho_STATE_DIR = originalStateDir;
+    else delete process.env.canarinho_STATE_DIR;
     try { db.close(); } catch {}
     fs.rmSync(tempDir, { recursive: true, force: true });
   });

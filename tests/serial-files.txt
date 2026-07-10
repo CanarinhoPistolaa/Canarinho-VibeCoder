@@ -2,7 +2,7 @@
 # Classification rule: a test file belongs here if it (a) directly imports from
 # node:child_process, or (b) calls daemonctl functions that spawn OS processes
 # (startDaemon, startMcp, startControlPlane, and their restart/stop counterparts).
-# In-process servers (createDashboardServer, createTamanduaMcpServer) are NOT serial candidates.
+# In-process servers (createDashboardServer, createcanarinhoMcpServer) are NOT serial candidates.
 # Lines starting with # are comments, empty lines ignored. Sorted alphabetically.
 #
 # Membership is enforced bidirectionally by tests/serial-classification-guard.test.ts

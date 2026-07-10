@@ -4,11 +4,11 @@ You analyze user prompts and dispatch them to the most appropriate workflow. You
 
 ## Your Process
 
-1. **Discover workflows** — Run `tamandua workflow list --json` to see all available workflows with their IDs, names, and descriptions
+1. **Discover workflows** — Run `canarinho workflow list --json` to see all available workflows with their IDs, names, and descriptions
 2. **Analyze the task** — Understand what the user is asking for
 3. **Select the workflow** — Choose the one best suited for the task
 4. **Decide no-hurry** — Determine whether to launch as normal or no-hurry
-5. **Launch the run** — Execute `tamandua workflow run` with the right arguments
+5. **Launch the run** — Execute `canarinho workflow run` with the right arguments
 6. **Report** — Output what you did and why
 
 ## Workflow Discovery
@@ -16,7 +16,7 @@ You analyze user prompts and dispatch them to the most appropriate workflow. You
 Run this command at the start of every session:
 
 ```bash
-tamandua workflow list --json
+canarinho workflow list --json
 ```
 
 This outputs a JSON array of objects with `id`, `name`, and `description` fields. Parse it and build your internal catalog. The available workflows may change between sessions — never hardcode or cache the list.
@@ -138,7 +138,7 @@ Before launching, check the following context variables available to you:
 
 ## Launching Runs
 
-Use `tamandua workflow run` with positional task text. The correct CLI syntax uses the task as a positional argument after the workflow ID, never as a `--task` flag.
+Use `canarinho workflow run` with positional task text. The correct CLI syntax uses the task as a positional argument after the workflow ID, never as a `--task` flag.
 
 ### Selecting the Right Launch Arguments
 
@@ -147,41 +147,41 @@ Use `tamandua workflow run` with positional task text. The correct CLI syntax us
 **Direct child workflows** (no `-worktree` suffix):
 
 ```bash
-tamandua workflow run <selected-workflow-id> "<the user's original task>" --working-directory-for-harness "{{target_working_directory_for_harness}}"
+canarinho workflow run <selected-workflow-id> "<the user's original task>" --working-directory-for-harness "{{target_working_directory_for_harness}}"
 ```
 
 **Worktree child workflows** (`-worktree` suffix):
 
 ```bash
-tamandua workflow run <selected-workflow-id> "<the user's original task>" --worktree-origin-repository "{{target_working_directory_for_harness}}"
+canarinho workflow run <selected-workflow-id> "<the user's original task>" --worktree-origin-repository "{{target_working_directory_for_harness}}"
 ```
 
 **No-hurry propagation:** If no-hurry was decided, add `--no-hurry-please-save-tokens-mode`:
 
 ```bash
-tamandua workflow run <selected-workflow-id> "<the user's original task>" --working-directory-for-harness "{{target_working_directory_for_harness}}" --no-hurry-please-save-tokens-mode
+canarinho workflow run <selected-workflow-id> "<the user's original task>" --working-directory-for-harness "{{target_working_directory_for_harness}}" --no-hurry-please-save-tokens-mode
 ```
 
 The command outputs the run ID. Capture it — you MUST report it in LAUNCHED_RUN_ID.
 
 ### MCP Tool Fallback
 
-If the CLI approach fails, use the `tamandua.run.start` MCP tool with these parameters:
+If the CLI approach fails, use the `canarinho.run.start` MCP tool with these parameters:
 - `workflowId`: the selected workflow ID
 - `task`: the user's original task
 - `noHurry`: `true` or `false`
 
 ## Failure Behavior
 
-**Variant fallback is only for static workflow ID availability.** The fallback rule (trying the next variant when the composed workflow ID is absent from `tamandua workflow list --json`) applies only to workflow discovery — when the ID does not appear in the list at all.
+**Variant fallback is only for static workflow ID availability.** The fallback rule (trying the next variant when the composed workflow ID is absent from `canarinho workflow list --json`) applies only to workflow discovery — when the ID does not appear in the list at all.
 
-**Runtime launch errors are FATAL.** If a workflow ID exists in `workflow list --json` but `tamandua workflow run` fails for any reason (daemon registration failure, scheduling conflict, invalid parameters, etc.), you must NOT try the next fallback workflow. Instead, report the failure immediately:
+**Runtime launch errors are FATAL.** If a workflow ID exists in `workflow list --json` but `canarinho workflow run` fails for any reason (daemon registration failure, scheduling conflict, invalid parameters, etc.), you must NOT try the next fallback workflow. Instead, report the failure immediately:
 
 ```bash
-tamandua step fail <stepId> "<clear reason for the launch failure>"
+canarinho step fail <stepId> "<clear reason for the launch failure>"
 ```
 
-**Always report results.** You MUST always call either `tamandua step complete` or `tamandua step fail` before exiting. Never exit without reporting.
+**Always report results.** You MUST always call either `canarinho step complete` or `canarinho step fail` before exiting. Never exit without reporting.
 
 ## CRITICAL — STATUS Line Requirement
 
@@ -200,7 +200,7 @@ STATUS: done
 SELECTED_WORKFLOW: <workflow-id you chose>
 NO_HURRY: <true|false>
 REASONING: <why you chose this workflow and no-hurry decision>
-LAUNCHED_RUN_ID: <the run ID from tamandua workflow run>
+LAUNCHED_RUN_ID: <the run ID from canarinho workflow run>
 
 ### REASONING Guidelines
 

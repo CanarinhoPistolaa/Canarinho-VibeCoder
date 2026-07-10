@@ -198,19 +198,19 @@ describe("nudgeScheduledRuns", () => {
   let tempHome: string;
 
   beforeEach(() => {
-    tempHome = fs.mkdtempSync(path.join(os.tmpdir(), "tamandua-nudge-"));
-    process.env.TAMANDUA_STATE_DIR = path.join(tempHome, ".tamandua");
+    tempHome = fs.mkdtempSync(path.join(os.tmpdir(), "canarinho-nudge-"));
+    process.env.canarinho_STATE_DIR = path.join(tempHome, ".canarinho");
   });
 
   afterEach(() => {
     shutdownAllCrons();
-    delete process.env.TAMANDUA_STATE_DIR;
+    delete process.env.canarinho_STATE_DIR;
     fs.rmSync(tempHome, { recursive: true, force: true });
   });
 
   function createWorkflowDir(workflowId: string, agentIds: string[]) {
     const wfDir = path.join(
-      process.env.TAMANDUA_STATE_DIR!,
+      process.env.canarinho_STATE_DIR!,
       "workflows",
       workflowId,
     );
@@ -279,7 +279,7 @@ describe("nudgeScheduledRuns", () => {
     });
 
     // Compute the job id (same format as buildJobId) and mark in-flight
-    const jobId = "tamandua-wf-skip-run-skip-dev";
+    const jobId = "canarinho-wf-skip-run-skip-dev";
     tryMarkJobInFlight(jobId);
 
     const result = await nudgeScheduledRuns(["run-skip"]);
@@ -383,7 +383,7 @@ describe("nudgeScheduledRuns", () => {
     });
 
     // Mark dev as in-flight, qa should still launch
-    const devJobId = "tamandua-wf-mixed-run-mixed-dev";
+    const devJobId = "canarinho-wf-mixed-run-mixed-dev";
     tryMarkJobInFlight(devJobId);
 
     const result = await nudgeScheduledRuns(["run-mixed"]);

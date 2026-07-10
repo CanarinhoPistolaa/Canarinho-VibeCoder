@@ -5,17 +5,17 @@ import os from "node:os";
 import path from "node:path";
 import { runVersionCheck, readVersionStatus } from "../../dist/lib/version-check.js";
 
-const originalStateDir = process.env.TAMANDUA_STATE_DIR;
+const originalStateDir = process.env.canarinho_STATE_DIR;
 const testStateDir = fs.mkdtempSync(
-  path.join(os.tmpdir(), "tamandua-version-check-"),
+  path.join(os.tmpdir(), "canarinho-version-check-"),
 );
-process.env.TAMANDUA_STATE_DIR = testStateDir;
+process.env.canarinho_STATE_DIR = testStateDir;
 
 after(() => {
   if (originalStateDir === undefined) {
-    delete process.env.TAMANDUA_STATE_DIR;
+    delete process.env.canarinho_STATE_DIR;
   } else {
-    process.env.TAMANDUA_STATE_DIR = originalStateDir;
+    process.env.canarinho_STATE_DIR = originalStateDir;
   }
   fs.rmSync(testStateDir, { recursive: true, force: true });
 });

@@ -20,12 +20,12 @@ import { LATEST_PROTOCOL_VERSION } from "@modelcontextprotocol/sdk/types.js";
 
 // We import from dist/ so typecheck is not required for test-run.
 import { createDashboardServer } from "../dist/server/dashboard.js";
-import { startTamanduaMcpServer, stopTamanduaMcpServer, type TamanduaMcpServer } from "../dist/server/mcp-server.js";
+import { startcanarinhoMcpServer, stopcanarinhoMcpServer, type canarinhoMcpServer } from "../dist/server/mcp-server.js";
 
 // ── Helpers ──────────────────────────────────────────────────────────
 
 function createTempHome(): { root: string; homeDir: string } {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), "tamandua-dashboard-mcp-pause-resume-"));
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "canarinho-dashboard-mcp-pause-resume-"));
   const homeDir = path.join(root, "home");
   fs.mkdirSync(homeDir, { recursive: true });
   return { root, homeDir };
@@ -71,7 +71,7 @@ function initializeRequest(id: number): Record<string, unknown> {
       protocolVersion: LATEST_PROTOCOL_VERSION,
       capabilities: {},
       clientInfo: {
-        name: "tamandua-test-client",
+        name: "canarinho-test-client",
         version: "0.0.0",
       },
     },
@@ -519,8 +519,8 @@ describe("MCP pause/resume terminal run rejection", () => {
   async function startMcpWithMock(opts: {
     pauseRejection?: string;
     resumeRejection?: string;
-  }): Promise<{ server: TamanduaMcpServer; port: number; sessionId: string }> {
-    const server = await startTamanduaMcpServer(0, {
+  }): Promise<{ server: canarinhoMcpServer; port: number; sessionId: string }> {
+    const server = await startcanarinhoMcpServer(0, {
       services: {
         listRuns: () => [],
         getWorkflowStatus: () => ({}) as any,
@@ -552,13 +552,13 @@ describe("MCP pause/resume terminal run rejection", () => {
     });
 
     try {
-      const result = await callTool(port, sessionId, 10, "tamandua.run.pause", { runId: "run-a" });
+      const result = await callTool(port, sessionId, 10, "canarinho.run.pause", { runId: "run-a" });
       assert.equal(result.status, 200);
       assert.equal(result.body?.result, undefined);
       assert.equal(result.body?.error?.code, -32602);
       assert.match(result.body?.error?.message ?? "", /terminal/);
     } finally {
-      await stopTamanduaMcpServer(server);
+      await stopcanarinhoMcpServer(server);
     }
   });
 
@@ -568,13 +568,13 @@ describe("MCP pause/resume terminal run rejection", () => {
     });
 
     try {
-      const result = await callTool(port, sessionId, 11, "tamandua.run.pause", { runId: "run-b" });
+      const result = await callTool(port, sessionId, 11, "canarinho.run.pause", { runId: "run-b" });
       assert.equal(result.status, 200);
       assert.equal(result.body?.result, undefined);
       assert.equal(result.body?.error?.code, -32602);
       assert.match(result.body?.error?.message ?? "", /terminal/);
     } finally {
-      await stopTamanduaMcpServer(server);
+      await stopcanarinhoMcpServer(server);
     }
   });
 
@@ -584,13 +584,13 @@ describe("MCP pause/resume terminal run rejection", () => {
     });
 
     try {
-      const result = await callTool(port, sessionId, 12, "tamandua.run.pause", { runId: "run-c" });
+      const result = await callTool(port, sessionId, 12, "canarinho.run.pause", { runId: "run-c" });
       assert.equal(result.status, 200);
       assert.equal(result.body?.result, undefined);
       assert.equal(result.body?.error?.code, -32602);
       assert.match(result.body?.error?.message ?? "", /terminal/);
     } finally {
-      await stopTamanduaMcpServer(server);
+      await stopcanarinhoMcpServer(server);
     }
   });
 
@@ -600,13 +600,13 @@ describe("MCP pause/resume terminal run rejection", () => {
     });
 
     try {
-      const result = await callTool(port, sessionId, 13, "tamandua.run.resume", { runId: "run-d" });
+      const result = await callTool(port, sessionId, 13, "canarinho.run.resume", { runId: "run-d" });
       assert.equal(result.status, 200);
       assert.equal(result.body?.result, undefined);
       assert.equal(result.body?.error?.code, -32602);
       assert.match(result.body?.error?.message ?? "", /terminal/);
     } finally {
-      await stopTamanduaMcpServer(server);
+      await stopcanarinhoMcpServer(server);
     }
   });
 
@@ -616,13 +616,13 @@ describe("MCP pause/resume terminal run rejection", () => {
     });
 
     try {
-      const result = await callTool(port, sessionId, 14, "tamandua.run.resume", { runId: "run-e" });
+      const result = await callTool(port, sessionId, 14, "canarinho.run.resume", { runId: "run-e" });
       assert.equal(result.status, 200);
       assert.equal(result.body?.result, undefined);
       assert.equal(result.body?.error?.code, -32602);
       assert.match(result.body?.error?.message ?? "", /terminal/);
     } finally {
-      await stopTamanduaMcpServer(server);
+      await stopcanarinhoMcpServer(server);
     }
   });
 
@@ -632,13 +632,13 @@ describe("MCP pause/resume terminal run rejection", () => {
     });
 
     try {
-      const result = await callTool(port, sessionId, 15, "tamandua.run.resume", { runId: "run-f" });
+      const result = await callTool(port, sessionId, 15, "canarinho.run.resume", { runId: "run-f" });
       assert.equal(result.status, 200);
       assert.equal(result.body?.result, undefined);
       assert.equal(result.body?.error?.code, -32602);
       assert.match(result.body?.error?.message ?? "", /terminal/);
     } finally {
-      await stopTamanduaMcpServer(server);
+      await stopcanarinhoMcpServer(server);
     }
   });
 });

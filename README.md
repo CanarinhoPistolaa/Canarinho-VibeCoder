@@ -54,13 +54,13 @@ Or step by step:
 ./install      # symlink into ~/.local/bin
 ```
 
-The `build` script handles everything: checks Node.js >= 22, runs `npm install`, compiles TypeScript. The `install` script creates a symlink at `~/.local/bin/tamandua` pointed at your checkout — so you can keep the source wherever you like and `tamandua` stays in sync. Both call into `scripts/install.sh` internally.
+The `build` script handles everything: checks Node.js >= 22, runs `npm install`, compiles TypeScript. The `install` script creates a symlink at `~/.local/bin/canarinho` pointed at your checkout — so you can keep the source wherever you like and `canarinho` stays in sync. Both call into `scripts/install.sh` internally.
 
-That's it. Run `tamandua workflow list` to see available workflows.
+That's it. Run `canarinho workflow list` to see available workflows.
 
-> **Not on npm.** Tamandua is installed from source (or GitHub), not the npm registry.
+> **Not on npm.** canarinho is installed from source (or GitHub), not the npm registry.
 
-> **Requires Node.js >= 22.** If `tamandua` fails with a `node:sqlite` error, make sure you're running real Node.js 22+, not Bun's node wrapper.
+> **Requires Node.js >= 22.** If `canarinho` fails with a `node:sqlite` error, make sure you're running real Node.js 22+, not Bun's node wrapper.
 
 ---
 
@@ -69,18 +69,18 @@ That's it. Run `tamandua workflow list` to see available workflows.
 Sixty seconds from install to a running agent team:
 
 ```bash
-$ tamandua workflow install feature-dev
+$ canarinho workflow install feature-dev
 
 # Or install all bundled workflows at once
-$ tamandua workflow install --all
+$ canarinho workflow install --all
 ✓ Installed workflow: feature-dev
 
-$ tamandua workflow run feature-dev "Add user authentication with OAuth"
+$ canarinho workflow run feature-dev "Add user authentication with OAuth"
 Run: a1fdf573
 Workflow: feature-dev
 Status: running
 
-$ tamandua workflow status "OAuth"
+$ canarinho workflow status "OAuth"
 Run: a1fdf573
 Workflow: feature-dev
 Steps:
@@ -94,16 +94,16 @@ Steps:
 Then watch your team work in real time:
 
 ```bash
-$ tamandua dashboard    # web UI at http://localhost:3334
+$ canarinho dashboard    # web UI at http://localhost:3334
 ```
 
-<p align="center"><img src="www/assets/dashboard-screenshot.png" alt="Tamandua dashboard showing workflow runs, step progress, and token usage statistics" width="800"></p>
+<p align="center"><img src="www/assets/dashboard-screenshot.png" alt="canarinho dashboard showing workflow runs, step progress, and token usage statistics" width="800"></p>
 
 ---
 
 ## What You Get: Bundled Workflows
 
-Tamandua ships with 23 bundled workflows organized into six families. Use `tamandua workflow list` to see available workflows, and `tamandua workflow install <id>` to install one.
+canarinho ships with 23 bundled workflows organized into six families. Use `canarinho workflow list` to see available workflows, and `canarinho workflow install <id>` to install one.
 
 ### Worktree Variants
 
@@ -117,7 +117,7 @@ the result back into the original branch.
 ### Rugpull Handling
 
 When a merge workflow (`-merge`, `-merge-worktree`) fails at the `finalize_merge`
-step and the base branch tip has moved since the run started, Tamandua automatically
+step and the base branch tip has moved since the run started, canarinho automatically
 launches a fresh replacement run with the same parameters. This "rugpull" detection
 runs after the final merge failure — if the base branch stayed put, no replacement is
 triggered. Pass `--no-relaunch-upon-rugpull` to `workflow run` to suppress the
@@ -134,7 +134,7 @@ UNLESS the workflow declares `on_fail.retry_step`, in which case
 the run reroutes to the named upstream producer (bounded by
 `max_reroutes`, default 2 before falling through to permanent
 failure). No automatic replacement is triggered for these failures.
-Use `tamandua workflow resume <run-id>` to reattempt a permanently
+Use `canarinho workflow resume <run-id>` to reattempt a permanently
 failed run; fix the underlying issue before resuming.
 
 ### Feature Development
@@ -235,7 +235,7 @@ Workflows for auditing and validating the project itself.
 Install all bundled workflows at once with:
 
 ```bash
-$ tamandua workflow install --all
+$ canarinho workflow install --all
 ```
 
 ---
@@ -258,7 +258,7 @@ $ tamandua workflow install --all
 
 ```mermaid
 flowchart LR
-    CLI["tamandua CLI<br/>workflow run"] -->|create run| DB[("SQLite<br/>~/.tamandua/tamandua.db")]
+    CLI["canarinho CLI<br/>workflow run"] -->|create run| DB[("SQLite<br/>~/.canarinho/canarinho.db")]
     CLI -->|register run| Daemon["Background daemon<br/>control plane"]
     Daemon -->|dispatches work| Agents["Agent team<br/>planner · developer · verifier · tester"]
     Agents -->|"pi --print"| Harness["pi harness<br/>(or Hermes, alpha)"]
@@ -271,7 +271,7 @@ The motor's invariants are pinned by an engineering contract with acceptance tes
 
 ### Minimal by design
 
-YAML + SQLite + deterministic dispatch. That's it. No Redis, no Kafka, no container orchestrator. Tamandua is a TypeScript CLI with zero external dependencies. It runs wherever pi runs. Checking for work never invokes a model — idle runs cost zero tokens.
+YAML + SQLite + deterministic dispatch. That's it. No Redis, no Kafka, no container orchestrator. canarinho is a TypeScript CLI with zero external dependencies. It runs wherever pi runs. Checking for work never invokes a model — idle runs cost zero tokens.
 
 ---
 
@@ -304,7 +304,7 @@ Full guide: [docs/creating-workflows.md](docs/creating-workflows.md)
 
 ## Native AutoResearch
 
-Tamandua includes native AutoResearch primitives for measurable optimization loops.
+canarinho includes native AutoResearch primitives for measurable optimization loops.
 Unlike a normal workflow, AutoResearch stores durable project-local state so an
 agent can resume after restarts, learn from each measured run, and choose the next
 experiment from evidence.
@@ -315,28 +315,28 @@ raising test coverage, reducing validation loss, improving latency, or lowering
 cost while preserving correctness.
 
 ```bash
-tamandua autoresearch init \
+canarinho autoresearch init \
   --goal "reduce validation loss" \
   --metric val_bpb \
   --direction lower \
   --command "uv run train.py"
 
-tamandua autoresearch run-experiment
-tamandua autoresearch log-experiment --status auto \
+canarinho autoresearch run-experiment
+canarinho autoresearch log-experiment --status auto \
   --description "try lower learning rate" \
   --hypothesis "smaller LR improves stability" \
   --learned "validation improved but training slowed" \
   --next-focus "test warmup schedule"
-tamandua autoresearch next
+canarinho autoresearch next
 
-# Inspect the loop for a Tamandua workflow run
-tamandua workflow autoresearch <run-id>
+# Inspect the loop for a canarinho workflow run
+canarinho workflow autoresearch <run-id>
 ```
 
 ### Triggering AutoResearch
 
 AutoResearch can be driven manually from any project directory, or delegated to a
-Tamandua workflow agent. In both cases the project needs a metric command that
+canarinho workflow agent. In both cases the project needs a metric command that
 prints one parseable number. The command should be deterministic enough to compare
 experiments and should exclude generated or third-party code when measuring a
 project-owned objective.
@@ -346,7 +346,7 @@ Manual loop:
 ```bash
 cd /path/to/project
 
-tamandua autoresearch init \
+canarinho autoresearch init \
   --goal "Increase unit test coverage to 1.000 without changing application code" \
   --metric coverage \
   --unit ratio \
@@ -355,23 +355,23 @@ tamandua autoresearch init \
   --metric-regex "^([0-9]\\.[0-9]{3})$" \
   --checks-command "./measure-test-coverage.sh"
 
-tamandua autoresearch run-experiment
-tamandua autoresearch log-experiment --status auto \
+canarinho autoresearch run-experiment
+canarinho autoresearch log-experiment --status auto \
   --description "baseline coverage" \
   --hypothesis "establish current coverage" \
   --learned "baseline recorded" \
   --next-focus "cover the lowest-risk uncovered module"
-tamandua autoresearch next
+canarinho autoresearch next
 ```
 
 Workflow-driven loop:
 
 ```bash
-tamandua workflow install do-now
-tamandua dashboard start
+canarinho workflow install do-now
+canarinho dashboard start
 
-tamandua workflow run do-now \
-  "In the target repo, create or verify ./measure-test-coverage.sh, initialize tamandua autoresearch, then run 10 bounded experiments. Before each edit run tamandua autoresearch next. Only add or change tests/fixtures/test config. After each experiment run tamandua autoresearch run-experiment and tamandua autoresearch log-experiment --status auto with description, hypothesis, learned, and next-focus. Stop and report best metric, commits, and remaining gaps." \
+canarinho workflow run do-now \
+  "In the target repo, create or verify ./measure-test-coverage.sh, initialize canarinho autoresearch, then run 10 bounded experiments. Before each edit run canarinho autoresearch next. Only add or change tests/fixtures/test config. After each experiment run canarinho autoresearch run-experiment and canarinho autoresearch log-experiment --status auto with description, hypothesis, learned, and next-focus. Stop and report best metric, commits, and remaining gaps." \
   --working-directory-for-harness /path/that/contains/or/is/the/project \
   --pi-as-harness
 ```
@@ -379,8 +379,8 @@ tamandua workflow run do-now \
 Monitor it while the workflow runs:
 
 ```bash
-tamandua workflow status <run-id>
-tamandua workflow autoresearch <run-id>
+canarinho workflow status <run-id>
+canarinho workflow autoresearch <run-id>
 open http://localhost:3334
 ```
 
@@ -391,16 +391,16 @@ and the green line are the kept best-so-far frontier.
 
 ### Session Registry
 
-Tamandua maintains a SQLite registry of AutoResearch sessions so the dashboard
+canarinho maintains a SQLite registry of AutoResearch sessions so the dashboard
 can discover them directly without scanning workflow runs. The registry lives in
-a table called `autoresearch_sessions` inside the main Tamandua database
-(`~/.tamandua/tamandua.db`).
+a table called `autoresearch_sessions` inside the main canarinho database
+(`~/.canarinho/canarinho.db`).
 
 - **Project-local files are the source of truth.** `autoresearch.config.json`,
   `autoresearch.jsonl`, `autoresearch.md`, and `autoresearch.sh` remain on disk
   in your project. The DB registry is an index/cache for discovery and dashboard
   UX — it never modifies your project files.
-- **Sessions are registered automatically.** Every `tamandua autoresearch` command
+- **Sessions are registered automatically.** Every `canarinho autoresearch` command
   (init, run-experiment, log-experiment, status, next, loop) updates or creates
   the registry entry for that project directory.
 - **Backfill on dashboard start.** When the dashboard starts, it scans recent
@@ -409,18 +409,18 @@ a table called `autoresearch_sessions` inside the main Tamandua database
 
 ### Pruning Stale Registry Entries
 
-Use `tamandua autoresearch prune` to clean up stale registry rows without
+Use `canarinho autoresearch prune` to clean up stale registry rows without
 removing any project-local files.
 
 ```bash
 # Prune sessions not updated in 30 days
-tamandua autoresearch prune --older-than 30d
+canarinho autoresearch prune --older-than 30d
 
 # Prune only sessions whose project files no longer exist
-tamandua autoresearch prune --older-than 7d --missing
+canarinho autoresearch prune --older-than 7d --missing
 
 # Preview what would be pruned without deleting
-tamandua autoresearch prune --older-than 30d --dry-run
+canarinho autoresearch prune --older-than 30d --dry-run
 ```
 
 The prune command only touches the SQLite registry — your `autoresearch.jsonl`,
@@ -433,7 +433,7 @@ before editing and measurable enough to keep or discard after the run.
 
 ```bash
 # 1. Ask the ratchet what evidence should drive the next edit.
-tamandua autoresearch next
+canarinho autoresearch next
 
 # Example returned focus:
 # Best run 1: 0.336 ratio
@@ -445,8 +445,8 @@ tamandua autoresearch next
 # coverage without requiring Spark or changing runtime code."
 
 # 3. Measure and log the result.
-tamandua autoresearch run-experiment
-tamandua autoresearch log-experiment --status auto \
+canarinho autoresearch run-experiment
+canarinho autoresearch log-experiment --status auto \
   --description "cover batch_processor pure helpers" \
   --hypothesis "pure-helper tests increase coverage without Spark" \
   --learned "coverage increased from 0.336 to 0.477; helper paths are now covered" \
@@ -455,7 +455,7 @@ tamandua autoresearch log-experiment --status auto \
 
 If the metric improves in the configured direction and checks pass, the logged run
 is kept. If it regresses, crashes, or fails checks, it is logged as discarded,
-crash, or checks_failed; with `--revert-discard`, Tamandua can revert non-state
+crash, or checks_failed; with `--revert-discard`, canarinho can revert non-state
 experiment files while preserving `autoresearch.jsonl`.
 
 Project files:
@@ -485,7 +485,7 @@ starts another experiment.
 
 You're installing agent teams that run code on your machine. We take that seriously.
 
-- **Curated repo only** — Tamandua only installs workflows from the official repository. No arbitrary remote sources.
+- **Curated repo only** — canarinho only installs workflows from the official repository. No arbitrary remote sources.
 - **Reviewed for prompt injection** — Every workflow is reviewed for prompt injection attacks and malicious agent files before merging.
 - **Community contributions welcome** — Want to add a workflow? Submit a PR. All submissions go through careful security review before they ship.
 - **Transparent by default** — Every workflow is plain YAML and Markdown. You can read exactly what each agent will do before you install it.
@@ -494,7 +494,7 @@ You're installing agent teams that run code on your machine. We take that seriou
 
 ## Dashboard UI
 
-The web dashboard (`tamandua dashboard`) includes:
+The web dashboard (`canarinho dashboard`) includes:
 
 - **Progress bar colors by status** — running=blue, completed=green, paused=yellow, failed=red
 - **Responsive mobile cards** — flexbox layout that prevents label/value overlap on small screens
@@ -520,10 +520,10 @@ Access at `http://localhost:3334/workflows` or click Settings → Workflows.
 
 If something isn't working as expected, start with the built-in diagnostic:
 
-- **Run `tamandua doctor`** — One-shot diagnostic that checks environment (Node.js >= 22, pi on PATH, gh on PATH), services (dashboard daemon, control plane, MCP), daemon staleness (running daemon matches installed build), database state (run-level anomalies), and LLM prompt adherence (per-step key-emission rates from workflow runs, measuring how often agents deliver expected output keys). Each check prints **pass/fail** status and on failure prints the **exact remedy command** to run.
-- **Check dashboard status** — Run `tamandua dashboard status` to verify the daemon and control plane are running on their expected ports.
-- **Check logs** — Run `tamandua logs` to see recent daemon events. For live tailing: `tamandua logs-tail`.
-- **Restart the daemon** — If the dashboard or control plane is unresponsive, run `tamandua dashboard restart`. This stops the daemon, rebuilds, and restarts it.
+- **Run `canarinho doctor`** — One-shot diagnostic that checks environment (Node.js >= 22, pi on PATH, gh on PATH), services (dashboard daemon, control plane, MCP), daemon staleness (running daemon matches installed build), database state (run-level anomalies), and LLM prompt adherence (per-step key-emission rates from workflow runs, measuring how often agents deliver expected output keys). Each check prints **pass/fail** status and on failure prints the **exact remedy command** to run.
+- **Check dashboard status** — Run `canarinho dashboard status` to verify the daemon and control plane are running on their expected ports.
+- **Check logs** — Run `canarinho logs` to see recent daemon events. For live tailing: `canarinho logs-tail`.
+- **Restart the daemon** — If the dashboard or control plane is unresponsive, run `canarinho dashboard restart`. This stops the daemon, rebuilds, and restarts it.
 
 ---
 
@@ -533,43 +533,43 @@ If something isn't working as expected, start with the built-in diagnostic:
 
 | Command | Description |
 |---------|-------------|
-| `tamandua get-ready` | Install bundled workflows and start dashboard/control plane |
-| `tamandua source-path` | Print the Tamandua source checkout path |
-| `tamandua skill-path` | Print the path to the bundled tamandua-agents agent skill |
-| `tamandua update [--force]` | Pull the source checkout, rebuild, reinstall workflows (refreshes all installed bundled workflow files — local edits are overwritten), and restart previously running services |
-| `tamandua uninstall [--force]` | Full teardown (agents, crons, DB) |
+| `canarinho get-ready` | Install bundled workflows and start dashboard/control plane |
+| `canarinho source-path` | Print the canarinho source checkout path |
+| `canarinho skill-path` | Print the path to the bundled canarinho-agents agent skill |
+| `canarinho update [--force]` | Pull the source checkout, rebuild, reinstall workflows (refreshes all installed bundled workflow files — local edits are overwritten), and restart previously running services |
+| `canarinho uninstall [--force]` | Full teardown (agents, crons, DB) |
 
 ### Workflows
 
 | Command | Description |
 |---------|-------------|
-| `tamandua workflow run <id> <task> [--working-directory-for-harness <dir>] [--pi-as-harness \| --hermes-as-harness]` | Start a run (defaults harness CWD to your current directory) |
-| `tamandua workflow status <query>` | Check run status |
-| `tamandua workflow runs` | List all runs |
-| `tamandua workflow resume <run-id>` | Resume a failed run |
-| `tamandua workflow delete <run-id> [--force]` | Permanently delete a workflow run and associated data |
-| `tamandua workflow list` | List available workflows |
-| `tamandua workflow install <id> [--all]` | Install one or all workflows. **Installed bundled definitions are refreshed on every install/update** — local edits are overwritten. To customize a workflow, copy it under a new workflow id. |
-| `tamandua workflow uninstall <id>` | Remove a single workflow |
+| `canarinho workflow run <id> <task> [--working-directory-for-harness <dir>] [--pi-as-harness \| --hermes-as-harness]` | Start a run (defaults harness CWD to your current directory) |
+| `canarinho workflow status <query>` | Check run status |
+| `canarinho workflow runs` | List all runs |
+| `canarinho workflow resume <run-id>` | Resume a failed run |
+| `canarinho workflow delete <run-id> [--force]` | Permanently delete a workflow run and associated data |
+| `canarinho workflow list` | List available workflows |
+| `canarinho workflow install <id> [--all]` | Install one or all workflows. **Installed bundled definitions are refreshed on every install/update** — local edits are overwritten. To customize a workflow, copy it under a new workflow id. |
+| `canarinho workflow uninstall <id>` | Remove a single workflow |
 
 ### Management
 
 | Command | Description |
 |---------|-------------|
-| `tamandua dashboard` | Start the web dashboard (also starts remote MCP on `http://localhost:3338/mcp`) |
-| `tamandua dashboard start\|stop\|restart\|status [--port N]` | Manage the dashboard daemon |
-| `tamandua mcp start\|stop\|restart\|status [--port N]` | Manage the standalone MCP server |
-| `tamandua control-plane start\|stop\|restart\|status [--port N]` | Manage the standalone control plane |
-| `tamandua logs [<lines>|<run-id>|#<run-number>]` | View recent log entries |
-| `tamandua logs-tail [<lines>|<run-id>|#<run-number>]` | Follow recent activity as new events arrive |
-| `tamandua nudge` | Trigger an immediate dispatch round for all running runs |
+| `canarinho dashboard` | Start the web dashboard (also starts remote MCP on `http://localhost:3338/mcp`) |
+| `canarinho dashboard start\|stop\|restart\|status [--port N]` | Manage the dashboard daemon |
+| `canarinho mcp start\|stop\|restart\|status [--port N]` | Manage the standalone MCP server |
+| `canarinho control-plane start\|stop\|restart\|status [--port N]` | Manage the standalone control plane |
+| `canarinho logs [<lines>|<run-id>|#<run-number>]` | View recent log entries |
+| `canarinho logs-tail [<lines>|<run-id>|#<run-number>]` | Follow recent activity as new events arrive |
+| `canarinho nudge` | Trigger an immediate dispatch round for all running runs |
 
-When you start the management dashboard (`tamandua dashboard`), Tamandua automatically starts the remote MCP server too.
+When you start the management dashboard (`canarinho dashboard`), canarinho automatically starts the remote MCP server too.
 
 - Dashboard: `http://localhost:3334` (or your custom `--port`)
 - MCP endpoint: `http://localhost:3338/mcp` (fixed port)
 
-Use `tamandua dashboard status` to verify both endpoints are up.
+Use `canarinho dashboard status` to verify both endpoints are up.
 
 #### Kanban view
 
@@ -582,12 +582,12 @@ failed) and the page polls `/api/runs/<run-id>/kanban` every 3 seconds. The
 JSON endpoint is also useful for external integrations — see
 `src/server/kanban-data.ts` for the response shape.
 
-<p align="center"><img src="www/assets/dashboard-kanban.png" alt="Tamandua kanban board showing swim-lane workflow step cards colour-coded by status" width="800"></p>
+<p align="center"><img src="www/assets/dashboard-kanban.png" alt="canarinho kanban board showing swim-lane workflow step cards colour-coded by status" width="800"></p>
 
 ### Harness Selection
 
-By default, Tamandua uses **pi** (`pi --print`) as its agent harness. You can
-override this with the harness selection flags on `tamandua workflow run`:
+By default, canarinho uses **pi** (`pi --print`) as its agent harness. You can
+override this with the harness selection flags on `canarinho workflow run`:
 
 | Flag | Description |
 |------|-------------|
@@ -604,14 +604,14 @@ These flags are **mutually exclusive** — specifying both is an error.
 > warning if the hermes schema is unavailable or changed).
 > Use pi (`--pi-as-harness`) for production workflows.
 
-To use a custom Hermes binary path, set the `TAMANDUA_HERMES_BINARY`
+To use a custom Hermes binary path, set the `canarinho_HERMES_BINARY`
 environment variable:
 
 ```bash
-export TAMANDUA_HERMES_BINARY=/path/to/hermes
+export canarinho_HERMES_BINARY=/path/to/hermes
 ```
 
-If `TAMANDUA_HERMES_BINARY` is not set, Tamandua searches for `hermes` on your
+If `canarinho_HERMES_BINARY` is not set, canarinho searches for `hermes` on your
 `PATH`. The harness validation runs at scheduling time — if the Hermes binary
 isn't found or isn't executable, the run fails immediately with a clear error.
 
@@ -632,13 +632,13 @@ Hermes harness, then audits the token-attribution chain:
 ```
 
 The test **silently skips** with a clear message when no Hermes binary is
-found on `PATH` or via `TAMANDUA_HERMES_BINARY`. A temporary isolated Tamandua
+found on `PATH` or via `canarinho_HERMES_BINARY`. A temporary isolated canarinho
 home is created for each run, but `~/.hermes` is symlinked in so the real
 Hermes binary can find its credentials and config.
 
 ##### Doctor Contract Check
 
-`tamandua doctor` includes a Hermes `state.db` contract check in its
+`canarinho doctor` includes a Hermes `state.db` contract check in its
 ENVIRONMENT group. When a Hermes binary is found, the doctor probes
 `$HERMES_HOME/state.db` (read-only, no Hermes invocation, no tokens) and
 verifies the `sessions` table contains all columns required for token
@@ -663,32 +663,32 @@ The remote MCP endpoint exposes 14 tools:
 
 | Tool | Description |
 |------|-------------|
-| `tamandua.runs.list` | List recent Tamandua workflow runs. Accepts optional `limit` (integer, 1–200, default 50). |
-| `tamandua.run.status` | Fetch detailed status for a run. Requires `query` (run id, prefix, or task substring). |
-| `tamandua.run.start` | Start a workflow run. Requires `workflowId` and `taskTitle`. |
-| `tamandua.run.pause` | Pause a running workflow run. Requires `runId`. Optional `drain` (boolean) to wait for in-flight work before pausing. |
-| `tamandua.run.resume` | Resume a paused workflow run. Requires `runId`. |
-| `tamandua.run.delete` | Permanently delete a workflow run and associated steps, stories, and worktree metadata. Requires `runId`. Optional `force` (boolean) cancels and deletes running or paused runs. |
+| `canarinho.runs.list` | List recent canarinho workflow runs. Accepts optional `limit` (integer, 1–200, default 50). |
+| `canarinho.run.status` | Fetch detailed status for a run. Requires `query` (run id, prefix, or task substring). |
+| `canarinho.run.start` | Start a workflow run. Requires `workflowId` and `taskTitle`. |
+| `canarinho.run.pause` | Pause a running workflow run. Requires `runId`. Optional `drain` (boolean) to wait for in-flight work before pausing. |
+| `canarinho.run.resume` | Resume a paused workflow run. Requires `runId`. |
+| `canarinho.run.delete` | Permanently delete a workflow run and associated steps, stories, and worktree metadata. Requires `runId`. Optional `force` (boolean) cancels and deletes running or paused runs. |
 
 #### Events & Metadata
 
 | Tool | Description |
 |------|-------------|
-| `tamandua.events.recent` | List recent global Tamandua events. Accepts optional `limit` (integer, 1–500, default 50). |
-| `tamandua.source.path` | Return the local Tamandua source checkout path. No parameters. |
-| `tamandua.skill.path` | Return the path to the bundled tamandua-agents agent skill. No parameters. |
-| `tamandua.update.command` | Return local CLI guidance for updating Tamandua safely. No parameters. |
+| `canarinho.events.recent` | List recent global canarinho events. Accepts optional `limit` (integer, 1–500, default 50). |
+| `canarinho.source.path` | Return the local canarinho source checkout path. No parameters. |
+| `canarinho.skill.path` | Return the path to the bundled canarinho-agents agent skill. No parameters. |
+| `canarinho.update.command` | Return local CLI guidance for updating canarinho safely. No parameters. |
 
 #### AutoResearch
 
 | Tool | Description |
 |------|-------------|
-| `tamandua.autoresearch.init` | Create project-local AutoResearch state. Requires `cwd`, `goal`, `metricName`, `direction`, and `command`. Optional `metricUnit`, `metricRegex`, `checksCommand`, and `overwrite`. |
-| `tamandua.autoresearch.run_experiment` | Run the configured experiment command in `cwd`, parse the metric, run optional checks, and append a `run_result`. Optional `command`, `metricRegex`, `checksCommand`, and `timeoutMs`. |
-| `tamandua.autoresearch.log_experiment` | Append the decision and learning for the latest run. Requires `cwd` and `description`; optional `status`, `metric`, `hypothesis`, `learned`, `nextFocus`, `commit`, and `revertDiscard`. |
-| `tamandua.autoresearch.status` | Summarize baseline, best result, failures, and the next ratchet prompt for `cwd`. |
+| `canarinho.autoresearch.init` | Create project-local AutoResearch state. Requires `cwd`, `goal`, `metricName`, `direction`, and `command`. Optional `metricUnit`, `metricRegex`, `checksCommand`, and `overwrite`. |
+| `canarinho.autoresearch.run_experiment` | Run the configured experiment command in `cwd`, parse the metric, run optional checks, and append a `run_result`. Optional `command`, `metricRegex`, `checksCommand`, and `timeoutMs`. |
+| `canarinho.autoresearch.log_experiment` | Append the decision and learning for the latest run. Requires `cwd` and `description`; optional `status`, `metric`, `hypothesis`, `learned`, `nextFocus`, `commit`, and `revertDiscard`. |
+| `canarinho.autoresearch.status` | Summarize baseline, best result, failures, and the next ratchet prompt for `cwd`. |
 
-#### `tamandua.run.start` Parameters
+#### `canarinho.run.start` Parameters
 
 | Parameter | Required | Description |
 |-----------|----------|-------------|
@@ -707,7 +707,7 @@ The remote MCP endpoint exposes 14 tools:
 
 - Node.js >= 22
 - [pi](https://github.com/mariozechner/pi-coding-agent) installed on the host
-  - Tamandua uses pi for AI agent execution. Agents run via `pi --print` in non-interactive mode.
+  - canarinho uses pi for AI agent execution. Agents run via `pi --print` in non-interactive mode.
 - `gh` CLI for PR creation steps
 
 ---
@@ -720,7 +720,7 @@ The remote MCP endpoint exposes 14 tools:
 
 ## Origins
 
-Canarinho VibeCoder began as a fork of [Tamandua](https://github.com/igorhvr/tamandua) which itself forked [antfarm](https://github.com/snarktank/antfarm) — pursuing the same goal of orchestrating teams of AI agents through deterministic, repeatable workflows — built on top of [pi](https://github.com/mariozechner/pi-coding-agent). Credit to the original authors for the design and inspiration.
+Canarinho VibeCoder began as a fork of [canarinho](https://github.com/igorhvr/canarinho) which itself forked [antfarm](https://github.com/snarktank/antfarm) — pursuing the same goal of orchestrating teams of AI agents through deterministic, repeatable workflows — built on top of [pi](https://github.com/mariozechner/pi-coding-agent). Credit to the original authors for the design and inspiration.
 
 ---
 

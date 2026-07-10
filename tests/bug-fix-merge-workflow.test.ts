@@ -117,13 +117,13 @@ describe("bug-fix-merge workflow", () => {
     );
   });
 
-  it("all workflow agents declare tamandua-agents skill", async () => {
+  it("all workflow agents declare canarinho-agents skill", async () => {
     const spec = await loadWorkflowSpec(wfDir);
     for (const agent of spec.agents) {
       const skills = agent.workspace.skills ?? [];
       assert.ok(
-        skills.includes("tamandua-agents"),
-        `${agent.id}: workspace.skills must include tamandua-agents`,
+        skills.includes("canarinho-agents"),
+        `${agent.id}: workspace.skills must include canarinho-agents`,
       );
     }
   });

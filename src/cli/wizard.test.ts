@@ -456,9 +456,9 @@ describe("buildEvaluatorPrompt", () => {
 
 // ── CLI --help integration test ───────────────────────────────────
 
-describe("tamandua autoresearch wizard --help", () => {
+describe("canarinho autoresearch wizard --help", () => {
   function cli(args: string[], envOverrides?: Record<string, string>) {
-    const wrapperPath = path.resolve("bin/tamandua");
+    const wrapperPath = path.resolve("bin/canarinho");
     const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "wizard-help-test-"));
     const stateDir = path.join(tmpDir, "state");
     const homeDir = path.join(tmpDir, "home");
@@ -469,7 +469,7 @@ describe("tamandua autoresearch wizard --help", () => {
         encoding: "utf8",
         env: cleanChildEnv({
           HOME: homeDir,
-          TAMANDUA_STATE_DIR: stateDir,
+          canarinho_STATE_DIR: stateDir,
           ...envOverrides,
         }),
       });
@@ -553,7 +553,7 @@ describe("tamandua autoresearch wizard --help", () => {
     );
     assert.match(
       result.stdout ?? "",
-      /tamandua autoresearch wizard/,
+      /canarinho autoresearch wizard/,
     );
   });
 
@@ -587,7 +587,7 @@ describe("tamandua autoresearch wizard --help", () => {
     const result = cli(["--help"]);
     assert.match(
       result.stdout ?? "",
-      /tamandua autoresearch wizard/,
+      /canarinho autoresearch wizard/,
     );
   });
 });

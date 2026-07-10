@@ -17,7 +17,7 @@ describe("daemonctl port helpers", () => {
 
   beforeEach(() => {
     originalHome = process.env.HOME;
-    tempHome = fs.mkdtempSync(path.join(os.tmpdir(), "tamandua-daemonctl-"));
+    tempHome = fs.mkdtempSync(path.join(os.tmpdir(), "canarinho-daemonctl-"));
     process.env.HOME = tempHome;
   });
 
@@ -39,22 +39,22 @@ describe("daemonctl port helpers", () => {
   });
 
   it("readPort returns 3334 for invalid port file content", () => {
-    const d = path.join(tempHome, ".tamandua");
+    const d = path.join(tempHome, ".canarinho");
     fs.mkdirSync(d, { recursive: true });
     fs.writeFileSync(path.join(d, "port"), "not-a-number", "utf-8");
     assert.equal(readPort(opts()), 3334);
   });
 
   it("readPort returns 3334 for out-of-range port", () => {
-    const d = path.join(tempHome, ".tamandua");
+    const d = path.join(tempHome, ".canarinho");
     fs.mkdirSync(d, { recursive: true });
     fs.writeFileSync(path.join(d, "port"), "99999", "utf-8");
     assert.equal(readPort(opts()), 3334);
   });
 
-  it("writePort creates tamandua dir", () => {
+  it("writePort creates canarinho dir", () => {
     writePort(8888, opts());
-    const d = path.join(tempHome, ".tamandua");
+    const d = path.join(tempHome, ".canarinho");
     assert.ok(fs.existsSync(d));
     assert.equal(fs.readFileSync(path.join(d, "port"), "utf-8").trim(), "8888");
   });

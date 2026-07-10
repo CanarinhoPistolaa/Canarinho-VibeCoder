@@ -34,7 +34,7 @@ export {
 // Paths
 export {
   resolvePiStateDir,
-  resolveTamanduaCli,
+  resolvecanarinhoCli,
   resolveWorkflowDir,
   resolveWorkflowRoot,
   resolveWorkflowWorkspaceDir,
@@ -75,9 +75,9 @@ export { getDb, nextRunNumber, getDbPath } from "./db.js";
 // MCP server
 export {
   DEFAULT_MCP_PORT,
-  createTamanduaMcpServer,
-  startTamanduaMcpServer,
-  stopTamanduaMcpServer,
+  createcanarinhoMcpServer,
+  startcanarinhoMcpServer,
+  stopcanarinhoMcpServer,
 } from "./server/mcp-server.js";
 
 // Types
@@ -96,13 +96,13 @@ export type {
 } from "./installer/types.js";
 
 export type { ProvisionedAgent, ProvisionAgentsParams } from "./installer/agent-provision.js";
-export type { TamanduaEvent } from "./installer/events.js";
+export type { canarinhoEvent } from "./installer/events.js";
 export type { UninstallResult, ActiveRunInfo } from "./installer/uninstall.js";
 export type { RunWorkflowParams, RunWorkflowResult } from "./installer/run.js";
 export type { RunInfo, RunDetail, StepInfo, StoryInfo } from "./installer/status.js";
 export type { WriteFileStatus, WriteWorkflowFileParams, WriteWorkflowFileResult } from "./installer/workspace-files.js";
 export type { CronJobInfo, CreateCronJobParams } from "./installer/agent-scheduler.js";
-export type { TamanduaMcpServer, TamanduaMcpServerOptions, TamanduaMcpToolServices } from "./server/mcp-server.js";
+export type { canarinhoMcpServer, canarinhoMcpServerOptions, canarinhoMcpToolServices } from "./server/mcp-server.js";
 export type {
   AutoresearchDecision,
   AutoresearchConfidence,

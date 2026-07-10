@@ -21,11 +21,11 @@ describe("AGENTS.md artifact review section (US-001)", () => {
   });
 
   // AC 2: The section instructs reviewing multiple artifact types, including SKILL.md
-  it("instructs reviewing multiple artifacts including skills/tamandua-agents/SKILL.md", () => {
+  it("instructs reviewing multiple artifacts including skills/canarinho-agents/SKILL.md", () => {
     assert.match(
       agentsMd,
-      /skills\/tamandua-agents\/SKILL\.md/,
-      "AGENTS.md must reference skills/tamandua-agents/SKILL.md",
+      /skills\/canarinho-agents\/SKILL\.md/,
+      "AGENTS.md must reference skills/canarinho-agents/SKILL.md",
     );
     assert.match(
       agentsMd,
@@ -67,7 +67,7 @@ describe("AGENTS.md artifact review section (US-001)", () => {
 
   it("preserves the Project Structure section", () => {
     assert.match(agentsMd, /^## Project Structure$/m);
-    assert.match(agentsMd, /tamandua\//);
+    assert.match(agentsMd, /canarinho\//);
   });
 
   it("preserves the Architecture section", () => {
@@ -77,7 +77,7 @@ describe("AGENTS.md artifact review section (US-001)", () => {
 
   it("preserves the State section", () => {
     assert.match(agentsMd, /^## State$/m);
-    assert.match(agentsMd, /SQLite database: `~\/\.tamandua\/tamandua\.db`/);
+    assert.match(agentsMd, /SQLite database: `~\/\.canarinho\/canarinho\.db`/);
   });
 
   it("preserves the Testing section", () => {

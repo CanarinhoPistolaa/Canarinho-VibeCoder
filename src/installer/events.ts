@@ -23,7 +23,7 @@ export const MAX_ROTATED_EVENTS_FILES = 3;
 
 // ── Types ────────────────────────────────────────────────────────────
 
-export interface TamanduaEvent {
+export interface canarinhoEvent {
   ts: string;
   event: string;
   runId: string;
@@ -42,7 +42,7 @@ export type EventCursorSource =
   | { kind: "run"; runId: string };
 
 export interface EventCursorReadResult {
-  events: TamanduaEvent[];
+  events: canarinhoEvent[];
   nextOffset: number;
   /**
    * Monotonic rotation generation counter for the global events file.
@@ -169,7 +169,7 @@ export function rotateGlobalEventsFile(): void {
  * Dispatch-nudge bookkeeping events. Every nudge fans out to all agents of
  * all running runs, so at steady state these are ~99% of all.jsonl volume
  * (observed: 464k of 467k events, 92MB) — and the dashboard re-reads that
- * file on every poll. Dropped unless TAMANDUA_DEBUG_EVENTS is set.
+ * file on every poll. Dropped unless canarinho_DEBUG_EVENTS is set.
  */
 const NOISE_EVENTS: ReadonlySet<string> = new Set([
   "run.nudged",
@@ -225,18 +225,18 @@ export function _refreshSizeEstimate(): void {
 let isolationViolationReported = false;
 
 /**
- * Emit a Tamandua event.
+ * Emit a canarinho event.
  *
  * Writes:
- * 1. To the run-specific JSONL file (~/.tamandua/events/<runId>.jsonl)
- * 2. To the global JSONL file (~/.tamandua/events/all.jsonl)
+ * 1. To the run-specific JSONL file (~/.canarinho/events/<runId>.jsonl)
+ * 2. To the global JSONL file (~/.canarinho/events/all.jsonl)
  * 3. Fires a webhook if a notify URL is configured for the run (fire-and-forget)
  *
  * High-volume nudge bookkeeping events (NOISE_EVENTS) are dropped unless
- * TAMANDUA_DEBUG_EVENTS is set.
+ * canarinho_DEBUG_EVENTS is set.
  */
-export function emitEvent(evt: TamanduaEvent): void {
-  if (NOISE_EVENTS.has(evt.event) && !isEnvFlagEnabled(process.env.TAMANDUA_DEBUG_EVENTS)) {
+export function emitEvent(evt: canarinhoEvent): void {
+  if (NOISE_EVENTS.has(evt.event) && !isEnvFlagEnabled(process.env.canarinho_DEBUG_EVENTS)) {
     return;
   }
   const line = JSON.stringify(evt) + "\n";
@@ -312,8 +312,8 @@ const MAX_TAIL_READ = 4 * 1024 * 1024; // 4 MB
 
 /**
  * Read events appended after a byte offset from either:
- * - ~/.tamandua/events/all.jsonl (global)
- * - ~/.tamandua/events/<runId>.jsonl (per-run)
+ * - ~/.canarinho/events/all.jsonl (global)
+ * - ~/.canarinho/events/<runId>.jsonl (per-run)
  *
  * Returns only complete newline-terminated records and the next cursor offset.
  * Malformed JSON lines are skipped safely.
@@ -354,7 +354,7 @@ export function readEventsFromCursor(
     fs.readSync(fd, fileBuffer, 0, readLength, effectiveOffset);
 
     let cursor = 0;
-    const events: TamanduaEvent[] = [];
+    const events: canarinhoEvent[] = [];
 
     while (cursor < fileBuffer.length) {
       const newlineIndex = fileBuffer.indexOf(0x0A, cursor);
@@ -371,7 +371,7 @@ export function readEventsFromCursor(
       try {
         const parsed = JSON.parse(line);
         if (parsed && typeof parsed === "object") {
-          events.push(parsed as TamanduaEvent);
+          events.push(parsed as canarinhoEvent);
         }
       } catch {
         // Ignore malformed JSONL rows so later valid events still stream.
@@ -402,7 +402,7 @@ export function readEventsFromCursor(
  * Reads chunks backward from EOF (256 KB at a time) up to a 4 MB cap,
  * stopping early once enough complete JSONL records have been found.
  */
-export function getRecentEvents(limit = 50): TamanduaEvent[] {
+export function getRecentEvents(limit = 50): canarinhoEvent[] {
   const globalFile = getGlobalEventsFile();
   let fd: number | undefined;
   try {
@@ -462,12 +462,12 @@ export function getRecentEvents(limit = 50): TamanduaEvent[] {
     }
 
     const eventLines = buffer.slice(parseStart).split("\n").filter((l) => l.length > 0);
-    const events: TamanduaEvent[] = [];
+    const events: canarinhoEvent[] = [];
     for (const line of eventLines) {
       try {
         const parsed = JSON.parse(line);
         if (parsed && typeof parsed === "object") {
-          events.push(parsed as TamanduaEvent);
+          events.push(parsed as canarinhoEvent);
         }
       } catch {
         // skip malformed lines
@@ -500,7 +500,7 @@ export function getRecentEvents(limit = 50): TamanduaEvent[] {
  *
  * When limit is omitted, reads all events (unchanged behaviour).
  */
-export function getRunEvents(runId: string, limit?: number): TamanduaEvent[] {
+export function getRunEvents(runId: string, limit?: number): canarinhoEvent[] {
   const runFile = getEventsFile(runId);
 
   // Bounded tail-read path
@@ -514,11 +514,11 @@ export function getRunEvents(runId: string, limit?: number): TamanduaEvent[] {
     const lines = content.trim().split("\n").filter(Boolean);
     return lines.map((line) => {
       try {
-        return JSON.parse(line) as TamanduaEvent;
+        return JSON.parse(line) as canarinhoEvent;
       } catch {
         return null;
       }
-    }).filter((e): e is TamanduaEvent => e !== null);
+    }).filter((e): e is canarinhoEvent => e !== null);
   } catch (err) {
     const code = (err as NodeJS.ErrnoException)?.code;
     if (code === "ENOENT") return [];
@@ -531,7 +531,7 @@ export function getRunEvents(runId: string, limit?: number): TamanduaEvent[] {
  * Read the last `limit` valid JSON events from a JSONL file using a
  * byte-offset tail scan.  This avoids parsing the entire file.
  */
-function tailRunEvents(filePath: string, limit: number): TamanduaEvent[] {
+function tailRunEvents(filePath: string, limit: number): canarinhoEvent[] {
   let fileBuffer: Buffer;
   try {
     fileBuffer = fs.readFileSync(filePath);
@@ -573,12 +573,12 @@ function tailRunEvents(filePath: string, limit: number): TamanduaEvent[] {
   }
 
   // Parse and filter out malformed lines.
-  const result: TamanduaEvent[] = [];
+  const result: canarinhoEvent[] = [];
   for (const line of lines) {
     try {
       const parsed = JSON.parse(line);
       if (parsed && typeof parsed === "object") {
-        result.push(parsed as TamanduaEvent);
+        result.push(parsed as canarinhoEvent);
       }
     } catch {
       // Skip malformed lines.
@@ -634,7 +634,7 @@ export function getEventsPath(): string {
  * Looks up the notify_url from the runs table.
  * Does not throw — webhook failures are logged and swallowed.
  */
-async function fireWebhook(evt: TamanduaEvent): Promise<void> {
+async function fireWebhook(evt: canarinhoEvent): Promise<void> {
   // Only notify on significant events to avoid flooding
   const significantEvents = new Set([
     "run.started",

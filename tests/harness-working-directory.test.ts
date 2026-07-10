@@ -13,16 +13,16 @@ const repoRoot = process.cwd();
 
 async function createTempHome() {
   const [controlPort, dashboardPort] = await reserveDistinctRandomPorts(2);
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), "tamandua-harness-cwd-"));
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "canarinho-harness-cwd-"));
   const homeDir = path.join(root, "home");
-  const tamanduaDir = path.join(homeDir, ".tamandua");
-  fs.mkdirSync(tamanduaDir, { recursive: true });
-  fs.writeFileSync(path.join(tamanduaDir, "port"), String(dashboardPort), "utf-8");
+  const canarinhoDir = path.join(homeDir, ".canarinho");
+  fs.mkdirSync(canarinhoDir, { recursive: true });
+  fs.writeFileSync(path.join(canarinhoDir, "port"), String(dashboardPort), "utf-8");
   return { root, homeDir, controlPort, dashboardPort };
 }
 
 function writeMinimalWorkflow(homeDir: string, workflowId: string): void {
-  const workflowDir = path.join(homeDir, ".tamandua", "workflows", workflowId);
+  const workflowDir = path.join(homeDir, ".canarinho", "workflows", workflowId);
   fs.mkdirSync(workflowDir, { recursive: true });
   fs.writeFileSync(
     path.join(workflowDir, "workflow.yml"),
@@ -99,7 +99,7 @@ describe("working-directory-for-harness", () => {
                 port: getControlPort(),
                 path: "/control/jobs",
                 method: "GET",
-                headers: secret ? { "x-tamandua-secret": secret } : {},
+                headers: secret ? { "x-canarinho-secret": secret } : {},
               }, (res) => {
                 const chunks = [];
                 res.on("data", (chunk) => chunks.push(chunk));
@@ -139,7 +139,7 @@ describe("working-directory-for-harness", () => {
         {
           HOME: temp.homeDir,
           HARNESS_DIR: harnessDir,
-          TAMANDUA_CONTROL_PORT: String(temp.controlPort),
+          canarinho_CONTROL_PORT: String(temp.controlPort),
         },
       );
 
@@ -190,7 +190,7 @@ describe("working-directory-for-harness", () => {
         `,
         {
           HOME: temp.homeDir,
-          TAMANDUA_CONTROL_PORT: String(temp.controlPort),
+          canarinho_CONTROL_PORT: String(temp.controlPort),
         },
       );
 

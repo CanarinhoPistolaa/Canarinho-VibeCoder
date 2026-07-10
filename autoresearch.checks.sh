@@ -55,7 +55,7 @@ TEST_OUTPUT=$(node --test --test-timeout=120000 \
   tests/system-token-attribution.test.ts \
   tests/system-token-spend-counter.test.ts \
   tests/system-token-spend-migration.test.ts \
-  tests/tamandua-coauthor-footer.test.ts \
+  tests/canarinho-coauthor-footer.test.ts \
   tests/terminal-state-guards.test.ts \
   tests/token-log-formatting.test.ts \
   tests/update-command.test.ts \

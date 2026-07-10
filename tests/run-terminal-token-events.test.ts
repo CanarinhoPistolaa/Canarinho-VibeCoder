@@ -10,7 +10,7 @@ import { describe, it } from "node:test";
 const repoRoot = process.cwd();
 
 function createTempHome() {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), "tamandua-run-terminal-token-events-"));
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "canarinho-run-terminal-token-events-"));
   const homeDir = path.join(root, "home");
   fs.mkdirSync(homeDir, { recursive: true });
   return { root, homeDir };
@@ -66,7 +66,7 @@ describe("run terminal lifecycle token events", () => {
 
           const outcome = advancePipeline(runId);
 
-          const eventsPath = path.join(process.env.HOME, ".tamandua", "events", runId + ".jsonl");
+          const eventsPath = path.join(process.env.HOME, ".canarinho", "events", runId + ".jsonl");
           const events = fs.readFileSync(eventsPath, "utf-8").split(/\\r?\\n/).filter(Boolean).map((line) => JSON.parse(line));
           const terminalEvent = events.find((evt) => evt.event === "run.completed");
 
@@ -115,7 +115,7 @@ describe("run terminal lifecycle token events", () => {
 
           const failResult = await failStep(stepId, 'boom');
 
-          const eventsPath = path.join(process.env.HOME, ".tamandua", "events", runId + ".jsonl");
+          const eventsPath = path.join(process.env.HOME, ".canarinho", "events", runId + ".jsonl");
           const events = fs.readFileSync(eventsPath, "utf-8").split(/\\r?\\n/).filter(Boolean).map((line) => JSON.parse(line));
           const terminalEvent = events.find((evt) => evt.event === "run.failed");
 

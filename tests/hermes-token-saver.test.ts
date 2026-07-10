@@ -4,7 +4,7 @@
  * No-hurry runs prefer a `hermes-token-saver` command from PATH over `hermes` for
  * every work spawn. Resolution happens PER INVOCATION, so installing
  * hermes-token-saver mid-run takes effect on the next round; when absent, `hermes`
- * is used as usual. TAMANDUA_HERMES_BINARY (the config/test seam) always wins.
+ * is used as usual. canarinho_HERMES_BINARY (the config/test seam) always wins.
  */
 
 import { describe, it, beforeEach, afterEach } from "node:test";
@@ -29,25 +29,25 @@ function makeExecutable(dir: string, name: string, body = "#!/bin/sh\nexit 0\n")
 }
 
 beforeEach(() => {
-  tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "tamandua-hermes-token-saver-"));
+  tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "canarinho-hermes-token-saver-"));
   savedPath = process.env.PATH;
-  savedHermesBinary = process.env.TAMANDUA_HERMES_BINARY;
+  savedHermesBinary = process.env.canarinho_HERMES_BINARY;
   savedHome = process.env.HOME;
-  savedStateDir = process.env.TAMANDUA_STATE_DIR;
-  savedDbPath = process.env.TAMANDUA_DB_PATH;
-  delete process.env.TAMANDUA_HERMES_BINARY;
+  savedStateDir = process.env.canarinho_STATE_DIR;
+  savedDbPath = process.env.canarinho_DB_PATH;
+  delete process.env.canarinho_HERMES_BINARY;
 });
 
 afterEach(() => {
   process.env.PATH = savedPath!;
-  if (savedHermesBinary === undefined) delete process.env.TAMANDUA_HERMES_BINARY;
-  else process.env.TAMANDUA_HERMES_BINARY = savedHermesBinary;
+  if (savedHermesBinary === undefined) delete process.env.canarinho_HERMES_BINARY;
+  else process.env.canarinho_HERMES_BINARY = savedHermesBinary;
   if (savedHome === undefined) delete process.env.HOME;
   else process.env.HOME = savedHome;
-  if (savedStateDir === undefined) delete process.env.TAMANDUA_STATE_DIR;
-  else process.env.TAMANDUA_STATE_DIR = savedStateDir;
-  if (savedDbPath === undefined) delete process.env.TAMANDUA_DB_PATH;
-  else process.env.TAMANDUA_DB_PATH = savedDbPath;
+  if (savedStateDir === undefined) delete process.env.canarinho_STATE_DIR;
+  else process.env.canarinho_STATE_DIR = savedStateDir;
+  if (savedDbPath === undefined) delete process.env.canarinho_DB_PATH;
+  else process.env.canarinho_DB_PATH = savedDbPath;
   fs.rmSync(tempDir, { recursive: true, force: true });
 });
 
@@ -89,14 +89,14 @@ describe("findBinary hermes-token-saver preference", () => {
     assert.equal(await adapter.findBinary({ preferTokenSaver: true }), saver);
   });
 
-  it("TAMANDUA_HERMES_BINARY overrides hermes-token-saver preference (test/config seam)", async () => {
+  it("canarinho_HERMES_BINARY overrides hermes-token-saver preference (test/config seam)", async () => {
     const binDir = path.join(tempDir, "bin");
     fs.mkdirSync(binDir);
     makeExecutable(binDir, "hermes");
     makeExecutable(binDir, "hermes-token-saver");
     const pinned = makeExecutable(tempDir, "pinned-hermes");
     process.env.PATH = binDir;
-    process.env.TAMANDUA_HERMES_BINARY = pinned;
+    process.env.canarinho_HERMES_BINARY = pinned;
 
     const adapter = getHarnessAdapter("hermes");
     assert.equal(await adapter.findBinary({ preferTokenSaver: true }), pinned);
@@ -112,7 +112,7 @@ describe("findBinary hermes-token-saver preference", () => {
 describe("dispatch round spawns hermes-token-saver for no-hurry runs", () => {
   it("no-hurry run context routes the work spawn to hermes-token-saver; normal runs use hermes", async () => {
     const homeDir = path.join(tempDir, "home");
-    const stateDir = path.join(homeDir, ".tamandua");
+    const stateDir = path.join(homeDir, ".canarinho");
     const workdir = path.join(tempDir, "work");
     const binDir = path.join(tempDir, "bin");
     fs.mkdirSync(stateDir, { recursive: true });
@@ -126,9 +126,9 @@ describe("dispatch round spawns hermes-token-saver for no-hurry runs", () => {
 
     process.env.PATH = binDir;
     process.env.HOME = homeDir;
-    process.env.TAMANDUA_STATE_DIR = stateDir;
-    process.env.TAMANDUA_DB_PATH = path.join(stateDir, "tamandua.db");
-    delete process.env.TAMANDUA_HERMES_BINARY;
+    process.env.canarinho_STATE_DIR = stateDir;
+    process.env.canarinho_DB_PATH = path.join(stateDir, "canarinho.db");
+    delete process.env.canarinho_HERMES_BINARY;
 
     const { getDb } = await import("../dist/db.js");
     const db = getDb();

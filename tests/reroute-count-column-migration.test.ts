@@ -10,7 +10,7 @@ import { describe, it } from "node:test";
 const repoRoot = process.cwd();
 
 function createTempHome() {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), "tamandua-reroute-count-"));
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "canarinho-reroute-count-"));
   const homeDir = path.join(root, "home");
   fs.mkdirSync(homeDir, { recursive: true });
   return { root, homeDir };
@@ -55,8 +55,8 @@ describe("reroute_count column migration", () => {
     const temp = createTempHome();
 
     try {
-      const dbDir = path.join(temp.homeDir, ".tamandua");
-      const dbPath = path.join(dbDir, "tamandua.db");
+      const dbDir = path.join(temp.homeDir, ".canarinho");
+      const dbPath = path.join(dbDir, "canarinho.db");
       fs.mkdirSync(dbDir, { recursive: true });
 
       const legacyDb = new DatabaseSync(dbPath);
@@ -128,8 +128,8 @@ describe("reroute_count column migration", () => {
     const temp = createTempHome();
 
     try {
-      const dbDir = path.join(temp.homeDir, ".tamandua");
-      const dbPath = path.join(dbDir, "tamandua.db");
+      const dbDir = path.join(temp.homeDir, ".canarinho");
+      const dbPath = path.join(dbDir, "canarinho.db");
       fs.mkdirSync(dbDir, { recursive: true });
 
       const legacyDb = new DatabaseSync(dbPath);
@@ -191,8 +191,8 @@ describe("reroute_count column migration", () => {
     const temp = createTempHome();
 
     try {
-      const dbDir = path.join(temp.homeDir, ".tamandua");
-      const dbPath = path.join(dbDir, "tamandua.db");
+      const dbDir = path.join(temp.homeDir, ".canarinho");
+      const dbPath = path.join(dbDir, "canarinho.db");
       fs.mkdirSync(dbDir, { recursive: true });
 
       const legacyDb = new DatabaseSync(dbPath);

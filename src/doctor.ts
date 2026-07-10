@@ -1,5 +1,5 @@
 /**
- * Doctor — tamandua one-shot diagnostic tool.
+ * Doctor — canarinho one-shot diagnostic tool.
  *
  * Runs grouped health checks (ENVIRONMENT, SERVICES, STALENESS, STATE, LLM PROMPT ADHERENCE)
  * and produces pass/fail output with exact remedy commands for failures.
@@ -31,7 +31,7 @@ import type { MedicFinding } from "./medic/medic.js";
 import { getRunWorktree } from "./installer/worktree-manager.js";
 import { collectProcessSnapshot, matchRunEvidence } from "./installer/run-cleanup.js";
 import { getRecentEvents } from "./installer/events.js";
-import type { TamanduaEvent } from "./installer/events.js";
+import type { canarinhoEvent } from "./installer/events.js";
 import { probeHermesStateContract } from "./installer/hermes-usage.js";
 
 // ── Types ──────────────────────────────────────────────────────────
@@ -212,37 +212,37 @@ function checkPiTokenSaver(): DoctorCheckResult {
 
 /** Determine whether a hermes binary is available. */
 function hermesBinaryAvailable(): boolean {
-  if (process.env.TAMANDUA_HERMES_BINARY) return true;
+  if (process.env.canarinho_HERMES_BINARY) return true;
   return commandIsOnPath("hermes");
 }
 
 /**
  * Detect Hermes binary availability.
- * Checks `TAMANDUA_HERMES_BINARY` env var first, then PATH.
+ * Checks `canarinho_HERMES_BINARY` env var first, then PATH.
  * Hermes support is alpha — always informational.
  */
 function checkHermesBinary(): DoctorCheckResult {
-  const envBinary = process.env.TAMANDUA_HERMES_BINARY;
+  const envBinary = process.env.canarinho_HERMES_BINARY;
   if (envBinary) {
     return {
-      name: "TAMANDUA_HERMES_BINARY / hermes",
+      name: "canarinho_HERMES_BINARY / hermes",
       status: "info",
-      message: `TAMANDUA_HERMES_BINARY is set to: ${envBinary}`,
+      message: `canarinho_HERMES_BINARY is set to: ${envBinary}`,
     };
   }
   const onPath = commandIsOnPath("hermes");
   if (onPath) {
     return {
-      name: "TAMANDUA_HERMES_BINARY / hermes",
+      name: "canarinho_HERMES_BINARY / hermes",
       status: "info",
       message: "hermes found on PATH (alpha support)",
     };
   }
   return {
-    name: "TAMANDUA_HERMES_BINARY / hermes",
+    name: "canarinho_HERMES_BINARY / hermes",
     status: "info",
     message:
-      "TAMANDUA_HERMES_BINARY not set and hermes not found on PATH (alpha support — optional)",
+      "canarinho_HERMES_BINARY not set and hermes not found on PATH (alpha support — optional)",
   };
 }
 
@@ -310,8 +310,8 @@ export interface DoctorOpts {
 /**
  * Compare the installed catalog stamp version against the current build version.
  *
- * - No stamp → warn with "run tamandua update --force" remedy
- * - Stamp version differs → warn with "run tamandua update --force" remedy
+ * - No stamp → warn with "run canarinho update --force" remedy
+ * - Stamp version differs → warn with "run canarinho update --force" remedy
  * - Stamp version matches → pass
  * - Synchronous: just stat + read + string compare, no network, no git
  */
@@ -324,7 +324,7 @@ function checkCatalogStaleness(): DoctorCheckResult {
       name: "Installed catalog vs bundled catalog",
       status: "warn",
       message: "No installed catalog stamp found — installed workflows may be missing or predate catalog version tracking",
-      remedy: "Run: tamandua update --force",
+      remedy: "Run: canarinho update --force",
     };
   }
 
@@ -333,7 +333,7 @@ function checkCatalogStaleness(): DoctorCheckResult {
       name: "Installed catalog vs bundled catalog",
       status: "warn",
       message: `Installed catalog version ${stamp.version} is older than bundled catalog version ${localVersion}`,
-      remedy: "Run: tamandua update --force",
+      remedy: "Run: canarinho update --force",
     };
   }
 
@@ -383,7 +383,7 @@ async function runStalenessCheck(opts?: DoctorOpts): Promise<DoctorCheckResult[]
         name: "Daemon build version vs installed",
         status: "warn",
         message: "Staleness check inconclusive — daemon predates build version reporting",
-        remedy: "Run: tamandua dashboard restart to update",
+        remedy: "Run: canarinho dashboard restart to update",
       }];
     }
 
@@ -392,7 +392,7 @@ async function runStalenessCheck(opts?: DoctorOpts): Promise<DoctorCheckResult[]
         name: "Daemon build version vs installed",
         status: "fail",
         message: `Daemon running build ${daemonVersion} but installed build is ${localVersion}`,
-        remedy: "Run: tamandua dashboard restart",
+        remedy: "Run: canarinho dashboard restart",
       }];
     }
 
@@ -442,7 +442,7 @@ async function runServicesChecks(opts?: DoctorOpts): Promise<DoctorCheckResult[]
       name: "Dashboard daemon PID alive",
       status: "fail",
       message: withLogTail("Daemon is not running"),
-      remedy: "tamandua dashboard start",
+      remedy: "canarinho dashboard start",
     });
   }
 
@@ -465,7 +465,7 @@ async function runServicesChecks(opts?: DoctorOpts): Promise<DoctorCheckResult[]
           name: "Control plane reachable",
           status: "fail",
           message: withLogTail(`Control plane returned HTTP ${res.status} on port ${cpPort}`),
-          remedy: "tamandua dashboard restart",
+          remedy: "canarinho dashboard restart",
         });
       }
     } catch {
@@ -473,7 +473,7 @@ async function runServicesChecks(opts?: DoctorOpts): Promise<DoctorCheckResult[]
         name: "Control plane reachable",
         status: "fail",
         message: withLogTail(`Control plane unreachable on port ${readControlPlanePort(dctlOpts)}`),
-        remedy: "tamandua dashboard restart",
+        remedy: "canarinho dashboard restart",
       });
     }
   } else {
@@ -481,7 +481,7 @@ async function runServicesChecks(opts?: DoctorOpts): Promise<DoctorCheckResult[]
       name: "Control plane reachable",
       status: "fail",
       message: "Control plane unreachable (daemon is not running)",
-      remedy: "tamandua dashboard start",
+      remedy: "canarinho dashboard start",
     });
   }
 
@@ -504,7 +504,7 @@ async function runServicesChecks(opts?: DoctorOpts): Promise<DoctorCheckResult[]
           name: "Dashboard HTTP up",
           status: "fail",
           message: withLogTail(`Dashboard returned HTTP ${res.status} on port ${dashPort}`),
-          remedy: "tamandua dashboard restart",
+          remedy: "canarinho dashboard restart",
         });
       }
     } catch {
@@ -512,7 +512,7 @@ async function runServicesChecks(opts?: DoctorOpts): Promise<DoctorCheckResult[]
         name: "Dashboard HTTP up",
         status: "fail",
         message: withLogTail(`Dashboard unreachable on port ${readPort(dctlOpts)}`),
-        remedy: "tamandua dashboard restart",
+        remedy: "canarinho dashboard restart",
       });
     }
   } else {
@@ -520,7 +520,7 @@ async function runServicesChecks(opts?: DoctorOpts): Promise<DoctorCheckResult[]
       name: "Dashboard HTTP up",
       status: "fail",
       message: "Dashboard unreachable (daemon is not running)",
-      remedy: "tamandua dashboard start",
+      remedy: "canarinho dashboard start",
     });
   }
 
@@ -541,14 +541,14 @@ async function runServicesChecks(opts?: DoctorOpts): Promise<DoctorCheckResult[]
         name: "MCP server status",
         status: "fail",
         message: withLogTail(`MCP pidfile exists but process not running (pidfile: ${mcpPidFile})`),
-        remedy: "tamandua mcp restart",
+        remedy: "canarinho mcp restart",
       });
     }
   } else {
     results.push({
       name: "MCP server status",
       status: "info",
-      message: "MCP server is not running (optional — start with: tamandua mcp start)",
+      message: "MCP server is not running (optional — start with: canarinho mcp start)",
     });
   }
 
@@ -570,9 +570,9 @@ function medicSeverityToStatus(severity: MedicFinding["severity"]): DoctorCheckR
 function medicActionToRemedy(action: MedicFinding["action"]): string | undefined {
   switch (action) {
     case "fail_run":
-      return "Medic would fail the zombie run. Run: tamandua medic check to auto-remediate.";
+      return "Medic would fail the zombie run. Run: canarinho medic check to auto-remediate.";
     case "teardown_crons":
-      return "Medic would teardown idle workflow crons. Run: tamandua medic check to auto-remediate.";
+      return "Medic would teardown idle workflow crons. Run: canarinho medic check to auto-remediate.";
     case "none":
     default:
       return undefined;
@@ -611,11 +611,11 @@ function categorizeStoriesJsonError(detail: string): string {
  *   - schema_validation: invalid id format, empty title/description, empty AC items, zero stories, duplicate story ids
  */
 function runStoriesJsonRejectionCheck(opts?: DoctorOpts): DoctorCheckResult {
-  // If an isolated homeDir is provided, point TAMANDUA_STATE_DIR at it
+  // If an isolated homeDir is provided, point canarinho_STATE_DIR at it
   // so getRecentEvents() reads from the test-isolated events file.
-  const savedStateDir = process.env.TAMANDUA_STATE_DIR;
+  const savedStateDir = process.env.canarinho_STATE_DIR;
   if (opts?.homeDir) {
-    process.env.TAMANDUA_STATE_DIR = path.join(opts.homeDir, ".tamandua");
+    process.env.canarinho_STATE_DIR = path.join(opts.homeDir, ".canarinho");
   }
 
   try {
@@ -625,7 +625,7 @@ function runStoriesJsonRejectionCheck(opts?: DoctorOpts): DoctorCheckResult {
 
     // Filter for step.retry events with STORIES_JSON content in the detail
     const rejections = events.filter(
-      (e: TamanduaEvent) =>
+      (e: canarinhoEvent) =>
         e.event === "step.retry" &&
         e.detail != null &&
         e.detail.toLowerCase().includes("stories_json"),
@@ -678,9 +678,9 @@ function runStoriesJsonRejectionCheck(opts?: DoctorOpts): DoctorCheckResult {
   } finally {
     // Restore original state dir
     if (savedStateDir !== undefined) {
-      process.env.TAMANDUA_STATE_DIR = savedStateDir;
+      process.env.canarinho_STATE_DIR = savedStateDir;
     } else if (opts?.homeDir) {
-      delete process.env.TAMANDUA_STATE_DIR;
+      delete process.env.canarinho_STATE_DIR;
     }
   }
 }
@@ -696,10 +696,10 @@ async function runStateChecks(opts?: DoctorOpts): Promise<DoctorCheckResult[]> {
   const results: DoctorCheckResult[] = [];
 
   // If an isolated homeDir is provided, point DB resolution at it.
-  // getDb() reads process.env.TAMANDUA_DB_PATH, so we set it temporarily.
-  const savedDbPath = process.env.TAMANDUA_DB_PATH;
+  // getDb() reads process.env.canarinho_DB_PATH, so we set it temporarily.
+  const savedDbPath = process.env.canarinho_DB_PATH;
   if (opts?.homeDir) {
-    process.env.TAMANDUA_DB_PATH = path.join(opts.homeDir, ".tamandua", "tamandua.db");
+    process.env.canarinho_DB_PATH = path.join(opts.homeDir, ".canarinho", "canarinho.db");
   }
 
   try {
@@ -751,7 +751,7 @@ async function runStateChecks(opts?: DoctorOpts): Promise<DoctorCheckResult[]> {
         name: "Run-level anomalies",
         status: "warn",
         message: `Medic check could not be completed: ${msg}`,
-        remedy: "Ensure the database is accessible and medic tables exist. Run: tamandua medic check",
+        remedy: "Ensure the database is accessible and medic tables exist. Run: canarinho medic check",
       });
     }
 
@@ -764,9 +764,9 @@ async function runStateChecks(opts?: DoctorOpts): Promise<DoctorCheckResult[]> {
   } finally {
     // Restore the original DB path.
     if (savedDbPath !== undefined) {
-      process.env.TAMANDUA_DB_PATH = savedDbPath;
+      process.env.canarinho_DB_PATH = savedDbPath;
     } else if (opts?.homeDir) {
-      delete process.env.TAMANDUA_DB_PATH;
+      delete process.env.canarinho_DB_PATH;
     }
   }
 }
@@ -783,9 +783,9 @@ async function runStateChecks(opts?: DoctorOpts): Promise<DoctorCheckResult[]> {
 function runProcessLeakChecks(opts?: DoctorOpts): DoctorCheckResult[] {
   const results: DoctorCheckResult[] = [];
 
-  const savedDbPath = process.env.TAMANDUA_DB_PATH;
+  const savedDbPath = process.env.canarinho_DB_PATH;
   if (opts?.homeDir) {
-    process.env.TAMANDUA_DB_PATH = path.join(opts.homeDir, ".tamandua", "tamandua.db");
+    process.env.canarinho_DB_PATH = path.join(opts.homeDir, ".canarinho", "canarinho.db");
   }
 
   try {
@@ -828,9 +828,9 @@ function runProcessLeakChecks(opts?: DoctorOpts): DoctorCheckResult[] {
     return results;
   } finally {
     if (savedDbPath !== undefined) {
-      process.env.TAMANDUA_DB_PATH = savedDbPath;
+      process.env.canarinho_DB_PATH = savedDbPath;
     } else if (opts?.homeDir) {
-      delete process.env.TAMANDUA_DB_PATH;
+      delete process.env.canarinho_DB_PATH;
     }
   }
 }
@@ -857,9 +857,9 @@ function runProcessLeakChecks(opts?: DoctorOpts): DoctorCheckResult[] {
 export async function runLlmPromptAdherenceChecks(opts?: DoctorOpts): Promise<DoctorCheckResult[]> {
   const results: DoctorCheckResult[] = [];
 
-  const savedDbPath = process.env.TAMANDUA_DB_PATH;
+  const savedDbPath = process.env.canarinho_DB_PATH;
   if (opts?.homeDir) {
-    process.env.TAMANDUA_DB_PATH = path.join(opts.homeDir, ".tamandua", "tamandua.db");
+    process.env.canarinho_DB_PATH = path.join(opts.homeDir, ".canarinho", "canarinho.db");
   }
 
   try {
@@ -976,9 +976,9 @@ export async function runLlmPromptAdherenceChecks(opts?: DoctorOpts): Promise<Do
     return results;
   } finally {
     if (savedDbPath !== undefined) {
-      process.env.TAMANDUA_DB_PATH = savedDbPath;
+      process.env.canarinho_DB_PATH = savedDbPath;
     } else if (opts?.homeDir) {
-      delete process.env.TAMANDUA_DB_PATH;
+      delete process.env.canarinho_DB_PATH;
     }
   }
 }
@@ -1005,7 +1005,7 @@ async function guardedChecks(
       name,
       status: "fail",
       message: `check group crashed: ${err instanceof Error ? err.message : String(err)}`,
-      remedy: "This usually indicates broken tamandua state (DB path, state dir permissions). Inspect the message above and fix the underlying path/state issue.",
+      remedy: "This usually indicates broken canarinho state (DB path, state dir permissions). Inspect the message above and fix the underlying path/state issue.",
     }];
   }
 }

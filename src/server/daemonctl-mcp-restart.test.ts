@@ -29,7 +29,7 @@ import { DEFAULT_MCP_PORT } from "../../dist/server/mcp-server.js";
 // ── Helpers ────────────────────────────────────────────────────────
 
 function createTempHome(): string {
-  return fs.mkdtempSync(path.join(os.tmpdir(), "tamandua-mcp-restart-"));
+  return fs.mkdtempSync(path.join(os.tmpdir(), "canarinho-mcp-restart-"));
 }
 
 async function getAvailablePort(): Promise<number> {

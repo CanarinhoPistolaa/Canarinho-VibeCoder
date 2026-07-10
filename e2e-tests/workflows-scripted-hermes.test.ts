@@ -7,7 +7,7 @@
  * (workflows-scripted.test.ts) but uses a scripted hermes binary instead
  * of a scripted pi binary.
  *
- * TAMANDUA_HERMES_BINARY is pointed at a scripted hermes (see
+ * canarinho_HERMES_BINARY is pointed at a scripted hermes (see
  * helpers/scripted-hermes.ts) that executes the real work protocol
  * deterministically, emitting plain-text hermes output with a session_id
  * trailer and writing a fake state.db for token attribution.
@@ -119,7 +119,7 @@ async function teardown(ctx: ScriptedHermesRunContext | undefined): Promise<void
 function diagnostics(ctx: ScriptedHermesRunContext): string {
   let daemonLogTail = "(no daemon log)";
   try {
-    const logPath = path.join(ctx.env.tamanduaDir, "tamandua.log");
+    const logPath = path.join(ctx.env.canarinhoDir, "canarinho.log");
     const lines = fs.readFileSync(logPath, "utf-8").trimEnd().split("\n");
     daemonLogTail = lines.slice(-40).join("\n");
   } catch {
@@ -149,8 +149,8 @@ async function waitForRun(
   }
 }
 
-function dbRow<T>(tamanduaDir: string, sql: string, ...params: string[]): T {
-  const db = new DatabaseSync(path.join(tamanduaDir, "tamandua.db"));
+function dbRow<T>(canarinhoDir: string, sql: string, ...params: string[]): T {
+  const db = new DatabaseSync(path.join(canarinhoDir, "canarinho.db"));
   try {
     return db.prepare(sql).get(...params) as T;
   } finally {
@@ -158,8 +158,8 @@ function dbRow<T>(tamanduaDir: string, sql: string, ...params: string[]): T {
   }
 }
 
-function dbRows<T>(tamanduaDir: string, sql: string, ...params: string[]): T[] {
-  const db = new DatabaseSync(path.join(tamanduaDir, "tamandua.db"));
+function dbRows<T>(canarinhoDir: string, sql: string, ...params: string[]): T[] {
+  const db = new DatabaseSync(path.join(canarinhoDir, "canarinho.db"));
   try {
     return db.prepare(sql).all(...params) as T[];
   } finally {
@@ -175,7 +175,7 @@ function dbRows<T>(tamanduaDir: string, sql: string, ...params: string[]): T[] {
  * status.
  */
 async function waitForRunTokens(
-  tamanduaDir: string,
+  canarinhoDir: string,
   runId: string,
   expected: number,
   timeoutMs = 20_000,
@@ -184,7 +184,7 @@ async function waitForRunTokens(
   let last = -1;
   while (Date.now() - startedAt < timeoutMs) {
     last = dbRow<{ tokens_spent: number }>(
-      tamanduaDir,
+      canarinhoDir,
       "SELECT tokens_spent FROM runs WHERE id = ?",
       runId,
     ).tokens_spent;
@@ -194,8 +194,8 @@ async function waitForRunTokens(
   return last;
 }
 
-function readRunEvents(tamanduaDir: string, runId: string): Array<Record<string, unknown>> {
-  const eventsPath = path.join(tamanduaDir, "events", `${runId}.jsonl`);
+function readRunEvents(canarinhoDir: string, runId: string): Array<Record<string, unknown>> {
+  const eventsPath = path.join(canarinhoDir, "events", `${runId}.jsonl`);
   if (!fs.existsSync(eventsPath)) return [];
   return fs
     .readFileSync(eventsPath, "utf-8")
@@ -300,7 +300,7 @@ describe("scripted-hermes full pipeline (real daemon/scheduler, zero tokens)", {
           ],
           runEnv,
         );
-        const runId = resolveFullRunId(runIdPrefix, ctx.env.tamanduaDir);
+        const runId = resolveFullRunId(runIdPrefix, ctx.env.canarinhoDir);
 
         const status = await waitForRun(ctx, runId, 180_000);
         assert.ok(
@@ -310,7 +310,7 @@ describe("scripted-hermes full pipeline (real daemon/scheduler, zero tokens)", {
 
         // ── Pipeline state: every step done, none failed ──────────
         const steps = dbRows<{ step_id: string; status: string }>(
-          ctx.env.tamanduaDir,
+          ctx.env.canarinhoDir,
           "SELECT step_id, status FROM steps WHERE run_id = ? ORDER BY step_index",
           runId,
         );
@@ -347,7 +347,7 @@ describe("scripted-hermes full pipeline (real daemon/scheduler, zero tokens)", {
         }
 
         // ── Token accounting: work usage attributed to the run ────
-        const tokens = await waitForRunTokens(ctx.env.tamanduaDir, runId, BUG_FIX_AGENTS.length * WORK_TOKENS);
+        const tokens = await waitForRunTokens(ctx.env.canarinhoDir, runId, BUG_FIX_AGENTS.length * WORK_TOKENS);
         assert.ok(
           tokens >= BUG_FIX_AGENTS.length * WORK_TOKENS,
           `tokens_spent should include ${BUG_FIX_AGENTS.length} hermes work rounds ` +
@@ -355,7 +355,7 @@ describe("scripted-hermes full pipeline (real daemon/scheduler, zero tokens)", {
         );
 
         // ── Terminal event carries token spend ────────────────────
-        const events = readRunEvents(ctx.env.tamanduaDir, runId);
+        const events = readRunEvents(ctx.env.canarinhoDir, runId);
         const completed = events.find((e) => e.event === "run.completed");
         assert.ok(completed, `run.completed event missing; events: ${events.map((e) => e.event).join(", ")}`);
         assert.equal(typeof completed.tokensSpent, "number", "run.completed should carry tokensSpent");
@@ -366,8 +366,8 @@ describe("scripted-hermes full pipeline (real daemon/scheduler, zero tokens)", {
         // ledger never grows.
         const heartbeats = ctx.scripted.heartbeats();
         const stats = dbRow<{ system_tokens_spent: number }>(
-          ctx.env.tamanduaDir,
-          "SELECT system_tokens_spent FROM tamandua_stats WHERE id = 1",
+          ctx.env.canarinhoDir,
+          "SELECT system_tokens_spent FROM canarinho_stats WHERE id = 1",
         );
         assert.equal(
           heartbeats.length,
@@ -446,7 +446,7 @@ describe("scripted-hermes full pipeline (real daemon/scheduler, zero tokens)", {
           ],
           runEnv,
         );
-        const runId = resolveFullRunId(runIdPrefix, ctx.env.tamanduaDir);
+        const runId = resolveFullRunId(runIdPrefix, ctx.env.canarinhoDir);
 
         const status = await waitForRun(ctx, runId, 90_000);
         assert.ok(
@@ -499,7 +499,7 @@ describe("scripted-hermes full pipeline (real daemon/scheduler, zero tokens)", {
           ],
           runEnv,
         );
-        const runId = resolveFullRunId(runIdPrefix, ctx.env.tamanduaDir);
+        const runId = resolveFullRunId(runIdPrefix, ctx.env.canarinhoDir);
 
         const status = await waitForRun(ctx, runId, 90_000);
         assert.ok(
@@ -584,7 +584,7 @@ describe("scripted-hermes full pipeline (real daemon/scheduler, zero tokens)", {
           ],
           runEnv,
         );
-        const runId = resolveFullRunId(runIdPrefix, env.tamanduaDir);
+        const runId = resolveFullRunId(runIdPrefix, env.canarinhoDir);
 
         const status = await waitForRun(ctx, runId, 90_000);
         assert.ok(
@@ -593,7 +593,7 @@ describe("scripted-hermes full pipeline (real daemon/scheduler, zero tokens)", {
         );
 
         // ── Token accounting: tokens_spent should STAY 0 ──────────
-        const tokens = await waitForRunTokens(env.tamanduaDir, runId, 0);
+        const tokens = await waitForRunTokens(env.canarinhoDir, runId, 0);
         assert.equal(
           tokens,
           0,
@@ -602,7 +602,7 @@ describe("scripted-hermes full pipeline (real daemon/scheduler, zero tokens)", {
 
         // ── Run still completes normally ──────────────────────────
         const steps = dbRows<{ step_id: string; status: string }>(
-          env.tamanduaDir,
+          env.canarinhoDir,
           "SELECT step_id, status FROM steps WHERE run_id = ? ORDER BY step_index",
           runId,
         );
@@ -668,7 +668,7 @@ describe("scripted-hermes full pipeline (real daemon/scheduler, zero tokens)", {
           ],
           runEnv,
         );
-        const runId = resolveFullRunId(runIdPrefix, ctx.env.tamanduaDir);
+        const runId = resolveFullRunId(runIdPrefix, ctx.env.canarinhoDir);
 
         const status = await waitForRun(ctx, runId, 90_000);
         assert.ok(
@@ -677,7 +677,7 @@ describe("scripted-hermes full pipeline (real daemon/scheduler, zero tokens)", {
         );
 
         // ── Token attribution survived the teardown kill ─────────
-        const tokens = await waitForRunTokens(ctx.env.tamanduaDir, runId, 555);
+        const tokens = await waitForRunTokens(ctx.env.canarinhoDir, runId, 555);
         assert.equal(
           tokens,
           555,
@@ -690,7 +690,7 @@ describe("scripted-hermes full pipeline (real daemon/scheduler, zero tokens)", {
 
         // ── Step completed normally ──────────────────────────────
         const steps = dbRows<{ step_id: string; status: string }>(
-          ctx.env.tamanduaDir,
+          ctx.env.canarinhoDir,
           "SELECT step_id, status FROM steps WHERE run_id = ? ORDER BY step_index",
           runId,
         );
@@ -714,7 +714,7 @@ describe("scripted-hermes full pipeline (real daemon/scheduler, zero tokens)", {
         // asynchronously after run completion — the event may carry 0
         // while the DB has the real count; waitForRunTokens covers
         // attribution correctness).
-        const events = readRunEvents(ctx.env.tamanduaDir, runId);
+        const events = readRunEvents(ctx.env.canarinhoDir, runId);
         const completed = events.find((e) => e.event === "run.completed");
         assert.ok(completed, `run.completed event missing; events: ${events.map((e) => e.event).join(", ")}`);
         assert.equal(typeof completed.tokensSpent, "number", "run.completed should carry tokensSpent field");

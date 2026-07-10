@@ -10,7 +10,7 @@
  *   - Spends real API tokens (one trivial agent task — cents/dollars)
  *   - Expected runtime: 30+ minutes (hermes is a slow Python CLI)
  *   - Requires a working hermes installation (on PATH or
- *     TAMANDUA_HERMES_BINARY) and ~/.hermes credentials/config
+ *     canarinho_HERMES_BINARY) and ~/.hermes credentials/config
  *
  * WHEN TO RUN (only via ./run-hermes-e2e-canary, only deliberately):
  *   - Hermes-upgrade milestones to catch trailer format or state.db
@@ -49,11 +49,11 @@ import {
 
 const CANARY_TASK =
   "Canary check: do not modify any files or run any commands other than the " +
-  "tamandua step commands you are instructed to use. Simply report success. " +
+  "canarinho step commands you are instructed to use. Simply report success. " +
   "Reply with STATUS: done and REPORT: hermes canary ok.";
 
 function isHermesAvailable(): boolean {
-  if (process.env.TAMANDUA_HERMES_BINARY) return true;
+  if (process.env.canarinho_HERMES_BINARY) return true;
   try {
     // `command` is a shell builtin, not an executable — it must run
     // inside sh or the spawn fails and hermes is never detected on PATH.
@@ -74,8 +74,8 @@ describe("real hermes e2e canary (LIVE hermes, single do-now run)", () => {
     async (t) => {
       if (!isHermesAvailable()) {
         t.skip(
-          "Hermes binary not found on PATH and TAMANDUA_HERMES_BINARY is unset. " +
-            "Install hermes or set TAMANDUA_HERMES_BINARY to run the real hermes canary.",
+          "Hermes binary not found on PATH and canarinho_HERMES_BINARY is unset. " +
+            "Install hermes or set canarinho_HERMES_BINARY to run the real hermes canary.",
         );
         return;
       }
@@ -110,7 +110,7 @@ describe("real hermes e2e canary (LIVE hermes, single do-now run)", () => {
           ],
           baseEnv(env.homeDir, env.controlPort),
         );
-        const runId = resolveFullRunId(runIdPrefix, env.tamanduaDir);
+        const runId = resolveFullRunId(runIdPrefix, env.canarinhoDir);
 
         // Nudge-driven wait. Hermes is very slow; allow up to 30 minutes
         // for the run itself (leaving 5 minutes of the 35-minute test
@@ -120,11 +120,11 @@ describe("real hermes e2e canary (LIVE hermes, single do-now run)", () => {
           baseEnv(env.homeDir, env.controlPort),
           30 * 60_000, // 30 min for the run itself
           5_000,
-          env.tamanduaDir,
+          env.canarinhoDir,
         );
         assert.ok(
           isSuccessfulRunTerminalStatus(status),
-          `hermes canary run should complete, got "${status}"\n${collectRunDiagnostics(env.tamanduaDir, runId)}`,
+          `hermes canary run should complete, got "${status}"\n${collectRunDiagnostics(env.canarinhoDir, runId)}`,
         );
 
         // ── Token accounting with REAL hermes ────────────
@@ -133,14 +133,14 @@ describe("real hermes e2e canary (LIVE hermes, single do-now run)", () => {
         // harness adapter parses it and calls lookupHermesSessionTokens
         // (with retry loop for WAL writer lag). Wait for it.
         const audit = await waitForRunWorkTokens(
-          env.tamanduaDir,
+          env.canarinhoDir,
           runId,
           120_000,
         );
         assert.ok(
           audit.workTokens > 0,
           `real hermes work round should attribute tokens to the run, got ${audit.workTokens}\n` +
-            collectRunDiagnostics(env.tamanduaDir, runId),
+            collectRunDiagnostics(env.canarinhoDir, runId),
         );
         assert.ok(
           audit.tokenUpdateEvents > 0,

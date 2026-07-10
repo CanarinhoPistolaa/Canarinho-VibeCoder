@@ -8,20 +8,20 @@ const readmeContent = readFileSync(readmePath, "utf-8");
 
 // Tool names as defined in src/server/mcp-server.ts
 const allMcpTools = [
-  "tamandua.runs.list",
-  "tamandua.run.status",
-  "tamandua.run.start",
-  "tamandua.run.pause",
-  "tamandua.run.resume",
-  "tamandua.run.delete",
-  "tamandua.events.recent",
-  "tamandua.skill.path",
-  "tamandua.source.path",
-  "tamandua.update.command",
-  "tamandua.autoresearch.init",
-  "tamandua.autoresearch.run_experiment",
-  "tamandua.autoresearch.log_experiment",
-  "tamandua.autoresearch.status",
+  "canarinho.runs.list",
+  "canarinho.run.status",
+  "canarinho.run.start",
+  "canarinho.run.pause",
+  "canarinho.run.resume",
+  "canarinho.run.delete",
+  "canarinho.events.recent",
+  "canarinho.skill.path",
+  "canarinho.source.path",
+  "canarinho.update.command",
+  "canarinho.autoresearch.init",
+  "canarinho.autoresearch.run_experiment",
+  "canarinho.autoresearch.log_experiment",
+  "canarinho.autoresearch.status",
 ];
 
 describe("README MCP tools documentation", () => {
@@ -37,44 +37,44 @@ describe("README MCP tools documentation", () => {
     }
   });
 
-  it("documents tamandua.run.pause with its parameters", () => {
+  it("documents canarinho.run.pause with its parameters", () => {
     assert.ok(
-      readmeContent.includes("tamandua.run.pause"),
-      "README must document tamandua.run.pause"
+      readmeContent.includes("canarinho.run.pause"),
+      "README must document canarinho.run.pause"
     );
     assert.ok(
       readmeContent.includes("runId"),
-      "tamandua.run.pause documentation must mention runId parameter"
+      "canarinho.run.pause documentation must mention runId parameter"
     );
     assert.ok(
       readmeContent.includes("drain"),
-      "tamandua.run.pause documentation must mention drain parameter"
+      "canarinho.run.pause documentation must mention drain parameter"
     );
   });
 
-  it("documents tamandua.run.resume with its parameters", () => {
+  it("documents canarinho.run.resume with its parameters", () => {
     assert.ok(
-      readmeContent.includes("tamandua.run.resume"),
-      "README must document tamandua.run.resume"
+      readmeContent.includes("canarinho.run.resume"),
+      "README must document canarinho.run.resume"
     );
     assert.ok(
       readmeContent.includes("runId"),
-      "tamandua.run.resume documentation must mention runId parameter"
+      "canarinho.run.resume documentation must mention runId parameter"
     );
   });
 
-  it("documents tamandua.run.delete with its parameters", () => {
+  it("documents canarinho.run.delete with its parameters", () => {
     assert.ok(
-      readmeContent.includes("tamandua.run.delete"),
-      "README must document tamandua.run.delete"
+      readmeContent.includes("canarinho.run.delete"),
+      "README must document canarinho.run.delete"
     );
     assert.ok(
       readmeContent.includes("force"),
-      "tamandua.run.delete documentation must mention force parameter"
+      "canarinho.run.delete documentation must mention force parameter"
     );
   });
 
-  it("documents tamandua.run.start worktree parameters", () => {
+  it("documents canarinho.run.start worktree parameters", () => {
     assert.ok(
       readmeContent.includes("worktreeOriginRepository"),
       "README must document worktreeOriginRepository parameter for run.start"
@@ -112,15 +112,15 @@ describe("README MCP tools documentation", () => {
     );
     assert.ok(
       readmeContent.includes("wait for in-flight work"),
-      "README must describe drain parameter behavior for tamandua.run.pause"
+      "README must describe drain parameter behavior for canarinho.run.pause"
     );
     assert.ok(
       readmeContent.includes("Pause a running"),
-      "README must describe tamandua.run.pause as pausing a running workflow"
+      "README must describe canarinho.run.pause as pausing a running workflow"
     );
     assert.ok(
       readmeContent.includes("Resume a paused"),
-      "README must describe tamandua.run.resume as resuming a paused workflow"
+      "README must describe canarinho.run.resume as resuming a paused workflow"
     );
   });
 });

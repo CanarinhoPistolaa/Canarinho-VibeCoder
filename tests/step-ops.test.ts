@@ -321,7 +321,7 @@ describe("validateExpects", () => {
   });
 
   it("passes with valid HTTPS PR URL with number suffix", () => {
-    const output = "STATUS: done\nPR: https://github.com/igorhvr/tamandua/pull/999";
+    const output = "STATUS: done\nPR: https://github.com/igorhvr/canarinho/pull/999";
     const expects = "STATUS: done\nregex:PR:\\s*https?://github\\.com/[^/]+/[^/]+/pull/\\d+";
     const result = validateExpects(output, expects);
     assert.equal(result, null);
@@ -410,7 +410,7 @@ describe("Workflow YAML PR step expects validation", () => {
     const expects = extractPrStepExpects(bugFixPath);
     assert.ok(expects, "pr step must have an expects field");
 
-    const validOutput = "STATUS: done\nPR: https://github.com/igorhvr/tamandua/pull/42";
+    const validOutput = "STATUS: done\nPR: https://github.com/igorhvr/canarinho/pull/42";
     const result = validateExpects(validOutput, expects);
     assert.equal(result, null, "Valid pull/NNN URL should be accepted: " + expects);
   });
@@ -428,28 +428,28 @@ describe("Workflow YAML PR step expects validation", () => {
     const expects = extractPrStepExpects(featureDevPath);
     assert.ok(expects, "pr step must have an expects field");
 
-    const validOutput = "STATUS: done\nPR: https://github.com/igorhvr/tamandua/pull/42";
+    const validOutput = "STATUS: done\nPR: https://github.com/igorhvr/canarinho/pull/42";
     const result = validateExpects(validOutput, expects);
     assert.equal(result, null, "Valid pull/NNN URL should be accepted: " + expects);
   });
 });
 
 describe("Reserved context key protection", () => {
-  const _savedStateDir = process.env.TAMANDUA_STATE_DIR;
-  const _savedDbPath = process.env.TAMANDUA_DB_PATH;
+  const _savedStateDir = process.env.canarinho_STATE_DIR;
+  const _savedDbPath = process.env.canarinho_DB_PATH;
   let _testIsolationDir: string;
 
   before(() => {
-    _testIsolationDir = fs.mkdtempSync(path.join(os.tmpdir(), "tamandua-reserved-keys-test-"));
-    process.env.TAMANDUA_STATE_DIR = _testIsolationDir;
-    process.env.TAMANDUA_DB_PATH = path.join(_testIsolationDir, "tamandua.db");
+    _testIsolationDir = fs.mkdtempSync(path.join(os.tmpdir(), "canarinho-reserved-keys-test-"));
+    process.env.canarinho_STATE_DIR = _testIsolationDir;
+    process.env.canarinho_DB_PATH = path.join(_testIsolationDir, "canarinho.db");
   });
 
   after(() => {
-    if (_savedStateDir === undefined) delete process.env.TAMANDUA_STATE_DIR;
-    else process.env.TAMANDUA_STATE_DIR = _savedStateDir;
-    if (_savedDbPath === undefined) delete process.env.TAMANDUA_DB_PATH;
-    else process.env.TAMANDUA_DB_PATH = _savedDbPath;
+    if (_savedStateDir === undefined) delete process.env.canarinho_STATE_DIR;
+    else process.env.canarinho_STATE_DIR = _savedStateDir;
+    if (_savedDbPath === undefined) delete process.env.canarinho_DB_PATH;
+    else process.env.canarinho_DB_PATH = _savedDbPath;
     try { fs.rmSync(_testIsolationDir, { recursive: true, force: true }); } catch { /* best effort */ }
   });
 
@@ -458,7 +458,7 @@ describe("Reserved context key protection", () => {
   }
 
   it("completeStep does not overwrite reserved keys (repo, working_directory_for_harness, task, run_id)", async () => {
-    // Import getDb lazily so TAMANDUA_DB_PATH is already set
+    // Import getDb lazily so canarinho_DB_PATH is already set
     const { getDb } = await import("../dist/db.js");
     const db = getDb();
     const runId = crypto.randomUUID();
@@ -544,21 +544,21 @@ describe("Reserved context key protection", () => {
 });
 
 describe("completeStep STORIES_JSON guard — only blocks when loop-step is immediately next", () => {
-  const _savedStateDir = process.env.TAMANDUA_STATE_DIR;
-  const _savedDbPath = process.env.TAMANDUA_DB_PATH;
+  const _savedStateDir = process.env.canarinho_STATE_DIR;
+  const _savedDbPath = process.env.canarinho_DB_PATH;
   let _testIsolationDir: string;
 
   before(() => {
-    _testIsolationDir = fs.mkdtempSync(path.join(os.tmpdir(), "tamandua-stories-guard-test-"));
-    process.env.TAMANDUA_STATE_DIR = _testIsolationDir;
-    process.env.TAMANDUA_DB_PATH = path.join(_testIsolationDir, "tamandua.db");
+    _testIsolationDir = fs.mkdtempSync(path.join(os.tmpdir(), "canarinho-stories-guard-test-"));
+    process.env.canarinho_STATE_DIR = _testIsolationDir;
+    process.env.canarinho_DB_PATH = path.join(_testIsolationDir, "canarinho.db");
   });
 
   after(() => {
-    if (_savedStateDir === undefined) delete process.env.TAMANDUA_STATE_DIR;
-    else process.env.TAMANDUA_STATE_DIR = _savedStateDir;
-    if (_savedDbPath === undefined) delete process.env.TAMANDUA_DB_PATH;
-    else process.env.TAMANDUA_DB_PATH = _savedDbPath;
+    if (_savedStateDir === undefined) delete process.env.canarinho_STATE_DIR;
+    else process.env.canarinho_STATE_DIR = _savedStateDir;
+    if (_savedDbPath === undefined) delete process.env.canarinho_DB_PATH;
+    else process.env.canarinho_DB_PATH = _savedDbPath;
     try { fs.rmSync(_testIsolationDir, { recursive: true, force: true }); } catch { /* best effort */ }
   });
 
@@ -701,21 +701,21 @@ describe("completeStep STORIES_JSON guard — only blocks when loop-step is imme
 });
 
 describe("completeStep STORIES_JSON guard — story-producer blamed across intermediate steps", () => {
-  const _savedStateDir = process.env.TAMANDUA_STATE_DIR;
-  const _savedDbPath = process.env.TAMANDUA_DB_PATH;
+  const _savedStateDir = process.env.canarinho_STATE_DIR;
+  const _savedDbPath = process.env.canarinho_DB_PATH;
   let _testIsolationDir: string;
 
   before(() => {
-    _testIsolationDir = fs.mkdtempSync(path.join(os.tmpdir(), "tamandua-stories-guard-intermediate-test-"));
-    process.env.TAMANDUA_STATE_DIR = _testIsolationDir;
-    process.env.TAMANDUA_DB_PATH = path.join(_testIsolationDir, "tamandua.db");
+    _testIsolationDir = fs.mkdtempSync(path.join(os.tmpdir(), "canarinho-stories-guard-intermediate-test-"));
+    process.env.canarinho_STATE_DIR = _testIsolationDir;
+    process.env.canarinho_DB_PATH = path.join(_testIsolationDir, "canarinho.db");
   });
 
   after(() => {
-    if (_savedStateDir === undefined) delete process.env.TAMANDUA_STATE_DIR;
-    else process.env.TAMANDUA_STATE_DIR = _savedStateDir;
-    if (_savedDbPath === undefined) delete process.env.TAMANDUA_DB_PATH;
-    else process.env.TAMANDUA_DB_PATH = _savedDbPath;
+    if (_savedStateDir === undefined) delete process.env.canarinho_STATE_DIR;
+    else process.env.canarinho_STATE_DIR = _savedStateDir;
+    if (_savedDbPath === undefined) delete process.env.canarinho_DB_PATH;
+    else process.env.canarinho_DB_PATH = _savedDbPath;
     try { fs.rmSync(_testIsolationDir, { recursive: true, force: true }); } catch { /* best effort */ }
   });
 
@@ -834,21 +834,21 @@ STORIES_JSON: [...]', 'STATUS: done', 'running', 1, 4, 'single', ?, ?)"
 });
 
 describe("failStep retry feedback persistence", () => {
-  const _savedStateDir = process.env.TAMANDUA_STATE_DIR;
-  const _savedDbPath = process.env.TAMANDUA_DB_PATH;
+  const _savedStateDir = process.env.canarinho_STATE_DIR;
+  const _savedDbPath = process.env.canarinho_DB_PATH;
   let _testIsolationDir: string;
 
   before(() => {
-    _testIsolationDir = fs.mkdtempSync(path.join(os.tmpdir(), "tamandua-failstep-retry-test-"));
-    process.env.TAMANDUA_STATE_DIR = _testIsolationDir;
-    process.env.TAMANDUA_DB_PATH = path.join(_testIsolationDir, "tamandua.db");
+    _testIsolationDir = fs.mkdtempSync(path.join(os.tmpdir(), "canarinho-failstep-retry-test-"));
+    process.env.canarinho_STATE_DIR = _testIsolationDir;
+    process.env.canarinho_DB_PATH = path.join(_testIsolationDir, "canarinho.db");
   });
 
   after(() => {
-    if (_savedStateDir === undefined) delete process.env.TAMANDUA_STATE_DIR;
-    else process.env.TAMANDUA_STATE_DIR = _savedStateDir;
-    if (_savedDbPath === undefined) delete process.env.TAMANDUA_DB_PATH;
-    else process.env.TAMANDUA_DB_PATH = _savedDbPath;
+    if (_savedStateDir === undefined) delete process.env.canarinho_STATE_DIR;
+    else process.env.canarinho_STATE_DIR = _savedStateDir;
+    if (_savedDbPath === undefined) delete process.env.canarinho_DB_PATH;
+    else process.env.canarinho_DB_PATH = _savedDbPath;
     try { fs.rmSync(_testIsolationDir, { recursive: true, force: true }); } catch { /* best effort */ }
   });
 
@@ -985,21 +985,21 @@ describe("failStep retry feedback persistence", () => {
 });
 
 describe("setup-specific retry_feedback rendering", () => {
-  const _savedStateDir = process.env.TAMANDUA_STATE_DIR;
-  const _savedDbPath = process.env.TAMANDUA_DB_PATH;
+  const _savedStateDir = process.env.canarinho_STATE_DIR;
+  const _savedDbPath = process.env.canarinho_DB_PATH;
   let _testIsolationDir: string;
 
   before(() => {
-    _testIsolationDir = fs.mkdtempSync(path.join(os.tmpdir(), "tamandua-setup-retry-test-"));
-    process.env.TAMANDUA_STATE_DIR = _testIsolationDir;
-    process.env.TAMANDUA_DB_PATH = path.join(_testIsolationDir, "tamandua.db");
+    _testIsolationDir = fs.mkdtempSync(path.join(os.tmpdir(), "canarinho-setup-retry-test-"));
+    process.env.canarinho_STATE_DIR = _testIsolationDir;
+    process.env.canarinho_DB_PATH = path.join(_testIsolationDir, "canarinho.db");
   });
 
   after(() => {
-    if (_savedStateDir === undefined) delete process.env.TAMANDUA_STATE_DIR;
-    else process.env.TAMANDUA_STATE_DIR = _savedStateDir;
-    if (_savedDbPath === undefined) delete process.env.TAMANDUA_DB_PATH;
-    else process.env.TAMANDUA_DB_PATH = _savedDbPath;
+    if (_savedStateDir === undefined) delete process.env.canarinho_STATE_DIR;
+    else process.env.canarinho_STATE_DIR = _savedStateDir;
+    if (_savedDbPath === undefined) delete process.env.canarinho_DB_PATH;
+    else process.env.canarinho_DB_PATH = _savedDbPath;
     try { fs.rmSync(_testIsolationDir, { recursive: true, force: true }); } catch { /* best effort */ }
   });
 
@@ -1074,21 +1074,21 @@ Instructions:', 'STATUS: done', 'pending', 0, 4, 'single', ?, ?)"
 });
 
 describe("completeStep retry response includes detail field", () => {
-  const _savedStateDir = process.env.TAMANDUA_STATE_DIR;
-  const _savedDbPath = process.env.TAMANDUA_DB_PATH;
+  const _savedStateDir = process.env.canarinho_STATE_DIR;
+  const _savedDbPath = process.env.canarinho_DB_PATH;
   let _testIsolationDir: string;
 
   before(() => {
-    _testIsolationDir = fs.mkdtempSync(path.join(os.tmpdir(), "tamandua-completestep-detail-test-"));
-    process.env.TAMANDUA_STATE_DIR = _testIsolationDir;
-    process.env.TAMANDUA_DB_PATH = path.join(_testIsolationDir, "tamandua.db");
+    _testIsolationDir = fs.mkdtempSync(path.join(os.tmpdir(), "canarinho-completestep-detail-test-"));
+    process.env.canarinho_STATE_DIR = _testIsolationDir;
+    process.env.canarinho_DB_PATH = path.join(_testIsolationDir, "canarinho.db");
   });
 
   after(() => {
-    if (_savedStateDir === undefined) delete process.env.TAMANDUA_STATE_DIR;
-    else process.env.TAMANDUA_STATE_DIR = _savedStateDir;
-    if (_savedDbPath === undefined) delete process.env.TAMANDUA_DB_PATH;
-    else process.env.TAMANDUA_DB_PATH = _savedDbPath;
+    if (_savedStateDir === undefined) delete process.env.canarinho_STATE_DIR;
+    else process.env.canarinho_STATE_DIR = _savedStateDir;
+    if (_savedDbPath === undefined) delete process.env.canarinho_DB_PATH;
+    else process.env.canarinho_DB_PATH = _savedDbPath;
     try { fs.rmSync(_testIsolationDir, { recursive: true, force: true }); } catch { /* best effort */ }
   });
 
@@ -1189,21 +1189,21 @@ describe("completeStep retry response includes detail field", () => {
 });
 
 describe("findProducerForMissingKey", () => {
-  const _savedStateDir = process.env.TAMANDUA_STATE_DIR;
-  const _savedDbPath = process.env.TAMANDUA_DB_PATH;
+  const _savedStateDir = process.env.canarinho_STATE_DIR;
+  const _savedDbPath = process.env.canarinho_DB_PATH;
   let _testIsolationDir: string;
 
   before(() => {
-    _testIsolationDir = fs.mkdtempSync(path.join(os.tmpdir(), "tamandua-find-producer-test-"));
-    process.env.TAMANDUA_STATE_DIR = _testIsolationDir;
-    process.env.TAMANDUA_DB_PATH = path.join(_testIsolationDir, "tamandua.db");
+    _testIsolationDir = fs.mkdtempSync(path.join(os.tmpdir(), "canarinho-find-producer-test-"));
+    process.env.canarinho_STATE_DIR = _testIsolationDir;
+    process.env.canarinho_DB_PATH = path.join(_testIsolationDir, "canarinho.db");
   });
 
   after(() => {
-    if (_savedStateDir === undefined) delete process.env.TAMANDUA_STATE_DIR;
-    else process.env.TAMANDUA_STATE_DIR = _savedStateDir;
-    if (_savedDbPath === undefined) delete process.env.TAMANDUA_DB_PATH;
-    else process.env.TAMANDUA_DB_PATH = _savedDbPath;
+    if (_savedStateDir === undefined) delete process.env.canarinho_STATE_DIR;
+    else process.env.canarinho_STATE_DIR = _savedStateDir;
+    if (_savedDbPath === undefined) delete process.env.canarinho_DB_PATH;
+    else process.env.canarinho_DB_PATH = _savedDbPath;
     try { fs.rmSync(_testIsolationDir, { recursive: true, force: true }); } catch { /* best effort */ }
   });
 
@@ -1423,21 +1423,21 @@ describe("findProducerForMissingKey", () => {
 });
 
 describe("claimStep missing-template-key blocking (US-003)", () => {
-  const _savedStateDir = process.env.TAMANDUA_STATE_DIR;
-  const _savedDbPath = process.env.TAMANDUA_DB_PATH;
+  const _savedStateDir = process.env.canarinho_STATE_DIR;
+  const _savedDbPath = process.env.canarinho_DB_PATH;
   let _testIsolationDir: string;
 
   before(() => {
-    _testIsolationDir = fs.mkdtempSync(path.join(os.tmpdir(), "tamandua-missingkey-block-test-"));
-    process.env.TAMANDUA_STATE_DIR = _testIsolationDir;
-    process.env.TAMANDUA_DB_PATH = path.join(_testIsolationDir, "tamandua.db");
+    _testIsolationDir = fs.mkdtempSync(path.join(os.tmpdir(), "canarinho-missingkey-block-test-"));
+    process.env.canarinho_STATE_DIR = _testIsolationDir;
+    process.env.canarinho_DB_PATH = path.join(_testIsolationDir, "canarinho.db");
   });
 
   after(() => {
-    if (_savedStateDir === undefined) delete process.env.TAMANDUA_STATE_DIR;
-    else process.env.TAMANDUA_STATE_DIR = _savedStateDir;
-    if (_savedDbPath === undefined) delete process.env.TAMANDUA_DB_PATH;
-    else process.env.TAMANDUA_DB_PATH = _savedDbPath;
+    if (_savedStateDir === undefined) delete process.env.canarinho_STATE_DIR;
+    else process.env.canarinho_STATE_DIR = _savedStateDir;
+    if (_savedDbPath === undefined) delete process.env.canarinho_DB_PATH;
+    else process.env.canarinho_DB_PATH = _savedDbPath;
     try { fs.rmSync(_testIsolationDir, { recursive: true, force: true }); } catch { /* best effort */ }
   });
 
@@ -1848,21 +1848,21 @@ RETRY FEEDBACK: {{retry_feedback}}', '', 'pending', 0, 4, 'single', ?, ?)"
 });
 
 describe("claimStep missing-template-key blocking — loop claim path (US-004)", () => {
-  const _savedStateDir = process.env.TAMANDUA_STATE_DIR;
-  const _savedDbPath = process.env.TAMANDUA_DB_PATH;
+  const _savedStateDir = process.env.canarinho_STATE_DIR;
+  const _savedDbPath = process.env.canarinho_DB_PATH;
   let _testIsolationDir: string;
 
   before(() => {
-    _testIsolationDir = fs.mkdtempSync(path.join(os.tmpdir(), "tamandua-missingkey-loop-test-"));
-    process.env.TAMANDUA_STATE_DIR = _testIsolationDir;
-    process.env.TAMANDUA_DB_PATH = path.join(_testIsolationDir, "tamandua.db");
+    _testIsolationDir = fs.mkdtempSync(path.join(os.tmpdir(), "canarinho-missingkey-loop-test-"));
+    process.env.canarinho_STATE_DIR = _testIsolationDir;
+    process.env.canarinho_DB_PATH = path.join(_testIsolationDir, "canarinho.db");
   });
 
   after(() => {
-    if (_savedStateDir === undefined) delete process.env.TAMANDUA_STATE_DIR;
-    else process.env.TAMANDUA_STATE_DIR = _savedStateDir;
-    if (_savedDbPath === undefined) delete process.env.TAMANDUA_DB_PATH;
-    else process.env.TAMANDUA_DB_PATH = _savedDbPath;
+    if (_savedStateDir === undefined) delete process.env.canarinho_STATE_DIR;
+    else process.env.canarinho_STATE_DIR = _savedStateDir;
+    if (_savedDbPath === undefined) delete process.env.canarinho_DB_PATH;
+    else process.env.canarinho_DB_PATH = _savedDbPath;
     try { fs.rmSync(_testIsolationDir, { recursive: true, force: true }); } catch { /* best effort */ }
   });
 
@@ -2306,11 +2306,11 @@ steps:
   before(async () => {
     // Save outer env vars at hook runtime, not at module load time.
     // This matters when nested inside an outer describe that sets isolation.
-    _savedStateDir = process.env.TAMANDUA_STATE_DIR;
-    _savedDbPath = process.env.TAMANDUA_DB_PATH;
-    _testIsolationDir = fs.mkdtempSync(path.join(os.tmpdir(), "tamandua-retr-test-"));
-    process.env.TAMANDUA_STATE_DIR = _testIsolationDir;
-    process.env.TAMANDUA_DB_PATH = path.join(_testIsolationDir, "tamandua.db");
+    _savedStateDir = process.env.canarinho_STATE_DIR;
+    _savedDbPath = process.env.canarinho_DB_PATH;
+    _testIsolationDir = fs.mkdtempSync(path.join(os.tmpdir(), "canarinho-retr-test-"));
+    process.env.canarinho_STATE_DIR = _testIsolationDir;
+    process.env.canarinho_DB_PATH = path.join(_testIsolationDir, "canarinho.db");
 
     // Create workflow dirs with the test workflows
     workflowsDir = path.join(_testIsolationDir, "workflows");
@@ -2329,10 +2329,10 @@ steps:
   });
 
   after(() => {
-    if (_savedStateDir === undefined) delete process.env.TAMANDUA_STATE_DIR;
-    else process.env.TAMANDUA_STATE_DIR = _savedStateDir;
-    if (_savedDbPath === undefined) delete process.env.TAMANDUA_DB_PATH;
-    else process.env.TAMANDUA_DB_PATH = _savedDbPath;
+    if (_savedStateDir === undefined) delete process.env.canarinho_STATE_DIR;
+    else process.env.canarinho_STATE_DIR = _savedStateDir;
+    if (_savedDbPath === undefined) delete process.env.canarinho_DB_PATH;
+    else process.env.canarinho_DB_PATH = _savedDbPath;
     try { fs.rmSync(_testIsolationDir, { recursive: true, force: true }); } catch { /* best effort */ }
   });
 
@@ -3080,14 +3080,14 @@ steps:
 });
 
 describe("getRunProgressPath canonical path resolution", () => {
-  const _savedStateDir = process.env.TAMANDUA_STATE_DIR;
-  const _savedDbPath = process.env.TAMANDUA_DB_PATH;
+  const _savedStateDir = process.env.canarinho_STATE_DIR;
+  const _savedDbPath = process.env.canarinho_DB_PATH;
   let _testIsolationDir: string;
 
   before(() => {
-    _testIsolationDir = fs.mkdtempSync(path.join(os.tmpdir(), "tamandua-progress-path-test-"));
-    process.env.TAMANDUA_STATE_DIR = _testIsolationDir;
-    process.env.TAMANDUA_DB_PATH = path.join(_testIsolationDir, "tamandua.db");
+    _testIsolationDir = fs.mkdtempSync(path.join(os.tmpdir(), "canarinho-progress-path-test-"));
+    process.env.canarinho_STATE_DIR = _testIsolationDir;
+    process.env.canarinho_DB_PATH = path.join(_testIsolationDir, "canarinho.db");
     // Write agents.json so getAgentWorkspacePath can resolve workspace paths
     const agentsConfig = [
       { id: "test-wf_dev", workspace: path.join(_testIsolationDir, "workspaces", "workflows", "test-wf") }
@@ -3097,10 +3097,10 @@ describe("getRunProgressPath canonical path resolution", () => {
   });
 
   after(() => {
-    if (_savedStateDir === undefined) delete process.env.TAMANDUA_STATE_DIR;
-    else process.env.TAMANDUA_STATE_DIR = _savedStateDir;
-    if (_savedDbPath === undefined) delete process.env.TAMANDUA_DB_PATH;
-    else process.env.TAMANDUA_DB_PATH = _savedDbPath;
+    if (_savedStateDir === undefined) delete process.env.canarinho_STATE_DIR;
+    else process.env.canarinho_STATE_DIR = _savedStateDir;
+    if (_savedDbPath === undefined) delete process.env.canarinho_DB_PATH;
+    else process.env.canarinho_DB_PATH = _savedDbPath;
     try { fs.rmSync(_testIsolationDir, { recursive: true, force: true }); } catch { /* best effort */ }
   });
 
@@ -3321,21 +3321,21 @@ describe("getRunProgressPath canonical path resolution", () => {
 });
 
 describe("handleVerifyEachCompletion — honest retry verdict path (US-002)", () => {
-  const _savedStateDir = process.env.TAMANDUA_STATE_DIR;
-  const _savedDbPath = process.env.TAMANDUA_DB_PATH;
+  const _savedStateDir = process.env.canarinho_STATE_DIR;
+  const _savedDbPath = process.env.canarinho_DB_PATH;
   let _testIsolationDir: string;
 
   before(() => {
-    _testIsolationDir = fs.mkdtempSync(path.join(os.tmpdir(), "tamandua-verify-each-retry-test-"));
-    process.env.TAMANDUA_STATE_DIR = _testIsolationDir;
-    process.env.TAMANDUA_DB_PATH = path.join(_testIsolationDir, "tamandua.db");
+    _testIsolationDir = fs.mkdtempSync(path.join(os.tmpdir(), "canarinho-verify-each-retry-test-"));
+    process.env.canarinho_STATE_DIR = _testIsolationDir;
+    process.env.canarinho_DB_PATH = path.join(_testIsolationDir, "canarinho.db");
   });
 
   after(() => {
-    if (_savedStateDir === undefined) delete process.env.TAMANDUA_STATE_DIR;
-    else process.env.TAMANDUA_STATE_DIR = _savedStateDir;
-    if (_savedDbPath === undefined) delete process.env.TAMANDUA_DB_PATH;
-    else process.env.TAMANDUA_DB_PATH = _savedDbPath;
+    if (_savedStateDir === undefined) delete process.env.canarinho_STATE_DIR;
+    else process.env.canarinho_STATE_DIR = _savedStateDir;
+    if (_savedDbPath === undefined) delete process.env.canarinho_DB_PATH;
+    else process.env.canarinho_DB_PATH = _savedDbPath;
     try { fs.rmSync(_testIsolationDir, { recursive: true, force: true }); } catch { /* best effort */ }
   });
 
@@ -3674,21 +3674,21 @@ describe("handleVerifyEachCompletion — honest retry verdict path (US-002)", ()
 });
 
 describe("handleVerifyEachCompletion — US-001 VRST investigation (2026-07-05 incident)", () => {
-  const _savedStateDir = process.env.TAMANDUA_STATE_DIR;
-  const _savedDbPath = process.env.TAMANDUA_DB_PATH;
+  const _savedStateDir = process.env.canarinho_STATE_DIR;
+  const _savedDbPath = process.env.canarinho_DB_PATH;
   let _testIsolationDir: string;
 
   before(() => {
-    _testIsolationDir = fs.mkdtempSync(path.join(os.tmpdir(), "tamandua-vrst-test-"));
-    process.env.TAMANDUA_STATE_DIR = _testIsolationDir;
-    process.env.TAMANDUA_DB_PATH = path.join(_testIsolationDir, "tamandua.db");
+    _testIsolationDir = fs.mkdtempSync(path.join(os.tmpdir(), "canarinho-vrst-test-"));
+    process.env.canarinho_STATE_DIR = _testIsolationDir;
+    process.env.canarinho_DB_PATH = path.join(_testIsolationDir, "canarinho.db");
   });
 
   after(() => {
-    if (_savedStateDir === undefined) delete process.env.TAMANDUA_STATE_DIR;
-    else process.env.TAMANDUA_STATE_DIR = _savedStateDir;
-    if (_savedDbPath === undefined) delete process.env.TAMANDUA_DB_PATH;
-    else process.env.TAMANDUA_DB_PATH = _savedDbPath;
+    if (_savedStateDir === undefined) delete process.env.canarinho_STATE_DIR;
+    else process.env.canarinho_STATE_DIR = _savedStateDir;
+    if (_savedDbPath === undefined) delete process.env.canarinho_DB_PATH;
+    else process.env.canarinho_DB_PATH = _savedDbPath;
     try { fs.rmSync(_testIsolationDir, { recursive: true, force: true }); } catch { /* best effort */ }
   });
 
@@ -4052,21 +4052,21 @@ describe("handleVerifyEachCompletion — US-001 VRST investigation (2026-07-05 i
 });
 
 describe("handleVerifyEachCompletion — US-002 VBUD (story-scoped verify retry budget)", () => {
-  const _savedStateDir = process.env.TAMANDUA_STATE_DIR;
-  const _savedDbPath = process.env.TAMANDUA_DB_PATH;
+  const _savedStateDir = process.env.canarinho_STATE_DIR;
+  const _savedDbPath = process.env.canarinho_DB_PATH;
   let _testIsolationDir: string;
 
   before(() => {
-    _testIsolationDir = fs.mkdtempSync(path.join(os.tmpdir(), "tamandua-vbud-test-"));
-    process.env.TAMANDUA_STATE_DIR = _testIsolationDir;
-    process.env.TAMANDUA_DB_PATH = path.join(_testIsolationDir, "tamandua.db");
+    _testIsolationDir = fs.mkdtempSync(path.join(os.tmpdir(), "canarinho-vbud-test-"));
+    process.env.canarinho_STATE_DIR = _testIsolationDir;
+    process.env.canarinho_DB_PATH = path.join(_testIsolationDir, "canarinho.db");
   });
 
   after(() => {
-    if (_savedStateDir === undefined) delete process.env.TAMANDUA_STATE_DIR;
-    else process.env.TAMANDUA_STATE_DIR = _savedStateDir;
-    if (_savedDbPath === undefined) delete process.env.TAMANDUA_DB_PATH;
-    else process.env.TAMANDUA_DB_PATH = _savedDbPath;
+    if (_savedStateDir === undefined) delete process.env.canarinho_STATE_DIR;
+    else process.env.canarinho_STATE_DIR = _savedStateDir;
+    if (_savedDbPath === undefined) delete process.env.canarinho_DB_PATH;
+    else process.env.canarinho_DB_PATH = _savedDbPath;
     try { fs.rmSync(_testIsolationDir, { recursive: true, force: true }); } catch { /* best effort */ }
   });
 
@@ -4387,8 +4387,8 @@ describe("handleVerifyEachCompletion — US-002 VBUD (story-scoped verify retry 
 });
 
 describe("RETRY VERDICT ROUTING — completeStepInternal STATUS: retry guard (CATP phantom-success fix)", () => {
-  const _savedStateDir = process.env.TAMANDUA_STATE_DIR;
-  const _savedDbPath = process.env.TAMANDUA_DB_PATH;
+  const _savedStateDir = process.env.canarinho_STATE_DIR;
+  const _savedDbPath = process.env.canarinho_DB_PATH;
   let _testIsolationDir: string;
   let _workflowsDir: string;
 
@@ -4467,9 +4467,9 @@ steps:
 `;
 
   before(() => {
-    _testIsolationDir = fs.mkdtempSync(path.join(os.tmpdir(), "tamandua-retry-verdict-test-"));
-    process.env.TAMANDUA_STATE_DIR = _testIsolationDir;
-    process.env.TAMANDUA_DB_PATH = path.join(_testIsolationDir, "tamandua.db");
+    _testIsolationDir = fs.mkdtempSync(path.join(os.tmpdir(), "canarinho-retry-verdict-test-"));
+    process.env.canarinho_STATE_DIR = _testIsolationDir;
+    process.env.canarinho_DB_PATH = path.join(_testIsolationDir, "canarinho.db");
 
     _workflowsDir = path.join(_testIsolationDir, "workflows");
     const workflows: Record<string, string> = {
@@ -4485,10 +4485,10 @@ steps:
   });
 
   after(() => {
-    if (_savedStateDir === undefined) delete process.env.TAMANDUA_STATE_DIR;
-    else process.env.TAMANDUA_STATE_DIR = _savedStateDir;
-    if (_savedDbPath === undefined) delete process.env.TAMANDUA_DB_PATH;
-    else process.env.TAMANDUA_DB_PATH = _savedDbPath;
+    if (_savedStateDir === undefined) delete process.env.canarinho_STATE_DIR;
+    else process.env.canarinho_STATE_DIR = _savedStateDir;
+    if (_savedDbPath === undefined) delete process.env.canarinho_DB_PATH;
+    else process.env.canarinho_DB_PATH = _savedDbPath;
     try { fs.rmSync(_testIsolationDir, { recursive: true, force: true }); } catch { /* best effort */ }
   });
 

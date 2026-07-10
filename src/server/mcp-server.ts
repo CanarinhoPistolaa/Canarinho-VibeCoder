@@ -12,7 +12,7 @@ import {
 } from "@modelcontextprotocol/sdk/types.js";
 import { getWorkflowStatus, listRuns, deleteWorkflow, type RunDetail, type RunInfo } from "../installer/status.js";
 import { runWorkflow, type RunWorkflowResult } from "../installer/run.js";
-import { getRecentEvents, type TamanduaEvent } from "../installer/events.js";
+import { getRecentEvents, type canarinhoEvent } from "../installer/events.js";
 import { resolveSourcePath, resolveSkillPath, resolveWorkflowDir } from "../installer/paths.js";
 import { loadWorkflowSpec } from "../installer/workflow-spec.js";
 import { pauseRunWithDaemon, resumeRunWithDaemon } from "./control-client.js";
@@ -28,27 +28,27 @@ import {
 export const DEFAULT_MCP_PORT = 3338;
 export const MCP_ENDPOINT_PATH = "/mcp";
 
-const MCP_TOOL_RUNS_LIST = "tamandua.runs.list";
-const MCP_TOOL_RUN_STATUS = "tamandua.run.status";
-const MCP_TOOL_RUN_START = "tamandua.run.start";
-const MCP_TOOL_RUN_PAUSE = "tamandua.run.pause";
-const MCP_TOOL_RUN_RESUME = "tamandua.run.resume";
-const MCP_TOOL_RUN_DELETE = "tamandua.run.delete";
-const MCP_TOOL_EVENTS_RECENT = "tamandua.events.recent";
-const MCP_TOOL_SKILL_PATH = "tamandua.skill.path";
-const MCP_TOOL_SOURCE_PATH = "tamandua.source.path";
-const MCP_TOOL_UPDATE_COMMAND = "tamandua.update.command";
-const MCP_TOOL_AUTORESEARCH_INIT = "tamandua.autoresearch.init";
-const MCP_TOOL_AUTORESEARCH_RUN = "tamandua.autoresearch.run_experiment";
-const MCP_TOOL_AUTORESEARCH_LOG = "tamandua.autoresearch.log_experiment";
-const MCP_TOOL_AUTORESEARCH_STATUS = "tamandua.autoresearch.status";
+const MCP_TOOL_RUNS_LIST = "canarinho.runs.list";
+const MCP_TOOL_RUN_STATUS = "canarinho.run.status";
+const MCP_TOOL_RUN_START = "canarinho.run.start";
+const MCP_TOOL_RUN_PAUSE = "canarinho.run.pause";
+const MCP_TOOL_RUN_RESUME = "canarinho.run.resume";
+const MCP_TOOL_RUN_DELETE = "canarinho.run.delete";
+const MCP_TOOL_EVENTS_RECENT = "canarinho.events.recent";
+const MCP_TOOL_SKILL_PATH = "canarinho.skill.path";
+const MCP_TOOL_SOURCE_PATH = "canarinho.source.path";
+const MCP_TOOL_UPDATE_COMMAND = "canarinho.update.command";
+const MCP_TOOL_AUTORESEARCH_INIT = "canarinho.autoresearch.init";
+const MCP_TOOL_AUTORESEARCH_RUN = "canarinho.autoresearch.run_experiment";
+const MCP_TOOL_AUTORESEARCH_LOG = "canarinho.autoresearch.log_experiment";
+const MCP_TOOL_AUTORESEARCH_STATUS = "canarinho.autoresearch.status";
 
 type McpSession = {
   protocolServer: Server;
   transport: StreamableHTTPServerTransport;
 };
 
-export interface TamanduaMcpToolServices {
+export interface canarinhoMcpToolServices {
   listRuns: (limit?: number) => RunInfo[];
   getWorkflowStatus: (query: string) => RunDetail;
   runWorkflow: (params: {
@@ -59,7 +59,7 @@ export interface TamanduaMcpToolServices {
     worktreeOriginRef?: string;
     noHurrySaveTokensMode?: boolean;
   }) => Promise<RunWorkflowResult>;
-  getRecentEvents: (limit?: number) => TamanduaEvent[];
+  getRecentEvents: (limit?: number) => canarinhoEvent[];
   getSourcePath: () => string;
   getSkillPath: () => string;
   pauseRun: (runId: string, drain?: boolean) => Promise<{ runId: string; status: string }>;
@@ -72,18 +72,18 @@ export interface TamanduaMcpToolServices {
   summarizeAutoresearch: typeof summarizeAutoresearch;
 }
 
-export type TamanduaMcpServerOptions = {
-  services?: Partial<TamanduaMcpToolServices>;
+export type canarinhoMcpServerOptions = {
+  services?: Partial<canarinhoMcpToolServices>;
 };
 
-export type TamanduaMcpServer = {
+export type canarinhoMcpServer = {
   readonly server: http.Server;
   readonly port: number;
   start: () => Promise<void>;
   stop: () => Promise<void>;
 };
 
-const defaultToolServices: TamanduaMcpToolServices = {
+const defaultToolServices: canarinhoMcpToolServices = {
   listRuns,
   getWorkflowStatus,
   runWorkflow,
@@ -119,8 +119,8 @@ const defaultToolServices: TamanduaMcpToolServices = {
 const mcpTools: Array<Record<string, unknown>> = [
   {
     name: MCP_TOOL_RUNS_LIST,
-    title: "List Tamandua Runs",
-    description: "List recent Tamandua workflow runs.",
+    title: "List canarinho Runs",
+    description: "List recent canarinho workflow runs.",
     annotations: {
       readOnlyHint: true,
       idempotentHint: true,
@@ -151,7 +151,7 @@ const mcpTools: Array<Record<string, unknown>> = [
   },
   {
     name: MCP_TOOL_RUN_STATUS,
-    title: "Get Tamandua Run Status",
+    title: "Get canarinho Run Status",
     description: "Fetch detailed status for a run by id, prefix, or task query.",
     annotations: {
       readOnlyHint: true,
@@ -182,7 +182,7 @@ const mcpTools: Array<Record<string, unknown>> = [
   },
   {
     name: MCP_TOOL_RUN_START,
-    title: "Start Tamandua Run",
+    title: "Start canarinho Run",
     description: "Start a workflow run. For direct workflows, workingDirectoryForHarness is required. For worktree workflows, worktreeOriginRepository is required.",
     annotations: {
       readOnlyHint: false,
@@ -236,8 +236,8 @@ const mcpTools: Array<Record<string, unknown>> = [
   },
   {
     name: MCP_TOOL_EVENTS_RECENT,
-    title: "Get Recent Tamandua Events",
-    description: "List recent global Tamandua events.",
+    title: "Get Recent canarinho Events",
+    description: "List recent global canarinho events.",
     annotations: {
       readOnlyHint: true,
       idempotentHint: true,
@@ -268,8 +268,8 @@ const mcpTools: Array<Record<string, unknown>> = [
   },
   {
     name: MCP_TOOL_RUN_PAUSE,
-    title: "Pause Tamandua Run",
-    description: "Pause a running Tamandua workflow run. Optionally drain in-flight work before pausing.",
+    title: "Pause canarinho Run",
+    description: "Pause a running canarinho workflow run. Optionally drain in-flight work before pausing.",
     annotations: {
       readOnlyHint: false,
       idempotentHint: false,
@@ -301,8 +301,8 @@ const mcpTools: Array<Record<string, unknown>> = [
   },
   {
     name: MCP_TOOL_RUN_RESUME,
-    title: "Resume Tamandua Run",
-    description: "Resume a paused Tamandua workflow run.",
+    title: "Resume canarinho Run",
+    description: "Resume a paused canarinho workflow run.",
     annotations: {
       readOnlyHint: false,
       idempotentHint: false,
@@ -330,8 +330,8 @@ const mcpTools: Array<Record<string, unknown>> = [
   },
   {
     name: MCP_TOOL_RUN_DELETE,
-    title: "Delete Tamandua Run",
-    description: "Permanently delete a Tamandua workflow run and all associated data (steps, stories, worktrees). Active runs can be force-deleted.",
+    title: "Delete canarinho Run",
+    description: "Permanently delete a canarinho workflow run and all associated data (steps, stories, worktrees). Active runs can be force-deleted.",
     annotations: {
       readOnlyHint: false,
       idempotentHint: false,
@@ -364,8 +364,8 @@ const mcpTools: Array<Record<string, unknown>> = [
   },
   {
     name: MCP_TOOL_SKILL_PATH,
-    title: "Get Tamandua Skill Path",
-    description: "Return the path to the bundled tamandua-agents skill that teaches agents how to operate Tamandua.",
+    title: "Get canarinho Skill Path",
+    description: "Return the path to the bundled canarinho-agents skill that teaches agents how to operate canarinho.",
     annotations: {
       readOnlyHint: true,
       idempotentHint: true,
@@ -381,15 +381,15 @@ const mcpTools: Array<Record<string, unknown>> = [
       properties: {
         skillPath: {
           type: "string",
-          description: "Absolute path to the bundled tamandua-agents skill file.",
+          description: "Absolute path to the bundled canarinho-agents skill file.",
         },
       },
     },
   },
   {
     name: MCP_TOOL_SOURCE_PATH,
-    title: "Get Tamandua Source Path",
-    description: "Return the local Tamandua source checkout path.",
+    title: "Get canarinho Source Path",
+    description: "Return the local canarinho source checkout path.",
     annotations: {
       readOnlyHint: true,
       idempotentHint: true,
@@ -405,15 +405,15 @@ const mcpTools: Array<Record<string, unknown>> = [
       properties: {
         sourcePath: {
           type: "string",
-          description: "Tamandua source checkout path.",
+          description: "canarinho source checkout path.",
         },
       },
     },
   },
   {
     name: MCP_TOOL_UPDATE_COMMAND,
-    title: "Get Tamandua Update Command",
-    description: "Return local CLI guidance for updating Tamandua safely.",
+    title: "Get canarinho Update Command",
+    description: "Return local CLI guidance for updating canarinho safely.",
     annotations: {
       readOnlyHint: true,
       idempotentHint: true,
@@ -647,10 +647,10 @@ function createToolResult(payload: Record<string, unknown>): { content: [{ type:
   };
 }
 
-function createProtocolServer(services: TamanduaMcpToolServices): Server {
+function createProtocolServer(services: canarinhoMcpToolServices): Server {
   const server = new Server(
     {
-      name: "tamandua-remote-mcp",
+      name: "canarinho-remote-mcp",
       version: "0.1.0",
     },
     {
@@ -788,11 +788,11 @@ function createProtocolServer(services: TamanduaMcpToolServices): Server {
 
     if (name === MCP_TOOL_UPDATE_COMMAND) {
       return createToolResult({
-        command: "tamandua update [--force]",
+        command: "canarinho update [--force]",
         description:
-          "Runs git pull in the Tamandua source checkout, rebuilds when the pulled HEAD changes, reinstalls bundled workflows, and restarts previously running Tamandua services when safe.",
+          "Runs git pull in the canarinho source checkout, rebuilds when the pulled HEAD changes, reinstalls bundled workflows, and restarts previously running canarinho services when safe.",
         safety:
-          "Run this command through the local CLI. The update process manages dashboard, MCP, and control-plane lifecycle; without --force it refuses the service reinstall/restart step while Tamandua runs are active.",
+          "Run this command through the local CLI. The update process manages dashboard, MCP, and control-plane lifecycle; without --force it refuses the service reinstall/restart step while canarinho runs are active.",
       });
     }
 
@@ -924,9 +924,9 @@ function closeHttpServer(server: http.Server): Promise<void> {
   });
 }
 
-export function createTamanduaMcpServer(port = DEFAULT_MCP_PORT, options: TamanduaMcpServerOptions = {}): TamanduaMcpServer {
+export function createcanarinhoMcpServer(port = DEFAULT_MCP_PORT, options: canarinhoMcpServerOptions = {}): canarinhoMcpServer {
   const sessions = new Map<string, McpSession>();
-  const services: TamanduaMcpToolServices = {
+  const services: canarinhoMcpToolServices = {
     ...defaultToolServices,
     ...options.services,
   };
@@ -1059,15 +1059,15 @@ export function createTamanduaMcpServer(port = DEFAULT_MCP_PORT, options: Tamand
   };
 }
 
-export async function startTamanduaMcpServer(
+export async function startcanarinhoMcpServer(
   port = DEFAULT_MCP_PORT,
-  options: TamanduaMcpServerOptions = {},
-): Promise<TamanduaMcpServer> {
-  const server = createTamanduaMcpServer(port, options);
+  options: canarinhoMcpServerOptions = {},
+): Promise<canarinhoMcpServer> {
+  const server = createcanarinhoMcpServer(port, options);
   await server.start();
   return server;
 }
 
-export async function stopTamanduaMcpServer(server: TamanduaMcpServer): Promise<void> {
+export async function stopcanarinhoMcpServer(server: canarinhoMcpServer): Promise<void> {
   await server.stop();
 }

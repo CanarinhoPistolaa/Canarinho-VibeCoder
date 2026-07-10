@@ -101,11 +101,11 @@ export function matchRunEvidence(
     return `environ contains worktree path: ${worktreePath}`;
   }
 
-  // (c) environ contains TAMANDUA_WORKER_JOB_ID=... with runId as substring
+  // (c) environ contains canarinho_WORKER_JOB_ID=... with runId as substring
   if (environ) {
-    const m = environ.match(/TAMANDUA_WORKER_JOB_ID=([^\0\s]*)/);
+    const m = environ.match(/canarinho_WORKER_JOB_ID=([^\0\s]*)/);
     if (m && m[1].includes(runId)) {
-      return `TAMANDUA_WORKER_JOB_ID contains runId: ${m[1]}`;
+      return `canarinho_WORKER_JOB_ID contains runId: ${m[1]}`;
     }
   }
 
@@ -216,7 +216,7 @@ export function collectProcessSnapshot(): ProcessSnapshotEntry[] {
  * A process belongs to the run when:
  *  - its cwd resolves to or under `worktreePath`, OR
  *  - its environ contains the string `worktreePath`, OR
- *  - its environ contains `TAMANDUA_WORKER_JOB_ID=...` where `runId` is a substring
+ *  - its environ contains `canarinho_WORKER_JOB_ID=...` where `runId` is a substring
  *
  * Never kills: pid 1 (init), our own process (process.pid), the daemonPid (if provided).
  *

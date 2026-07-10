@@ -100,7 +100,7 @@ let testDb: DatabaseSync;
 
 describe("peekStep - lightweight work check", () => {
   // These tests use the compiled dist module with a real in-memory DB.
-  // We mock getDb by setting the TAMANDUA_DB_PATH env var to a temp file.
+  // We mock getDb by setting the canarinho_DB_PATH env var to a temp file.
 
   let tmpDbPath: string;
   let originalDbPath: string | undefined;
@@ -110,17 +110,17 @@ describe("peekStep - lightweight work check", () => {
     const os = await import("node:os");
     const path = await import("node:path");
     const fs = await import("node:fs");
-    tmpDbPath = path.join(os.tmpdir(), `tamandua-test-peek-${crypto.randomUUID()}.db`);
-    originalDbPath = process.env.TAMANDUA_DB_PATH;
-    process.env.TAMANDUA_DB_PATH = tmpDbPath;
+    tmpDbPath = path.join(os.tmpdir(), `canarinho-test-peek-${crypto.randomUUID()}.db`);
+    originalDbPath = process.env.canarinho_DB_PATH;
+    process.env.canarinho_DB_PATH = tmpDbPath;
   });
 
   after(async () => {
     // Restore original DB path
     if (originalDbPath !== undefined) {
-      process.env.TAMANDUA_DB_PATH = originalDbPath;
+      process.env.canarinho_DB_PATH = originalDbPath;
     } else {
-      delete process.env.TAMANDUA_DB_PATH;
+      delete process.env.canarinho_DB_PATH;
     }
     // Clean up temp file
     const fs = await import("node:fs");

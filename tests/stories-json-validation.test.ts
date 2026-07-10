@@ -30,21 +30,21 @@ import os from "node:os";
 import path from "node:path";
 
 // ── Environment isolation (see step-ops-dispatch-races.test.ts) ─────
-const _savedStateDir = process.env.TAMANDUA_STATE_DIR;
-const _savedDbPath = process.env.TAMANDUA_DB_PATH;
-const _savedControlPort = process.env.TAMANDUA_CONTROL_PORT;
-const _isolationDir = fs.mkdtempSync(path.join(os.tmpdir(), "tamandua-sjsn-"));
-process.env.TAMANDUA_STATE_DIR = _isolationDir;
-process.env.TAMANDUA_DB_PATH = path.join(_isolationDir, "tamandua.db");
-process.env.TAMANDUA_CONTROL_PORT = "1"; // nothing listens; control-plane calls fail fast
+const _savedStateDir = process.env.canarinho_STATE_DIR;
+const _savedDbPath = process.env.canarinho_DB_PATH;
+const _savedControlPort = process.env.canarinho_CONTROL_PORT;
+const _isolationDir = fs.mkdtempSync(path.join(os.tmpdir(), "canarinho-sjsn-"));
+process.env.canarinho_STATE_DIR = _isolationDir;
+process.env.canarinho_DB_PATH = path.join(_isolationDir, "canarinho.db");
+process.env.canarinho_CONTROL_PORT = "1"; // nothing listens; control-plane calls fail fast
 
 process.on("exit", () => {
-  if (_savedStateDir === undefined) delete process.env.TAMANDUA_STATE_DIR;
-  else process.env.TAMANDUA_STATE_DIR = _savedStateDir;
-  if (_savedDbPath === undefined) delete process.env.TAMANDUA_DB_PATH;
-  else process.env.TAMANDUA_DB_PATH = _savedDbPath;
-  if (_savedControlPort === undefined) delete process.env.TAMANDUA_CONTROL_PORT;
-  else process.env.TAMANDUA_CONTROL_PORT = _savedControlPort;
+  if (_savedStateDir === undefined) delete process.env.canarinho_STATE_DIR;
+  else process.env.canarinho_STATE_DIR = _savedStateDir;
+  if (_savedDbPath === undefined) delete process.env.canarinho_DB_PATH;
+  else process.env.canarinho_DB_PATH = _savedDbPath;
+  if (_savedControlPort === undefined) delete process.env.canarinho_CONTROL_PORT;
+  else process.env.canarinho_CONTROL_PORT = _savedControlPort;
   try { fs.rmSync(_isolationDir, { recursive: true, force: true }); } catch { /* best effort */ }
 });
 

@@ -7,7 +7,7 @@ import { after, afterEach, beforeEach, describe, it } from "node:test";
 import { DatabaseSync } from "node:sqlite";
 import { sweepRunProcesses } from "../../dist/installer/run-cleanup.js";
 import type { RunCleanupResult } from "../../dist/installer/run-cleanup.js";
-import { readEventsFromCursor, emitEvent, type TamanduaEvent } from "../../dist/installer/events.js";
+import { readEventsFromCursor, emitEvent, type canarinhoEvent } from "../../dist/installer/events.js";
 import { assertStatePathIsolation } from "../../dist/lib/test-guard.js";
 
 // ── Helpers ──────────────────────────────────────────────────────────
@@ -62,20 +62,20 @@ describe("run-cleanup", () => {
 
   beforeEach(() => {
     // Full isolation
-    originalStateDir = process.env.TAMANDUA_STATE_DIR;
-    originalDbPath = process.env.TAMANDUA_DB_PATH;
-    originalTestGuard = process.env.TAMANDUA_TEST_GUARD;
-    originalWorktreeRoot = process.env.TAMANDUA_WORKTREE_ROOT;
+    originalStateDir = process.env.canarinho_STATE_DIR;
+    originalDbPath = process.env.canarinho_DB_PATH;
+    originalTestGuard = process.env.canarinho_TEST_GUARD;
+    originalWorktreeRoot = process.env.canarinho_WORKTREE_ROOT;
 
-    stateDir = fs.mkdtempSync(path.join(os.tmpdir(), "tamandua-cleanup-"));
-    process.env.TAMANDUA_STATE_DIR = stateDir;
-    process.env.TAMANDUA_DB_PATH = path.join(stateDir, "tamandua.db");
-    process.env.TAMANDUA_TEST_GUARD = "1";
-    process.env.TAMANDUA_WORKTREE_ROOT = path.join(stateDir, "worktrees");
+    stateDir = fs.mkdtempSync(path.join(os.tmpdir(), "canarinho-cleanup-"));
+    process.env.canarinho_STATE_DIR = stateDir;
+    process.env.canarinho_DB_PATH = path.join(stateDir, "canarinho.db");
+    process.env.canarinho_TEST_GUARD = "1";
+    process.env.canarinho_WORKTREE_ROOT = path.join(stateDir, "worktrees");
 
     // Ensure we have a DB that emitEvent can use (events module resolves
     // the DB when firing webhooks — but for tests we just need state dir)
-    const db = new DatabaseSync(process.env.TAMANDUA_DB_PATH);
+    const db = new DatabaseSync(process.env.canarinho_DB_PATH);
     db.exec(`
       CREATE TABLE IF NOT EXISTS runs (
         id TEXT PRIMARY KEY,
@@ -102,14 +102,14 @@ describe("run-cleanup", () => {
 
   afterEach(() => {
     // Restore env
-    if (originalStateDir === undefined) delete process.env.TAMANDUA_STATE_DIR;
-    else process.env.TAMANDUA_STATE_DIR = originalStateDir;
-    if (originalDbPath === undefined) delete process.env.TAMANDUA_DB_PATH;
-    else process.env.TAMANDUA_DB_PATH = originalDbPath;
-    if (originalTestGuard === undefined) delete process.env.TAMANDUA_TEST_GUARD;
-    else process.env.TAMANDUA_TEST_GUARD = originalTestGuard;
-    if (originalWorktreeRoot === undefined) delete process.env.TAMANDUA_WORKTREE_ROOT;
-    else process.env.TAMANDUA_WORKTREE_ROOT = originalWorktreeRoot;
+    if (originalStateDir === undefined) delete process.env.canarinho_STATE_DIR;
+    else process.env.canarinho_STATE_DIR = originalStateDir;
+    if (originalDbPath === undefined) delete process.env.canarinho_DB_PATH;
+    else process.env.canarinho_DB_PATH = originalDbPath;
+    if (originalTestGuard === undefined) delete process.env.canarinho_TEST_GUARD;
+    else process.env.canarinho_TEST_GUARD = originalTestGuard;
+    if (originalWorktreeRoot === undefined) delete process.env.canarinho_WORKTREE_ROOT;
+    else process.env.canarinho_WORKTREE_ROOT = originalWorktreeRoot;
 
     // Kill all spawned children
     for (const child of children) {
@@ -165,7 +165,7 @@ describe("run-cleanup", () => {
     const child = spawn("sleep", ["30"], {
       cwd: markerCwd,
       env: {
-        TAMANDUA_WORKER_JOB_ID: "tamandua-test-workflow-test-run-001_developer",
+        canarinho_WORKER_JOB_ID: "canarinho-test-workflow-test-run-001_developer",
         PATH: process.env.PATH || "/usr/bin",
       },
       stdio: "ignore",
@@ -227,7 +227,7 @@ describe("run-cleanup", () => {
     });
   });
 
-  // ── Kill processes with TAMANDUA_WORKER_JOB_ID containing runId ──
+  // ── Kill processes with canarinho_WORKER_JOB_ID containing runId ──
 
   // Environ-based evidence is procfs-only: the macOS kernel does not let
   // unprivileged callers read another process's environment, so the env
@@ -235,7 +235,7 @@ describe("run-cleanup", () => {
   const environUnreadable =
     process.platform === "darwin" ? "environ evidence is unreadable on macOS" : false;
 
-  it("kills processes with TAMANDUA_WORKER_JOB_ID containing runId", { skip: environUnreadable }, () => {
+  it("kills processes with canarinho_WORKER_JOB_ID containing runId", { skip: environUnreadable }, () => {
     // Use a CWD that is NOT under the worktree to isolate the env check
     const unrelatedCwd = path.join(stateDir, "unrelated");
     fs.mkdirSync(unrelatedCwd, { recursive: true });
@@ -243,7 +243,7 @@ describe("run-cleanup", () => {
     const child = spawn("sleep", ["30"], {
       cwd: unrelatedCwd,
       env: {
-        TAMANDUA_WORKER_JOB_ID: "tamandua-test-workflow-test-run-001_developer",
+        canarinho_WORKER_JOB_ID: "canarinho-test-workflow-test-run-001_developer",
         PATH: process.env.PATH || "/usr/bin",
       },
       stdio: "ignore",
@@ -257,11 +257,11 @@ describe("run-cleanup", () => {
       const result = sweepRunProcesses("test-run-001", fakeWorktreePath);
       assert.ok(
         result.killedPids.includes(pid),
-        `pid ${pid} with TAMANDUA_WORKER_JOB_ID should be killed: killedPids=${JSON.stringify(result.killedPids)}`,
+        `pid ${pid} with canarinho_WORKER_JOB_ID should be killed: killedPids=${JSON.stringify(result.killedPids)}`,
       );
       assert.ok(
-        result.evidence[pid]?.includes("TAMANDUA_WORKER_JOB_ID"),
-        `evidence should indicate TAMANDUA_WORKER_JOB_ID match: ${JSON.stringify(result.evidence[pid])}`,
+        result.evidence[pid]?.includes("canarinho_WORKER_JOB_ID"),
+        `evidence should indicate canarinho_WORKER_JOB_ID match: ${JSON.stringify(result.evidence[pid])}`,
       );
 
       const exited = await waitForExit(child, 2000);
@@ -382,7 +382,7 @@ describe("run-cleanup", () => {
     const lines = content.trim().split("\n");
     assert.ok(lines.length > 0, "should have at least one event");
 
-    const lastEvent = JSON.parse(lines[lines.length - 1]) as TamanduaEvent;
+    const lastEvent = JSON.parse(lines[lines.length - 1]) as canarinhoEvent;
     assert.equal(lastEvent.event, "run.process_cleanup");
     assert.equal(lastEvent.runId, "test-run-001");
     assert.ok(lastEvent.detail, "event detail should be populated");
@@ -424,7 +424,7 @@ describe("run-cleanup", () => {
     const child2 = spawn("sleep", ["30"], {
       cwd: markerCwd,
       env: {
-        TAMANDUA_WORKER_JOB_ID: "tamandua-test-wf-test-run-001_verifier",
+        canarinho_WORKER_JOB_ID: "canarinho-test-wf-test-run-001_verifier",
         PATH: process.env.PATH || "/usr/bin",
       },
       stdio: "ignore",

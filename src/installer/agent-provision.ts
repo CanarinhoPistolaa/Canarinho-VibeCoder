@@ -27,9 +27,9 @@ export interface ProvisionAgentsParams {
  * Provision agent workspaces and agent directories for all agents in a workflow.
  *
  * For each agent:
- * 1. Creates a workspace directory under ~/.tamandua/workspaces/workflows/<workflowId>/
+ * 1. Creates a workspace directory under ~/.canarinho/workspaces/workflows/<workflowId>/
  * 2. Copies agent persona files (AGENTS.md, IDENTITY.md, SOUL.md) from the workflow dir
- * 3. Creates an agent directory under ~/.tamandua/agents/<agentId>/
+ * 3. Creates an agent directory under ~/.canarinho/agents/<agentId>/
  * 4. Installs workflow skills if the agent defines any
  *
  * Returns an array of ProvisionedAgent descriptors with workspace and agent dir paths.
@@ -63,16 +63,16 @@ async function provisionSingleAgent(params: {
 }): Promise<ProvisionedAgent> {
   const { workflow, agent, workflowDir, bundledSourceDir, overwriteFiles } = params;
 
-  // Build the tamandua-scoped agent id: workflowId + "_" + localAgentId
-  const tamanduaAgentId = `${workflow.id}_${agent.id}`;
+  // Build the canarinho-scoped agent id: workflowId + "_" + localAgentId
+  const canarinhoAgentId = `${workflow.id}_${agent.id}`;
 
   // ── Workspace directory ──────────────────────────────────────────
-  const workspaceDir = resolveWorkflowWorkspaceDir(tamanduaAgentId);
+  const workspaceDir = resolveWorkflowWorkspaceDir(canarinhoAgentId);
   await fs.mkdir(workspaceDir, { recursive: true });
 
-  // ── Agent directory (under ~/.tamandua/agents/) ─────────────────
+  // ── Agent directory (under ~/.canarinho/agents/) ─────────────────
   const agentsRoot = path.join(resolvePiStateDir(), "agents");
-  const agentDir = path.join(agentsRoot, tamanduaAgentId);
+  const agentDir = path.join(agentsRoot, canarinhoAgentId);
   await fs.mkdir(agentDir, { recursive: true });
 
   // ── Copy persona files ──────────────────────────────────────────
@@ -144,7 +144,7 @@ async function provisionSingleAgent(params: {
   // ── Install skills if present ───────────────────────────────────
   if (agent.workspace.skills && agent.workspace.skills.length > 0) {
     await installAgentSkills({
-      agentId: tamanduaAgentId,
+      agentId: canarinhoAgentId,
       agentDir,
       skills: agent.workspace.skills,
       workflowDir,
@@ -154,7 +154,7 @@ async function provisionSingleAgent(params: {
   }
 
   return {
-    id: tamanduaAgentId,
+    id: canarinhoAgentId,
     name: agent.name,
     model: agent.model,
     timeoutSeconds: agent.timeoutSeconds,
@@ -170,7 +170,7 @@ async function provisionSingleAgent(params: {
  * 1. Local files in the workflow dir (copied to agent's skills/ directory)
  * 2. Named skills that exist in a shared skills directory
  *
- * Skills are stored under ~/.tamandua/agents/<agentId>/skills/
+ * Skills are stored under ~/.canarinho/agents/<agentId>/skills/
  */
 async function installAgentSkills(params: {
   agentId: string;
@@ -247,7 +247,7 @@ function resolveSharedSkillDirs(params: {
   // Backward-compatible location for ad-hoc installs where skills sit next to workflows.
   candidates.add(path.join(workflowDir, "..", "skills", skill));
 
-  // Bundled tamandua workflows live under <repo>/workflows/<workflowId> while shared skills
+  // Bundled canarinho workflows live under <repo>/workflows/<workflowId> while shared skills
   // live under <repo>/skills/<skill>; walk up two levels from the bundled workflow source.
   if (bundledSourceDir) {
     candidates.add(path.resolve(bundledSourceDir, "..", "..", "skills", skill));

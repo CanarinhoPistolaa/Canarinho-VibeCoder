@@ -17,19 +17,19 @@ describe("validateRunHarnessForScheduling", () => {
   let prevStateDir: string | undefined;
 
   beforeEach(() => {
-    tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "tamandua-harness-"));
+    tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "canarinho-harness-"));
     prevHome = process.env.HOME;
-    prevStateDir = process.env.TAMANDUA_STATE_DIR;
+    prevStateDir = process.env.canarinho_STATE_DIR;
     process.env.HOME = path.join(tempDir, "home");
-    process.env.TAMANDUA_STATE_DIR = path.join(process.env.HOME, ".tamandua");
-    fs.mkdirSync(process.env.TAMANDUA_STATE_DIR, { recursive: true });
+    process.env.canarinho_STATE_DIR = path.join(process.env.HOME, ".canarinho");
+    fs.mkdirSync(process.env.canarinho_STATE_DIR, { recursive: true });
   });
 
   afterEach(() => {
     if (prevHome === undefined) delete process.env.HOME;
     else process.env.HOME = prevHome;
-    if (prevStateDir === undefined) delete process.env.TAMANDUA_STATE_DIR;
-    else process.env.TAMANDUA_STATE_DIR = prevStateDir;
+    if (prevStateDir === undefined) delete process.env.canarinho_STATE_DIR;
+    else process.env.canarinho_STATE_DIR = prevStateDir;
     fs.rmSync(tempDir, { recursive: true, force: true });
   });
 
@@ -253,8 +253,8 @@ describe("validateRunHarnessForScheduling", () => {
   it("throws when harness_type is 'hermes' and hermes binary not found", () => {
     const workdir = path.join(tempDir, "work");
     fs.mkdirSync(workdir, { recursive: true });
-    // Unset TAMANDUA_HERMES_BINARY so PATH search fails
-    delete process.env.TAMANDUA_HERMES_BINARY;
+    // Unset canarinho_HERMES_BINARY so PATH search fails
+    delete process.env.canarinho_HERMES_BINARY;
     // Save and clear PATH to guarantee hermes not found
     const savedPath = process.env.PATH;
     try {
@@ -277,17 +277,17 @@ describe("validateRunHarnessForScheduling", () => {
     const hermesPath = path.join(tempDir, "hermes-mock");
     fs.writeFileSync(hermesPath, "#!/bin/sh\necho ok\n", { mode: 0o755 });
 
-    const saved = process.env.TAMANDUA_HERMES_BINARY;
+    const saved = process.env.canarinho_HERMES_BINARY;
     try {
-      process.env.TAMANDUA_HERMES_BINARY = hermesPath;
+      process.env.canarinho_HERMES_BINARY = hermesPath;
       const result = validateRunHarnessForScheduling("run-hermes-ok", JSON.stringify({
         working_directory_for_harness: workdir,
         harness_type: "hermes",
       }));
       assert.equal(result.workingDirectoryForHarness, workdir);
     } finally {
-      if (saved === undefined) delete process.env.TAMANDUA_HERMES_BINARY;
-      else process.env.TAMANDUA_HERMES_BINARY = saved;
+      if (saved === undefined) delete process.env.canarinho_HERMES_BINARY;
+      else process.env.canarinho_HERMES_BINARY = saved;
     }
   });
 
@@ -295,7 +295,7 @@ describe("validateRunHarnessForScheduling", () => {
     const workdir = path.join(tempDir, "work");
     fs.mkdirSync(workdir, { recursive: true });
     // Even with hermes missing, "pi" harness should succeed
-    delete process.env.TAMANDUA_HERMES_BINARY;
+    delete process.env.canarinho_HERMES_BINARY;
     const savedPath = process.env.PATH;
     try {
       process.env.PATH = tempDir;
@@ -313,7 +313,7 @@ describe("validateRunHarnessForScheduling", () => {
     const workdir = path.join(tempDir, "work");
     fs.mkdirSync(workdir, { recursive: true });
     // No harness_type — should default to pi, no hermes check
-    delete process.env.TAMANDUA_HERMES_BINARY;
+    delete process.env.canarinho_HERMES_BINARY;
     const savedPath = process.env.PATH;
     try {
       process.env.PATH = tempDir;

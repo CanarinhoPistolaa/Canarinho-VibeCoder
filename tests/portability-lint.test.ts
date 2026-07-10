@@ -212,7 +212,7 @@ describe("portability lint - unit", () => {
   it("flags exact false binary", () => {
     const v = scanFileContent(
       "scripts/test.sh",
-      "TAMANDUA_PI_BINARY=" + B,
+      "canarinho_PI_BINARY=" + B,
     );
     assert.equal(v.length, 1);
     assert.match(v[0].message, new RegExp(U));
@@ -221,7 +221,7 @@ describe("portability lint - unit", () => {
   it("allows /usr/bin/false", () => {
     const v = scanFileContent(
       "scripts/test.sh",
-      "TAMANDUA_PI_BINARY=" + U,
+      "canarinho_PI_BINARY=" + U,
     );
     assert.equal(v.length, 0);
   });

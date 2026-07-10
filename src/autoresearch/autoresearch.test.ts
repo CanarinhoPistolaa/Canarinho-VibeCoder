@@ -27,7 +27,7 @@ import {
 import { parsePiOutputStream } from "../../dist/installer/pi-stream-parser.js";
 
 function makeTempDir(): string {
-  return fs.mkdtempSync(path.join(os.tmpdir(), "tamandua-autoresearch-"));
+  return fs.mkdtempSync(path.join(os.tmpdir(), "canarinho-autoresearch-"));
 }
 
 function nodeMetricCommand(metricName: string, value: number): string {
@@ -477,8 +477,8 @@ describe("autoresearch state model", () => {
   it("reverts tracked and untracked experiment files while preserving autoresearch state", async () => {
     const cwd = makeTempDir();
     git(cwd, ["init", "--initial-branch=main"]);
-    git(cwd, ["config", "user.email", "test@tamandua.local"]);
-    git(cwd, ["config", "user.name", "Tamandua Test"]);
+    git(cwd, ["config", "user.email", "test@canarinho.local"]);
+    git(cwd, ["config", "user.name", "canarinho Test"]);
     fs.writeFileSync(path.join(cwd, "model.py"), "BASELINE\n");
     git(cwd, ["add", "model.py"]);
     git(cwd, ["commit", "-m", "baseline"]);
@@ -516,17 +516,17 @@ describe("autoresearch state model", () => {
 describe("autoresearch loop", () => {
   let savedPiBinary: string | undefined;
   beforeEach(() => {
-    savedPiBinary = process.env.TAMANDUA_PI_BINARY;
-    delete process.env.TAMANDUA_PI_BINARY;
+    savedPiBinary = process.env.canarinho_PI_BINARY;
+    delete process.env.canarinho_PI_BINARY;
   });
   afterEach(() => {
-    if (savedPiBinary !== undefined) process.env.TAMANDUA_PI_BINARY = savedPiBinary;
+    if (savedPiBinary !== undefined) process.env.canarinho_PI_BINARY = savedPiBinary;
   });
 
   function dirtyGitInit(cwd: string): void {
     git(cwd, ["init", "--initial-branch=main"]);
-    git(cwd, ["config", "user.email", "test@tamandua.local"]);
-    git(cwd, ["config", "user.name", "Tamandua Test"]);
+    git(cwd, ["config", "user.email", "test@canarinho.local"]);
+    git(cwd, ["config", "user.name", "canarinho Test"]);
   }
 
   it("rejects loopAutoresearch without actionMode", async () => {
@@ -1130,8 +1130,8 @@ describe("pi JSONL stream parsing in autoresearch context", () => {
 describe("hasDirtyNonAutoresearchFiles", () => {
   function dirtyGitInit(cwd: string): void {
     git(cwd, ["init", "--initial-branch=main"]);
-    git(cwd, ["config", "user.email", "test@tamandua.local"]);
-    git(cwd, ["config", "user.name", "Tamandua Test"]);
+    git(cwd, ["config", "user.email", "test@canarinho.local"]);
+    git(cwd, ["config", "user.name", "canarinho Test"]);
   }
 
   it("returns {dirty: false} for a clean working tree", () => {
@@ -1345,11 +1345,11 @@ describe("commitAutoresearchResult", () => {
 describe("runLoopIteration", () => {
   let savedPiBinary: string | undefined;
   beforeEach(() => {
-    savedPiBinary = process.env.TAMANDUA_PI_BINARY;
-    delete process.env.TAMANDUA_PI_BINARY;
+    savedPiBinary = process.env.canarinho_PI_BINARY;
+    delete process.env.canarinho_PI_BINARY;
   });
   afterEach(() => {
-    if (savedPiBinary !== undefined) process.env.TAMANDUA_PI_BINARY = savedPiBinary;
+    if (savedPiBinary !== undefined) process.env.canarinho_PI_BINARY = savedPiBinary;
   });
 
   function dirtyGitInit(cwd: string) {
@@ -1917,8 +1917,8 @@ describe("autoresearch run-loop-iteration CLI", () => {
   function cli(cwd: string, args: string[]): { status: number | null; stdout: string; stderr: string } {
     const env = {
       PATH: process.env.PATH,
-      HOME: fs.mkdtempSync(path.join(os.tmpdir(), "tamandua-cli-")),
-      TAMANDUA_STATE_DIR: fs.mkdtempSync(path.join(os.tmpdir(), "tamandua-state-")),
+      HOME: fs.mkdtempSync(path.join(os.tmpdir(), "canarinho-cli-")),
+      canarinho_STATE_DIR: fs.mkdtempSync(path.join(os.tmpdir(), "canarinho-state-")),
     };
     const result = spawnSync(process.execPath, [CLI_SCRIPT, ...args], {
       cwd,
@@ -1967,7 +1967,7 @@ describe("autoresearch run-loop-iteration CLI", () => {
     const cwd = makeTempDir();
     const result = cli(cwd, ["autoresearch", "run-loop-iteration", "--help"]);
     assert.equal(result.status, 0);
-    assert.ok(result.stdout.includes("tamandua autoresearch run-loop-iteration"));
+    assert.ok(result.stdout.includes("canarinho autoresearch run-loop-iteration"));
     assert.ok(result.stdout.includes("--prompt"));
     assert.ok(result.stdout.includes("--cwd"));
     assert.ok(result.stdout.includes("--iteration"));

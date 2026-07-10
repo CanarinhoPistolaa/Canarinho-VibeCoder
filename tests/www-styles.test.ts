@@ -425,7 +425,7 @@ describe("www/styles.css", () => {
     );
   });
 
-  it("footer logo uses tamandua emoji with subdued opacity", () => {
+  it("footer logo uses canarinho emoji with subdued opacity", () => {
     assert.ok(
       /\.footer-logo/.test(css),
       "footer logo should have styling"

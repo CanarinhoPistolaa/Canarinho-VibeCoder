@@ -120,7 +120,7 @@ git commit -F /tmp/merge-commit-msg.txt
 The commit message MUST end with the co-author footer line:
 
 ```
-Co-Authored-By: Tamandua <tamandua@tetradactyla.org>
+Co-Authored-By: canarinho <canarinho@tetradactyla.org>
 ```
 
 Example commit message format:
@@ -135,7 +135,7 @@ These tests were consistently failing and preventing CI from
 passing. Quarantining them minimally (.skip) allows the suite
 to pass while preserving the test logic for future fixes.
 
-Co-Authored-By: Tamandua <tamandua@tetradactyla.org>
+Co-Authored-By: canarinho <canarinho@tetradactyla.org>
 ```
 
 ## CRITICAL — STATUS Line Requirement

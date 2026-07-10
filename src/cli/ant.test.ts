@@ -1,8 +1,8 @@
 import { describe, it, beforeEach, afterEach } from "node:test";
 import assert from "node:assert/strict";
-import { printTamandua } from "../../dist/cli/ant.js";
+import { printcanarinho } from "../../dist/cli/ant.js";
 
-describe("printTamandua", () => {
+describe("printcanarinho", () => {
   let output: string;
   const originalWrite = process.stdout.write;
 
@@ -15,8 +15,8 @@ describe("printTamandua", () => {
     process.stdout.write = originalWrite;
   });
 
-  it("prints ASCII art containing tamandua-like shapes", () => {
-    printTamandua();
+  it("prints ASCII art containing canarinho-like shapes", () => {
+    printcanarinho();
     assert.ok(output.length > 100, "art should be substantial");
     assert.ok(output.includes("O"), "should have eyes");
     assert.ok(output.includes("V"), "should have nose");
@@ -24,7 +24,7 @@ describe("printTamandua", () => {
   });
 
   it("prints a quote after the art", () => {
-    printTamandua();
+    printcanarinho();
     const lines = output.trim().split("\n");
     const lastLine = lines[lines.length - 1];
     assert.ok(lastLine.length > 10, "last line should be a quote");
@@ -34,7 +34,7 @@ describe("printTamandua", () => {
     const seen = new Set<string>();
     for (let i = 0; i < 200; i++) {
       output = "";
-      printTamandua();
+      printcanarinho();
       const lines = output.trim().split("\n");
       seen.add(lines[lines.length - 1]);
     }
@@ -42,6 +42,6 @@ describe("printTamandua", () => {
   });
 
   it("does not throw", () => {
-    assert.doesNotThrow(() => printTamandua());
+    assert.doesNotThrow(() => printcanarinho());
   });
 });

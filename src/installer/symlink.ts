@@ -1,14 +1,14 @@
 import fs from "node:fs";
 import path from "node:path";
 import os from "node:os";
-import { resolveTamanduaCli, resolvePiStateDir } from "./paths.js";
+import { resolvecanarinhoCli, resolvePiStateDir } from "./paths.js";
 
 /**
- * Ensure the tamandua CLI is symlinked into a directory on the user's PATH.
+ * Ensure the canarinho CLI is symlinked into a directory on the user's PATH.
  *
  * Strategy (in priority order):
  * 1. ~/.local/bin — common user-local bin directory (most Linux/Mac)
- * 2. If TAMANDUA_BIN_DIR is set, use that directory
+ * 2. If canarinho_BIN_DIR is set, use that directory
  *
  * If the symlink already exists and points to the right target, it's a no-op.
  * If it exists but points elsewhere (e.g., an older install), it's replaced.
@@ -16,13 +16,13 @@ import { resolveTamanduaCli, resolvePiStateDir } from "./paths.js";
  * Returns the symlink path.
  */
 export function ensureCliSymlink(): string {
-  const cliPath = resolveTamanduaCli();
+  const cliPath = resolvecanarinhoCli();
   const binDir = resolveBinDir();
 
   // Ensure the bin directory exists
   fs.mkdirSync(binDir, { recursive: true });
 
-  const linkPath = path.join(binDir, "tamandua");
+  const linkPath = path.join(binDir, "canarinho");
 
   // Check if the symlink already exists and is correct
   try {
@@ -46,7 +46,7 @@ export function ensureCliSymlink(): string {
     fs.accessSync(cliPath, fs.constants.R_OK);
   } catch {
     throw new Error(
-      `Tamandua CLI not found at ${cliPath}. Build the project first with 'npm run build'.`,
+      `canarinho CLI not found at ${cliPath}. Build the project first with 'npm run build'.`,
     );
   }
 
@@ -60,12 +60,12 @@ export function ensureCliSymlink(): string {
  * Resolve the bin directory to use for the symlink.
  *
  * Priority:
- * 1. TAMANDUA_BIN_DIR environment variable
+ * 1. canarinho_BIN_DIR environment variable
  * 2. ~/.local/bin (if it exists or can be created)
- * 3. Fall back to ~/.tamandua/bin
+ * 3. Fall back to ~/.canarinho/bin
  */
 function resolveBinDir(): string {
-  const envDir = process.env.TAMANDUA_BIN_DIR?.trim();
+  const envDir = process.env.canarinho_BIN_DIR?.trim();
   if (envDir) return envDir;
 
   const localBin = path.join(os.homedir(), ".local", "bin");
@@ -79,19 +79,19 @@ function resolveBinDir(): string {
       fs.mkdirSync(localBin, { recursive: true });
       return localBin;
     } catch {
-      // Fall back to tamandua's own bin dir
+      // Fall back to canarinho's own bin dir
       return path.join(resolvePiStateDir(), "bin");
     }
   }
 }
 
 /**
- * Check whether the tamandua CLI symlink is in place and correct.
+ * Check whether the canarinho CLI symlink is in place and correct.
  */
 export function isCliSymlinked(): boolean {
-  const cliPath = resolveTamanduaCli();
+  const cliPath = resolvecanarinhoCli();
   const binDir = resolveBinDir();
-  const linkPath = path.join(binDir, "tamandua");
+  const linkPath = path.join(binDir, "canarinho");
 
   try {
     const target = fs.readlinkSync(linkPath);
@@ -102,11 +102,11 @@ export function isCliSymlinked(): boolean {
 }
 
 /**
- * Remove the tamandua CLI symlink if it exists.
+ * Remove the canarinho CLI symlink if it exists.
  */
 export function removeCliSymlink(): void {
   const binDir = resolveBinDir();
-  const linkPath = path.join(binDir, "tamandua");
+  const linkPath = path.join(binDir, "canarinho");
 
   try {
     const stat = fs.lstatSync(linkPath);

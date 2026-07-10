@@ -10,7 +10,7 @@ describe("computeHasFrontendChanges", () => {
   let tmpDir: string;
 
   beforeEach(() => {
-    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "tamandua-test-"));
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "canarinho-test-"));
     // Init a git repo with a main branch
     execSync("git init && git checkout -b main", { cwd: tmpDir });
     fs.writeFileSync(path.join(tmpDir, "README.md"), "# test");

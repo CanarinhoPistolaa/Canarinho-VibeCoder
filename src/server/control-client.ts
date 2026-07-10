@@ -1,8 +1,8 @@
 /**
- * Tamandua Daemon Control Plane Client
+ * canarinho Daemon Control Plane Client
  *
  * Thin HTTP client used by the CLI / MCP / installer paths to talk to
- * the daemon's control plane on 127.0.0.1:3339 (or TAMANDUA_CONTROL_PORT).
+ * the daemon's control plane on 127.0.0.1:3339 (or canarinho_CONTROL_PORT).
  *
  * All operations are best-effort: if the daemon isn't running, the calling
  * path falls back to in-process scheduling so local development and test
@@ -30,16 +30,16 @@ async function controlRequest(
 ): Promise<ControlPlaneResponse | null> {
   // Test-isolation guard: refuse to send requests to the production
   // control plane when the test guard is active. The production port
-  // (3339) is indicated by the absence of TAMANDUA_CONTROL_PORT.
+  // (3339) is indicated by the absence of canarinho_CONTROL_PORT.
   // The production daemon secret is detected by resolving
-  // ~/.tamandua/daemon-secret against the real user home.
+  // ~/.canarinho/daemon-secret against the real user home.
   if (testGuardActive()) {
-    if (!process.env.TAMANDUA_CONTROL_PORT) {
+    if (!process.env.canarinho_CONTROL_PORT) {
       return null;
     }
     const defaultSecretPath = pathModule.join(
       (process.env.HOME?.trim() || os.homedir()),
-      ".tamandua",
+      ".canarinho",
       "daemon-secret",
     );
     try {
@@ -60,7 +60,7 @@ async function controlRequest(
     path,
     headers: {
       "content-type": "application/json",
-      ...(secret ? { "x-tamandua-secret": secret } : {}),
+      ...(secret ? { "x-canarinho-secret": secret } : {}),
       ...(payload ? { "content-length": Buffer.byteLength(payload).toString() } : {}),
     },
   };
@@ -100,7 +100,7 @@ export async function isDaemonControlReachable(timeoutMs: number = 500): Promise
   return r !== null && r.status === 200;
 }
 
-const PROBE_TIMEOUT_OVERRIDE_ENV = "TAMANDUA_CONTROL_PROBE_TIMEOUT_OVERRIDE";
+const PROBE_TIMEOUT_OVERRIDE_ENV = "canarinho_CONTROL_PROBE_TIMEOUT_OVERRIDE";
 
 function resolveProbeTimeout(defaultMs: number): number {
   const override = process.env[PROBE_TIMEOUT_OVERRIDE_ENV];
@@ -132,7 +132,7 @@ export async function ensureDaemonControlAvailable(timeoutMs: number = 30_000): 
 
   if (!(await waitForDaemonControl(effectiveTimeout))) {
     throw new Error(
-      `Tamandua daemon started but control plane did not become reachable on port ${getControlPort()}.`,
+      `canarinho daemon started but control plane did not become reachable on port ${getControlPort()}.`,
     );
   }
 }

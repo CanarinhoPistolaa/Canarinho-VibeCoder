@@ -7,10 +7,10 @@ import { getBuildVersion } from "../lib/version.js";
  * CATA-VSN — 20260705 — bundled-prompt-freshness guard
  *
  * At install/update time we record a stamp under the installed-catalog root
- * so tamandua doctor and `tamandua workflow run` can tell users their
+ * so canarinho doctor and `canarinho workflow run` can tell users their
  * installed prompts are older than the bundled catalog.
  *
- * Choice: build version (tamandua --version) over content hash because:
+ * Choice: build version (canarinho --version) over content hash because:
  *   - Already injected at build time, zero extra work.
  *   - The version changes on every commit (YYYYMMDD + hash), giving
  *     us a cheap per-commit staleness signal.
@@ -47,7 +47,7 @@ export function generateCatalogStamp(sourcePath: string): CatalogStamp {
 }
 
 /**
- * Writes the catalog stamp to ~/.tamandua/workflows/.catalog-version.json.
+ * Writes the catalog stamp to ~/.canarinho/workflows/.catalog-version.json.
  * Creates the parent directory if it doesn't exist.
  */
 export function writeCatalogStamp(sourcePath: string): void {
@@ -67,11 +67,11 @@ export function writeCatalogStamp(sourcePath: string): void {
 export function checkCatalogStalenessWarning(): string {
   const stamp = readInstalledCatalogStamp();
   if (!stamp) {
-    return "Warning: installed catalog is older than bundled catalog. Run tamandua update --force to apply latest workflow/persona fixes.";
+    return "Warning: installed catalog is older than bundled catalog. Run canarinho update --force to apply latest workflow/persona fixes.";
   }
   const currentVersion = getBuildVersion();
   if (currentVersion === "unknown" || stamp.version !== currentVersion) {
-    return "Warning: installed catalog is older than bundled catalog. Run tamandua update --force to apply latest workflow/persona fixes.";
+    return "Warning: installed catalog is older than bundled catalog. Run canarinho update --force to apply latest workflow/persona fixes.";
   }
   return "";
 }
